@@ -1,1 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
 @import 'tailwindcss';
+
+@theme {
+  --color-primary: #18181B;
+  --color-secondary: #27272A;
+  --color-cta: #18181B; /* Using primary for prominent CTA since CTA was too bright for main button background */
+  --color-cta-text: #F8FAFC;
+  --color-background: #FAFAFA;
+  --color-text: #09090B;
+  --color-border: #E2E8F0;
+  
+  --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans: 'Space Mono', ui-sans-serif, system-ui, sans-serif; /* Forcing Space Mono for all text */
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+  --shadow-xl: 0 20px 25px rgba(0,0,0,0.15);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-text font-mono antialiased overflow-x-hidden;
+  }
+}
+
+/* Liquid Glass Utilities */
+@layer utilities {
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-md border border-white/40 shadow-xl rounded-2xl;
+  }
+}
