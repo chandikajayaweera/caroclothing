@@ -4,20 +4,16 @@
 	import { cubicOut } from 'svelte/easing';
 	import { type WaitlistSchema } from '$lib/server/modules/waitlist/waitlist.zod';
 
-	// ── Types ──────────────────────────────────────────────────────────────────
 	type Props = { data: SuperValidated<Infer<WaitlistSchema>> };
 	let { data }: Props = $props();
 
-	// ── Local state ────────────────────────────────────────────────────────────
 	let isModalOpen = $state(false);
 	let submitted = $state(false);
 	let rawDigits = $state('');
 	let touched = $state(false);
 	let prefixFlashing = $state(false);
-	/** Server-returned error message (duplicate / DB error). Cleared on next edit. */
 	let serverError = $state<string | null>(null);
 
-	// ── Validation ─────────────────────────────────────────────────────────────
 	const SL_9_DIGIT = /^[1-9]\d{8}$/;
 
 	let phoneError = $derived.by((): string => {
@@ -34,7 +30,6 @@
 
 	let isValid = $derived(SL_9_DIGIT.test(rawDigits));
 
-	// ── Superforms ─────────────────────────────────────────────────────────────
 	const { enhance, submitting, reset } = superForm(data, {
 		onSubmit({ formData, cancel }) {
 			touched = true;
@@ -47,20 +42,7 @@
 			formData.set('phone', '+94' + rawDigits);
 		},
 
-		// ── WHY onUpdated instead of onResult ────────────────────────────────
-		// onResult fires BEFORE superforms processes the server response, so:
-		//   • $errors is still the old stale value (empty) → we always fell
-		//     through to the "Something went wrong" fallback
-		//   • $submitting hasn't been reset yet → button stayed stuck in the
-		//     loading state indefinitely
-		//
-		// onUpdated fires AFTER superforms has fully applied the response:
-		//   • form.errors.phone holds the setError() value from the server
-		//   • $submitting is already false
-		//   • form.valid correctly reflects success vs failure
 		onUpdated({ form }) {
-			// form.posted is false on the initial SSR hydration call —
-			// guard so we don't treat page load as a failed submission.
 			if (!form.posted) return;
 
 			if (form.valid) {
@@ -69,7 +51,6 @@
 				return;
 			}
 
-			// Pull the error set by setError(form, 'phone', '...') in the action.
 			const phoneErrors = form.errors.phone;
 			if (phoneErrors && phoneErrors.length > 0) {
 				serverError = phoneErrors[0];
