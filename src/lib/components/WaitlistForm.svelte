@@ -2,7 +2,7 @@
 	import { superForm, type SuperValidated, type Infer } from 'sveltekit-superforms';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
-	import { type WaitlistSchema } from '$lib/schemas/waitlist';
+	import { type WaitlistSchema } from '$lib/server/modules/waitlist/waitlist.zod';
 
 	// ── Types ──────────────────────────────────────────────────────────────────
 	type Props = { data: SuperValidated<Infer<WaitlistSchema>> };
@@ -14,12 +14,14 @@
 	let rawDigits = $state('');
 	let touched = $state(false);
 	let prefixFlashing = $state(false);
-	let showExitPrompt = $state(false);
+	/** Server-returned error message (duplicate / DB error). Cleared on next edit. */
+	let serverError = $state<string | null>(null);
 
 	// ── Validation ─────────────────────────────────────────────────────────────
 	const SL_9_DIGIT = /^[1-9]\d{8}$/;
 
 	let phoneError = $derived.by((): string => {
+		if (serverError) return serverError;
 		if (!touched) return '';
 		if (rawDigits.length === 0) return 'Number is required';
 		if (rawDigits.length < 9) {
@@ -36,45 +38,60 @@
 	const { enhance, submitting, reset } = superForm(data, {
 		onSubmit({ formData, cancel }) {
 			touched = true;
+			serverError = null;
+
 			if (!isValid) {
 				cancel();
 				return;
 			}
 			formData.set('phone', '+94' + rawDigits);
 		},
-		onResult({ result }) {
-			if (result.type === 'success') {
+
+		// ── WHY onUpdated instead of onResult ────────────────────────────────
+		// onResult fires BEFORE superforms processes the server response, so:
+		//   • $errors is still the old stale value (empty) → we always fell
+		//     through to the "Something went wrong" fallback
+		//   • $submitting hasn't been reset yet → button stayed stuck in the
+		//     loading state indefinitely
+		//
+		// onUpdated fires AFTER superforms has fully applied the response:
+		//   • form.errors.phone holds the setError() value from the server
+		//   • $submitting is already false
+		//   • form.valid correctly reflects success vs failure
+		onUpdated({ form }) {
+			// form.posted is false on the initial SSR hydration call —
+			// guard so we don't treat page load as a failed submission.
+			if (!form.posted) return;
+
+			if (form.valid) {
 				submitted = true;
 				setTimeout(() => clearAndClose(), 3000);
+				return;
+			}
+
+			// Pull the error set by setError(form, 'phone', '...') in the action.
+			const phoneErrors = form.errors.phone;
+			if (phoneErrors && phoneErrors.length > 0) {
+				serverError = phoneErrors[0];
+			} else {
+				serverError = 'Something went wrong. Please try again.';
 			}
 		},
+
 		resetForm: false
 	});
-
-	// ── Close helpers ──────────────────────────────────────────────────────────
-	function requestClose() {
-		if (submitted) {
-			clearAndClose();
-			return;
-		}
-		showExitPrompt = true;
-	}
 
 	function clearAndClose() {
 		if (document.activeElement instanceof HTMLElement) {
 			document.activeElement.blur();
 		}
 		isModalOpen = false;
-		showExitPrompt = false;
 		submitted = false;
 		rawDigits = '';
 		touched = false;
 		prefixFlashing = false;
+		serverError = null;
 		reset();
-	}
-
-	function dismissExitPrompt() {
-		showExitPrompt = false;
 	}
 
 	// ── Input handler ─────────────────────────────────────────────────────────
@@ -87,6 +104,8 @@
 		}
 		rawDigits = val.slice(0, 9);
 		input.value = rawDigits;
+		// Clear server error as soon as the user starts editing again.
+		if (serverError) serverError = null;
 	}
 
 	function flashPrefix() {
@@ -130,32 +149,21 @@
 		<!-- Backdrop -->
 		<div
 			class="absolute inset-0 cursor-pointer"
-			onclick={requestClose}
+			onclick={clearAndClose}
 			role="button"
 			tabindex="0"
-			onkeydown={(e) => e.key === 'Escape' && requestClose()}
+			onkeydown={(e) => e.key === 'Escape' && clearAndClose()}
 			aria-label="Close modal"
 		></div>
 
-		<!--
-			Card: `relative` is the stacking context for both the X button
-			and the exit-prompt overlay. `overflow-hidden` ensures the overlay
-			(absolute inset-0) is clipped to the rounded corners.
-			`max-h-[90dvh]` prevents the card from overflowing short viewports
-			(e.g. iPhone 13 mini in landscape).
-		-->
 		<div
 			class="glass-card xs:max-w-[88%] relative z-10 w-full max-w-[92%] overflow-hidden rounded-2xl bg-white/90 p-4 shadow-2xl sm:max-w-md sm:p-6 md:p-8"
 			style="max-height: 90dvh;"
 			in:fly={{ y: 20, duration: 400, delay: 100, easing: cubicOut }}
 		>
-			<!--
-				X button — z-30 so it always floats above both the form panel
-				and the exit-prompt overlay.
-			-->
 			<button
 				class="absolute top-3 right-3 z-30 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-secondary/40 transition-colors hover:bg-primary/5 hover:text-primary sm:top-4 sm:right-4"
-				onclick={() => (showExitPrompt ? clearAndClose() : requestClose())}
+				onclick={clearAndClose}
 				aria-label="Close"
 			>
 				<svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -163,12 +171,8 @@
 				</svg>
 			</button>
 
-			<!-- ── Form panel (drives card height) ──────────────────────────── -->
-			<div
-				class="panel-transition"
-				class:panel-hidden={showExitPrompt}
-				aria-hidden={showExitPrompt}
-			>
+			<!-- ── Form panel ──────────────────────────────────────────────── -->
+			<div class="panel-transition">
 				<!-- Header -->
 				<div class="mb-2 flex items-center gap-2.5 pt-1 pr-8 sm:gap-3">
 					<svg
@@ -289,112 +293,16 @@
 					</button>
 				</form>
 			</div>
-
-			<!--
-				Exit-prompt overlay — `absolute inset-0` is now relative to
-				the CARD (not panel-stack), so it covers the full card including
-				its padding, with no bleed. `overflow-y-auto` handles edge cases
-				where the card is very short (landscape on mini phones).
-			-->
-			<div
-				class="panel-transition absolute inset-0 flex flex-col overflow-y-auto bg-white/90 p-4 sm:p-6 md:p-8"
-				class:panel-hidden={!showExitPrompt}
-				aria-hidden={!showExitPrompt}
-			>
-				<!-- Vertically centred content — top padding clears the X button -->
-				<div
-					class="flex flex-1 flex-col items-center justify-center gap-3 px-1 pt-8 pb-3 text-center sm:gap-4 sm:pt-10 sm:pb-4"
-				>
-					<!-- Warning icon -->
-					<div
-						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-500 sm:h-12 sm:w-12"
-					>
-						<svg
-							class="h-5 w-5 sm:h-6 sm:w-6"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.75"
-							viewBox="0 0 24 24"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-							/>
-						</svg>
-					</div>
-
-					<!-- Copy -->
-					<div class="max-w-[240px] sm:max-w-xs">
-						<h4 class="text-sm font-bold tracking-tight text-primary sm:text-base md:text-lg">
-							Wait — don't miss out!
-						</h4>
-						<p class="mt-1.5 text-xs leading-relaxed text-secondary/70 sm:text-sm">
-							Waitlist subscribers get an
-							<span class="font-semibold text-primary">exclusive discount coupon</span>
-							when we launch. Takes only 5 seconds to join. 🎁
-						</p>
-					</div>
-				</div>
-
-				<!-- Actions pinned to bottom -->
-				<div class="flex flex-col gap-1">
-					<button
-						onclick={dismissExitPrompt}
-						tabindex={showExitPrompt ? 0 : -1}
-						class="w-full cursor-pointer rounded-lg bg-cta py-3 text-sm font-bold text-cta-text shadow-md transition-all duration-300 hover:bg-primary/95 hover:shadow-lg sm:py-3.5 sm:text-base"
-					>
-						Claim My Discount
-					</button>
-					<button
-						onclick={clearAndClose}
-						tabindex={showExitPrompt ? 0 : -1}
-						class="w-full cursor-pointer rounded-lg py-2.5 text-xs text-secondary/50 transition-colors hover:text-secondary sm:text-sm"
-					>
-						No thanks, leave
-					</button>
-				</div>
-			</div>
 		</div>
 	</div>
 {/if}
 
 <style>
-	/*
-	 * Panel stack: `relative` is the stacking context.
-	 * Only the form panel lives here — exit prompt has been lifted
-	 * to the card level so its `absolute inset-0` covers the full card.
-	 */
-	.panel-stack {
-		position: relative;
-	}
-
-	.panel-transition {
-		transition:
-			opacity 260ms ease-in-out,
-			transform 260ms ease-in-out;
-		will-change: opacity, transform;
-	}
-
-	/* Hidden state: invisible, scaled back, non-interactive */
-	.panel-hidden {
-		opacity: 0;
-		transform: scale(0.97);
-		pointer-events: none;
-		user-select: none;
-	}
-
-	/*
-	 * Suppress iOS double-tap zoom + 300ms tap delay on all interactive
-	 * elements. Combined with font-size ≥ 16px on the input this prevents
-	 * viewport snapping on focus/blur on iPhone.
-	 */
 	button,
 	input {
 		touch-action: manipulation;
 	}
 
-	/* +94 flash when leading 0 is stripped */
 	@keyframes prefixFlash {
 		0% {
 			background-color: transparent;
