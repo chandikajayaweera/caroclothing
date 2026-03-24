@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { superForm, type SuperValidated, type Infer } from 'sveltekit-superforms';
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
@@ -30,37 +31,37 @@
 
 	let isValid = $derived(SL_9_DIGIT.test(rawDigits));
 
-	const { enhance, submitting, reset } = superForm(data, {
-		onSubmit({ formData, cancel }) {
-			touched = true;
-			serverError = null;
+	const { enhance, submitting, reset } = untrack(() =>
+		superForm(data, {
+			onSubmit({ formData, cancel }) {
+				touched = true;
+				serverError = null;
 
-			if (!isValid) {
-				cancel();
-				return;
-			}
-			formData.set('phone', '+94' + rawDigits);
-		},
+				if (!isValid) {
+					cancel();
+					return;
+				}
+				formData.set('phone', '+94' + rawDigits);
+			},
 
-		onUpdated({ form }) {
-			if (!form.posted) return;
+			onUpdated({ form }) {
+				if (form.valid) {
+					submitted = true;
+					setTimeout(() => clearAndClose(), 3000);
+					return;
+				}
 
-			if (form.valid) {
-				submitted = true;
-				setTimeout(() => clearAndClose(), 3000);
-				return;
-			}
+				const phoneErrors = form.errors.phone;
+				if (phoneErrors && phoneErrors.length > 0) {
+					serverError = phoneErrors[0];
+				} else {
+					serverError = 'Something went wrong. Please try again.';
+				}
+			},
 
-			const phoneErrors = form.errors.phone;
-			if (phoneErrors && phoneErrors.length > 0) {
-				serverError = phoneErrors[0];
-			} else {
-				serverError = 'Something went wrong. Please try again.';
-			}
-		},
-
-		resetForm: false
-	});
+			resetForm: false
+		})
+	);
 
 	function clearAndClose() {
 		if (document.activeElement instanceof HTMLElement) {
@@ -75,7 +76,6 @@
 		reset();
 	}
 
-	// ── Input handler ─────────────────────────────────────────────────────────
 	function handleInput(e: Event) {
 		const input = e.target as HTMLInputElement;
 		let val = input.value.replace(/\D/g, '');
@@ -85,7 +85,6 @@
 		}
 		rawDigits = val.slice(0, 9);
 		input.value = rawDigits;
-		// Clear server error as soon as the user starts editing again.
 		if (serverError) serverError = null;
 	}
 
@@ -95,6 +94,37 @@
 			prefixFlashing = true;
 			setTimeout(() => (prefixFlashing = false), 900);
 		});
+	}
+
+	function preventIOSZoom(node: HTMLInputElement) {
+		const viewportMeta = document.querySelector('meta[name="viewport"]');
+		if (!viewportMeta) return;
+
+		const originalContent = viewportMeta.getAttribute('content') || '';
+		let timeoutId: ReturnType<typeof setTimeout>;
+
+		const handleTouchStart = () => {
+			clearTimeout(timeoutId); // Cancel any pending resets
+			viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1');
+		};
+
+		const handleBlur = () => {
+			// Delay restoring the viewport to let the iOS keyboard fully retract
+			timeoutId = setTimeout(() => {
+				viewportMeta.setAttribute('content', originalContent);
+			}, 300);
+		};
+
+		node.addEventListener('touchstart', handleTouchStart, { passive: true });
+		node.addEventListener('blur', handleBlur);
+
+		return {
+			destroy() {
+				clearTimeout(timeoutId);
+				node.removeEventListener('touchstart', handleTouchStart);
+				node.removeEventListener('blur', handleBlur);
+			}
+		};
 	}
 </script>
 
@@ -193,6 +223,7 @@
 							>
 
 							<input
+								use:preventIOSZoom
 								type="tel"
 								inputmode="numeric"
 								name="_phone_raw"
