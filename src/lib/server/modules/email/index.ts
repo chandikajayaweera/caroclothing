@@ -1,5 +1,3 @@
-// src/lib/server/modules/email/index.ts
-
 // Core
 export { sendEmail } from './client';
 export type { EmailPayload, EmailResult } from './types';
@@ -14,8 +12,14 @@ export type {
 	OrderItem
 } from './types';
 
-// Senders — import these directly where needed
-export { sendEmailVerificationOTP } from './senders/otp';
+// Auth
+export { sendWelcomeEmail, sendGoogleLinkedEmail } from './senders/auth';
+
+// Security
 export { sendSecurityNotificationEmail } from './senders/security';
+
+// Transactional (used by orders module)
 export { sendOrderConfirmationEmail, sendShippingUpdateEmail } from './senders/transactional';
+
+// Marketing
 export { sendPromotionalEmail } from './senders/marketing';
