@@ -4,20 +4,21 @@
  * Prerequisites
  * ─────────────
  * 1. `@cloudflare/workers-types` installed as a devDependency.
- * 2. tsconfig.json includes `@cloudflare/workers-types` in its `types` array
- *    (makes R2Bucket, R2Object, etc. available as globals — no import needed here).
- * 3. src/app.d.ts declares App.Platform (see note at the bottom of this file).
+ * 2. tsconfig.json includes `@cloudflare/workers-types` in its `types` array.
+ *    This makes R2Bucket, R2Object, etc. available as ambient globals — no
+ *    import is needed or wanted in this file.
+ * 3. src/app.d.ts declares App.Platform using the global R2Bucket (no import).
  *
  * ⚠️  Do NOT `import type { R2Bucket } from '@cloudflare/workers-types'` in this
- * file. Doing so creates a module-scoped type reference that TypeScript treats as
- * distinct from the DOM-merged global, causing TS2345 errors at call sites that
- * mix the two. Use the globally available type instead (already in scope via tsconfig).
+ * file, and do NOT import it in app.d.ts either. An explicit import creates a
+ * module-scoped type that TypeScript treats as structurally distinct from the
+ * global — the two copies diverge on `Headers.getAll`, causing TS2345 at any
+ * call site that mixes them. The global (tsconfig `types` array) is the single
+ * source of truth for all Cloudflare workers types across the project.
  */
 
 import { error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-// R2Bucket is globally available via @cloudflare/workers-types in tsconfig.json.
-// No import needed — and importing it would cause Headers/ReadableStream type conflicts.
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -180,28 +181,3 @@ export async function deleteObjectSafe(opts: {
 		// Best-effort: non-fatal if the object is already gone.
 	}
 }
-
-/*
- * ── Required: src/app.d.ts ────────────────────────────────────────────────
- *
- * Declaration files (.d.ts) cannot use ambient globals reliably, so an
- * explicit import is used here — this is the pattern shown in the SvelteKit
- * docs and does NOT cause the module-scoped conflict that affects .ts files.
- *
- * import type { R2Bucket } from '@cloudflare/workers-types';
- *
- * declare global {
- *   namespace App {
- *     interface Platform {
- *       env: {
- *         MEDIA: R2Bucket;
- *         // …other bindings (KV, D1, etc.)
- *       };
- *       context: ExecutionContext;
- *       caches: CacheStorage & { default: Cache };
- *     }
- *   }
- * }
- *
- * export {};
- */

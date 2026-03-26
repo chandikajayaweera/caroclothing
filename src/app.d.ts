@@ -2,6 +2,17 @@ import type { User, Session } from 'better-auth/minimal';
 
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
+
+/*
+ * R2Bucket is NOT imported here. It is a global type, merged into the ambient
+ * scope by `@cloudflare/workers-types` via the `types` array in tsconfig.json.
+ *
+ * Importing it (e.g. `import type { R2Bucket } from '@cloudflare/workers-types'`)
+ * creates a separate module-scoped type identity that TypeScript treats as
+ * structurally incompatible with the global — causing TS2345 mismatches in
+ * any .ts file that uses the global R2Bucket directly (e.g. r2.ts).
+ */
+
 declare global {
 	namespace App {
 		interface Platform {

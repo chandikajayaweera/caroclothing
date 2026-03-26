@@ -1,14 +1,14 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertSafeR2Key, getMediaBucket } from '$lib/server/modules/media/r2';
-// ⚠️  Do NOT `import type { R2Object } from '@cloudflare/workers-types'` here.
-// That creates a module-scoped type reference for R2Object's sub-types (e.g.
-// the `Headers` parameter of writeHttpMetadata, the `ReadableStream` type of
-// obj.body). These are then treated as distinct from the global DOM-merged
-// versions, causing TS2345 on both writeHttpMetadata(headers) and new Response(obj.body).
-//
-// R2Object is globally available via @cloudflare/workers-types in tsconfig.json.
-// Using the global keeps all types in the same scope — no conflict.
+/*
+ * ⚠️  Do NOT `import type { R2Object } from '@cloudflare/workers-types'` here.
+ * An explicit import creates a module-scoped type identity that conflicts with
+ * the global R2Object merged in by tsconfig.json's `types` array. The mismatch
+ * surfaces as TS2345 on `writeHttpMetadata(headers)` and `new Response(obj.body)`
+ * because the imported and global versions of Headers/ReadableStream are treated
+ * as distinct types. Always use the global — it's already in scope.
+ */
 
 /**
  * Builds shared response headers from an R2Object.
