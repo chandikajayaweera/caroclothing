@@ -2,32 +2,35 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-primary: #18181B;
-  --color-secondary: #27272A;
-  --color-cta: #18181B; /* Using primary for prominent CTA since CTA was too bright for main button background */
-  --color-cta-text: #F8FAFC;
-  --color-background: #FAFAFA;
-  --color-text: #09090B;
-  --color-border: #E2E8F0;
-  
-  --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --font-sans: 'Space Mono', ui-sans-serif, system-ui, sans-serif; /* Forcing Space Mono for all text */
+	--color-primary: #18181b;
+	--color-secondary: #27272a;
+	--color-cta: #18181b; /* Using primary for prominent CTA since CTA was too bright for main button background */
+	--color-cta-text: #f8fafc;
+	--color-background: #fafafa;
+	--color-text: #09090b;
+	--color-border: #e2e8f0;
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
-  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
-  --shadow-xl: 0 20px 25px rgba(0,0,0,0.15);
+	--font-mono:
+		'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+		'Courier New', monospace;
+	--font-sans:
+		'Space Mono', ui-sans-serif, system-ui, sans-serif; /* Forcing Space Mono for all text */
+
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+	--shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+	--shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+	--shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
 }
 
 @layer base {
-  body {
-    @apply bg-background text-text font-mono antialiased overflow-x-hidden;
-  }
+	body {
+		@apply overflow-x-hidden bg-background font-mono text-text antialiased;
+	}
 }
 
 /* Liquid Glass Utilities */
 @layer utilities {
-  .glass-card {
-    @apply bg-white/70 backdrop-blur-md border border-white/40 shadow-xl rounded-2xl;
-  }
+	.glass-card {
+		@apply rounded-2xl border border-white/40 bg-white/70 shadow-xl backdrop-blur-md;
+	}
 }
