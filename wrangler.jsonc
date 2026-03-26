@@ -7,7 +7,10 @@
 	"name": "caroclothing",
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"compatibility_date": "2025-09-27",
-	"compatibility_flags": ["nodejs_compat", "nodejs_als"],
+	"compatibility_flags": [
+		"nodejs_compat",
+		"nodejs_als"
+	],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
@@ -23,17 +26,43 @@
 		}
 	],
 	"vars": {
-		"ORIGIN": "https://caroclothing.lk"
+		"APP_NAME": "Caro Clothing",
+		"APP_URL": "https://caroclothing.lk",
+		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
+		"TEXT_LK_SENDER_ID": "TextLKDemo"
 	},
 	"workers_dev": true,
 	"preview_urls": true,
 	"r2_buckets": [
 		{
 			"binding": "MEDIA",
-			"bucket_name": "caroclothing-media",
+			"bucket_name": "caroclothing-media-preview",
 			"preview_bucket_name": "caroclothing-media-preview"
 		}
-	]
+	],
+	"env": {
+		"staging": {
+			"routes": [
+				{
+					"pattern": "staging.caroclothing.lk",
+					"zone_name": "caroclothing.lk",
+					"custom_domain": true
+				}
+			],
+			"vars": {
+				"APP_NAME": "Caro Clothing",
+				"APP_URL": "https://staging.caroclothing.lk",
+				"EMAIL_FROM_ADDRESS": "noreply@staging.caroclothing.lk",
+				"TEXT_LK_SENDER_ID": "TextLKDemo"
+			},
+			"r2_buckets": [
+				{
+					"binding": "MEDIA",
+					"bucket_name": "caroclothing-media-preview"
+				}
+			]
+		}
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
