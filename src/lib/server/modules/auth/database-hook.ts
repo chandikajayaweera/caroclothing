@@ -1,0 +1,71 @@
+import { logger } from 'better-auth';
+import type { BetterAuthOptions } from 'better-auth';
+import { db } from '$lib/server/db';
+import { eq, and } from 'drizzle-orm';
+import { account } from '$lib/server/db/schema';
+import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/email';
+
+export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
+	user: {
+		create: {
+			after: async (user) => {
+				// Sends welcome email to new users
+				if (user.email && !user.email.includes('@phone.caroclothing.lk')) {
+					await sendWelcomeEmail(user.email, user.name);
+					logger.info('Welcome email sent to', user.email);
+				}
+			}
+		},
+		update: {
+			before: async (user) => {
+				// Sets phone number verification to false when phone number is updated
+				if ('phoneNumber' in user && user.phoneNumber !== undefined) {
+					return { data: { ...user, phoneNumberVerified: false } };
+				}
+			}
+		}
+	},
+
+	account: {
+		create: {
+			before: async (newAccount) => {
+				// Enforce one-to-one Google account per user.
+				if (newAccount.providerId === 'google' && newAccount.userId) {
+					const [existingGoogleAccount] = await db
+						.select({ id: account.id })
+						.from(account)
+						.where(and(eq(account.userId, newAccount.userId), eq(account.providerId, 'google')))
+						.limit(1);
+
+					if (existingGoogleAccount) {
+						throw new Error('Only one Google account can be linked per user.');
+					}
+				}
+				return { data: newAccount };
+			},
+
+			after: async (acct) => {
+				// Notify user that their google account has been linked
+				if (acct.providerId !== 'google') return;
+
+				const user = await db.query.user.findFirst({
+					where: (u, { eq }) => eq(u.id, acct.userId)
+				});
+
+				if (!user?.email) return;
+
+				if (user.email.includes('@phone.caroclothing.lk')) return;
+
+				const userAccounts = await db.query.account.findMany({
+					where: (a, { eq }) => eq(a.userId, acct.userId)
+				});
+
+				if (userAccounts.length <= 1) return;
+
+				await sendGoogleLinkedEmail(user.email);
+
+				logger.info('Google account linked to user', user.email);
+			}
+		}
+	}
+};
