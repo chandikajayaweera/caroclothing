@@ -1,3 +1,4 @@
+import { APIError } from 'better-auth/api';
 import { logger } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
 import { db } from '$lib/server/db';
@@ -9,16 +10,24 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 	user: {
 		create: {
 			after: async (user) => {
-				// Sends welcome email to new users
+				// Sends welcome email to new users.
+				// Phone-registered users get a synthetic @phone.caroclothing.lk address —
+				// skip those, they have no real inbox.
 				if (user.email && !user.email.includes('@phone.caroclothing.lk')) {
-					await sendWelcomeEmail(user.email, user.name);
-					logger.info('Welcome email sent to', user.email);
+					const result = await sendWelcomeEmail(user.email, user.name);
+					if (!result.ok) {
+						// Log the failure but don't throw — a failed welcome email must
+						// never prevent account creation.
+						logger.error(`[auth] Failed to send welcome email to ${user.email}: ${result.error}`);
+					} else {
+						logger.info(`[auth] Welcome email sent to ${user.email}`);
+					}
 				}
 			}
 		},
 		update: {
 			before: async (user) => {
-				// Sets phone number verification to false when phone number is updated
+				// Re-gate phone verification whenever the phone number changes.
 				if ('phoneNumber' in user && user.phoneNumber !== undefined) {
 					return { data: { ...user, phoneNumberVerified: false } };
 				}
@@ -38,14 +47,16 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 						.limit(1);
 
 					if (existingGoogleAccount) {
-						throw new Error('Only one Google account can be linked per user.');
+						throw new APIError('CONFLICT', {
+							message: 'Only one Google account can be linked per user.'
+						});
 					}
 				}
 				return { data: newAccount };
 			},
 
 			after: async (acct) => {
-				// Notify user that their google account has been linked
+				// Notify user when a Google account is linked to their existing account.
 				if (acct.providerId !== 'google') return;
 
 				const user = await db.query.user.findFirst({
@@ -54,17 +65,22 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 
 				if (!user?.email) return;
 
+				// Skip synthetic phone emails — they have no real inbox.
 				if (user.email.includes('@phone.caroclothing.lk')) return;
 
 				const userAccounts = await db.query.account.findMany({
 					where: (a, { eq }) => eq(a.userId, acct.userId)
 				});
 
+				// Only 1 account → this is the initial signup, not a link — skip.
 				if (userAccounts.length <= 1) return;
 
-				await sendGoogleLinkedEmail(user.email);
-
-				logger.info('Google account linked to user', user.email);
+				const result = await sendGoogleLinkedEmail(user.email);
+				if (!result.ok) {
+					logger.error(`[auth] Failed to send Google-linked email to ${user.email}: ${result.error}`);
+				} else {
+					logger.info(`[auth] Google-linked email sent to ${user.email}`);
+				}
 			}
 		}
 	}

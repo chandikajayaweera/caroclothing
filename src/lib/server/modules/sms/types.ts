@@ -1,31 +1,36 @@
-// ── Core primitives ──
+import { z } from 'zod';
+
+// ── Core primitives ──────────────────────────────────────────────────────────
+
 export type SmsResult = { ok: true; messageId: string } | { ok: false; error: string };
 
-// ── Send SMS ──
-
 export interface SmsSendInput {
-	/** E.164 format recommended, e.g. "94771234567" */
+	/** Digits only, E.164-style (e.g. "94771234567"). No leading +. */
 	to: string;
 	message: string;
 }
 
-// ── text.lk API shapes ──
+// ── text.lk API response shapes (validated with Zod) ─────────────────────────
 
-export interface TextLkSendPayload {
-	recipient: string;
-	sender_id: string;
-	type: 'plain';
-	message: string;
-}
+const TextLkSuccessDataSchema = z
+	.object({
+		uid: z.string().optional()
+	})
+	.passthrough(); // text.lk may add more fields in future
 
-export interface TextLkSuccessResponse {
-	status: 'success';
-	data: unknown;
-}
+const TextLkSuccessResponseSchema = z.object({
+	status: z.literal('success'),
+	data: TextLkSuccessDataSchema.optional()
+});
 
-export interface TextLkErrorResponse {
-	status: 'error';
-	message: string;
-}
+const TextLkErrorResponseSchema = z.object({
+	status: z.literal('error'),
+	message: z.string()
+});
 
-export type TextLkResponse = TextLkSuccessResponse | TextLkErrorResponse;
+export const TextLkSendResponseSchema = z.discriminatedUnion('status', [
+	TextLkSuccessResponseSchema,
+	TextLkErrorResponseSchema
+]);
+
+export type TextLkSendResponse = z.infer<typeof TextLkSendResponseSchema>;
