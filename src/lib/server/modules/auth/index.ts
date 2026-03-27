@@ -9,7 +9,11 @@ import { db } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
 import { sendOtpSms } from '$lib/server/modules/sms';
 
-import { accessControl, adminUser, customerUser } from '$lib/server/modules/auth/access-control';
+import {
+	accessControl as ac,
+	adminUser,
+	customerUser
+} from '$lib/server/modules/auth/access-control';
 
 export const auth = betterAuth({
 	baseURL: env.APP_URL,
@@ -76,7 +80,7 @@ export const auth = betterAuth({
 		}),
 
 		admin({
-			ac: accessControl,
+			ac,
 			roles: { adminUser, customerUser },
 			defaultRole: 'customerUser',
 			adminRoles: ['adminUser']
