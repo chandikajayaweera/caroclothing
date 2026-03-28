@@ -1,22 +1,15 @@
-<<<<<<< Updated upstream
-import { env } from '$lib/server/modules/env';
-import type { SmsSendInput, SmsResult, TextLkResponse } from './types';
-=======
-import { z } from 'zod';
 import { getEnv } from '$lib/server/modules/env';
-import type { SmsSendInput, SmsResult } from './types';
-import { TextLkSendResponseSchema } from './types';
->>>>>>> Stashed changes
+import type { SmsSendInput, SmsResult, TextLkResponse } from './types';
+import { SmsSendInputSchema } from './types';
 
 const BASE_URL = 'https://app.text.lk/api/v3';
+const REQUEST_TIMEOUT_MS = 10000;
 
 /**
  * Core send primitive. All SMS senders call this — never the text.lk API directly.
  * Returns a typed result rather than throwing, so callers can decide how to handle failures.
  */
 export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
-<<<<<<< Updated upstream
-=======
 	const env = getEnv();
 	const parsed = SmsSendInputSchema.safeParse(input);
 	if (!parsed.success) {
@@ -26,9 +19,8 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 	}
 
 	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+	// const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
->>>>>>> Stashed changes
 	try {
 		const response = await fetch(`${BASE_URL}/sms/send`, {
 			method: 'POST',

@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 // ── Core primitives ──
 export type SmsResult = { ok: true; messageId: string } | { ok: false; error: string };
 
@@ -8,6 +10,11 @@ export interface SmsSendInput {
 	to: string;
 	message: string;
 }
+
+export const SmsSendInputSchema = z.object({
+	to: z.string().regex(/^\+?[0-9]+$/, 'Invalid phone number format'),
+	message: z.string().min(1, 'Message cannot be empty')
+});
 
 // ── text.lk API shapes ──
 
