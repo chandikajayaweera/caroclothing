@@ -1,6 +1,6 @@
+import { z } from 'zod';
 import { getEnv } from '$lib/server/modules/env';
 import type { SmsSendInput, SmsResult, TextLkResponse } from './types';
-import { SmsSendInputSchema } from './types';
 
 const BASE_URL = 'https://app.text.lk/api/v3';
 const REQUEST_TIMEOUT_MS = 10000;
@@ -19,7 +19,7 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 	}
 
 	const controller = new AbortController();
-	// const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+	const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
 	try {
 		const response = await fetch(`${BASE_URL}/sms/send`, {
@@ -34,8 +34,11 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 				sender_id: env.TEXT_LK_SENDER_ID,
 				type: 'plain',
 				message: input.message
-			})
+			}),
+			signal: controller.signal
 		});
+
+		clearTimeout(timeoutId);
 
 		const json = (await response.json()) as TextLkResponse;
 
@@ -58,3 +61,10 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 		return { ok: false, error: message };
 	}
 }
+
+// ── Internal schema (not exported — callers use SmsSendInput) ─────────────────
+const SmsSendInputSchema = z.object({
+	/** E.164-ish phone number — digits only, 7-15 chars (e.g. "94771234567") */
+	to: z.e164({ error: 'Invalid phone number format' }),
+	message: z.string().min(1, 'Message cannot be empty').max(918, 'Message exceeds max SMS length')
+});

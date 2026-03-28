@@ -11,8 +11,12 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 			after: async (user) => {
 				// Sends welcome email to new users
 				if (user.email && !user.email.includes('@phone.caroclothing.lk')) {
-					await sendWelcomeEmail(user.email, user.name);
-					logger.info('Welcome email sent to', user.email);
+					const result = await sendWelcomeEmail(user.email, user.name);
+					if (!result.ok) {
+						logger.error(`[auth] Failed to send welcome email to ${user.email}: ${result.error}`);
+					} else {
+						logger.info(`[auth] Welcome email sent to ${user.email}`);
+					}
 				}
 			}
 		},

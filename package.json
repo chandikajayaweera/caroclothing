@@ -17,7 +17,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
-		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/index.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes",
+		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/cli.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes",
 		"deploy": "pnpm run build && wrangler deploy",
 		"deploy:staging": "wrangler secret bulk .env.staging --env staging && pnpm run build && wrangler deploy --env staging",
 		"deploy:production": "wrangler secret bulk .env.production && pnpm run build && wrangler deploy",
