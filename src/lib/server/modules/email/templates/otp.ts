@@ -1,4 +1,4 @@
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import type { OTPType } from '../types';
 
@@ -7,30 +7,32 @@ interface OTPTemplateResult {
 	html: string;
 }
 
-const OTP_COPY: Record<OTPType, { subject: string; action: string; note: string }> = {
-	'sign-in': {
-		subject: `Your ${env.APP_NAME} sign-in code`,
-		action: 'sign in to your account',
-		note: "If you didn't try to sign in, someone may be attempting to access your account. You can safely ignore this email."
-	},
-	'email-verification': {
-		subject: `Verify your email – ${env.APP_NAME}`,
-		action: 'verify your email address',
-		note: "If you didn't create an account, you can safely ignore this email."
-	},
-	'forget-password': {
-		subject: `Reset your password – ${env.APP_NAME}`,
-		action: 'reset your password',
-		note: "If you didn't request a password reset, you can safely ignore this email."
-	},
-	'change-email': {
-		subject: `Confirm your new email – ${env.APP_NAME}`,
-		action: 'confirm your new email address',
-		note: "If you didn't request an email change, please secure your account immediately."
-	}
-};
-
 export function buildOTPEmail(otp: string, type: OTPType): OTPTemplateResult {
+	const env = getEnv();
+
+	const OTP_COPY: Record<OTPType, { subject: string; action: string; note: string }> = {
+		'sign-in': {
+			subject: `Your ${env.APP_NAME} sign-in code`,
+			action: 'sign in to your account',
+			note: "If you didn't try to sign in, someone may be attempting to access your account. You can safely ignore this email."
+		},
+		'email-verification': {
+			subject: `Verify your email – ${env.APP_NAME}`,
+			action: 'verify your email address',
+			note: "If you didn't create an account, you can safely ignore this email."
+		},
+		'forget-password': {
+			subject: `Reset your password – ${env.APP_NAME}`,
+			action: 'reset your password',
+			note: "If you didn't request a password reset, you can safely ignore this email."
+		},
+		'change-email': {
+			subject: `Confirm your new email – ${env.APP_NAME}`,
+			action: 'confirm your new email address',
+			note: "If you didn't request an email change, please secure your account immediately."
+		}
+	};
+
 	const copy = OTP_COPY[type];
 
 	const content = `

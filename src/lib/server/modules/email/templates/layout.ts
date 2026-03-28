@@ -1,4 +1,4 @@
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 
 interface LayoutOptions {
 	previewText?: string;
@@ -6,6 +6,7 @@ interface LayoutOptions {
 }
 
 export function baseLayout({ previewText = '', content }: LayoutOptions): string {
+	const env = getEnv();
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>

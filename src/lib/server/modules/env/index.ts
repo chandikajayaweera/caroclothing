@@ -1,5 +1,6 @@
 import { env as dynamicEnv } from '$env/dynamic/private';
 import { envSchema } from './env.zod';
+import type { Env } from './env.zod';
 import type { z } from 'zod';
 
 function formatErrors(issues: z.core.$ZodIssue[]) {
@@ -14,17 +15,22 @@ function formatErrors(issues: z.core.$ZodIssue[]) {
 	);
 }
 
-const result = envSchema.safeParse(dynamicEnv);
+let _env: Env | undefined;
 
-if (!result.success) {
-	const fieldErrors = formatErrors(result.error.issues);
+export function getEnv(): Env {
+	if (_env) return _env;
 
-	const messages = Object.entries(fieldErrors)
-		.map(([key, msgs]) => `  ${key}: ${msgs.join(', ')}`)
-		.join('\n');
+	const result = envSchema.safeParse(dynamicEnv);
 
-	console.error('❌ Invalid Environment Variables:\n' + messages);
-	throw new Error('Invalid Environment Variables');
+	if (!result.success) {
+		const fieldErrors = formatErrors(result.error.issues);
+		const messages = Object.entries(fieldErrors)
+			.map(([key, msgs]) => `  ${key}: ${msgs.join(', ')}`)
+			.join('\n');
+		console.error('❌ Invalid Environment Variables:\n' + messages);
+		throw new Error('Invalid Environment Variables');
+	}
+
+	_env = result.data;
+	return _env;
 }
-
-export const env = result.data;

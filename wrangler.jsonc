@@ -33,10 +33,23 @@
 	"r2_buckets": [
 		{
 			"binding": "MEDIA",
-			"bucket_name": "caroclothing-media-preview",
+			"bucket_name": "caroclothing-media",
 			"preview_bucket_name": "caroclothing-media-preview"
 		}
 	],
+	// Declare required secrets — wrangler deploy will fail fast if any are missing.
+	// wrangler types uses this list as the source of truth for type generation.
+	"secrets": {
+		"required": [
+			"DATABASE_URL",
+			"DATABASE_AUTH_TOKEN",
+			"BETTER_AUTH_SECRET",
+			"GOOGLE_CLIENT_ID",
+			"GOOGLE_CLIENT_SECRET",
+			"RESEND_API_KEY",
+			"TEXT_LK_API_KEY"
+		]
+	},
 	"env": {
 		"staging": {
 			"routes": [
@@ -46,6 +59,8 @@
 					"custom_domain": true
 				}
 			],
+			// NOTE: vars are non-inheritable — must be duplicated per environment.
+			// Any new top-level var must also be added here.
 			"vars": {
 				"APP_NAME": "Caro Clothing",
 				"APP_URL": "https://staging.caroclothing.lk",

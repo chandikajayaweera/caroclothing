@@ -1,11 +1,17 @@
 import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
 import * as schema from './schema';
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 
-if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
-if (!env.DATABASE_AUTH_TOKEN) throw new Error('DATABASE_AUTH_TOKEN is not set');
+type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
-const client = createClient({ url: env.DATABASE_URL, authToken: env.DATABASE_AUTH_TOKEN });
+let _db: DrizzleDb | undefined;
 
-export const db = drizzle(client, { schema });
+export function getDb(): DrizzleDb {
+	if (_db) return _db;
+
+	const env = getEnv();
+	const client = createClient({ url: env.DATABASE_URL, authToken: env.DATABASE_AUTH_TOKEN });
+	_db = drizzle(client, { schema });
+	return _db;
+}

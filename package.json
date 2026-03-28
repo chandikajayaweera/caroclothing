@@ -20,7 +20,7 @@
 		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/index.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes",
 		"deploy": "pnpm run build && wrangler deploy",
 		"deploy:staging": "wrangler secret bulk .env.staging --env staging && pnpm run build && wrangler deploy --env staging",
-		"deploy:production": "wrangler secret bulk .env.production --env production && pnpm run build && wrangler deploy --env production",
+		"deploy:production": "wrangler secret bulk .env.production && pnpm run build && wrangler deploy",
 		"cf-typegen": "wrangler types ./src/worker-configuration.d.ts",
 		"tree": "npx tree-node-cli -I \".claude|.gemini|.svelte-kit|.vscode|.wrangler|docs|drizzle|node_modules\""
 	},

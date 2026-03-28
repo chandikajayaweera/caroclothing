@@ -1,8 +1,9 @@
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import type { PromotionalEmailInput } from '../types';
 
 export function buildPromotionalEmail(input: PromotionalEmailInput): string {
+	const env = getEnv();
 	const heroHtml = input.heroImageUrl
 		? `<img src="${input.heroImageUrl}" alt="" style="width:100%;border-radius:8px;margin-bottom:20px;display:block;" />`
 		: '';

@@ -1,6 +1,6 @@
 import { logger } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
-import { db } from '$lib/server/db';
+import { getDb } from '$lib/server/db';
 import { eq, and } from 'drizzle-orm';
 import { account } from '$lib/server/db/schema';
 import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/email';
@@ -31,7 +31,7 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 			before: async (newAccount) => {
 				// Enforce one-to-one Google account per user.
 				if (newAccount.providerId === 'google' && newAccount.userId) {
-					const [existingGoogleAccount] = await db
+					const [existingGoogleAccount] = await getDb()
 						.select({ id: account.id })
 						.from(account)
 						.where(and(eq(account.userId, newAccount.userId), eq(account.providerId, 'google')))
@@ -48,7 +48,7 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 				// Notify user that their google account has been linked
 				if (acct.providerId !== 'google') return;
 
-				const user = await db.query.user.findFirst({
+				const user = await getDb().query.user.findFirst({
 					where: (u, { eq }) => eq(u.id, acct.userId)
 				});
 
@@ -56,15 +56,26 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 
 				if (user.email.includes('@phone.caroclothing.lk')) return;
 
-				const userAccounts = await db.query.account.findMany({
+				const userAccounts = await getDb().query.account.findMany({
 					where: (a, { eq }) => eq(a.userId, acct.userId)
 				});
 
 				if (userAccounts.length <= 1) return;
 
+<<<<<<< Updated upstream
 				await sendGoogleLinkedEmail(user.email);
 
 				logger.info('Google account linked to user', user.email);
+=======
+				const result = await sendGoogleLinkedEmail(user.email);
+				if (!result.ok) {
+					logger.error(
+						`[auth] Failed to send Google-linked email to ${user.email}: ${result.error}`
+					);
+				} else {
+					logger.info(`[auth] Google-linked email sent to ${user.email}`);
+				}
+>>>>>>> Stashed changes
 			}
 		}
 	}

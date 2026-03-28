@@ -1,5 +1,12 @@
+<<<<<<< Updated upstream
 import { env } from '$lib/server/modules/env';
 import type { SmsSendInput, SmsResult, TextLkResponse } from './types';
+=======
+import { z } from 'zod';
+import { getEnv } from '$lib/server/modules/env';
+import type { SmsSendInput, SmsResult } from './types';
+import { TextLkSendResponseSchema } from './types';
+>>>>>>> Stashed changes
 
 const BASE_URL = 'https://app.text.lk/api/v3';
 
@@ -8,6 +15,20 @@ const BASE_URL = 'https://app.text.lk/api/v3';
  * Returns a typed result rather than throwing, so callers can decide how to handle failures.
  */
 export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
+<<<<<<< Updated upstream
+=======
+	const env = getEnv();
+	const parsed = SmsSendInputSchema.safeParse(input);
+	if (!parsed.success) {
+		const error = parsed.error.issues.map((i) => i.message).join(', ');
+		console.error('[sms] Invalid input:', { error, to: input.to });
+		return { ok: false, error: `INVALID_INPUT: ${error}` };
+	}
+
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+>>>>>>> Stashed changes
 	try {
 		const response = await fetch(`${BASE_URL}/sms/send`, {
 			method: 'POST',

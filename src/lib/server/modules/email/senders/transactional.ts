@@ -2,7 +2,9 @@ import { buildOrderConfirmationEmail, buildShippingUpdateEmail } from '../templa
 import { sendEmail } from '../client';
 import type { OrderConfirmationInput, ShippingUpdateInput, EmailResult } from '../types';
 
-export async function sendOrderConfirmationEmail(input: OrderConfirmationInput): Promise<EmailResult> {
+export async function sendOrderConfirmationEmail(
+	input: OrderConfirmationInput
+): Promise<EmailResult> {
 	const { subject, html } = buildOrderConfirmationEmail(input);
 	return sendEmail({
 		to: input.email,

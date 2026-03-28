@@ -1,4 +1,4 @@
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import { h } from './escape';
 
@@ -8,6 +8,7 @@ interface WelcomeTemplateResult {
 }
 
 export function buildWelcomeEmail(name: string): WelcomeTemplateResult {
+	const env = getEnv();
 	const safeName = h(name);
 
 	const content = `

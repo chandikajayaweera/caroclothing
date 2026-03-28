@@ -1,4 +1,4 @@
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import type { OrderConfirmationInput, ShippingUpdateInput } from '../types';
 import { h } from './escape';
@@ -9,6 +9,7 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationInput): {
 	subject: string;
 	html: string;
 } {
+	const env = getEnv();
 	const itemRows = input.items
 		.map(
 			(item) => `
@@ -74,6 +75,7 @@ export function buildShippingUpdateEmail(input: ShippingUpdateInput): {
 	subject: string;
 	html: string;
 } {
+	const env = getEnv();
 	const content = `
     <h2 style="margin:0 0 4px;font-size:18px;font-weight:700;color:#111827;">Your order is on its way 📦</h2>
     <p style="margin:0 0 20px;font-size:15px;color:#6B7280;">Hi ${h(input.customerName)}, your order has been shipped!</p>

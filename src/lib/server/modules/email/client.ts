@@ -1,20 +1,30 @@
 import { Resend } from 'resend';
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import type { EmailPayload, EmailResult } from './types';
 
-export const resend = new Resend(env.RESEND_API_KEY);
-export const FROM_ADDRESS = `${env.APP_NAME} <${env.EMAIL_FROM_ADDRESS}>`;
+let _resend: Resend | undefined;
+let _fromAddress: string | undefined;
+
+function getResend(): Resend {
+	_resend ??= new Resend(getEnv().RESEND_API_KEY);
+	return _resend;
+}
+
+function getFromAddress(): string {
+	const env = getEnv();
+	_fromAddress ??= `${env.APP_NAME} <${env.EMAIL_FROM_ADDRESS}>`;
+	return _fromAddress;
+}
 
 /**
  * Core send primitive. All senders call this — never Resend directly.
  * Returns a typed result rather than throwing, so callers can decide
  * how to handle failures.
  */
-// client.ts — full corrected sendEmail
 export async function sendEmail(payload: EmailPayload): Promise<EmailResult> {
 	try {
-		const { data, error } = await resend.emails.send({
-			from: FROM_ADDRESS,
+		const { data, error } = await getResend().emails.send({
+			from: getFromAddress(),
 			to: Array.isArray(payload.to) ? payload.to : [payload.to],
 			subject: payload.subject,
 			html: payload.html,

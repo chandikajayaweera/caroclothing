@@ -1,4 +1,4 @@
-import { env } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import type { SecurityEventType } from '../types';
 
@@ -13,30 +13,33 @@ interface SecurityTemplateInput {
 	ipAddress?: string;
 }
 
-const EVENT_COPY: Record<SecurityEventType, { subject: string; headline: string; body: string }> = {
-	new_login: {
-		subject: `New sign-in to your ${env.APP_NAME} account`,
-		headline: 'New sign-in detected',
-		body: 'We noticed a new sign-in to your account. If this was you, no action is needed.'
-	},
-	password_changed: {
-		subject: `Your ${env.APP_NAME} password was changed`,
-		headline: 'Password changed',
-		body: 'Your account password was successfully changed.'
-	},
-	email_changed: {
-		subject: `Your ${env.APP_NAME} email address was updated`,
-		headline: 'Email address updated',
-		body: 'The email address on your account has been changed.'
-	},
-	account_linked: {
-		subject: `Account linked – ${env.APP_NAME}`,
-		headline: 'Account linked',
-		body: 'A sign-in method has been linked to your account.'
-	}
-};
-
 export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTemplateResult {
+	const env = getEnv();
+
+	const EVENT_COPY: Record<SecurityEventType, { subject: string; headline: string; body: string }> =
+		{
+			new_login: {
+				subject: `New sign-in to your ${env.APP_NAME} account`,
+				headline: 'New sign-in detected',
+				body: 'We noticed a new sign-in to your account. If this was you, no action is needed.'
+			},
+			password_changed: {
+				subject: `Your ${env.APP_NAME} password was changed`,
+				headline: 'Password changed',
+				body: 'Your account password was successfully changed.'
+			},
+			email_changed: {
+				subject: `Your ${env.APP_NAME} email address was updated`,
+				headline: 'Email address updated',
+				body: 'The email address on your account has been changed.'
+			},
+			account_linked: {
+				subject: `Account linked – ${env.APP_NAME}`,
+				headline: 'Account linked',
+				body: 'A sign-in method has been linked to your account.'
+			}
+		};
+
 	const copy = EVENT_COPY[input.event];
 
 	const detailsHtml =
