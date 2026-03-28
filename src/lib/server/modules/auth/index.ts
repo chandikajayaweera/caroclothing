@@ -9,7 +9,11 @@ import { getDb } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
 import { sendOtpSms } from '$lib/server/modules/sms';
 
-import { accessControl, adminUser, customerUser } from '$lib/server/modules/auth/access-control';
+import {
+	accessControl as ac,
+	adminUser,
+	customerUser
+} from '$lib/server/modules/auth/access-control';
 
 type Auth = ReturnType<typeof betterAuth>;
 
@@ -48,17 +52,6 @@ export function getAuth(): Auth {
 			}
 		},
 
-<<<<<<< Updated upstream
-		admin({
-			ac: accessControl,
-			roles: { adminUser, customerUser },
-			defaultRole: 'customerUser',
-			adminRoles: ['adminUser']
-		}),
-		sveltekitCookies(getRequestEvent)
-	]
-});
-=======
 		advanced: {
 			cookiePrefix: 'caro',
 			defaultCookieAttributes: {
@@ -109,4 +102,3 @@ export function getAuth(): Auth {
 
 	return _auth;
 }
->>>>>>> Stashed changes

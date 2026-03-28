@@ -62,11 +62,6 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 
 				if (userAccounts.length <= 1) return;
 
-<<<<<<< Updated upstream
-				await sendGoogleLinkedEmail(user.email);
-
-				logger.info('Google account linked to user', user.email);
-=======
 				const result = await sendGoogleLinkedEmail(user.email);
 				if (!result.ok) {
 					logger.error(
@@ -75,7 +70,6 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 				} else {
 					logger.info(`[auth] Google-linked email sent to ${user.email}`);
 				}
->>>>>>> Stashed changes
 			}
 		}
 	}
