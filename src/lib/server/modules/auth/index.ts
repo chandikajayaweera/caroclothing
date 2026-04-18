@@ -1,19 +1,20 @@
 import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
-import { admin, anonymous, phoneNumber } from 'better-auth/plugins';
+import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
 
 import { getEnv } from '$lib/server/modules/env';
+import { getClientEnv } from '$lib/client/modules/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
-import { sendOtpSms } from '$lib/server/modules/sms';
+import { sendOtpSms } from '$lib/server/modules/notifications/sms';
 
 import {
 	accessControl as ac,
 	adminUser,
 	customerUser
-} from '$lib/server/modules/auth/access-control';
+} from '$lib/client/modules/auth/access-control';
 
 type Auth = ReturnType<typeof betterAuth>;
 
@@ -24,10 +25,11 @@ export function getAuth(): Auth {
 	if (_auth) return _auth as Auth;
 
 	const env = getEnv();
+	const clientEnv = getClientEnv();
 	const db = getDb();
 
 	_auth = betterAuth({
-		baseURL: env.APP_URL,
+		baseURL: clientEnv.PUBLIC_APP_URL,
 		secret: env.BETTER_AUTH_SECRET,
 
 		database: drizzleAdapter(db, { provider: 'sqlite' }),
@@ -38,7 +40,7 @@ export function getAuth(): Auth {
 
 		socialProviders: {
 			google: {
-				clientId: env.GOOGLE_CLIENT_ID,
+				clientId: clientEnv.PUBLIC_GOOGLE_CLIENT_ID,
 				clientSecret: env.GOOGLE_CLIENT_SECRET
 			}
 		},
@@ -57,7 +59,7 @@ export function getAuth(): Auth {
 			defaultCookieAttributes: {
 				httpOnly: true,
 				sameSite: 'lax',
-				secure: env.APP_URL !== 'http://localhost:5173'
+				secure: clientEnv.PUBLIC_APP_URL.startsWith('https')
 			}
 		},
 
@@ -72,6 +74,10 @@ export function getAuth(): Auth {
 					// Log the ID mapping so the calling server action can act on it.
 					console.info(`[auth] Anonymous ${anonymousUser.user.id} → account ${newUser.user.id}`);
 				}
+			}),
+
+			oneTap({
+				clientId: clientEnv.PUBLIC_GOOGLE_CLIENT_ID
 			}),
 
 			phoneNumber({

@@ -6,12 +6,13 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "caroclothing",
 	"main": ".svelte-kit/cloudflare/_worker.js",
-	"compatibility_date": "2025-09-27",
+	"compatibility_date": "2026-04-15",
 	"compatibility_flags": ["nodejs_compat", "nodejs_als"],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
 	},
+	"upload_source_maps": true,
 	"observability": {
 		"enabled": true
 	},
@@ -23,11 +24,14 @@
 		}
 	],
 	"vars": {
-		"APP_NAME": "Caro Clothing",
-		"APP_URL": "https://caroclothing.lk",
+		"PUBLIC_APP_NAME": "Caro Clothing",
+		"PUBLIC_APP_URL": "https://caroclothing.lk",
 		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
 		"TEXT_LK_SENDER_ID": "TextLKDemo"
 	},
+	"send_email": [
+		{"name": "EMAIL"}
+	],
 	"workers_dev": true,
 	"preview_urls": true,
 	"r2_buckets": [
@@ -44,7 +48,7 @@
 			"DATABASE_URL",
 			"DATABASE_AUTH_TOKEN",
 			"BETTER_AUTH_SECRET",
-			"GOOGLE_CLIENT_ID",
+			"PUBLIC_GOOGLE_CLIENT_ID",
 			"GOOGLE_CLIENT_SECRET",
 			"RESEND_API_KEY",
 			"TEXT_LK_API_KEY"
@@ -52,6 +56,9 @@
 	},
 	"env": {
 		"staging": {
+			"name": "caroclothing-staging",
+			"workers_dev": true,
+			"preview_urls": true,
 			"routes": [
 				{
 					"pattern": "staging.caroclothing.lk",
@@ -62,8 +69,8 @@
 			// NOTE: vars are non-inheritable — must be duplicated per environment.
 			// Any new top-level var must also be added here.
 			"vars": {
-				"APP_NAME": "Caro Clothing",
-				"APP_URL": "https://staging.caroclothing.lk",
+				"PUBLIC_APP_NAME": "Caro Clothing",
+				"PUBLIC_APP_URL": "https://staging.caroclothing.lk",
 				"EMAIL_FROM_ADDRESS": "noreply@staging.caroclothing.lk",
 				"TEXT_LK_SENDER_ID": "TextLKDemo"
 			},
@@ -72,7 +79,18 @@
 					"binding": "MEDIA",
 					"bucket_name": "caroclothing-media-preview"
 				}
-			]
+			],
+			"secrets": {
+				"required": [
+					"DATABASE_URL",
+					"DATABASE_AUTH_TOKEN",
+					"BETTER_AUTH_SECRET",
+					"PUBLIC_GOOGLE_CLIENT_ID",
+					"GOOGLE_CLIENT_SECRET",
+					"RESEND_API_KEY",
+					"TEXT_LK_API_KEY"
+				]
+			}
 		}
 	}
 	/**

@@ -18,9 +18,10 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:studio": "drizzle-kit studio",
 		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/cli.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes",
-		"deploy": "pnpm run build && wrangler deploy",
-		"deploy:staging": "wrangler secret bulk .env.staging --env staging && pnpm run build && wrangler deploy --env staging",
-		"deploy:production": "wrangler secret bulk .env.production && pnpm run build && wrangler deploy",
+		"secret:staging": "wrangler secret bulk .env.staging --env staging",
+		"secret:production": "wrangler secret bulk .env.production",
+		"deploy:staging": "pnpm run build && wrangler deploy --env staging && pnpm run secret:staging",
+		"deploy:production": "pnpm run build && wrangler deploy && pnpm run secret:production",
 		"cf-typegen": "wrangler types ./src/worker-configuration.d.ts",
 		"tree": "npx tree-node-cli -I \".claude|.gemini|.svelte-kit|.vscode|.wrangler|docs|drizzle|node_modules\""
 	},
@@ -55,6 +56,7 @@
 		"wrangler": "^4.76.0"
 	},
 	"dependencies": {
+		"drizzle-zod": "^0.8.3",
 		"nanoid": "^5.1.7",
 		"resend": "^6.9.4",
 		"sveltekit-superforms": "^2.30.0",

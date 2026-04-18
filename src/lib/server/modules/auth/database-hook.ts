@@ -3,7 +3,7 @@ import type { BetterAuthOptions } from 'better-auth';
 import { getDb } from '$lib/server/db';
 import { eq, and } from 'drizzle-orm';
 import { account } from '$lib/server/db/schema';
-import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/email';
+import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/notifications/email';
 
 export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 	user: {
