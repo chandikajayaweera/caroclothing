@@ -11,6 +11,9 @@ importers:
       drizzle-zod:
         specifier: ^0.8.3
         version: 0.8.3(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260317.1)(@libsql/client@0.17.2)(@prisma/client@5.22.0)(@types/pg@8.18.0)(better-sqlite3@12.8.0)(kysely@0.28.13)(pg@8.20.0))(zod@4.3.6)
+      lucide-svelte:
+        specifier: ^1.0.1
+        version: 1.0.1(svelte@5.54.0)
       nanoid:
         specifier: ^5.1.7
         version: 5.1.7
@@ -2836,6 +2839,11 @@ packages:
 
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
+
+  lucide-svelte@1.0.1:
+    resolution: {integrity: sha512-WvzZgk0pqzgda+AErLvgWxHkfg/+GgUwqKMRHvzt0IqyMdmyEDzDCk3Z+Wo/3y753oIgx8u9Q4eUbWkghFa8Jg==}
+    peerDependencies:
+      svelte: ^3 || ^4 || ^5.0.0-next.42
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -5920,6 +5928,10 @@ snapshots:
   lru-cache@5.1.1:
     dependencies:
       yallist: 3.1.1
+
+  lucide-svelte@1.0.1(svelte@5.54.0):
+    dependencies:
+      svelte: 5.54.0
 
   magic-string@0.30.21:
     dependencies:

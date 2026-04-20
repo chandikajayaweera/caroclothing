@@ -58,6 +58,7 @@
 	},
 	"dependencies": {
 		"drizzle-zod": "^0.8.3",
+		"lucide-svelte": "^1.0.1",
 		"nanoid": "^5.1.7",
 		"resend": "^6.9.4",
 		"sveltekit-superforms": "^2.30.0",
