@@ -119,40 +119,6 @@
 		});
 	}
 
-	/**
-	 * Prevents iOS from zooming in on input focus by temporarily
-	 * clamping maximum-scale to 1, then restoring it after blur.
-	 */
-	function preventIOSZoom(node: HTMLInputElement) {
-		const viewportMeta = document.querySelector('meta[name="viewport"]');
-		if (!viewportMeta) return;
-
-		const originalContent = viewportMeta.getAttribute('content') ?? '';
-		let timeoutId: ReturnType<typeof setTimeout>;
-
-		const handleTouchStart = () => {
-			clearTimeout(timeoutId);
-			viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1');
-		};
-
-		const handleBlur = () => {
-			timeoutId = setTimeout(() => {
-				viewportMeta.setAttribute('content', originalContent);
-			}, 300);
-		};
-
-		node.addEventListener('touchstart', handleTouchStart, { passive: true });
-		node.addEventListener('blur', handleBlur);
-
-		return {
-			destroy() {
-				clearTimeout(timeoutId);
-				node.removeEventListener('touchstart', handleTouchStart);
-				node.removeEventListener('blur', handleBlur);
-			}
-		};
-	}
-
 	// ─── Mount ───────────────────────────────────────────────────────────────────
 
 	onMount(async () => {
@@ -282,6 +248,38 @@
 
 	async function handleSkipName() {
 		await goto('/');
+	}
+
+	// ─── Prevent iOS zoom ─────────────────────────────────────────────────────────
+
+	function preventIOSZoom(node: HTMLInputElement) {
+		const viewportMeta = document.querySelector('meta[name="viewport"]');
+		if (!viewportMeta) return;
+
+		const originalContent = viewportMeta.getAttribute('content') ?? '';
+		let timeoutId: ReturnType<typeof setTimeout>;
+
+		const handleTouchStart = () => {
+			clearTimeout(timeoutId);
+			viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1');
+		};
+
+		const handleBlur = () => {
+			timeoutId = setTimeout(() => {
+				viewportMeta.setAttribute('content', originalContent);
+			}, 300);
+		};
+
+		node.addEventListener('touchstart', handleTouchStart, { passive: true });
+		node.addEventListener('blur', handleBlur);
+
+		return {
+			destroy() {
+				clearTimeout(timeoutId);
+				node.removeEventListener('touchstart', handleTouchStart);
+				node.removeEventListener('blur', handleBlur);
+			}
+		};
 	}
 
 	// ─── Keyboard shortcuts ───────────────────────────────────────────────────────

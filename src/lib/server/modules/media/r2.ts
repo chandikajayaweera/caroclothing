@@ -214,9 +214,16 @@ export async function uploadMedia(
 }
 
 /**
- * Deletes a key from R2.
- * Safe to call with a null/undefined key and silently swallows errors
- * (e.g. the object no longer exists).
+ * Deletes a key from R2. Safe to call with a null/undefined key.
+ *
+ * R2's bucket.delete() is idempotent — it does not throw when the key is
+ * already absent, so the catch block here only fires on genuine operational
+ * errors (bucket misconfiguration, auth failure, network issues). Those are
+ * logged rather than silently swallowed so they surface in Cloudflare's
+ * dashboard and any connected logging pipeline.
+ *
+ * The function remains non-throwing so that callers (e.g. cleanup jobs,
+ * cascading deletes) are not interrupted by a single failed R2 operation.
  */
 export async function deleteObjectSafe(
 	bucket: R2Bucket,
@@ -226,7 +233,10 @@ export async function deleteObjectSafe(
 	assertSafeR2Key(key);
 	try {
 		await bucket.delete(key);
-	} catch {
-		// Best-effort: non-fatal if the object is already gone.
+	} catch (err) {
+		// FIX: R2 delete is idempotent — reaching here means a real operational
+		// error occurred (auth, bucket binding, network), not a missing key.
+		// Log it so it's visible in Cloudflare dashboard / log drain.
+		console.error(`[R2] deleteObjectSafe failed for key "${key}":`, err);
 	}
 }

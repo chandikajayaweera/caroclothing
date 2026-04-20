@@ -1,0 +1,142 @@
+import { relations, sql } from 'drizzle-orm';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
+import { nanoid } from 'nanoid';
+import { z } from 'zod';
+import { SRI_LANKA_DISTRICTS } from '../addresses/addresses.drizzle';
+
+// ---------------------------------------------------------------------------
+// SHIPPING METHODS
+//
+// Flat-rate carrier config surfaced to the customer at checkout.
+// District-level overrides live in shippingZone.
+//
+// Example carriers for Sri Lanka: PickMe Flash, Kapruka, DHL, priv. courier.
+// ---------------------------------------------------------------------------
+
+export const shippingMethod = sqliteTable(
+	'shipping_method',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => nanoid()),
+		name: text('name').notNull(), // "Standard", "Express", "Free"
+		description: text('description'), // shown to customer at checkout
+		carrier: text('carrier'), // "PickMe Flash", "Kapruka", etc.
+		// Default price applies when no shippingZone override exists for the district
+		price: real('price').notNull(), // LKR flat rate
+		// When order subtotal >= this value the method becomes free (null = never free)
+		freeShippingThreshold: real('free_shipping_threshold'),
+		estimatedDaysMin: integer('estimated_days_min').notNull(),
+		estimatedDaysMax: integer('estimated_days_max').notNull(),
+		isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
+		sortOrder: integer('sort_order').default(0).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(table) => [index('shipping_method_active_idx').on(table.isActive, table.sortOrder)]
+);
+
+// ---------------------------------------------------------------------------
+// SHIPPING ZONES  (per-district price overrides)
+//
+// If a zone row exists for the customer's district + method combination,
+// use priceOverride and the zone's estimated days instead of the method defaults.
+// Remote districts (Mannar, Mullaitivu, Vavuniya, etc.) can be priced higher.
+// ---------------------------------------------------------------------------
+
+export const shippingZone = sqliteTable(
+	'shipping_zone',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => nanoid()),
+		shippingMethodId: text('shipping_method_id')
+			.notNull()
+			.references(() => shippingMethod.id, { onDelete: 'cascade' }),
+		// FIX: added { enum: SRI_LANKA_DISTRICTS } to align with address.district.
+		// This gives district the correct SriLankaDistrict union type in TypeScript,
+		// ensuring type-safety on reads (selectShippingZoneSchema, $inferSelect) and
+		// preventing silent string widening when assigning zone.district elsewhere.
+		// Note: Drizzle SQLite enums are TypeScript-only — no CHECK is added to DDL.
+		// Application-layer validation (Zod) remains the enforcement mechanism for writes.
+		district: text('district', { enum: SRI_LANKA_DISTRICTS }).notNull(),
+		priceOverride: real('price_override').notNull(),
+		estimatedDaysMin: integer('estimated_days_min').notNull(),
+		estimatedDaysMax: integer('estimated_days_max').notNull()
+	},
+	(table) => [
+		index('shipping_zone_method_idx').on(table.shippingMethodId),
+		// Unique: only one price override per method+district combination
+		uniqueIndex('shipping_zone_lookup_idx').on(table.shippingMethodId, table.district)
+	]
+);
+
+// ---------------------------------------------------------------------------
+// RELATIONS
+// ---------------------------------------------------------------------------
+
+export const shippingMethodRelations = relations(shippingMethod, ({ many }) => ({
+	zones: many(shippingZone)
+}));
+
+export const shippingZoneRelations = relations(shippingZone, ({ one }) => ({
+	method: one(shippingMethod, {
+		fields: [shippingZone.shippingMethodId],
+		references: [shippingMethod.id]
+	})
+}));
+
+// ---------------------------------------------------------------------------
+// ZOD SCHEMAS
+// ---------------------------------------------------------------------------
+
+export const insertShippingMethodSchema = createInsertSchema(shippingMethod, {
+	name: z.string().min(1).max(100),
+	price: z.number().min(0),
+	freeShippingThreshold: z.number().min(0).optional().nullable(),
+	estimatedDaysMin: z.number().int().min(0),
+	estimatedDaysMax: z.number().int().min(1),
+	sortOrder: z.number().int().min(0).optional()
+}).refine((d) => d.estimatedDaysMax >= d.estimatedDaysMin, {
+	message: 'estimatedDaysMax must be >= estimatedDaysMin',
+	path: ['estimatedDaysMax']
+});
+export const selectShippingMethodSchema = createSelectSchema(shippingMethod);
+export const updateShippingMethodSchema = createUpdateSchema(shippingMethod, {
+	price: z.number().min(0).optional(),
+	freeShippingThreshold: z.number().min(0).optional().nullable()
+});
+
+export const insertShippingZoneSchema = createInsertSchema(shippingZone, {
+	district: z.enum(SRI_LANKA_DISTRICTS),
+	priceOverride: z.number().min(0),
+	estimatedDaysMin: z.number().int().min(0),
+	estimatedDaysMax: z.number().int().min(1)
+}).refine((d) => d.estimatedDaysMax >= d.estimatedDaysMin, {
+	message: 'estimatedDaysMax must be >= estimatedDaysMin',
+	path: ['estimatedDaysMax']
+});
+export const selectShippingZoneSchema = createSelectSchema(shippingZone);
+export const updateShippingZoneSchema = createUpdateSchema(shippingZone, {
+	priceOverride: z.number().min(0).optional(),
+	// FIX: district was previously unvalidated in updates. Because the column was
+	// plain text(), createUpdateSchema inferred it as z.string().optional(), meaning
+	// any string bypassed validation. Explicitly enforce the enum here to match
+	// the insert schema.
+	district: z.enum(SRI_LANKA_DISTRICTS).optional()
+});
+
+// ---------------------------------------------------------------------------
+// INFERRED TYPES
+// ---------------------------------------------------------------------------
+
+export type ShippingMethod = typeof shippingMethod.$inferSelect;
+export type NewShippingMethod = typeof shippingMethod.$inferInsert;
+export type ShippingZone = typeof shippingZone.$inferSelect;
+export type NewShippingZone = typeof shippingZone.$inferInsert;
