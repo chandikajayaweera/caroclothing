@@ -9,6 +9,7 @@ import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
 import { sendOtpSms } from '$lib/server/modules/notifications/sms';
+import { reserveOtpCooldown } from './otp-cooldown';
 
 import {
 	accessControl as ac,
@@ -89,9 +90,18 @@ export function getAuth(): Auth {
 				},
 
 				async sendOTP({ phoneNumber, code }) {
-					const result = await sendOtpSms(phoneNumber, code);
-					if (!result.ok) {
-						throw new Error(`[auth] Failed to send OTP to ${phoneNumber}: ${result.error}`);
+					const cooldown = await reserveOtpCooldown(phoneNumber);
+
+					try {
+						const result = await sendOtpSms(phoneNumber, code);
+
+						if (!result.ok) {
+							throw new Error(`[auth] Failed to send OTP to ${phoneNumber}: ${result.error}`);
+						}
+					} catch (error) {
+						// rollback cooldown on failure
+						await cooldown.kv.delete(cooldown.key);
+						throw error;
 					}
 				}
 			}),

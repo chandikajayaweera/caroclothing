@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { CartItem } from '$lib/stores/cart';
-	import { cartStore } from '$lib/stores/cart';
+	import type { CartItem } from '$lib/client/modules/stores/cart';
+	import { cartStore } from '$lib/client/modules/stores/cart';
 
 	let { item }: { item: CartItem } = $props();
 

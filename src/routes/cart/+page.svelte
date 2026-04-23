@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cartStore, cartCount, subtotal } from '$lib/stores/cart';
+	import { cartStore, cartCount, subtotal } from '$lib/client/modules/stores/cart';
 	import CartItem from '$lib/components/cart/CartItem.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 
@@ -36,14 +36,29 @@
 						<h2 class="font-mono text-xs text-ash uppercase tracking-[0.2em] mb-6">Order Summary</h2>
 						
 						{#if amountToFreeShipping > 0}
-							<div class="bg-void/40 p-3 mb-6">
-								<p class="font-mono text-[10px] text-ash uppercase">
-									Add LKR {amountToFreeShipping.toLocaleString()} more for free shipping
-								</p>
+							<div class="bg-charcoal p-4 mb-6 border border-charcoal hover:border-ash/10 transition-colors">
+								<div class="flex justify-between items-center mb-2">
+									<span class="font-mono text-[10px] text-ash uppercase tracking-wider">
+										Add LKR {amountToFreeShipping.toLocaleString()} more for free shipping
+									</span>
+									<span class="font-mono text-[10px] text-ash/40">{Math.round(($subtotal / freeShippingThreshold) * 100)}%</span>
+								</div>
+								<div class="h-1 bg-void rounded-full overflow-hidden">
+									<div
+										class="h-full bg-volt transition-all duration-500"
+										style="width: {Math.min(100, ($subtotal / freeShippingThreshold) * 100)}%"
+									></div>
+								</div>
 							</div>
 						{:else}
-							<div class="bg-volt/10 p-3 mb-6">
-								<p class="font-mono text-[10px] text-volt uppercase">Free shipping unlocked</p>
+							<div class="bg-volt/5 p-4 mb-6 border border-volt/20">
+								<div class="flex justify-between items-center mb-2">
+									<span class="font-mono text-[10px] text-volt uppercase tracking-widest">Free shipping unlocked</span>
+									<span class="text-volt">
+										<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>
+									</span>
+								</div>
+								<div class="h-1 bg-volt rounded-full"></div>
 							</div>
 						{/if}
 

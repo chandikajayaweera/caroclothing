@@ -2,19 +2,41 @@
 	import { onMount } from 'svelte';
 	import Button from '../ui/Button.svelte';
 
-	const hero = {
-		tag: 'Drop 001 — Live Now',
-		headline: ['WEAR THE', 'NEXT', 'GENERATION'],
-		subline: 'New arrivals. Limited stock.',
-		cta: { label: 'Shop the Drop', href: '/shop?sort=new' },
-		image: '/images/hero.png'
+	interface Props {
+		mode?: 'default' | 'drop-live' | 'drop-coming';
+	}
+
+	let { mode = 'drop-live' }: Props = $props();
+
+	const heroData = {
+		'drop-live': {
+			tag: 'DROP 001 — LIVE NOW',
+			headline: ['SOMETHING', 'NEW. SAME', 'ENERGY.'],
+			subline: 'Limited stock. Ships from Colombo.',
+			cta: { label: 'Shop Drop 001 →', href: '/shop?sort=new' },
+			image: '/images/hero.png'
+		},
+		'drop-coming': {
+			tag: 'DROP 002 — COMING JUNE',
+			headline: ['THE NEXT', 'CHAPTER', 'BEGINS'],
+			subline: 'Get notified when it drops.',
+			cta: { label: 'Notify Me', href: '/drops/drop-002' },
+			image: '/images/hero.png'
+		},
+		'default': {
+			tag: 'NEW IN',
+			headline: ['WEAR THE', 'NEXT', 'GENERATION'],
+			subline: 'New arrivals. Limited stock.',
+			cta: { label: 'Shop New In →', href: '/shop?sort=new' },
+			image: '/images/hero.png'
+		}
 	};
 
+	let hero = $derived(heroData[mode]);
 	let scrollY = $state(0);
 
 	onMount(() => {
 		const handleScroll = () => {
-			// Strictly only update scrollY for desktop to avoid any mobile re-renders
 			if (window.innerWidth >= 768) {
 				scrollY = window.scrollY;
 			}
@@ -44,17 +66,17 @@
 			{hero.tag}
 		</span>
 
-		<h1 class="font-display text-[64px] md:text-[110px] lg:text-[160px] leading-[0.88] lg:leading-[0.85] text-bone uppercase">
+		<h1 class="font-display text-[56px] md:text-[100px] lg:text-[140px] leading-[0.88] lg:leading-[0.85] text-bone uppercase">
 			{#each hero.headline as line, i}
-				<span class="block {i === 1 ? 'text-volt' : ''}">{line}</span>
+				<span class="block {i === 1 && mode === 'default' ? 'text-volt' : ''}">{line}</span>
 			{/each}
 		</h1>
 
-		<p class="font-mono text-[10px] md:text-xs text-ash mt-4 max-w-xs">
+		<p class="font-mono text-[10px] md:text-xs text-ash mt-4 max-w-xs uppercase tracking-widest">
 			{hero.subline}
 		</p>
 
-		<Button variant="primary" href={hero.cta.href} class="mt-6">
+		<Button variant="primary" href={hero.cta.href} class="mt-8 px-10 py-4 bg-volt text-void hover:bg-bone">
 			{hero.cta.label}
 		</Button>
 	</div>

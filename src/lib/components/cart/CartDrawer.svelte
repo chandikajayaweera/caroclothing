@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
-	import { uiStore, closeCartDrawer } from '$lib/stores/ui';
-	import { cartStore, cartCount, subtotal } from '$lib/stores/cart';
+	import { uiStore, closeCartDrawer } from '$lib/client/modules/stores/ui';
+	import { cartStore, cartCount, subtotal } from '$lib/client/modules/stores/cart';
 	import CartItem from './CartItem.svelte';
 	import Button from '../ui/Button.svelte';
 

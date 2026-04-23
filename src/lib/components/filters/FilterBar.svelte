@@ -6,7 +6,7 @@
 	let activeFit = $state('All Fits');
 </script>
 
-<div class="border-b border-charcoal bg-void">
+<div class="sticky top-14 md:top-[60px] lg:top-16 z-40 border-b border-charcoal bg-void/95 backdrop-blur-md">
 	<!-- Mobile/Tablet: Horizontal Scroll -->
 	<div class="lg:hidden flex items-center h-14">
 		<div class="overflow-x-auto flex gap-2 px-4 no-scrollbar flex-1">

@@ -9,13 +9,22 @@
 	import { page } from '$app/state';
 
 	let { children } = $props();
+
+	const hideNavFooterRoutes = ['/account', '/sign-in', '/app', '/checkout'];
+	const shouldHide = $derived.by(() => {
+		return hideNavFooterRoutes.some((path) => page.url.pathname.startsWith(path));
+	});
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="flex min-h-screen flex-col selection:bg-volt selection:text-void relative overflow-x-hidden">
+<div
+	class="relative flex min-h-screen flex-col overflow-x-hidden selection:bg-volt selection:text-void"
+>
 	<Navbar />
-	<BottomNav />
+	{#if !shouldHide}
+		<BottomNav />
+	{/if}
 	<CartDrawer />
 	<Toast />
 
@@ -25,6 +34,8 @@
 		{/key}
 	</main>
 
-	<Footer />
+	{#if !shouldHide}
+		<Footer />
+	{/if}
 </div>
 

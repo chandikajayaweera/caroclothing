@@ -18,6 +18,7 @@ declare global {
 		interface Platform {
 			env: {
 				MEDIA: R2Bucket;
+				OTP_COOLDOWNS: KVNamespace;
 			};
 			cf: CfProperties;
 			context: ExecutionContext;

@@ -27,7 +27,7 @@
 		"PUBLIC_APP_NAME": "Caro Clothing",
 		"PUBLIC_APP_URL": "https://caroclothing.lk",
 		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
-		"TEXT_LK_SENDER_ID": "TextLKDemo"
+		"TEXT_LK_SENDER_ID": "Caro OTP"
 	},
 	"send_email": [{ "name": "EMAIL" }],
 	"workers_dev": true,
@@ -49,9 +49,18 @@
 			"PUBLIC_GOOGLE_CLIENT_ID",
 			"GOOGLE_CLIENT_SECRET",
 			"RESEND_API_KEY",
-			"TEXT_LK_API_KEY"
+			"TEXT_LK_API_KEY",
+			"OTP_COOLDOWN_SECONDS"
 		]
 	},
+
+	"kv_namespaces": [
+		{
+			"binding": "OTP_COOLDOWNS",
+			"id": "PRODUCTION_KV_ID",
+			"preview_id": "PRODUCTION_PREVIEW_ID"
+		}
+	],
 	"env": {
 		"staging": {
 			"name": "caroclothing-staging",
@@ -70,7 +79,7 @@
 				"PUBLIC_APP_NAME": "Caro Clothing",
 				"PUBLIC_APP_URL": "https://staging.caroclothing.lk",
 				"EMAIL_FROM_ADDRESS": "noreply@staging.caroclothing.lk",
-				"TEXT_LK_SENDER_ID": "TextLKDemo"
+				"TEXT_LK_SENDER_ID": "Caro OTP"
 			},
 			"r2_buckets": [
 				{
@@ -86,9 +95,17 @@
 					"PUBLIC_GOOGLE_CLIENT_ID",
 					"GOOGLE_CLIENT_SECRET",
 					"RESEND_API_KEY",
-					"TEXT_LK_API_KEY"
+					"TEXT_LK_API_KEY",
+					"OTP_COOLDOWN_SECONDS"
 				]
-			}
+			},
+			"kv_namespaces": [
+				{
+					"binding": "OTP_COOLDOWNS",
+					"id": "STAGING_KV_ID",
+					"preview_id": "STAGING_PREVIEW_ID"
+				}
+			]
 		}
 	}
 	/**

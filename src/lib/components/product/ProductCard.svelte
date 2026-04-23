@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { uiStore } from '$lib/stores/ui';
+	import { uiStore } from '$lib/client/modules/stores/ui';
 
 	let { product } = $props();
 
@@ -34,7 +34,23 @@
 			{/if}
 
 			<!-- Badge -->
-			{#if product.badge}
+			{#if product.availableCount !== undefined}
+				<div class="absolute top-2 left-2 z-10">
+					{#if product.availableCount === 0 && !product.allowBackorder}
+						<span class="bg-charcoal text-ash border border-ash/30 font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5">
+							SOLD OUT
+						</span>
+					{:else if product.availableCount > 0 && product.availableCount <= (product.lowStockThreshold || 5)}
+						<span class="bg-volt text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5">
+							LOW STOCK
+						</span>
+					{:else if product.isNewArrival}
+						<span class="bg-bone text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5">
+							NEW
+						</span>
+					{/if}
+				</div>
+			{:else if product.badge}
 				<div class="absolute top-2 left-2 z-10">
 					{#if product.badge === 'SOLD OUT'}
 						<span

@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 export const envSchema = z.object({
-
 	// Database
 	DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 	DATABASE_AUTH_TOKEN: z.string().optional(),
@@ -18,7 +17,10 @@ export const envSchema = z.object({
 
 	// SMS
 	TEXT_LK_API_KEY: z.string().min(1, 'TEXT_LK_API_KEY is required'),
-	TEXT_LK_SENDER_ID: z.string().min(1, 'TEXT_LK_SENDER_ID is required')
+	TEXT_LK_SENDER_ID: z.string().min(1, 'TEXT_LK_SENDER_ID is required'),
+
+	// OTP
+	OTP_COOLDOWN_SECONDS: z.coerce.number().min(1, 'OTP_COOLDOWN_SECONDS must be at least 1 second')
 });
 
 export type Env = z.infer<typeof envSchema>;

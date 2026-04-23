@@ -77,7 +77,8 @@ export const ErrorCode = {
 	SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
 	ACCOUNT_SUSPENDED: 'ACCOUNT_SUSPENDED',
 	ANONYMOUS_MIGRATION_FAILED: 'ANONYMOUS_MIGRATION_FAILED',
-	INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS'
+	INSUFFICIENT_PERMISSIONS: 'INSUFFICIENT_PERMISSIONS',
+	OTP_RATE_LIMITED: 'OTP_RATE_LIMITED'
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -241,4 +242,23 @@ export function getErrorMessage(error: unknown): string {
 export function getErrorCode(error: unknown): ErrorCode {
 	if (isAppError(error)) return error.code;
 	return ErrorCode.INTERNAL_ERROR;
+}
+
+/**
+ * OTP rate limiting error.
+ *
+ * This is an application-level constraint (not BetterAuth internal),
+ * used to prevent abuse of OTP sending.
+ */
+export class OtpRateLimitError extends AuthError {
+	constructor(details?: Record<string, unknown>) {
+		super(
+			'Please wait before requesting another OTP code.',
+			ErrorCode.OTP_RATE_LIMITED,
+			429, // HTTP Too Many Requests
+			details
+		);
+		this.name = 'OtpRateLimitError';
+		Object.setPrototypeOf(this, OtpRateLimitError.prototype);
+	}
 }

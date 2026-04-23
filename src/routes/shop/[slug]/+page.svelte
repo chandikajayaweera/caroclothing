@@ -6,9 +6,9 @@
 	import ShippingEstimate from '$lib/components/product/ShippingEstimate.svelte';
 	import ReviewsSection from '$lib/components/reviews/ReviewsSection.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
-	import { cartStore } from '$lib/stores/cart';
-	import { addToast } from '$lib/stores/toast';
-	import { openCartDrawer } from '$lib/stores/ui';
+	import { cartStore } from '$lib/client/modules/stores/cart';
+	import { addToast } from '$lib/client/modules/stores/toast';
+	import { openCartDrawer } from '$lib/client/modules/stores/ui';
 
 	const product = {
 		name: 'Void Oversized Tee',

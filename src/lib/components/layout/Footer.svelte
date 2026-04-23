@@ -5,9 +5,10 @@
 			heading: 'Shop',
 			links: [
 				{ label: 'New In', href: '/shop?sort=new' },
+				{ label: 'Drops', href: '/drops' },
 				{ label: 'Men', href: '/shop?gender=men' },
 				{ label: 'Women', href: '/shop?gender=women' },
-				{ label: 'All', href: '/shop' }
+				{ label: 'Wishlist', href: '/wishlist' }
 			]
 		},
 		{

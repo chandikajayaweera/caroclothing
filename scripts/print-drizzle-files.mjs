@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const ROOT_DIR = process.cwd(); // project root
+const DUMP_DIR = path.join(ROOT_DIR, 'schema-dump'); // target folder
 
 function walk(dir) {
 	let results = [];
@@ -12,8 +13,18 @@ function walk(dir) {
 		const stat = fs.statSync(fullPath);
 
 		if (stat && stat.isDirectory()) {
-			// ignore unwanted folders
-			if (['node_modules', '.git', '.svelte-kit', '.wrangler', 'dist', 'build'].includes(file)) {
+			// ignore unwanted folders (added 'schema-dump' to prevent scanning previous dumps)
+			if (
+				[
+					'node_modules',
+					'.git',
+					'.svelte-kit',
+					'.wrangler',
+					'dist',
+					'build',
+					'schema-dump'
+				].includes(file)
+			) {
 				continue;
 			}
 
@@ -34,12 +45,25 @@ function main() {
 		return;
 	}
 
-	for (const file of files) {
-		const relativePath = path.relative(ROOT_DIR, file);
-		const content = fs.readFileSync(file, 'utf-8');
-
-		console.log(`${relativePath}:\n${content}\n`);
+	// Ensure the output directory exists
+	if (!fs.existsSync(DUMP_DIR)) {
+		fs.mkdirSync(DUMP_DIR, { recursive: true });
+		console.log('Created /schema-dump directory.');
 	}
+
+	// Copy each file to the output directory
+	for (const file of files) {
+		const fileName = path.basename(file);
+		const destPath = path.join(DUMP_DIR, fileName);
+
+		fs.copyFileSync(file, destPath);
+
+		// Optional: Get relative path just for cleaner console output
+		const relativeSource = path.relative(ROOT_DIR, file);
+		console.log(`Copied: ${relativeSource} -> schema-dump/${fileName}`);
+	}
+
+	console.log(`\nSuccess! Copied ${files.length} file(s) to /schema-dump.`);
 }
 
 main();
