@@ -29,9 +29,7 @@
 		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
 		"TEXT_LK_SENDER_ID": "TextLKDemo"
 	},
-	"send_email": [
-		{"name": "EMAIL"}
-	],
+	"send_email": [{ "name": "EMAIL" }],
 	"workers_dev": true,
 	"preview_urls": true,
 	"r2_buckets": [

@@ -1,84 +1,110 @@
 <script lang="ts">
-	import Button from '../ui/Button.svelte';
+	import { uiStore } from '$lib/stores/ui';
 
-	let {
-		name = 'Product Name',
-		price = 0,
-		compareAtPrice = null,
-		image = '',
-		hoverImage = '',
-		isNew = false,
-		stockStatus = 'available', // available, low_stock, almost_gone, sold_out, pre_order
-		href = '#',
-	} = $props();
+	let { product } = $props();
 
-	let formattedPrice = new Intl.NumberFormat('en-LK', {
-		style: 'currency',
-		currency: 'LKR',
-		minimumFractionDigits: 0
-	}).format(price);
+	let isSaved = $state(false);
 
-	let formattedComparePrice = compareAtPrice ? new Intl.NumberFormat('en-LK', {
-		style: 'currency',
-		currency: 'LKR',
-		minimumFractionDigits: 0
-	}).format(compareAtPrice) : null;
-
-	let isHovering = $state(false);
+	function toggleWishlist(e: MouseEvent) {
+		e.preventDefault();
+		e.stopPropagation();
+		isSaved = !isSaved;
+		// Add to wishlist store logic here
+	}
 </script>
 
-<a
-	{href}
-	class="group relative block w-full overflow-hidden"
-	onmouseenter={() => (isHovering = true)}
-	onmouseleave={() => (isHovering = false)}
->
-	<!-- Image Container -->
-	<div class="relative w-full aspect-[3/4] bg-charcoal mb-4 overflow-hidden">
-		<!-- New Badge -->
-		{#if isNew}
-			<div class="absolute top-4 left-4 z-10 bg-void text-bone px-3 py-1 text-xs font-mono uppercase tracking-wider">
-				New Drop
-			</div>
-		{/if}
+<div class="group relative flex flex-col cursor-pointer">
+	<a href="/shop/{product.slug}" class="block">
+		<!-- Image container -->
+		<div class="relative aspect-[3/4] overflow-hidden bg-charcoal rounded-none">
+			<!-- Primary Image -->
+			<img
+				src={product.primaryImage}
+				alt={product.name}
+				class="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
+			/>
 
-		<!-- Stock Badge -->
-		{#if stockStatus === 'low_stock'}
-			<div class="absolute top-4 right-4 z-10 bg-volt text-void px-3 py-1 text-xs font-mono uppercase tracking-wider font-bold">
-				Low Stock
-			</div>
-		{:else if stockStatus === 'almost_gone'}
-			<div class="absolute top-4 right-4 z-10 bg-volt text-void px-3 py-1 text-xs font-mono uppercase tracking-wider font-bold">
-				Almost Gone
-			</div>
-		{:else if stockStatus === 'sold_out'}
-			<div class="absolute top-4 right-4 z-10 bg-ash text-void px-3 py-1 text-xs font-mono uppercase tracking-wider">
-				Sold Out
-			</div>
-		{:else if stockStatus === 'pre_order'}
-			<div class="absolute top-4 right-4 z-10 bg-bone text-void px-3 py-1 text-xs font-mono uppercase tracking-wider">
-				Pre-Order
-			</div>
-		{/if}
+			<!-- Hover Image -->
+			{#if product.hoverImage && product.hoverImage !== product.primaryImage}
+				<img
+					src={product.hoverImage}
+					alt={product.name}
+					class="absolute inset-0 h-full w-full object-cover object-top opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+				/>
+			{/if}
 
-		<!-- Image -->
-		<img
-			src={isHovering && hoverImage ? hoverImage : image}
-			alt={name}
-			class="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
-		/>
-	</div>
+			<!-- Badge -->
+			{#if product.badge}
+				<div class="absolute top-2 left-2 z-10">
+					{#if product.badge === 'SOLD OUT'}
+						<span
+							class="bg-charcoal text-ash border border-ash/30 font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5"
+						>
+							{product.badge}
+						</span>
+					{:else}
+						<span
+							class="bg-volt text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5"
+						>
+							{product.badge}
+						</span>
+					{/if}
+				</div>
+			{/if}
 
-	<!-- Info -->
-	<div class="flex flex-col">
-		<h3 class="text-xl font-bebas text-bone mb-1 uppercase tracking-wide truncate">{name}</h3>
-		<div class="flex items-center space-x-3 text-sm font-mono">
-			{#if formattedComparePrice}
-				<span class="text-ash line-through">{formattedComparePrice}</span>
-				<span class="text-volt">{formattedPrice}</span>
-			{:else}
-				<span class="text-bone">{formattedPrice}</span>
+			<!-- Wishlist Heart -->
+			<button
+				class="absolute top-2 right-2 w-8 h-8 flex items-center justify-center z-10 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200"
+				onclick={toggleWishlist}
+				aria-label="Add to wishlist"
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="18"
+					height="18"
+					viewBox="0 0 24 24"
+					fill={isSaved ? 'var(--color-volt)' : 'none'}
+					stroke={isSaved ? 'var(--color-volt)' : 'var(--color-bone)'}
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					class="transition-colors"
+				>
+					<path
+						d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+					/>
+				</svg>
+			</button>
+		</div>
+
+		<!-- Info below image -->
+		<div class="pt-2 flex flex-col gap-1">
+			<h3
+				class="font-sans text-sm font-medium text-bone leading-snug group-hover:underline decoration-volt underline-offset-4"
+			>
+				{product.name}
+			</h3>
+			<div class="flex items-baseline gap-2">
+				<span class="font-mono text-sm text-bone">LKR {product.price?.toLocaleString()}</span>
+				{#if product.compareAtPrice}
+					<span class="font-mono text-xs text-ash line-through">
+						LKR {product.compareAtPrice.toLocaleString()}
+					</span>
+				{/if}
+			</div>
+
+			<!-- Color swatches -->
+			{#if product.colorSwatches && product.colorSwatches.length > 0}
+				<div class="flex gap-1.5 mt-1">
+					{#each product.colorSwatches as swatch}
+						<div
+							class="w-3 h-3 rounded-full border border-ash/20"
+							style="background-color: {swatch.hex}"
+							title={swatch.name}
+						></div>
+					{/each}
+				</div>
 			{/if}
 		</div>
-	</div>
-</a>
+	</a>
+</div>

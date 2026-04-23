@@ -5,4 +5,4 @@ import {
 	GuardedRoutesHook as GuardedRoutes
 } from '$lib/server/modules/auth/handleHooks';
 
-export const handle: Handle = sequence(Auth, GuardedRoutes);
+export const handle: Handle = sequence(Auth);

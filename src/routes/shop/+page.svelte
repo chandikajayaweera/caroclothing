@@ -1,104 +1,118 @@
 <script lang="ts">
+	import FilterBar from '$lib/components/filters/FilterBar.svelte';
+	import SortBottomSheet from '$lib/components/filters/SortBottomSheet.svelte';
 	import ProductCard from '$lib/components/product/ProductCard.svelte';
-	
-	// Mocking data for PLP
+
+	let isSortOpen = $state(false);
+
 	const products = [
 		{
-			id: 'prod_1',
-			name: 'Signature Box Tee // Black',
-			price: 8500,
-			image: '/images/black_tee.png',
-			isNew: true,
-			stockStatus: 'available',
-			href: '/shop/signature-box-tee-black'
+			name: 'Void Oversized Tee',
+			slug: 'void-oversized-tee',
+			price: 3200,
+			compareAtPrice: 4000,
+			colorSwatches: [
+				{ name: 'Void Black', hex: '#0A0A0A' },
+				{ name: 'Ash Grey', hex: '#B4AFA8' }
+			],
+			primaryImage: '/images/black_tee.png',
+			hoverImage: '/images/black_tee.png',
+			badge: 'LOW STOCK'
 		},
 		{
-			id: 'prod_2',
-			name: 'Signature Box Tee // Bone',
-			price: 8500,
-			image: '/images/white_tee.png',
-			isNew: true,
-			stockStatus: 'low_stock',
-			href: '/shop/signature-box-tee-bone'
+			name: 'Bone Staple Tee',
+			slug: 'bone-staple-tee',
+			price: 2900,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Off White', hex: '#F8F5F0' }],
+			primaryImage: '/images/white_tee.png',
+			hoverImage: '/images/white_tee.png',
+			badge: 'NEW'
 		},
 		{
-			id: 'prod_3',
-			name: 'Oversized Hoodie // Void',
-			price: 14500,
-			image: '/images/black_tee.png',
-			isNew: true,
-			stockStatus: 'pre_order',
-			href: '/shop/oversized-hoodie-void'
+			name: 'Void Graphite Hoodie',
+			slug: 'void-graphite-hoodie',
+			price: 5200,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Graphite', hex: '#1C1C1C' }],
+			primaryImage: '/images/black_tee.png',
+			hoverImage: '/images/black_tee.png',
+			badge: null
 		},
 		{
-			id: 'prod_4',
-			name: 'Heavyweight Pant // Charcoal',
-			price: 12000,
-			image: '/images/white_tee.png',
-			isNew: true,
-			stockStatus: 'almost_gone',
-			href: '/shop/heavyweight-pant-charcoal'
+			name: 'Bone Cargo Pants',
+			slug: 'bone-cargo-pants',
+			price: 4500,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Bone', hex: '#F8F5F0' }],
+			primaryImage: '/images/white_tee.png',
+			hoverImage: '/images/white_tee.png',
+			badge: 'ALMOST GONE'
+		},
+		// Repeat for more styles
+		{
+			name: 'Void Signature Cap',
+			slug: 'void-signature-cap',
+			price: 1800,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Black', hex: '#0A0A0A' }],
+			primaryImage: '/images/black_tee.png',
+			hoverImage: '/images/black_tee.png',
+			badge: null
 		},
 		{
-			id: 'prod_5',
-			name: 'Drop 001 Graphic // Volt',
-			price: 9500,
-			image: '/images/black_tee.png',
-			isNew: false,
-			stockStatus: 'available',
-			href: '/shop/drop-001-graphic-volt'
+			name: 'Bone Ribbed Socks',
+			slug: 'bone-ribbed-socks',
+			price: 850,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Off White', hex: '#F8F5F0' }],
+			primaryImage: '/images/white_tee.png',
+			hoverImage: '/images/white_tee.png',
+			badge: 'NEW'
 		},
 		{
-			id: 'prod_6',
-			name: 'Everyday Crop // Ash',
-			price: 7500,
-			image: '/images/white_tee.png',
-			isNew: false,
-			stockStatus: 'sold_out',
-			href: '/shop/everyday-crop-ash'
+			name: 'Void Canvas Tote',
+			slug: 'void-canvas-tote',
+			price: 1500,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Black', hex: '#0A0A0A' }],
+			primaryImage: '/images/black_tee.png',
+			hoverImage: '/images/black_tee.png',
+			badge: 'LOW STOCK'
+		},
+		{
+			name: 'Bone Minimalist Belt',
+			slug: 'bone-minimalist-belt',
+			price: 2200,
+			compareAtPrice: null,
+			colorSwatches: [{ name: 'Tan', hex: '#B4AFA8' }],
+			primaryImage: '/images/white_tee.png',
+			hoverImage: '/images/white_tee.png',
+			badge: 'SOLD OUT'
 		}
 	];
 </script>
 
-<div class="bg-void min-h-screen py-16 px-4 sm:px-6 lg:px-8">
-	<div class="mx-auto max-w-7xl">
-		<!-- Header & Filters -->
-		<div class="mb-12 flex flex-col md:flex-row md:items-end justify-between border-b border-charcoal pb-6">
-			<div class="mb-6 md:mb-0">
-				<h1 class="font-bebas text-5xl tracking-wide text-bone uppercase">Shop All</h1>
-				<p class="font-sans text-ash mt-2">{products.length} Products</p>
-			</div>
-			
-			<div class="flex items-center space-x-6 text-sm font-sans text-bone">
-				<div class="flex space-x-4">
-					<button class="font-bold underline underline-offset-4 decoration-volt">All</button>
-					<button class="hover:text-volt transition-colors">Men</button>
-					<button class="hover:text-volt transition-colors">Women</button>
-				</div>
-				<div class="h-6 w-px bg-charcoal hidden sm:block"></div>
-				<div class="flex space-x-4">
-					<span class="text-ash hidden sm:inline">Fit:</span>
-					<select class="bg-void text-bone border-none outline-none cursor-pointer focus:ring-0 uppercase tracking-wider text-xs bg-none -ml-1">
-						<option value="all">Any Fit</option>
-						<option value="oversized">Oversized</option>
-						<option value="regular">Regular</option>
-						<option value="slim">Slim</option>
-					</select>
-				</div>
-			</div>
+<div class="min-h-screen md:pt-[60px] lg:pt-16">
+	<!-- PLP Header -->
+	<header class="pt-6 pb-4 px-4 md:px-6 lg:pt-12 lg:pb-8 lg:px-8 flex flex-col md:flex-row md:items-baseline md:justify-between border-b border-charcoal lg:border-none">
+		<div>
+			<h1 class="font-display text-5xl md:text-6xl lg:text-7xl text-bone uppercase">Shop All</h1>
+			<p class="font-mono text-[10px] text-ash mt-1 uppercase tracking-widest">{products.length} Styles</p>
 		</div>
+	</header>
 
-		<!-- Product Grid -->
-		<div class="grid grid-cols-1 gap-x-6 gap-y-12 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+	<!-- Filter Bar -->
+	<FilterBar />
+
+	<!-- Product Grid -->
+	<section class="py-6 px-4 md:px-6 lg:py-12 lg:px-8">
+		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 lg:gap-4 max-w-7xl mx-auto">
 			{#each products as product}
-				<ProductCard {...product} />
+				<ProductCard {product} />
 			{/each}
 		</div>
-		
-		<div class="mt-20 flex justify-center">
-			<button class="border border-bone text-bone hover:bg-bone hover:text-void uppercase font-bebas tracking-wide text-xl px-12 py-4 transition-colors">
-				Load More
-			</button>
-		</div>
-	</div>
+	</section>
 </div>
+
+<SortBottomSheet isOpen={isSortOpen} onClose={() => (isSortOpen = false)} />
