@@ -1,6 +1,6 @@
 <script lang="ts">
 	const lines = ['FROM COLOMBO', 'TO EVERYWHERE.'];
-	const footnote = 'Sri Lankan-made. Global vision. Est. 2024.';
+	const footnote = 'Sri Lankan-made. Global vision. Est. 2026.';
 </script>
 
 <section class="bg-charcoal py-16 md:py-24 lg:py-32 px-5 md:px-8 lg:px-12 relative overflow-hidden">
