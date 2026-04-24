@@ -13,15 +13,15 @@
 	}
 </script>
 
-<div class="group relative flex flex-col cursor-pointer">
+<div class="group relative flex cursor-pointer flex-col">
 	<a href="/shop/{product.slug}" class="block">
 		<!-- Image container -->
-		<div class="relative aspect-[3/4] overflow-hidden bg-charcoal rounded-none">
+		<div class="relative aspect-[3/4] overflow-hidden rounded-none bg-charcoal">
 			<!-- Primary Image -->
 			<img
 				src={product.primaryImage}
 				alt={product.name}
-				class="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
+				class="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
 			/>
 
 			<!-- Hover Image -->
@@ -37,15 +37,21 @@
 			{#if product.availableCount !== undefined}
 				<div class="absolute top-2 left-2 z-10">
 					{#if product.availableCount === 0 && !product.allowBackorder}
-						<span class="bg-charcoal text-ash border border-ash/30 font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5">
+						<span
+							class="border border-ash/30 bg-charcoal px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
+						>
 							SOLD OUT
 						</span>
 					{:else if product.availableCount > 0 && product.availableCount <= (product.lowStockThreshold || 5)}
-						<span class="bg-volt text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5">
+						<span
+							class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+						>
 							LOW STOCK
 						</span>
 					{:else if product.isNewArrival}
-						<span class="bg-bone text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5">
+						<span
+							class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+						>
 							NEW
 						</span>
 					{/if}
@@ -54,13 +60,13 @@
 				<div class="absolute top-2 left-2 z-10">
 					{#if product.badge === 'SOLD OUT'}
 						<span
-							class="bg-charcoal text-ash border border-ash/30 font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5"
+							class="border border-ash/30 bg-charcoal px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
 						>
 							{product.badge}
 						</span>
 					{:else}
 						<span
-							class="bg-volt text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5"
+							class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
 						>
 							{product.badge}
 						</span>
@@ -70,7 +76,7 @@
 
 			<!-- Wishlist Heart -->
 			<button
-				class="absolute top-2 right-2 w-8 h-8 flex items-center justify-center z-10 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200"
+				class="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center transition-opacity duration-200 md:opacity-0 md:group-hover:opacity-100"
 				onclick={toggleWishlist}
 				aria-label="Add to wishlist"
 			>
@@ -94,9 +100,9 @@
 		</div>
 
 		<!-- Info below image -->
-		<div class="pt-2 flex flex-col gap-1">
+		<div class="flex flex-col gap-1 pt-2">
 			<h3
-				class="font-sans text-sm font-medium text-bone leading-snug group-hover:underline decoration-volt underline-offset-4"
+				class="font-sans text-sm leading-snug font-medium text-bone decoration-volt underline-offset-4 group-hover:underline"
 			>
 				{product.name}
 			</h3>
@@ -111,10 +117,10 @@
 
 			<!-- Color swatches -->
 			{#if product.colorSwatches && product.colorSwatches.length > 0}
-				<div class="flex gap-1.5 mt-1">
+				<div class="mt-1 flex gap-1.5">
 					{#each product.colorSwatches as swatch}
 						<div
-							class="w-3 h-3 rounded-full border border-ash/20"
+							class="h-3 w-3 rounded-full border border-ash/20"
 							style="background-color: {swatch.hex}"
 							title={swatch.name}
 						></div>

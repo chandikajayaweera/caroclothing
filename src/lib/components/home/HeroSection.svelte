@@ -23,7 +23,7 @@
 			cta: { label: 'Notify Me', href: '/drops/drop-002' },
 			image: '/images/hero.png'
 		},
-		'default': {
+		default: {
 			tag: 'NEW IN',
 			headline: ['WEAR THE', 'NEXT', 'GENERATION'],
 			subline: 'New arrivals. Limited stock.',
@@ -47,14 +47,14 @@
 </script>
 
 <section
-	class="hero-container relative h-[calc(100svh-60px-env(safe-area-inset-bottom))] md:h-screen md:min-h-screen flex flex-col justify-end overflow-hidden"
+	class="hero-container relative flex h-[calc(100svh-60px-env(safe-area-inset-bottom))] flex-col justify-end overflow-hidden md:h-screen md:min-h-screen"
 	style="--scroll-y: {scrollY}"
 >
 	<!-- Background -->
 	<img
 		src={hero.image}
 		alt="Hero"
-		class="hero-image absolute inset-0 w-full h-full object-cover object-top"
+		class="hero-image absolute inset-0 h-full w-full object-cover object-top"
 	/>
 
 	<!-- Gradient overlay -->
@@ -62,21 +62,27 @@
 
 	<!-- Content -->
 	<div class="relative z-10 px-5 pb-10 md:px-10 md:pb-16 lg:px-16 lg:pb-20">
-		<span class="font-mono text-[10px] text-volt uppercase tracking-[0.2em] mb-4 block">
+		<span class="mb-4 block font-mono text-[10px] tracking-[0.2em] text-volt uppercase">
 			{hero.tag}
 		</span>
 
-		<h1 class="font-display text-[56px] md:text-[100px] lg:text-[140px] leading-[0.88] lg:leading-[0.85] text-bone uppercase">
+		<h1
+			class="font-display text-[56px] leading-[0.88] text-bone uppercase md:text-[100px] lg:text-[140px] lg:leading-[0.85]"
+		>
 			{#each hero.headline as line, i}
 				<span class="block {i === 1 && mode === 'default' ? 'text-volt' : ''}">{line}</span>
 			{/each}
 		</h1>
 
-		<p class="font-mono text-[10px] md:text-xs text-ash mt-4 max-w-xs uppercase tracking-widest">
+		<p class="mt-4 max-w-xs font-mono text-[10px] tracking-widest text-ash uppercase md:text-xs">
 			{hero.subline}
 		</p>
 
-		<Button variant="primary" href={hero.cta.href} class="mt-8 px-10 py-4 bg-volt text-void hover:bg-bone">
+		<Button
+			variant="primary"
+			href={hero.cta.href}
+			class="mt-8 bg-volt px-10 py-4 text-void hover:bg-bone"
+		>
 			{hero.cta.label}
 		</Button>
 	</div>

@@ -29,7 +29,11 @@
 		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
 		"TEXT_LK_SENDER_ID": "Caro OTP"
 	},
-	"send_email": [{ "name": "EMAIL" }],
+	"send_email": [
+		{
+			"name": "EMAIL"
+		}
+	],
 	"workers_dev": true,
 	"preview_urls": true,
 	"r2_buckets": [
@@ -57,10 +61,11 @@
 	"kv_namespaces": [
 		{
 			"binding": "OTP_COOLDOWNS",
-			"id": "PRODUCTION_KV_ID",
-			"preview_id": "PRODUCTION_PREVIEW_ID"
+			"id": "cb6cbaf325f94158a158aea9f2c8419f",
+			"remote": true
 		}
 	],
+
 	"env": {
 		"staging": {
 			"name": "caroclothing-staging",
@@ -102,8 +107,8 @@
 			"kv_namespaces": [
 				{
 					"binding": "OTP_COOLDOWNS",
-					"id": "STAGING_KV_ID",
-					"preview_id": "STAGING_PREVIEW_ID"
+					"id": "10d476d152a24c1da652332c5f26912c",
+					"remote": true
 				}
 			]
 		}

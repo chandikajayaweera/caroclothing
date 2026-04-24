@@ -21,25 +21,27 @@
 	}
 </script>
 
-<div class="flex gap-4 items-start">
-	<img src={item.image} alt={item.name} class="w-16 h-20 object-cover flex-shrink-0" />
-	<div class="flex-1 flex flex-col min-w-0">
-		<div class="flex justify-between items-start">
-			<span class="font-sans text-sm font-medium text-bone truncate">{item.name}</span>
-			<button class="font-mono text-xs text-ash/50 hover:text-volt ml-2" onclick={removeItem}>
+<div class="flex items-start gap-4">
+	<img src={item.image} alt={item.name} class="h-20 w-16 flex-shrink-0 object-cover" />
+	<div class="flex min-w-0 flex-1 flex-col">
+		<div class="flex items-start justify-between">
+			<span class="truncate font-sans text-sm font-medium text-bone">{item.name}</span>
+			<button class="ml-2 font-mono text-xs text-ash/50 hover:text-volt" onclick={removeItem}>
 				×
 			</button>
 		</div>
 		<span class="font-mono text-[10px] text-ash uppercase">{item.size} · {item.color}</span>
 		<span class="font-mono text-[9px] text-ash/50">{item.sku}</span>
-		
-		<div class="flex justify-between items-center mt-2">
+
+		<div class="mt-2 flex items-center justify-between">
 			<div class="flex items-center gap-2 font-mono text-sm">
 				<button class="hover:text-volt" onclick={() => updateQuantity(-1)}>[−]</button>
 				<span>{item.quantity}</span>
 				<button class="hover:text-volt" onclick={() => updateQuantity(1)}>[+]</button>
 			</div>
-			<span class="font-mono text-sm text-bone">LKR {(item.unitPrice * item.quantity).toLocaleString()}</span>
+			<span class="font-mono text-sm text-bone"
+				>LKR {(item.unitPrice * item.quantity).toLocaleString()}</span
+			>
 		</div>
 	</div>
 </div>
