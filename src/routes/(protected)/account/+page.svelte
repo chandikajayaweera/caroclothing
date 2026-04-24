@@ -1,12 +1,8 @@
 <script lang="ts">
 	import Button from '$lib/components/ui/Button.svelte';
+	import { authClient } from '$lib/client/modules/auth';
 
-	const user = {
-		name: 'Kasun Mendis',
-		phone: '+94 77 123 4567',
-		email: 'kasun@example.com',
-		joinedAt: 'November 2026'
-	};
+	const session = authClient.useSession();
 </script>
 
 <svelte:head>
@@ -21,7 +17,7 @@
 			<div class="flex flex-col gap-1.5">
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Full Name</span>
 				<div class="flex items-center gap-4">
-					<span class="font-sans text-sm text-bone">{user.name}</span>
+					<span class="font-sans text-sm text-bone">{$session.data?.user.name}</span>
 					<button class="font-mono text-[9px] tracking-widest text-volt uppercase hover:underline"
 						>Edit</button
 					>
@@ -30,7 +26,7 @@
 			<div class="flex flex-col gap-1.5">
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Phone Number</span>
 				<div class="flex items-center gap-4">
-					<span class="font-mono text-sm text-bone">{user.phone}</span>
+					<span class="font-mono text-sm text-bone">{$session.data?.user.phoneNumber}</span>
 					<div class="bg-volt/10 px-1.5 py-0.5 font-mono text-[8px] text-volt uppercase">
 						Verified
 					</div>
@@ -40,7 +36,7 @@
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Email Address</span
 				>
 				<div class="flex items-center gap-4">
-					<span class="font-sans text-sm text-bone">{user.email}</span>
+					<span class="font-sans text-sm text-bone">{$session.data?.user.email}</span>
 					<button class="font-mono text-[9px] tracking-widest text-volt uppercase hover:underline"
 						>Edit</button
 					>
@@ -48,7 +44,9 @@
 			</div>
 			<div class="flex flex-col gap-1.5">
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Member Since</span>
-				<span class="font-mono text-sm text-bone uppercase">{user.joinedAt}</span>
+				<span class="font-mono text-sm text-bone uppercase"
+					>{$session.data?.user.createdAt.toLocaleDateString()}</span
+				>
 			</div>
 		</div>
 	</section>

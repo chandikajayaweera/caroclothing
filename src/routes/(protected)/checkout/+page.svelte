@@ -51,7 +51,9 @@
 						<div class="animate-fade-in flex flex-col gap-6">
 							<div class="grid grid-cols-1 gap-8 md:grid-cols-2">
 								<div class="flex flex-col gap-2">
-									<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+									<label
+										for="phone-number"
+										class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 										>Phone Number (OTP)</label
 									>
 									<div
@@ -66,7 +68,9 @@
 									</div>
 								</div>
 								<div class="flex flex-col gap-2">
-									<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+									<label
+										for="email"
+										class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 										>Email (Optional)</label
 									>
 									<input
@@ -108,7 +112,9 @@
 					{#if currentStep === 2}
 						<div class="animate-fade-in grid grid-cols-1 gap-8 md:grid-cols-2">
 							<div class="flex flex-col gap-2">
-								<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+								<label
+									for="recipient-name"
+									class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 									>Recipient Name</label
 								>
 								<input
@@ -118,8 +124,9 @@
 								/>
 							</div>
 							<div class="flex flex-col gap-2">
-								<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-									>District</label
+								<label
+									for="district"
+									class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">District</label
 								>
 								<select
 									class="border-b border-charcoal bg-transparent py-3 font-mono text-sm text-bone outline-none focus:border-volt"
@@ -131,7 +138,9 @@
 								</select>
 							</div>
 							<div class="flex flex-col gap-2 md:col-span-2">
-								<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+								<label
+									for="shipping-address"
+									class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 									>Shipping Address</label
 								>
 								<input
@@ -141,7 +150,9 @@
 								/>
 							</div>
 							<div class="flex flex-col gap-2">
-								<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">City</label>
+								<label for="city" class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+									>City</label
+								>
 								<input
 									type="text"
 									placeholder="COLOMBO"
@@ -149,7 +160,9 @@
 								/>
 							</div>
 							<div class="flex flex-col gap-2">
-								<label class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+								<label
+									for="postal-code"
+									class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 									>Postal Code (Optional)</label
 								>
 								<input

@@ -29,13 +29,18 @@
 	let resendCooldown = $state(0);
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 
-	function startResendCooldown(seconds = Number(env.PUBLIC_OTP_COOLDOWN_SECONDS)) {
+	function startResendCooldown() {
+		const seconds = Number(env.PUBLIC_OTP_COOLDOWN_SECONDS) || 30;
 		resendCooldown = seconds;
+		if (cooldownTimer) clearInterval(cooldownTimer);
 		cooldownTimer = setInterval(() => {
 			resendCooldown -= 1;
 			if (resendCooldown <= 0) {
 				resendCooldown = 0;
-				if (cooldownTimer) clearInterval(cooldownTimer);
+				if (cooldownTimer) {
+					clearInterval(cooldownTimer);
+					cooldownTimer = null;
+				}
 			}
 		}, 1000);
 	}
@@ -99,7 +104,7 @@
 				return;
 			}
 			otpCode = '';
-			startResendCooldown(30);
+			startResendCooldown();
 			view = 'otp';
 		} catch (e) {
 			error = parseUnknownError(e);
@@ -127,6 +132,11 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	function handleOtpInput(e: Event) {
+		const value = (e.target as HTMLInputElement).value;
+		if (value.length === 6) handleVerifyOtp();
 	}
 
 	async function handleSaveName() {
@@ -299,7 +309,7 @@
 							maxlength="6"
 							placeholder="••••••"
 							bind:value={otpCode}
-							oninput={() => otpCode.length === 6 && handleVerifyOtp()}
+							oninput={handleOtpInput}
 							class="w-full border-none bg-transparent p-0 text-center font-mono text-5xl tracking-[0.3em] text-bone placeholder:text-charcoal focus:ring-0"
 						/>
 					</div>
