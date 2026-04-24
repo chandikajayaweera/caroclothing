@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
+import { APIError } from 'better-auth/api';
 
 import { getEnv } from '$lib/server/modules/env';
 import { getClientEnv } from '$lib/client/modules/env';
@@ -90,18 +91,41 @@ export function getAuth(): Auth {
 				},
 
 				async sendOTP({ phoneNumber, code }) {
-					const cooldown = await reserveOtpCooldown(phoneNumber);
+					let cooldown;
+					try {
+						cooldown = await reserveOtpCooldown(phoneNumber);
+					} catch (error) {
+						if (error instanceof Error && error.name === 'OtpRateLimitError') {
+							throw new APIError('TOO_MANY_REQUESTS', {
+								message: error.message
+							});
+						}
+						throw error;
+					}
 
 					try {
 						const result = await sendOtpSms(phoneNumber, code);
 
 						if (!result.ok) {
-							throw new Error(`[auth] Failed to send OTP to ${phoneNumber}: ${result.error}`);
+							throw new APIError('INTERNAL_SERVER_ERROR', {
+								message: `[auth] Failed to send OTP to ${phoneNumber}: ${result.error}`
+							});
 						}
 					} catch (error) {
 						// rollback cooldown on failure
-						await cooldown.kv.delete(cooldown.key);
-						throw error;
+						try {
+							await cooldown.kv.delete(cooldown.key);
+						} catch (rollbackError) {
+							console.error(`[auth] Failed to rollback OTP cooldown for ${phoneNumber}:`, rollbackError);
+						}
+
+						if (error instanceof APIError) {
+							throw error;
+						}
+
+						throw new APIError('INTERNAL_SERVER_ERROR', {
+							message: error instanceof Error ? error.message : 'Unknown error during OTP send'
+						});
 					}
 				}
 			}),

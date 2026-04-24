@@ -9,6 +9,6 @@ export async function sendOtpSms(phoneNumber: string, code: string): Promise<Sms
 	const clientEnv = getClientEnv();
 	return sendSms({
 		to: phoneNumber,
-		message: `Your ${clientEnv.PUBLIC_APP_NAME} verification code is: ${code}\n\nValid for 10 minutes. Do not share this code with anyone.`
+		message: `${clientEnv.PUBLIC_APP_NAME} code: ${code}\nValid for 10m. Don't share.`
 	});
 }

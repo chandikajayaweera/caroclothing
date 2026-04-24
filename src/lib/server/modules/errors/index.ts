@@ -115,8 +115,11 @@ export class AppError extends Error {
 		public readonly details?: Record<string, unknown>
 	) {
 		super(message);
-		this.name = 'AppError';
-		Object.setPrototypeOf(this, AppError.prototype);
+		
+		// Idiomatic pattern for subclassing Error in modern TypeScript.
+		// Ensures proper prototype chain and dynamic class naming for instanceof.
+		this.name = new.target.name;
+		Object.setPrototypeOf(this, new.target.prototype);
 	}
 
 	toJSON(): Record<string, unknown> {
@@ -138,8 +141,6 @@ export class AppError extends Error {
 export class ProductError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 400, details);
-		this.name = 'ProductError';
-		Object.setPrototypeOf(this, ProductError.prototype);
 	}
 }
 
@@ -152,8 +153,6 @@ export class ProductError extends AppError {
 export class CartError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 400, details);
-		this.name = 'CartError';
-		Object.setPrototypeOf(this, CartError.prototype);
 	}
 }
 
@@ -161,8 +160,6 @@ export class CartError extends AppError {
 export class OrderError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 400, details);
-		this.name = 'OrderError';
-		Object.setPrototypeOf(this, OrderError.prototype);
 	}
 }
 
@@ -170,8 +167,6 @@ export class OrderError extends AppError {
 export class PaymentError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 402, details);
-		this.name = 'PaymentError';
-		Object.setPrototypeOf(this, PaymentError.prototype);
 	}
 }
 
@@ -179,8 +174,6 @@ export class PaymentError extends AppError {
 export class ShippingError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 400, details);
-		this.name = 'ShippingError';
-		Object.setPrototypeOf(this, ShippingError.prototype);
 	}
 }
 
@@ -188,8 +181,6 @@ export class ShippingError extends AppError {
 export class PromotionError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 400, details);
-		this.name = 'PromotionError';
-		Object.setPrototypeOf(this, PromotionError.prototype);
 	}
 }
 
@@ -197,8 +188,6 @@ export class PromotionError extends AppError {
 export class ReturnError extends AppError {
 	constructor(message: string, code: ErrorCode, details?: Record<string, unknown>) {
 		super(message, code, 400, details);
-		this.name = 'ReturnError';
-		Object.setPrototypeOf(this, ReturnError.prototype);
 	}
 }
 
@@ -217,8 +206,6 @@ export class AuthError extends AppError {
 		details?: Record<string, unknown>
 	) {
 		super(message, code, statusCode, details);
-		this.name = 'AuthError';
-		Object.setPrototypeOf(this, AuthError.prototype);
 	}
 }
 
@@ -258,7 +245,5 @@ export class OtpRateLimitError extends AuthError {
 			429, // HTTP Too Many Requests
 			details
 		);
-		this.name = 'OtpRateLimitError';
-		Object.setPrototypeOf(this, OtpRateLimitError.prototype);
 	}
 }

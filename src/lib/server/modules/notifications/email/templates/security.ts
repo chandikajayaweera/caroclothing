@@ -19,22 +19,22 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
 	const EVENT_COPY: Record<SecurityEventType, { subject: string; headline: string; body: string }> =
 		{
 			new_login: {
-				subject: `New sign-in to your ${clientEnv.PUBLIC_APP_NAME} account`,
+				subject: `Security: New sign-in detected`,
 				headline: 'New sign-in detected',
 				body: 'We noticed a new sign-in to your account. If this was you, no action is needed.'
 			},
 			password_changed: {
-				subject: `Your ${clientEnv.PUBLIC_APP_NAME} password was changed`,
+				subject: `Security: Password changed`,
 				headline: 'Password changed',
 				body: 'Your account password was successfully changed.'
 			},
 			email_changed: {
-				subject: `Your ${clientEnv.PUBLIC_APP_NAME} email address was updated`,
-				headline: 'Email address updated',
+				subject: `Security: Email updated`,
+				headline: 'Email updated',
 				body: 'The email address on your account has been changed.'
 			},
 			account_linked: {
-				subject: `Account linked – ${clientEnv.PUBLIC_APP_NAME}`,
+				subject: `Security: Account linked`,
 				headline: 'Account linked',
 				body: 'A sign-in method has been linked to your account.'
 			}
@@ -45,23 +45,26 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
 	const detailsHtml =
 		input.deviceInfo || input.ipAddress
 			? `
-        <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px;color:#374151;">
-          ${input.deviceInfo ? `<tr><td style="padding:6px 0;color:#6B7280;width:110px;">Device</td><td>${input.deviceInfo}</td></tr>` : ''}
-          ${input.ipAddress ? `<tr><td style="padding:6px 0;color:#6B7280;">IP Address</td><td>${input.ipAddress}</td></tr>` : ''}
+        <table style="width:100%;border-collapse:collapse;margin:24px 0;font-size:13px;color:#0A0A0A;font-family:'Space Mono',monospace;text-transform:uppercase;">
+          ${input.deviceInfo ? `<tr><td style="padding:8px 0;opacity:0.6;width:120px;">Device</td><td style="padding:8px 0;">${input.deviceInfo}</td></tr>` : ''}
+          ${input.ipAddress ? `<tr><td style="padding:8px 0;opacity:0.6;">IP Address</td><td style="padding:8px 0;">${input.ipAddress}</td></tr>` : ''}
         </table>
       `
 			: '';
 
 	const content = `
-    <h2 style="margin:0 0 12px;font-size:18px;font-weight:700;color:#111827;">${copy.headline}</h2>
-    <p style="margin:0 0 4px;font-size:15px;color:#374151;">${copy.body}</p>
+    <h2 style="margin:0 0 16px;font-size:24px;font-weight:900;color:#0A0A0A;text-transform:uppercase;letter-spacing:-0.5px;">${copy.headline}</h2>
+    <p style="margin:0 0 8px;font-size:16px;color:#0A0A0A;line-height:1.5;">${copy.body}</p>
     ${detailsHtml}
-    <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px;margin-top:16px;">
-      <p style="margin:0;font-size:13px;color:#B91C1C;font-weight:500;">
-        If this wasn't you, please
-        <a href="${clientEnv.PUBLIC_APP_URL}/account/security" style="color:#B91C1C;text-decoration:underline;">secure your account</a>
-        immediately or contact our support team.
+    
+    <div style="background:#0A0A0A;padding:24px;margin-top:32px;border:1px solid #0A0A0A;">
+      <p style="margin:0 0 16px;font-size:14px;color:#F8F5F0;font-weight:500;">
+        If this wasn't you, secure your account immediately.
       </p>
+      <a href="${clientEnv.PUBLIC_APP_URL}/account/security" 
+         style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:12px 24px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1px;">
+        Secure Account
+      </a>
     </div>
   `;
 

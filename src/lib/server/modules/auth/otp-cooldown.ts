@@ -1,6 +1,6 @@
 import { getRequestEvent } from '$app/server';
 import { getClientEnv } from '$lib/client/modules/env';
-import { OtpRateLimitError } from '$lib/server/modules/errors';
+import { OtpRateLimitError, AuthError, ErrorCode } from '$lib/server/modules/errors';
 
 const OTP_COOLDOWN_PREFIX = 'otp:cooldown:';
 
@@ -8,7 +8,7 @@ function normalizePhoneNumber(phoneNumber: string): string {
 	const digits = phoneNumber.replace(/\D/g, '');
 
 	if (digits.length < 8 || digits.length > 15) {
-		throw new Error('[auth] Invalid phone number format');
+		throw new AuthError('Invalid phone number format', ErrorCode.VALIDATION_ERROR, 400);
 	}
 
 	return `+${digits}`;
@@ -20,7 +20,11 @@ export async function reserveOtpCooldown(phoneNumber: string) {
 	const event = getRequestEvent();
 
 	if (!event?.platform?.env?.OTP_COOLDOWNS) {
-		throw new Error('[auth] OTP_COOLDOWNS KV namespace is not configured');
+		throw new AuthError(
+			'OTP_COOLDOWNS KV namespace is not configured',
+			ErrorCode.INTERNAL_ERROR,
+			500
+		);
 	}
 
 	const kv = event.platform.env.OTP_COOLDOWNS;
