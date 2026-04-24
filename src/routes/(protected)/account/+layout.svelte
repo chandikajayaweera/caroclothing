@@ -16,6 +16,8 @@
 		await authClient.signOut();
 		goto('/', { invalidateAll: true });
 	}
+
+	const session = authClient.useSession();
 </script>
 
 <div class="min-h-screen bg-void md:pt-[60px] lg:pt-16">
@@ -23,7 +25,7 @@
 	<div class="lg:hidden">
 		<div class="flex flex-col gap-1 px-4 pt-6 pb-4">
 			<span class="font-mono text-[9px] tracking-[0.2em] text-ash/40 uppercase">Account</span>
-			<h1 class="font-display text-3xl text-bone uppercase">Kasun Mendis</h1>
+			<h1 class="font-display text-3xl text-bone uppercase">{$session.data?.user.name}</h1>
 		</div>
 		<div class="no-scrollbar flex overflow-x-auto border-b border-charcoal">
 			{#each navLinks as link}
@@ -43,7 +45,7 @@
 		<aside class="hidden flex-col border-r border-charcoal bg-charcoal/30 px-6 py-10 lg:flex">
 			<div class="mb-10">
 				<span class="font-mono text-[9px] tracking-[0.2em] text-ash/40 uppercase">Account</span>
-				<h1 class="mt-1 font-display text-4xl text-bone uppercase">Kasun Mendis</h1>
+				<h1 class="mt-1 font-display text-4xl text-bone uppercase">{$session.data?.user.name}</h1>
 			</div>
 
 			<nav class="flex flex-col gap-1">
