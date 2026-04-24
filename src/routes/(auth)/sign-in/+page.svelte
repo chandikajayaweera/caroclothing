@@ -148,6 +148,11 @@
 	}
 </script>
 
+<svelte:head>
+	<title>Sign In | Caro Clothing</title>
+	<meta name="description" content="Sign in to your Caro Clothing account" />
+</svelte:head>
+
 <div class="relative grid min-h-screen overflow-hidden bg-void md:grid-cols-2">
 	<!-- Left Side: Editorial Image -->
 	<div class="relative hidden overflow-hidden border-r border-charcoal md:block">

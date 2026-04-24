@@ -1,54 +1,123 @@
 # Flow Design Reference
 
-Detailed decision trees and flow diagrams for all major user journeys.
+Detailed decision trees for all major user journeys. These are described in terms of **user intent and data**, not specific routes — routes can change; intent and data contracts don't.
 
 ---
 
 ## Shopping Flow
 
+### Discovery
+
 ```
-Homepage
-├── Hero (current drop / featured campaign)
-│   └── [Shop the Drop] → PLP filtered to isNewArrival=true
-├── New In grid → PLP (isNewArrival=true)
-└── Nav → PLP (all / men / women)
+Entry Points
+├── Homepage hero → active drop page or campaign
+├── "New In" (isNewArrival = true AND isActive = true) → catalog filtered
+├── Gender-filtered catalog (men / women / unisex)
+├── "Shop All" → full active catalog
+└── Drops section → drop listing (all statuses except archived)
 
-PLP
-├── Filters: Gender toggle | Fit chips
-├── Sort: New / Featured / Price
-├── Product card → PDP
-│   ├── Hover: alternate image (back shot)
-│   └── Quick-add (if single variant) [optional, advanced]
-└── Load more / paginate (not infinite scroll — intentional)
+Catalog (Product Listing)
+├── Filters: Gender toggle | Fit chips | (optional) Tier toggle (Drop / Core)
+├── Sort: Newest → Featured → Price asc/desc (default: newest)
+├── Product cards show:
+│   ├── Primary image (hover: back/alt image)
+│   ├── Name, price in LKR, struck-through compare price
+│   ├── Color swatches (colorHex)
+│   └── Stock badge (Volt): LOW STOCK / ALMOST GONE / SOLD OUT / PRE-ORDER
+└── Tap/click → Product Detail Page
+```
 
-PDP
-├── Image gallery (swipeable mobile, grid desktop)
+### Product Detail Page
+
+```
+Product Detail (tier-aware)
+├── Image gallery: swipeable mobile, grid desktop
 ├── Product name (Bebas Neue, large)
-├── Price (Space Mono, LKR)
-│   └── compareAtPrice struck through if set
-├── Color selector → swaps images to variant images
-├── Size selector
+├── Price (Space Mono, LKR) — compareAtPrice struck through if set
+│   └── Drop tier: show price only when drop.status = 'live' or 'sold_out'
+├── Tier-specific header signal:
+│   ├── tier = 'drop', drop.status = 'live' → "DROP [name] — LIVE NOW" + Volt dot
+│   └── tier = 'core' → no drop signal; consistent availability implied
+├── Color selector → swaps images to variant-specific images
+├── Size selector (availability per variant):
 │   ├── Available → selectable
-│   ├── OOS (allowBackorder=false) → grayed, not selectable
-│   └── Backorder (allowBackorder=true) → selectable, "Pre-Order" label
-├── Stock signal (Volt badge)
-│   ├── qty-reserved > lowStockThreshold → none
+│   ├── OOS (allowBackorder = false) → grayed, disabled
+│   └── Backorder (allowBackorder = true) → selectable, "Pre-Order" label
+├── Stock signal (Volt badge):
+│   ├── qty-reserved > lowStockThreshold → no badge
 │   ├── 0 < qty-reserved ≤ lowStockThreshold → "LOW STOCK"
-│   ├── qty-reserved = 1 or 2 → "ALMOST GONE"
-│   └── qty-reserved = 0, allowBackorder=false → "SOLD OUT" (disable Add to Cart)
-├── [Add to Cart] / [Pre-Order] / [Sold Out — disabled]
-├── [Add to Wishlist] (heart icon, top right of images)
-├── Product details accordion
-│   ├── Description (DM Sans)
-│   ├── Material & Care
-│   └── Shipping (district-based estimate lookup)
-└── Reviews section
-    ├── Rating summary (stars + count)
-    ├── Review cards (approved only)
-    │   ├── Verified badge if isVerifiedPurchase
-    │   ├── Photo/video strip if reviewMedia exists
-    │   └── Rating + title + body
-    └── [Write a Review] (auth required, purchased product preferred)
+│   ├── qty-reserved ≤ 2 → "ALMOST GONE"
+│   └── qty-reserved = 0, allowBackorder = false → "SOLD OUT" (disable Add to Cart)
+├── CTA:
+│   ├── In stock → [Add to Cart]
+│   ├── Backorder → [Pre-Order]
+│   └── Sold out → [Sold Out — disabled] (keep visible as cultural proof)
+├── [Save to Wishlist] (heart icon, always visible on mobile)
+├── Product detail accordion: Description | Material & Care | Fit & Sizing
+├── Shipping estimate (district-based — show after user selects or based on geo)
+└── Reviews section (only isApproved = true reviews displayed)
+    ├── Rating summary (stars + count) — only show if count > 0
+    ├── Review cards: rating + verified badge (if isVerifiedPurchase) + title + body + media
+    └── [Write a Review] — auth required; ideally purchased the product
+```
+
+---
+
+## Drop Launch Flow
+
+This is the full ritual for a Drop Collection product. Core Essentials never follow this flow.
+
+```
+Phase 1: TEASER (drop.status = 'teaser')
+├── Drop page shows:
+│   ├── drop.name + drop.tagline
+│   ├── Hero image: silhouette or campaign visual (not full product reveal)
+│   ├── Countdown timer from drop.launchAt
+│   │   └── launchAt = null → show "Coming Soon" not a timer
+│   └── [Notify Me] CTA → dropWaitlist entry
+│       ├── Accepts phone (E.164) or email → contactType set accordingly
+│       ├── Guest: stores contact only (userId = null)
+│       └── Authenticated: stores contact + userId
+├── Homepage hero: switches to drop teaser visual
+├── Drop products NOT purchasable in this phase
+│   └── Product pages for drop-tier items in teaser drops show preview only
+└── Admin can update drop.heroImageR2Key and drop.tagline at any time
+
+Phase 2: LIVE (drop.status = 'live')
+├── Admin (or cron job at launchAt) transitions status: teaser → live
+├── Batch notification job fires:
+│   ├── Query: dropWaitlist WHERE drop_id = X AND notified_at IS NULL
+│   ├── Phone contacts → SMS via text.lk
+│   ├── Email contacts → Resend
+│   └── Set notified_at = NOW for each sent
+├── Homepage hero: switches to full product hero (uses isHero product's primary image)
+├── Drop products become purchasable
+│   ├── isNewArrival = true, isFeatured = true set on linked products
+│   └── Full PDP live with live stock signals
+└── Cart reservations begin (reservedQuantity increments on add-to-cart)
+
+Phase 3: During Drop (still 'live')
+├── Live stock signals on PDP and catalog cards:
+│   ├── Volt LOW STOCK badge at threshold
+│   ├── "Only X left" count when ≤ threshold
+│   └── ALMOST GONE when ≤ 2 units
+├── Sold-out variants → grayed out in size selector
+└── If all variants OOS:
+    ├── allowBackorder = true → show [Pre-Order] CTA
+    └── allowBackorder = false → show [Sold Out] + waitlist capture for next drop
+
+Phase 4: SOLD OUT (drop.status = 'sold_out')
+├── Admin (or automated check) transitions: live → sold_out
+├── Drop page: "Sold Out" heading + date + thank you line
+├── All linked product PDPs: SOLD OUT state (products remain visible)
+│   └── This is a cultural milestone — "DROP 001 SOLD OUT IN 4 HOURS"
+├── Homepage hero: transitions to next drop teaser (or editorial fallback)
+└── Document and post the sold-out story within 48 hours
+
+Phase 5: ARCHIVED (drop.status = 'archived')
+├── Manual admin action
+├── Drop page still accessible and indexed (historical proof)
+└── Products remain in catalog with SOLD OUT badge
 ```
 
 ---
@@ -57,150 +126,118 @@ PDP
 
 ### Entry Points
 
-- Cart icon in nav → Cart drawer or Cart page
-- "Add to Cart" on PDP → Cart drawer appears
+- Cart icon → Cart drawer (desktop) or Cart page
+- "Add to Cart" on product page → Cart drawer opens
 
-### Cart (Drawer or Page)
+### Cart
 
 ```
-Cart
-├── Item list
-│   ├── Image thumbnail
-│   ├── Name + Size + Color (Space Mono for metadata)
-│   ├── Price (locked unitPrice, LKR)
-│   ├── Quantity stepper (min 1, max 10)
-│   └── Remove
-├── Promo code field (inline, validates on blur/Enter)
+Cart (Drawer or Full Page)
+├── Item list:
+│   ├── Thumbnail, name, size, color (Space Mono for metadata)
+│   ├── Locked unit price in LKR
+│   │   └── If live price ≠ unitPrice → show "Price updated" warning (don't block)
+│   ├── Quantity stepper (min 1, max 10) — upsert on change, never duplicate rows
+│   └── Remove item
+├── Promo code field (inline, validates on blur or Enter)
 │   ├── Success: "CARO20 applied — LKR 500 off" (Volt text)
-│   ├── Error: direct message (see error library)
-│   └── Applied: show discount line, [Remove] link
-├── Free shipping progress bar (if subtotal < threshold)
-│   └── "Add LKR X more for free shipping"
-├── Subtotal / Discount / Shipping (TBD) / Total
-└── [Checkout] → Step 1
+│   └── Error: direct message (see micro-copy library in SKILL.md)
+├── Free shipping progress bar
+│   ├── subtotal < threshold → "Add LKR X more for free shipping"
+│   └── subtotal ≥ threshold → "Free shipping unlocked" (Volt)
+├── Subtotal / Discount / Shipping (TBD at checkout) / Total
+└── [Checkout] → Step 1: Contact
 ```
 
-### Checkout Steps
+### Checkout Steps (linear — no accordion)
 
 ```
 Step 1: Contact
-├── Guest: phone or email input
-├── Auth: pre-filled, read-only with [Change] link
-└── [Continue]
+├── Authenticated: pre-filled phone + email, read-only, [Change] link
+├── Guest:
+│   ├── Phone number input (+94 prefix, SL format)
+│   ├── Optional email
+│   └── Google One Tap overlay (if FedCM supported)
+└── [Continue] → Step 2
 
 Step 2: Delivery Address
-├── Auth user with saved addresses:
-│   ├── Address cards (select default pre-selected)
+├── Authenticated with saved addresses:
+│   ├── Address cards (default pre-selected)
 │   ├── [+ Add new address]
 │   └── [Continue]
-├── Auth user, no saved address:
-│   └── Address form (below)
-└── Guest:
-    └── Address form:
-        ├── Recipient name
-        ├── Phone (Sri Lankan format, +94 prefix displayed)
-        ├── Address Line 1 (required)
-        ├── Address Line 2 (optional)
-        ├── City (free text)
-        ├── District (dropdown, all 25 SL districts)
-        ├── Postal Code (optional)
-        └── [Continue]
+├── Authenticated with no saved addresses → address form (below)
+└── Guest → address form:
+    ├── Recipient name (required)
+    ├── Phone in SL format (required)
+    ├── Address Line 1 (required)
+    ├── Address Line 2 (optional)
+    ├── City (free text, required)
+    ├── District (enum, all 25 SL districts — required for shipping zone lookup)
+    ├── Postal Code (optional)
+    └── [Continue] → Step 3
 
 Step 3: Shipping Method
 ├── Query shippingZone(methodId, district) for available methods
-├── Radio cards:
-│   ├── Method name + carrier
-│   ├── Price (or "FREE" in Volt if threshold met)
+├── Radio cards per method:
+│   ├── Name + carrier
+│   ├── Price (or "FREE" in Volt if subtotal ≥ freeShippingThreshold)
 │   └── "Delivered in X–Y business days"
-└── [Continue]
+└── [Continue] → Step 4
 
 Step 4: Payment
-├── (Payment provider integration — scope TBD)
-└── [Place Order] → Order confirmation
+├── (Payment gateway integration — scope pending)
+└── [Place Order] → Order Confirmation
 
 Order Confirmation
-├── Order number (Space Mono, large)
-├── "We'll text you when it ships." (if phone collected)
-├── Order summary (items, address, shipping)
+├── Order number in Space Mono (large, prominent)
+├── "We'll text you when it ships." (if phone was captured)
+├── Order summary: items (from snapshot, not live prices), address, shipping method
 ├── [Continue Shopping]
-└── Guest: "Save your details for next time" prompt
-    └── [Create Account] (frictionless — phone already captured)
+└── Account creation prompt (guests only):
+    "Save your details for next time. Takes 10 seconds."
+    [Create Account] — phone already captured; only name needed
 ```
 
 ---
 
 ## Authentication Flow
 
-### Sign-In Page (Current Implementation)
-
 ```
-View: idle
-├── [Continue with Google] → Google OAuth → afterSignIn()
-└── [Continue with Phone] → View: phone
-
-View: phone
-├── +94 prefix + 9-digit input
-├── [Send Code] → OTP sent → View: otp
-└── [Back to main] → View: idle
-
-View: otp
-├── 6-digit code input (auto-submits on 6 digits)
-├── [Verify Account] → afterSignIn()
-├── [Wrong number] → View: phone
-└── [Resend code] (30s cooldown)
-
-afterSignIn():
-├── New user (created < 60s ago) → View: name-prompt
-└── Returning user → redirect to destination
+Sign-in Page
+├── View: idle
+│   ├── [Continue with Google] → Google OAuth → afterSignIn()
+│   └── [Phone Number] → View: phone
+│
+├── View: phone
+│   ├── +94 prefix + 9-digit local number input
+│   ├── [Send Code] → OTP dispatched → View: otp
+│   └── [Back] → View: idle
+│
+├── View: otp
+│   ├── 6-digit code input (auto-submits on 6 digits)
+│   ├── [Verify] → afterSignIn()
+│   ├── [Wrong number] → View: phone
+│   └── [Resend] (disabled during 30s cooldown enforced by KV)
+│
+└── afterSignIn()
+    ├── New user (created < 5 min ago) → View: name-prompt
+    └── Returning user → redirect to intended destination
 
 View: name-prompt
-├── Name input (optional)
+├── Optional name input
 ├── [Continue] → save name → redirect
-└── [Skip for now] → redirect
+└── [Skip] → redirect without saving name
 ```
 
-### Auth during Checkout
+### Auth During Checkout
 
 ```
-Checkout entry (guest)
+Checkout entry (guest path)
 ├── Google One Tap overlay (if FedCM supported)
-│   ├── Accepted → merge cart → continue as auth
+│   ├── Accepted → merge guest cart → continue as authenticated user
 │   └── Dismissed → continue as guest
-├── "Sign in for faster checkout" link (subtle, not blocking)
-└── Continue as guest → collect contact inline
-```
-
----
-
-## Drop Launch Flow
-
-```
-Pre-Drop (T-7 days to T-0)
-├── Homepage hero: product silhouette / campaign visual
-├── Countdown timer (honest — fixed date, never resets)
-├── [Notify Me] CTA
-│   ├── Guest: phone/email capture
-│   └── Auth: one-tap notify (phone already on file)
-└── Teaser PDP: name, campaign copy, "Coming [Day]"
-
-Drop Live (T-0)
-├── Push notification / SMS / email to notify list
-├── Homepage hero: switches to product hero
-├── isNewArrival=true, isFeatured=true set on products
-├── Full PDP live with live stock display
-└── Cart reservations begin (reservedQuantity increments)
-
-During Drop
-├── Live stock signals (LOW STOCK, ALMOST GONE)
-├── Sold-out variants → greyed out in size selector
-├── If all variants OOS:
-│   ├── allowBackorder=true → [Pre-Order] CTA
-│   └── allowBackorder=false → [Sold Out] + waitlist capture
-
-Post-Drop
-├── Sold-out products remain visible (social proof)
-├── "Sold Out" badge on product cards
-└── "Next drop" teaser in homepage hero slot
+├── "Sign in for faster checkout" — subtle link, never blocking
+└── Continue as guest → collect contact inline in Step 1
 ```
 
 ---
@@ -209,22 +246,32 @@ Post-Drop
 
 ```
 Account Dashboard
-├── Profile (name, phone, email, avatar)
-├── Orders
-│   ├── Order list (most recent first)
-│   └── Order detail
-│       ├── Status + tracking
-│       ├── Items (snapshot price, not live)
-│       ├── Shipping address (snapshot)
-│       └── [Write a Review] per item (if delivered)
-├── Addresses
-│   ├── Saved address cards (with labels)
-│   ├── Default badge
+├── Profile
+│   ├── Name (editable)
+│   ├── Phone (with Verified badge if phoneNumberVerified = true)
+│   ├── Email (editable if set)
+│   └── Member since date
+│
+├── Order History
+│   ├── List: order number, date, status, item count, total
+│   └── Order Detail:
+│       ├── Status + timeline (OrderStatusTimeline component)
+│       ├── Tracking info (trackingNumber, trackingCarrier, trackingUrl) when available
+│       ├── Items (from orderItem snapshot — name, sku, size, color, price at purchase)
+│       ├── Shipping address (from shippingAddressSnapshot)
+│       ├── Pricing breakdown (subtotal, discount, shipping, total)
+│       └── [Write a Review] per item (if order status = 'delivered')
+│
+├── Saved Addresses
+│   ├── Address cards with labels
+│   ├── Default badge (isDefault = true)
 │   ├── [Edit] / [Delete] / [Set as Default]
 │   └── [+ Add Address]
+│
 └── Wishlist
-    ├── Product cards with current stock status
-    ├── [Move to Cart] (if variant selected + in stock)
+    ├── Product cards with live stock status
+    ├── variantId = '' → "Choose your size" nudge
+    ├── [Move to Cart] (requires variant selected + in stock)
     └── [Remove]
 ```
 
@@ -232,12 +279,14 @@ Account Dashboard
 
 ## Error States
 
-| Scenario                           | UX Response                                                               |
-| ---------------------------------- | ------------------------------------------------------------------------- |
-| Cart item OOS at checkout          | Alert: "X is sold out. Remove it to continue." — block checkout           |
-| Price changed since add-to-cart    | Warning banner: "Price updated for [item]. [New price]." — don't block    |
-| Promo code expired                 | Inline: "Code expired." — clear discount, don't block                     |
-| Guest cart expired                 | Toast on return: "Your cart cleared. Start fresh." — not an error         |
-| Account banned                     | Page: "Account suspended. [Contact support]."                             |
-| Shipping not available to district | Show in shipping step: "We don't ship to [District] yet." (if applicable) |
-| Network error on add-to-cart       | Toast: "Didn't add. Try again." — keep item state                         |
+| Scenario                                      | UX Response                                                                                    |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Cart item OOS at checkout start               | "X is sold out. Remove it to continue." — block checkout until resolved                        |
+| Price changed since add-to-cart               | Warning banner: "Price updated for [item]." — don't block, but make it visible                 |
+| Promo code expired                            | Inline: "Code expired." — clear discount, don't block                                          |
+| Guest cart expired                            | Toast on return: "Your cart cleared. Start fresh." — not framed as an error                    |
+| Account banned                                | Page: "Account suspended. Contact support." — block all actions                                |
+| Drop accessed during teaser (before launchAt) | Show teaser state — countdown + notify-me. Never show purchasable product early.               |
+| All drop products OOS, no backorder           | "Sold Out" product state. Waitlist capture for next drop. Never hide — this is cultural proof. |
+| Network error on add-to-cart                  | Toast: "Didn't add. Try again." — preserve cart state                                          |
+| OTP rate limited                              | Show remaining cooldown in the resend button. "Resend (28s)" — never show a generic error      |

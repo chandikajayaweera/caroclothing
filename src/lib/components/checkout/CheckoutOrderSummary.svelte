@@ -8,43 +8,44 @@
 	const shipping = 450;
 </script>
 
-<aside class="bg-charcoal/20 p-4 lg:p-6 lg:sticky lg:top-6 h-fit border border-charcoal">
+<aside class="h-fit border border-charcoal bg-charcoal/20 p-4 lg:sticky lg:top-6 lg:p-6">
 	{#if isMobile}
 		<!-- Mobile Accordion -->
 		<button
-			class="w-full flex justify-between items-center py-2"
+			class="flex w-full items-center justify-between py-2"
 			onclick={() => (isExpanded = !isExpanded)}
 		>
-			<span class="font-mono text-xs text-bone uppercase tracking-widest">
+			<span class="font-mono text-xs tracking-widest text-bone uppercase">
 				Order Summary {isExpanded ? '−' : '+'}
 			</span>
-			<span class="font-mono text-sm text-bone font-bold">
+			<span class="font-mono text-sm font-bold text-bone">
 				LKR {($subtotal + shipping).toLocaleString()}
 			</span>
 		</button>
 	{:else}
-		<h2 class="font-mono text-xs text-bone uppercase tracking-[0.2em] mb-6">Order Summary</h2>
+		<h2 class="mb-6 font-mono text-xs tracking-[0.2em] text-bone uppercase">Order Summary</h2>
 	{/if}
 
 	{#if !isMobile || isExpanded}
-		<div class="flex flex-col gap-4 mt-4" transition:slide>
+		<div class="mt-4 flex flex-col gap-4" transition:slide>
 			<!-- Item list -->
 			<div class="flex flex-col gap-3">
 				{#each $cartStore.items as item}
 					<div class="flex gap-3">
-						<div class="relative w-12 h-16 overflow-hidden flex-shrink-0">
-							<img src={item.image} alt={item.name} class="w-full h-full object-cover" />
+						<div class="relative h-16 w-12 shrink-0 overflow-hidden">
+							<img src={item.image} alt={item.name} class="h-full w-full object-cover" />
 							<div
-								class="absolute -top-1.5 -right-1.5 bg-bone text-void font-mono text-[8px] w-4 h-4 rounded-full flex items-center justify-center"
+								class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bone font-mono text-[8px] text-void"
 							>
 								{item.quantity}
 							</div>
 						</div>
-						<div class="flex-1 flex flex-col justify-center min-w-0">
-							<span class="font-sans text-xs font-medium text-bone truncate uppercase"
+						<div class="flex min-w-0 flex-1 flex-col justify-center">
+							<span class="truncate font-sans text-xs font-medium text-bone uppercase"
 								>{item.name}</span
 							>
-							<span class="font-mono text-[9px] text-ash uppercase">{item.size} · {item.color}</span>
+							<span class="font-mono text-[9px] text-ash uppercase">{item.size} · {item.color}</span
+							>
 						</div>
 						<div class="flex items-center">
 							<span class="font-mono text-xs text-bone"
@@ -56,7 +57,7 @@
 			</div>
 
 			<!-- Calculations -->
-			<div class="border-t border-charcoal pt-4 space-y-2">
+			<div class="space-y-2 border-t border-charcoal pt-4">
 				<div class="flex justify-between font-mono text-[10px] uppercase">
 					<span class="text-ash">Subtotal</span>
 					<span class="text-bone">LKR {$subtotal.toLocaleString()}</span>
@@ -66,7 +67,9 @@
 					<span class="text-bone">LKR {shipping.toLocaleString()}</span>
 				</div>
 				{#if $cartStore.discountAmount > 0}
-					<div class="flex justify-between font-mono text-[10px] uppercase text-volt bg-volt/10 p-1 px-2">
+					<div
+						class="flex justify-between bg-volt/10 p-1 px-2 font-mono text-[10px] text-volt uppercase"
+					>
 						<span>Discount</span>
 						<span>− LKR {$cartStore.discountAmount.toLocaleString()}</span>
 					</div>

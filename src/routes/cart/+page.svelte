@@ -7,6 +7,11 @@
 	let amountToFreeShipping = $derived(Math.max(0, freeShippingThreshold - $subtotal));
 </script>
 
+<svelte:head>
+	<title>Cart | Caro Clothing</title>
+	<meta name="description" content="Your shopping cart" />
+</svelte:head>
+
 <div class="min-h-screen bg-void pt-20 pb-32 px-4 md:px-8 lg:pt-24 lg:pb-20">
 	<div class="max-w-5xl mx-auto">
 		<h1 class="font-display text-5xl md:text-6xl text-bone mb-8 uppercase">Your Bag</h1>

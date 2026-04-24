@@ -9,6 +9,11 @@
 	};
 </script>
 
+<svelte:head>
+	<title>Account | Caro Clothing</title>
+	<meta name="description" content="Your account details" />
+</svelte:head>
+
 <div class="flex flex-col gap-10">
 	<section class="flex flex-col gap-6">
 		<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Profile Details</h2>

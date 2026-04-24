@@ -21,6 +21,11 @@
 	};
 </script>
 
+<svelte:head>
+	<title>Order Confirmation | Caro Clothing</title>
+	<meta name="description" content="Your order has been confirmed" />
+</svelte:head>
+
 <div class="max-w-lg mx-auto px-4 pt-12 pb-20 text-center">
 	<h1 class="font-display text-6xl md:text-8xl text-void uppercase leading-none">Order Confirmed.</h1>
 	<p class="font-mono text-sm text-void/50 mt-4 uppercase tracking-widest">#{order.id}</p>

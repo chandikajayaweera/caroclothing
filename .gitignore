@@ -30,3 +30,4 @@ vite.config.ts.timestamp-*
 !.dev.vars.example
 
 schema-dump
+static/graphics/

@@ -1,0 +1,1167 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      :root {
+        --black: #0a0a0a;
+        --white: #f8f5f0;
+        --bone: #e8e2d9;
+        --ash: #b4afa8;
+        --charcoal: #1c1c1c;
+        --accent: #c8ff00;
+        --mid: #3a3a3a;
+      }
+      body {
+        background: var(--black);
+        color: var(--white);
+        font-family: "DM Sans", sans-serif;
+      }
+
+      .cover {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 48px;
+        border-bottom: 1px solid #222;
+        position: relative;
+        overflow: hidden;
+      }
+      .cover::before {
+        content: "";
+        position: absolute;
+        top: -200px;
+        right: -200px;
+        width: 600px;
+        height: 600px;
+        border-radius: 50%;
+        border: 1px solid #1e1e1e;
+      }
+      .cover::after {
+        content: "";
+        position: absolute;
+        bottom: -100px;
+        left: -100px;
+        width: 400px;
+        height: 400px;
+        border-radius: 50%;
+        border: 1px solid #1a1a1a;
+      }
+
+      .cover-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .doc-label {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        color: var(--ash);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+      }
+      .year-tag {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        color: var(--ash);
+      }
+
+      .cover-hero {
+        text-align: center;
+        padding: 80px 0;
+        position: relative;
+        z-index: 1;
+      }
+      .brand-wordmark {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 180px;
+        letter-spacing: -4px;
+        line-height: 0.9;
+        color: var(--white);
+      }
+      .brand-sub {
+        font-family: "Space Mono", monospace;
+        font-size: 11px;
+        letter-spacing: 8px;
+        color: var(--ash);
+        margin-top: 20px;
+        text-transform: uppercase;
+      }
+      .cover-accent {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 14px;
+        letter-spacing: 6px;
+        color: var(--accent);
+      }
+
+      .cover-bottom {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+      }
+      .cover-desc {
+        font-size: 13px;
+        color: var(--ash);
+        max-width: 280px;
+        line-height: 1.6;
+      }
+
+      /* SECTION LAYOUT */
+      .section {
+        padding: 80px 48px;
+        border-bottom: 1px solid #1a1a1a;
+      }
+      .section-header {
+        display: flex;
+        align-items: baseline;
+        gap: 24px;
+        margin-bottom: 56px;
+      }
+      .section-num {
+        font-family: "Space Mono", monospace;
+        font-size: 11px;
+        color: var(--accent);
+      }
+      .section-title {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 48px;
+        letter-spacing: 2px;
+        color: var(--white);
+      }
+
+      /* POSITIONING */
+      .positioning-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2px;
+      }
+      .pos-block {
+        background: var(--charcoal);
+        padding: 40px;
+      }
+      .pos-block.accent {
+        background: var(--accent);
+      }
+      .pos-label {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--ash);
+        margin-bottom: 16px;
+      }
+      .pos-block.accent .pos-label {
+        color: #4a5e00;
+      }
+      .pos-body {
+        font-size: 16px;
+        line-height: 1.7;
+        color: var(--white);
+      }
+      .pos-block.accent .pos-body {
+        color: var(--black);
+        font-weight: 500;
+      }
+      .pos-big {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 72px;
+        line-height: 1;
+        color: var(--white);
+        margin-bottom: 8px;
+      }
+      .pos-block.accent .pos-big {
+        color: var(--black);
+      }
+
+      /* COLORS */
+      .color-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 2px;
+      }
+      .swatch {
+      }
+      .swatch-block {
+        height: 120px;
+      }
+      .swatch-info {
+        padding: 16px 0 0;
+      }
+      .swatch-name {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 18px;
+        letter-spacing: 1px;
+        color: var(--white);
+      }
+      .swatch-hex {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        color: var(--ash);
+        margin-top: 4px;
+      }
+      .swatch-use {
+        font-size: 11px;
+        color: var(--ash);
+        margin-top: 6px;
+        line-height: 1.4;
+      }
+
+      /* TYPOGRAPHY */
+      .type-row {
+        padding: 40px 0;
+        border-bottom: 1px solid #1a1a1a;
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 40px;
+        align-items: center;
+      }
+      .type-row:last-child {
+        border-bottom: none;
+      }
+      .type-meta {
+      }
+      .type-meta-name {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      .type-meta-use {
+        font-size: 12px;
+        color: var(--ash);
+        margin-top: 8px;
+        line-height: 1.5;
+      }
+      .type-display {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 96px;
+        line-height: 1;
+        color: var(--white);
+      }
+      .type-mono {
+        font-family: "Space Mono", monospace;
+        font-size: 28px;
+        color: var(--white);
+      }
+      .type-body-ex {
+        font-family: "DM Sans", sans-serif;
+        font-size: 18px;
+        color: var(--white);
+        line-height: 1.6;
+        font-weight: 300;
+      }
+
+      /* VOICE */
+      .voice-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 2px;
+      }
+      .voice-card {
+        background: var(--charcoal);
+        padding: 36px;
+      }
+      .voice-icon {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 60px;
+        color: var(--accent);
+        line-height: 1;
+        margin-bottom: 20px;
+      }
+      .voice-title {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 28px;
+        letter-spacing: 2px;
+        color: var(--white);
+        margin-bottom: 12px;
+      }
+      .voice-desc {
+        font-size: 13px;
+        color: var(--ash);
+        line-height: 1.7;
+      }
+      .voice-examples {
+        margin-top: 20px;
+      }
+      .voice-ex {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        color: var(--accent);
+        margin-bottom: 6px;
+      }
+
+      /* LOGO RULES */
+      .logo-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2px;
+      }
+      .logo-box {
+        background: var(--charcoal);
+        padding: 56px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+      }
+      .logo-box.invert {
+        background: var(--white);
+      }
+      .logo-box.danger {
+        background: #1a0a0a;
+        border: 1px solid #ff3333;
+      }
+      .logo-label {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--ash);
+        text-align: center;
+      }
+      .logo-box.invert .logo-label {
+        color: #888;
+      }
+      .logo-box.danger .logo-label {
+        color: #ff3333;
+      }
+      .dont-mark {
+        position: relative;
+        display: inline-block;
+      }
+      .dont-mark::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: -10px;
+        right: -10px;
+        height: 2px;
+        background: #ff3333;
+        transform: rotate(-20deg);
+      }
+
+      /* PILLARS */
+      .pillars {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 2px;
+        margin-top: 0;
+      }
+      .pillar {
+        background: var(--charcoal);
+        padding: 32px;
+      }
+      .pillar-num {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        color: var(--accent);
+        margin-bottom: 20px;
+      }
+      .pillar-word {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 36px;
+        letter-spacing: 2px;
+        color: var(--white);
+        margin-bottom: 12px;
+      }
+      .pillar-def {
+        font-size: 12px;
+        color: var(--ash);
+        line-height: 1.7;
+      }
+
+      /* TAGLINE */
+      .tagline-section {
+        padding: 80px 48px;
+        background: var(--charcoal);
+        border-bottom: 1px solid #1a1a1a;
+      }
+      .tagline-big {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 88px;
+        line-height: 0.95;
+        letter-spacing: -1px;
+        color: var(--white);
+      }
+      .tagline-big span {
+        color: var(--accent);
+      }
+      .tagline-alt {
+        font-family: "Space Mono", monospace;
+        font-size: 11px;
+        color: var(--ash);
+        letter-spacing: 4px;
+        margin-top: 32px;
+      }
+
+      /* FOOTER */
+      .footer {
+        padding: 48px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .footer-brand {
+        font-family: "Bebas Neue", sans-serif;
+        font-size: 24px;
+        letter-spacing: 4px;
+        color: var(--white);
+      }
+      .footer-meta {
+        font-family: "Space Mono", monospace;
+        font-size: 10px;
+        color: var(--ash);
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- COVER -->
+    <div class="cover">
+      <div class="cover-top">
+        <span class="doc-label">Brand Identity System</span>
+        <span class="year-tag">2025 — Vol. I</span>
+      </div>
+      <div class="cover-hero">
+        <div class="brand-wordmark">CARO</div>
+        <div class="brand-sub">
+          Clothing &nbsp;·&nbsp; Sri Lanka &nbsp;·&nbsp; Est. 2026
+        </div>
+        <div style="margin-top: 16px" class="cover-accent">
+          WEAR THE NEXT GENERATION
+        </div>
+      </div>
+      <div class="cover-bottom">
+        <div class="cover-desc">
+          A complete brand identity guide for Caro Clothing — defining how we
+          look, sound, and show up in the world.
+        </div>
+        <div
+          style="
+            font-family: &quot;Space Mono&quot;, monospace;
+            font-size: 10px;
+            color: var(--ash);
+          "
+        >
+          CONFIDENTIAL DOCUMENT
+        </div>
+      </div>
+    </div>
+
+    <!-- 01 BRAND POSITIONING -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">01</span>
+        <span class="section-title">Brand Positioning</span>
+      </div>
+      <div class="positioning-grid">
+        <div class="pos-block">
+          <div class="pos-label">Who We Are</div>
+          <div class="pos-big">CARO</div>
+          <div class="pos-body">
+            A Sri Lankan streetwear brand built for the generation that refuses
+            to be defined. We make graphic tees that hit different — bold,
+            oversized, unapologetic.
+          </div>
+        </div>
+        <div class="pos-block accent">
+          <div class="pos-label">Our Mission</div>
+          <div class="pos-body">
+            To give Sri Lanka's Gen Z a uniform they actually want to wear. No
+            compromise between quality and identity — you get both, or you get
+            nothing.
+          </div>
+        </div>
+        <div class="pos-block">
+          <div class="pos-label">Target Audience</div>
+          <div class="pos-body">
+            Men and women aged 16–30. Culturally fluid, digitally native,
+            style-conscious. They know what's real and they don't wear brands
+            that don't mean something.
+          </div>
+        </div>
+        <div class="pos-block">
+          <div class="pos-label">Our Unique Position</div>
+          <div class="pos-body">
+            Sri Lankan-made streetwear with a global aesthetic. We're not
+            chasing trends — we're building the culture from the inside out.
+            Local roots. Global vision.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 02 BRAND PILLARS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">02</span>
+        <span class="section-title">Brand Pillars</span>
+      </div>
+      <div class="pillars">
+        <div class="pillar">
+          <div class="pillar-num">01 —</div>
+          <div class="pillar-word">BOLD</div>
+          <div class="pillar-def">
+            We make statements, not suggestions. Every design has a point of
+            view. Nothing is quiet for the sake of being quiet.
+          </div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">02 —</div>
+          <div class="pillar-word">RAW</div>
+          <div class="pillar-def">
+            No filter, no fakery. Caro is honest about what it is — streetwear
+            from Sri Lanka, made for people who keep it real.
+          </div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">03 —</div>
+          <div class="pillar-word">FREE</div>
+          <div class="pillar-def">
+            Oversized fits, open expression. Our clothes don't box you in — they
+            give you room to move, breathe, and be yourself.
+          </div>
+        </div>
+        <div class="pillar">
+          <div class="pillar-num">04 —</div>
+          <div class="pillar-word">LOCAL</div>
+          <div class="pillar-def">
+            Rooted in Sri Lanka. Worn by the next generation. We're proof that
+            world-class streetwear is built right here.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 03 COLOR PALETTE -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">03</span>
+        <span class="section-title">Color System</span>
+      </div>
+      <div class="color-grid">
+        <div class="swatch">
+          <div
+            class="swatch-block"
+            style="background: #0a0a0a; border: 1px solid #222"
+          ></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Void</div>
+            <div class="swatch-hex">#0A0A0A</div>
+            <div class="swatch-use">
+              Primary background. The foundation of everything.
+            </div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div
+            class="swatch-block"
+            style="background: #f8f5f0; border: 1px solid #333"
+          ></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Bone</div>
+            <div class="swatch-hex">#F8F5F0</div>
+            <div class="swatch-use">
+              Primary text and light-mode surfaces. Warm, not cold.
+            </div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div
+            class="swatch-block"
+            style="background: #1c1c1c; border: 1px solid #2a2a2a"
+          ></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Charcoal</div>
+            <div class="swatch-hex">#1C1C1C</div>
+            <div class="swatch-use">Secondary surfaces, cards, panels.</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div
+            class="swatch-block"
+            style="background: #b4afa8; border: 1px solid #333"
+          ></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Ash</div>
+            <div class="swatch-hex">#B4AFA8</div>
+            <div class="swatch-use">Secondary text, metadata, captions.</div>
+          </div>
+        </div>
+        <div class="swatch">
+          <div
+            class="swatch-block"
+            style="background: #c8ff00; border: 1px solid #a0d000"
+          ></div>
+          <div class="swatch-info">
+            <div class="swatch-name">Volt</div>
+            <div class="swatch-hex">#C8FF00</div>
+            <div class="swatch-use">
+              Accent only. Call-to-action, highlights, Gen Z energy.
+            </div>
+          </div>
+        </div>
+      </div>
+      <div
+        style="
+          margin-top: 40px;
+          background: var(--charcoal);
+          padding: 32px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 24px;
+        "
+      >
+        <div>
+          <div class="pos-label" style="margin-bottom: 12px">Color Rules</div>
+          <div style="font-size: 13px; color: var(--ash); line-height: 1.8">
+            — Volt is an accent, not a base color. Use sparingly.<br />
+            — Black and Bone are the primary working pair.<br />
+            — Never use more than 3 colors in a single layout.<br />
+            — Volt on Void for maximum impact moments only.
+          </div>
+        </div>
+        <div
+          style="
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+          "
+        >
+          <div
+            style="
+              background: #0a0a0a;
+              width: 80px;
+              height: 80px;
+              border: 1px solid #222;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            "
+          >
+            <span
+              style="
+                font-family: &quot;Bebas Neue&quot;, sans-serif;
+                font-size: 22px;
+                color: #f8f5f0;
+                letter-spacing: 2px;
+              "
+              >CARO</span
+            >
+          </div>
+          <div
+            style="
+              background: #f8f5f0;
+              width: 80px;
+              height: 80px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            "
+          >
+            <span
+              style="
+                font-family: &quot;Bebas Neue&quot;, sans-serif;
+                font-size: 22px;
+                color: #0a0a0a;
+                letter-spacing: 2px;
+              "
+              >CARO</span
+            >
+          </div>
+          <div
+            style="
+              background: #c8ff00;
+              width: 80px;
+              height: 80px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            "
+          >
+            <span
+              style="
+                font-family: &quot;Bebas Neue&quot;, sans-serif;
+                font-size: 22px;
+                color: #0a0a0a;
+                letter-spacing: 2px;
+              "
+              >CARO</span
+            >
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 04 TYPOGRAPHY -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">04</span>
+        <span class="section-title">Typography</span>
+      </div>
+      <div>
+        <div class="type-row">
+          <div class="type-meta">
+            <div class="type-meta-name">Bebas Neue</div>
+            <div class="type-meta-use">
+              Display & Headlines<br />Campaigns, product names,<br />section
+              headers.
+            </div>
+          </div>
+          <div class="type-display">CARO DROP</div>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <div class="type-meta-name">Space Mono</div>
+            <div class="type-meta-use">
+              Labels & Codes<br />Tags, SKUs, metadata,<br />technical details.
+            </div>
+          </div>
+          <div class="type-mono">SKU-001 / BLACK TEE</div>
+        </div>
+        <div class="type-row">
+          <div class="type-meta">
+            <div class="type-meta-name">DM Sans</div>
+            <div class="type-meta-use">
+              Body & UI<br />Product descriptions,<br />captions, app text.
+            </div>
+          </div>
+          <div class="type-body-ex">
+            Made for the ones who move at their own pace. Oversized fits.
+            Heavyweight cotton. Graphics that mean something.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 05 BRAND VOICE -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">05</span>
+        <span class="section-title">Brand Voice</span>
+      </div>
+      <div class="voice-grid">
+        <div class="voice-card">
+          <div class="voice-icon">01</div>
+          <div class="voice-title">DIRECT</div>
+          <div class="voice-desc">
+            We say what we mean. Short sentences. No fluff. No corporate speak.
+            We talk like the person across from us — real.
+          </div>
+          <div class="voice-examples">
+            <div class="voice-ex">✓ "Drop this week. Get it."</div>
+            <div class="voice-ex">✓ "New. Black. Sold out soon."</div>
+            <div class="voice-ex" style="color: #ff6b6b">
+              ✗ "Exciting new collection available"
+            </div>
+          </div>
+        </div>
+        <div class="voice-card">
+          <div class="voice-icon">02</div>
+          <div class="voice-title">CONFIDENT</div>
+          <div class="voice-desc">
+            We don't ask permission. We don't qualify everything. Caro knows
+            what it is and doesn't apologize for it.
+          </div>
+          <div class="voice-examples">
+            <div class="voice-ex">✓ "The only tee you need."</div>
+            <div class="voice-ex">✓ "Built different. Priced right."</div>
+            <div class="voice-ex" style="color: #ff6b6b">
+              ✗ "We think you might like this"
+            </div>
+          </div>
+        </div>
+        <div class="voice-card">
+          <div class="voice-icon">03</div>
+          <div class="voice-title">CULTURAL</div>
+          <div class="voice-desc">
+            Sri Lankan at the core. We're not pretending to be from somewhere
+            else. That's our edge — and we lean into it.
+          </div>
+          <div class="voice-examples">
+            <div class="voice-ex">✓ "From Colombo to everywhere."</div>
+            <div class="voice-ex">✓ "Local made. Global worn."</div>
+            <div class="voice-ex" style="color: #ff6b6b">
+              ✗ "International streetwear brand"
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 06 PRODUCT TIERS -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">06</span>
+        <span class="section-title">Product Tier System</span>
+      </div>
+      <div class="positioning-grid">
+        <div class="pos-block accent">
+          <div class="pos-label">Tier 01 — Drop Collection</div>
+          <div class="pos-big">DROP</div>
+          <div class="pos-body">
+            Limited units. Bold, statement graphics. Full countdown ritual. Never restocked. Priced Rs. 3,000–4,500. This is the cultural engine — everything people talk about, post about, and compete for.
+          </div>
+        </div>
+        <div class="pos-block">
+          <div class="pos-label">Tier 02 — Core Essentials</div>
+          <div class="pos-big">CORE</div>
+          <div class="pos-body">
+            Always available. Minimal wordmark and tonal designs. No hype cycle. Replenishable inventory. Priced Rs. 2,500–3,000. This is the entry point — the piece you wear every day while you wait for the next drop.
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 2px; background: var(--charcoal); padding: 40px;">
+        <div class="pos-label" style="color: var(--accent); margin-bottom: 24px;">Design Rules by Tier</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+          <div>
+            <div style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--accent); letter-spacing: 2px; margin-bottom: 16px;">DROP COLLECTION</div>
+            <div style="font-size: 13px; color: var(--ash); line-height: 2;">
+              — Bold graphic statements, full-face prints<br />
+              — Seasonal or concept-driven imagery<br />
+              — Artist collaborations allowed<br />
+              — Volt accent colour permitted as feature<br />
+              — Every piece must feel like an event
+            </div>
+          </div>
+          <div>
+            <div style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--accent); letter-spacing: 2px; margin-bottom: 16px;">CORE ESSENTIALS</div>
+            <div style="font-size: 13px; color: var(--ash); line-height: 2;">
+              — Wordmark only, or minimal tonal print<br />
+              — No large graphic statements<br />
+              — Black, bone, and charcoal colourways only<br />
+              — If it could be a drop, it's too good for Core<br />
+              — Consistency over novelty — same SKUs, season to season
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 07 LOGO GUIDELINES -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">07</span>
+        <span class="section-title">Logo Usage</span>
+      </div>
+      <div class="logo-grid">
+        <div class="logo-box">
+          <svg width="160" height="60" viewBox="0 0 200 75">
+            <text
+              x="100"
+              y="62"
+              text-anchor="middle"
+              font-family="'Bebas Neue',sans-serif"
+              font-size="72"
+              fill="#F8F5F0"
+              letter-spacing="-2"
+            >
+              CARO
+            </text>
+          </svg>
+          <div class="logo-label">Primary — on dark</div>
+        </div>
+        <div class="logo-box invert">
+          <svg width="160" height="60" viewBox="0 0 200 75">
+            <text
+              x="100"
+              y="62"
+              text-anchor="middle"
+              font-family="'Bebas Neue',sans-serif"
+              font-size="72"
+              fill="#0A0A0A"
+              letter-spacing="-2"
+            >
+              CARO
+            </text>
+          </svg>
+          <div class="logo-label">Reversed — on light</div>
+        </div>
+        <div class="logo-box" style="background: #c8ff00">
+          <svg width="160" height="60" viewBox="0 0 200 75">
+            <text
+              x="100"
+              y="62"
+              text-anchor="middle"
+              font-family="'Bebas Neue',sans-serif"
+              font-size="72"
+              fill="#0A0A0A"
+              letter-spacing="-2"
+            >
+              CARO
+            </text>
+          </svg>
+          <div class="logo-label" style="color: #4a5e00">Accent — on Volt</div>
+        </div>
+        <div class="logo-box danger">
+          <div class="dont-mark">
+            <svg width="160" height="60" viewBox="0 0 200 75">
+              <text
+                x="100"
+                y="62"
+                text-anchor="middle"
+                font-family="'Bebas Neue',sans-serif"
+                font-size="72"
+                fill="#666"
+                letter-spacing="-2"
+              >
+                CARO
+              </text>
+            </svg>
+          </div>
+          <div class="logo-label">Never — low contrast</div>
+        </div>
+      </div>
+      <div
+        style="
+          margin-top: 2px;
+          background: var(--charcoal);
+          padding: 32px;
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 24px;
+        "
+      >
+        <div>
+          <div
+            class="pos-label"
+            style="margin-bottom: 12px; color: var(--accent)"
+          >
+            Clear Space
+          </div>
+          <div style="font-size: 13px; color: var(--ash); line-height: 1.8">
+            Always maintain a minimum clear space equal to the height of the "C"
+            in the logo around all sides.
+          </div>
+        </div>
+        <div>
+          <div
+            class="pos-label"
+            style="margin-bottom: 12px; color: var(--accent)"
+          >
+            Minimum Size
+          </div>
+          <div style="font-size: 13px; color: var(--ash); line-height: 1.8">
+            Digital: 80px wide minimum.<br />Print: 25mm wide minimum. Below
+            this, use the lettermark only.
+          </div>
+        </div>
+        <div>
+          <div
+            class="pos-label"
+            style="margin-bottom: 12px; color: var(--accent)"
+          >
+            Never Do This
+          </div>
+          <div style="font-size: 13px; color: var(--ash); line-height: 1.8">
+            Do not stretch, rotate, recolor, add effects, or place on busy
+            backgrounds. The logo is always solid — no gradients.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 08 TAGLINE -->
+    <div class="tagline-section">
+      <div class="section-header" style="margin-bottom: 40px">
+        <span class="section-num">08</span>
+        <span class="section-title">Campaign Language</span>
+      </div>
+      <div class="tagline-big">
+        WEAR THE<br /><span>NEXT</span><br />GENERATION
+      </div>
+      <div class="tagline-alt">
+        PRIMARY TAGLINE — USE IN HERO CAMPAIGNS, STOREFRONTS, LOOKBOOKS
+      </div>
+      <div
+        style="
+          margin-top: 56px;
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr 1fr;
+          gap: 2px;
+        "
+      >
+        <div
+          style="
+            background: var(--black);
+            padding: 28px;
+            border: 1px solid #222;
+          "
+        >
+          <div
+            style="
+              font-family: &quot;Space Mono&quot;, monospace;
+              font-size: 10px;
+              color: var(--accent);
+              margin-bottom: 12px;
+              letter-spacing: 2px;
+            "
+          >
+            PRODUCT DROPS
+          </div>
+          <div
+            style="
+              font-family: &quot;Bebas Neue&quot;, sans-serif;
+              font-size: 28px;
+              color: var(--white);
+              letter-spacing: 2px;
+            "
+          >
+            "New Drop.<br />Same Energy."
+          </div>
+        </div>
+        <div
+          style="
+            background: var(--black);
+            padding: 28px;
+            border: 1px solid #222;
+          "
+        >
+          <div
+            style="
+              font-family: &quot;Space Mono&quot;, monospace;
+              font-size: 10px;
+              color: var(--accent);
+              margin-bottom: 12px;
+              letter-spacing: 2px;
+            "
+          >
+            CORE ESSENTIALS
+          </div>
+          <div
+            style="
+              font-family: &quot;Bebas Neue&quot;, sans-serif;
+              font-size: 28px;
+              color: var(--white);
+              letter-spacing: 2px;
+            "
+          >
+            "Wear It<br />Every Day."
+          </div>
+        </div>
+        <div
+          style="
+            background: var(--black);
+            padding: 28px;
+            border: 1px solid #222;
+          "
+        >
+          <div
+            style="
+              font-family: &quot;Space Mono&quot;, monospace;
+              font-size: 10px;
+              color: var(--accent);
+              margin-bottom: 12px;
+              letter-spacing: 2px;
+            "
+          >
+            SOCIAL MEDIA
+          </div>
+          <div
+            style="
+              font-family: &quot;Bebas Neue&quot;, sans-serif;
+              font-size: 28px;
+              color: var(--white);
+              letter-spacing: 2px;
+            "
+          >
+            "Made Here.<br />Worn Everywhere."
+          </div>
+        </div>
+        <div
+          style="
+            background: var(--black);
+            padding: 28px;
+            border: 1px solid #222;
+          "
+        >
+          <div
+            style="
+              font-family: &quot;Space Mono&quot;, monospace;
+              font-size: 10px;
+              color: var(--accent);
+              margin-bottom: 12px;
+              letter-spacing: 2px;
+            "
+          >
+            SEASONAL
+          </div>
+          <div
+            style="
+              font-family: &quot;Bebas Neue&quot;, sans-serif;
+              font-size: 28px;
+              color: var(--white);
+              letter-spacing: 2px;
+            "
+          >
+            "This Is<br />Your Season."
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 09 PHOTOGRAPHY -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-num">09</span>
+        <span class="section-title">Photography Direction</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2px">
+        <div style="background: var(--charcoal); padding: 40px">
+          <div
+            class="pos-label"
+            style="margin-bottom: 20px; color: var(--accent)"
+          >
+            What to shoot
+          </div>
+          <div style="font-size: 13px; color: var(--ash); line-height: 2">
+            — Neutral grey/white studio backgrounds (as seen in your shoots)<br />
+            — Full body and three-quarter poses<br />
+            — Real models, real expressions — not overly posed<br />
+            — Both front and back of garments<br />
+            — Natural, confident, grounded energy<br />
+            — Multiple model types — age 16–28, diverse looks
+          </div>
+        </div>
+        <div style="background: var(--charcoal); padding: 40px">
+          <div
+            class="pos-label"
+            style="margin-bottom: 20px; color: var(--accent)"
+          >
+            Editing style
+          </div>
+          <div style="font-size: 13px; color: var(--ash); line-height: 2">
+            — Clean, slightly cool-neutral grade<br />
+            — High contrast, no overexposure<br />
+            — Keep fabric texture visible<br />
+            — Consistent shadow treatment across shoots<br />
+            — No heavy filters or oversaturated edits<br />
+            — Avoid warm, golden, "influencer" tones
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <div class="footer-brand">CARO CLOTHING</div>
+      <div class="footer-meta">
+        Brand Identity System v1.0<br />
+        Sri Lanka · 2025
+      </div>
+    </div>
+  </body>
+</html>

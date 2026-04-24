@@ -13,6 +13,24 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
+// PRODUCT TIER ENUM
+//
+// 'drop'  — Limited release. Part of a named drop event. Bold graphic statement.
+//           Never restocked. Priced LKR 3,000–4,500. Hype ritual applies.
+//           A product with tier = 'drop' MUST be linked to a dropProduct row
+//           when the drop is live.
+//
+// 'core'  — Always available. Minimal wordmark / tonal design. Restockable.
+//           Priced LKR 2,500–3,000. No countdown, no ceremony.
+//           If a piece could be a drop, it's too good for Core.
+//
+// Design rules per tier are defined in caro_brand_identity.html §06.
+// ---------------------------------------------------------------------------
+
+export const PRODUCT_TIERS = ['drop', 'core'] as const;
+export type ProductTier = (typeof PRODUCT_TIERS)[number];
+
+// ---------------------------------------------------------------------------
 // CATEGORIES
 //
 // imageR2Key stores the Cloudflare R2 object key — NOT a URL.
@@ -67,10 +85,18 @@ export const product = sqliteTable(
 		categoryId: text('category_id').references(() => category.id, {
 			onDelete: 'set null'
 		}),
+		// ── Tier ──────────────────────────────────────────────────────────────
+		// Determines pricing band, restockability, and marketing ritual.
+		// 'drop'  → limited, event-based, never restocked, hype mechanic
+		// 'core'  → always available, minimal branding, quietly restocked
+		// See PRODUCT_TIERS and brand identity §06 for full design rules.
+		tier: text('tier', { enum: PRODUCT_TIERS }).default('core').notNull(),
+		// ── Pricing ───────────────────────────────────────────────────────────
 		// Monetary values in LKR (full units, 2 decimal places max).
 		// real = IEEE 754 double; safe for LKR values at typical price ranges.
 		basePrice: real('base_price').notNull(),
 		compareAtPrice: real('compare_at_price'), // "was" price for strike-through
+		// ── Attributes ────────────────────────────────────────────────────────
 		gender: text('gender', {
 			enum: ['men', 'women', 'unisex']
 		})
@@ -83,9 +109,11 @@ export const product = sqliteTable(
 			.notNull(),
 		material: text('material'), // e.g. "100% Combed Cotton 220GSM"
 		careInstructions: text('care_instructions'),
+		// ── Flags ─────────────────────────────────────────────────────────────
 		isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
 		isFeatured: integer('is_featured', { mode: 'boolean' }).default(false).notNull(),
 		isNewArrival: integer('is_new_arrival', { mode: 'boolean' }).default(true).notNull(),
+		// ── SEO ───────────────────────────────────────────────────────────────
 		metaTitle: text('meta_title'),
 		metaDescription: text('meta_description'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -101,7 +129,9 @@ export const product = sqliteTable(
 		index('product_active_featured_idx').on(table.isActive, table.isFeatured),
 		index('product_gender_active_idx').on(table.gender, table.isActive),
 		index('product_new_arrival_idx').on(table.isNewArrival, table.isActive),
-		index('product_created_idx').on(table.createdAt)
+		index('product_created_idx').on(table.createdAt),
+		// Tier-based queries: PLP "Shop Core", "Shop Drops", admin tier management
+		index('product_tier_active_idx').on(table.tier, table.isActive)
 	]
 );
 
@@ -318,6 +348,7 @@ export const updateCategorySchema = createUpdateSchema(category, {
 export const insertProductSchema = createInsertSchema(product, {
 	name: z.string().min(1).max(255),
 	slug: slugSchema,
+	tier: z.enum(PRODUCT_TIERS).optional(),
 	basePrice: z.number().positive('Price must be positive'),
 	compareAtPrice: z.number().positive().optional().nullable(),
 	metaTitle: z.string().max(60).optional().nullable(),
@@ -327,6 +358,7 @@ export const insertProductSchema = createInsertSchema(product, {
 export const selectProductSchema = createSelectSchema(product);
 export const updateProductSchema = createUpdateSchema(product, {
 	name: z.string().min(1).max(255).optional(),
+	tier: z.enum(PRODUCT_TIERS).optional(),
 	basePrice: z.number().positive().optional(),
 	compareAtPrice: z.number().positive().optional().nullable(),
 	metaTitle: z.string().max(60).optional().nullable(),

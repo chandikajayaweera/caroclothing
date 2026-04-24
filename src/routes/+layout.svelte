@@ -22,9 +22,8 @@
 	class="relative flex min-h-screen flex-col overflow-x-hidden selection:bg-volt selection:text-void"
 >
 	<Navbar />
-	{#if !shouldHide}
-		<BottomNav />
-	{/if}
+	<BottomNav />
+
 	<CartDrawer />
 	<Toast />
 
@@ -38,4 +37,3 @@
 		<Footer />
 	{/if}
 </div>
-

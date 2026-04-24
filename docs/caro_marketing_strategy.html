@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CARO — Marketing Strategy 2025</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --void: #0A0A0A;
+    --bone: #F8F5F0;
+    --charcoal: #1C1C1C;
+    --mid: #3A3A3A;
+    --ash: #B4AFA8;
+    --volt: #C8FF00;
+    --volt-dim: #9dc400;
+    --danger: #FF4444;
+  }
+
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--void);
+    color: var(--bone);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,10,0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #1c1c1c;
+    padding: 0 48px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-brand {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 4px;
+    color: var(--bone);
+    text-decoration: none;
+  }
+  .nav-links {
+    display: flex;
+    gap: 32px;
+    list-style: none;
+  }
+  .nav-links a {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--ash);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--volt); }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 0 48px 64px;
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .hero-bg-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(180px, 28vw, 420px);
+    letter-spacing: -8px;
+    color: #111;
+    white-space: nowrap;
+    user-select: none;
+    pointer-events: none;
+    line-height: 1;
+  }
+  .hero-top {
+    position: absolute;
+    top: 52px;
+    left: 48px;
+    right: 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-top: 28px;
+  }
+  .hero-doc-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--ash);
+  }
+  .hero-tag {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 2px;
+    border: 1px solid var(--volt);
+    padding: 4px 10px;
+  }
+  .hero-content { position: relative; z-index: 1; }
+  .hero-eyebrow {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--volt);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .hero-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(64px, 10vw, 120px);
+    line-height: 0.92;
+    letter-spacing: -1px;
+    color: var(--bone);
+    margin-bottom: 32px;
+  }
+  .hero-title span { color: var(--volt); }
+  .hero-sub {
+    font-size: 14px;
+    color: var(--ash);
+    max-width: 480px;
+    line-height: 1.8;
+    margin-bottom: 48px;
+  }
+  .hero-stats {
+    display: flex;
+    gap: 48px;
+  }
+  .hero-stat-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    color: var(--bone);
+    line-height: 1;
+  }
+  .hero-stat-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--ash);
+    letter-spacing: 2px;
+    margin-top: 6px;
+  }
+
+  /* SECTION */
+  .section {
+    padding: 96px 48px;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 20px;
+    margin-bottom: 64px;
+  }
+  .section-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--volt);
+    letter-spacing: 2px;
+  }
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 52px;
+    letter-spacing: 2px;
+    color: var(--bone);
+  }
+
+  /* PHASE TIMELINE */
+  .timeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+  }
+  .phase {
+    background: var(--charcoal);
+    padding: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+  .phase::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--charcoal);
+  }
+  .phase.active::before { background: var(--volt); }
+  .phase-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 3px;
+    margin-bottom: 16px;
+  }
+  .phase-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 2px;
+    color: var(--bone);
+    margin-bottom: 8px;
+    line-height: 1.1;
+  }
+  .phase-period {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--ash);
+    margin-bottom: 20px;
+  }
+  .phase-desc {
+    font-size: 12px;
+    color: var(--ash);
+    line-height: 1.8;
+  }
+
+  /* STRATEGY CARDS */
+  .strategy-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+  }
+  .strategy-card {
+    background: var(--charcoal);
+    padding: 40px;
+  }
+  .strategy-card.accent {
+    background: var(--volt);
+  }
+  .card-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--ash);
+    margin-bottom: 20px;
+  }
+  .strategy-card.accent .card-label { color: #4a5e00; }
+  .card-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    letter-spacing: 1px;
+    color: var(--bone);
+    margin-bottom: 16px;
+    line-height: 1;
+  }
+  .strategy-card.accent .card-title { color: var(--void); }
+  .card-body {
+    font-size: 13px;
+    color: var(--ash);
+    line-height: 1.9;
+  }
+  .strategy-card.accent .card-body { color: #2a3800; }
+  .card-bullets {
+    list-style: none;
+    margin-top: 20px;
+  }
+  .card-bullets li {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--volt);
+    letter-spacing: 1px;
+    padding: 6px 0;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .strategy-card.accent .card-bullets li {
+    color: #3a5000;
+    border-bottom-color: rgba(0,0,0,0.1);
+  }
+  .card-bullets li::before {
+    content: '→';
+    flex-shrink: 0;
+    color: var(--volt);
+  }
+  .strategy-card.accent .card-bullets li::before { color: #3a5000; }
+
+  /* CONTENT PILLARS */
+  .pillars-wrap {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+  }
+  .content-pillar {
+    background: var(--charcoal);
+    padding: 32px;
+  }
+  .pillar-pct {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 72px;
+    color: var(--volt);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .pillar-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 2px;
+    color: var(--bone);
+    margin-bottom: 12px;
+  }
+  .pillar-desc {
+    font-size: 12px;
+    color: var(--ash);
+    line-height: 1.8;
+    margin-bottom: 16px;
+  }
+  .pillar-examples {
+    list-style: none;
+  }
+  .pillar-examples li {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    padding: 4px 0;
+    letter-spacing: 0.5px;
+  }
+
+  /* GRAPHIC DIRECTIONS */
+  .graphic-directions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+  }
+  .gd-card {
+    background: var(--charcoal);
+    padding: 32px;
+  }
+  .gd-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    margin-bottom: 16px;
+    letter-spacing: 2px;
+  }
+  .gd-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 30px;
+    letter-spacing: 2px;
+    color: var(--bone);
+    margin-bottom: 12px;
+    line-height: 1.1;
+  }
+  .gd-desc {
+    font-size: 12px;
+    color: var(--ash);
+    line-height: 1.8;
+    margin-bottom: 16px;
+  }
+  .gd-tag {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--void);
+    background: var(--volt);
+    padding: 4px 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .gd-tag.secondary {
+    background: transparent;
+    color: var(--ash);
+    border: 1px solid #3a3a3a;
+  }
+
+  /* INFLUENCER TABLE */
+  .creator-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+  }
+  .creator-card {
+    background: var(--charcoal);
+    padding: 28px;
+  }
+  .creator-type {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 3px;
+    margin-bottom: 12px;
+  }
+  .creator-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    color: var(--bone);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+  .creator-range {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--ash);
+    margin-bottom: 12px;
+  }
+  .creator-why {
+    font-size: 12px;
+    color: var(--ash);
+    line-height: 1.7;
+  }
+
+  /* DROP MECHANIC */
+  .drop-flow {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    position: relative;
+  }
+  .drop-step {
+    background: var(--charcoal);
+    padding: 28px 24px;
+    position: relative;
+    margin-right: 2px;
+  }
+  .drop-step:last-child { margin-right: 0; }
+  .drop-step-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--ash);
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .drop-step-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    color: var(--bone);
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+  .drop-step-body {
+    font-size: 11px;
+    color: var(--ash);
+    line-height: 1.7;
+  }
+  .drop-step-time {
+    margin-top: 14px;
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 1px;
+  }
+
+  /* PLATFORM TABLE */
+  .platform-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+  }
+  .platform-card {
+    background: var(--charcoal);
+    padding: 32px;
+  }
+  .platform-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 36px;
+    letter-spacing: 2px;
+    color: var(--bone);
+    margin-bottom: 6px;
+  }
+  .platform-role {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 3px;
+    margin-bottom: 20px;
+  }
+  .platform-desc {
+    font-size: 13px;
+    color: var(--ash);
+    line-height: 1.8;
+    margin-bottom: 16px;
+  }
+  .post-types {
+    list-style: none;
+    border-top: 1px solid #2a2a2a;
+    padding-top: 16px;
+  }
+  .post-types li {
+    font-size: 12px;
+    color: var(--ash);
+    padding: 5px 0;
+    display: flex;
+    gap: 10px;
+  }
+  .post-types li span:first-child {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    min-width: 80px;
+    padding-top: 2px;
+  }
+
+  /* ACTIVATION */
+  .activation-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 2px;
+  }
+  .activation-main {
+    background: var(--volt);
+    padding: 48px;
+  }
+  .activation-main .card-label { color: #3a5000; }
+  .activation-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 56px;
+    color: var(--void);
+    line-height: 0.95;
+    letter-spacing: -1px;
+    margin-bottom: 24px;
+  }
+  .activation-body {
+    font-size: 13px;
+    color: #2a3800;
+    line-height: 1.9;
+  }
+  .activation-side {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .activation-detail {
+    background: var(--charcoal);
+    padding: 28px;
+    flex: 1;
+  }
+  .detail-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 3px;
+    margin-bottom: 10px;
+  }
+  .detail-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    color: var(--bone);
+    letter-spacing: 1px;
+  }
+  .detail-note {
+    font-size: 11px;
+    color: var(--ash);
+    margin-top: 6px;
+    line-height: 1.6;
+  }
+
+  /* METRICS */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+  }
+  .metric-block {
+    background: var(--charcoal);
+    padding: 32px;
+  }
+  .metric-period {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--ash);
+    letter-spacing: 2px;
+    margin-bottom: 16px;
+  }
+  .metric-val {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 48px;
+    color: var(--volt);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .metric-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: var(--ash);
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+  }
+  .metric-note {
+    font-size: 11px;
+    color: #555;
+    line-height: 1.6;
+  }
+
+  /* CLOSING */
+  .closing {
+    padding: 96px 48px;
+    background: var(--charcoal);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+    align-items: end;
+  }
+  .closing-big {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(64px, 8vw, 96px);
+    color: var(--bone);
+    line-height: 0.95;
+    letter-spacing: -1px;
+  }
+  .closing-big span { color: var(--volt); }
+  .closing-note {
+    font-size: 13px;
+    color: var(--ash);
+    line-height: 1.9;
+    margin-bottom: 32px;
+  }
+  .closing-rule {
+    display: flex;
+    gap: 32px;
+    margin-top: 40px;
+  }
+  .rule-item {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--volt);
+    letter-spacing: 2px;
+  }
+
+  /* FOOTER */
+  footer {
+    padding: 32px 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid #1a1a1a;
+  }
+  .footer-brand {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px;
+    letter-spacing: 4px;
+    color: var(--bone);
+  }
+  .footer-meta {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: var(--ash);
+    letter-spacing: 2px;
+    text-align: right;
+  }
+
+  /* CALLOUT BAR */
+  .callout-bar {
+    background: var(--void);
+    border: 1px solid #2a2a2a;
+    padding: 24px 32px;
+    margin-top: 2px;
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+  .callout-icon {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    color: var(--volt);
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .callout-text {
+    font-size: 12px;
+    color: var(--ash);
+    line-height: 1.8;
+  }
+  .callout-text strong {
+    color: var(--bone);
+    font-weight: 500;
+  }
+
+  /* HORIZONTAL RULE */
+  .h-rule {
+    height: 1px;
+    background: #1a1a1a;
+    margin: 40px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-brand">CARO</a>
+  <ul class="nav-links">
+    <li><a href="#phases">Phases</a></li>
+    <li><a href="#social">Social</a></li>
+    <li><a href="#graphics">Graphics</a></li>
+    <li><a href="#creators">Creators</a></li>
+    <li><a href="#drop">Drop Model</a></li>
+    <li><a href="#core">Core Essentials</a></li>
+    <li><a href="#activation">Activation</a></li>
+    <li><a href="#metrics">Metrics</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<div class="hero" style="padding-top: 52px;">
+  <div class="hero-bg-text">CARO</div>
+  <div class="hero-top">
+    <span class="hero-doc-label">Marketing Strategy — Year One</span>
+    <span class="hero-tag">CONFIDENTIAL</span>
+  </div>
+  <div class="hero-content">
+    <div class="hero-eyebrow">Campaign Blueprint · 2025</div>
+    <h1 class="hero-title">BUILD THE<br>CULTURE<br>FIRST.<br><span>THEN SELL.</span></h1>
+    <p class="hero-sub">A full-year marketing strategy for CARO Clothing — from zero graphics to a brand the next generation actually claims as their own.</p>
+    <div class="hero-stats">
+      <div>
+        <div class="hero-stat-num">4</div>
+        <div class="hero-stat-label">CAMPAIGN PHASES</div>
+      </div>
+      <div>
+        <div class="hero-stat-num">2</div>
+        <div class="hero-stat-label">PRODUCT TIERS</div>
+      </div>
+      <div>
+        <div class="hero-stat-num">16–30</div>
+        <div class="hero-stat-label">TARGET AGE RANGE</div>
+      </div>
+      <div>
+        <div class="hero-stat-num">LK → GL</div>
+        <div class="hero-stat-label">LOCAL TO GLOBAL</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CORE PHILOSOPHY -->
+<div class="section">
+  <div class="section-header">
+    <span class="section-num">00</span>
+    <span class="section-title">The Core Philosophy</span>
+  </div>
+  <div class="strategy-grid">
+    <div class="strategy-card accent">
+      <div class="card-label">The Golden Rule</div>
+      <div class="card-title">DON'T MARKET.<br>BUILD CULTURE.</div>
+      <div class="card-body">
+        CARO's biggest risk isn't being unknown — it's being seen as just another tee brand. Every SL Gen Z kid has been sold to by brands pretending to understand them. CARO's advantage is being real. Every marketing decision starts from this: does this build real culture, or does it just sell?
+        <br><br>
+        If it feels like an ad, it's wrong. If it feels like something their friend would share, it's right.
+      </div>
+    </div>
+    <div class="strategy-card">
+      <div class="card-label">The Strategic Principles</div>
+      <div class="card-title">5 RULES WE DON'T BREAK</div>
+      <ul class="card-bullets">
+        <li>Hybrid model — limited drops for culture and desire, Core Essentials for revenue stability and new customer entry. Two tiers, one brand.</li>
+        <li>Never pay a mega influencer. Seed to credible micro-creators only.</li>
+        <li>Sri Lankan identity is the differentiator — not a liability. Lean in, always.</li>
+        <li>Every caption, post, and product name passes the brand voice test: Direct. Confident. Cultural.</li>
+        <li>Build the community before asking it to buy anything.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- PHASES -->
+<div class="section" id="phases">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <span class="section-title">The Four Phases</span>
+  </div>
+  <div class="timeline">
+    <div class="phase active">
+      <div class="phase-num">PHASE 01 —</div>
+      <div class="phase-title">BUILD THE PRESENCE</div>
+      <div class="phase-period">WEEKS 1 — 4</div>
+      <div class="phase-desc">
+        No product. No selling. Lock down all handles. Create brand-first content. Build a waitlist. Start teasing the brand identity — the logo, the aesthetic, the attitude. Let curiosity do the work. The goal: 500+ people who want in before you drop anything.
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-num">PHASE 02 —</div>
+      <div class="phase-title">THE FIRST DROP</div>
+      <div class="phase-period">WEEKS 5 — 8</div>
+      <div class="phase-desc">
+        First collection drops. Limited units, 1–2 designs max. This is a proof-of-concept drop — you're testing demand, building social proof, and creating the "sold out" story. Everything is documented: the design process, the print, the shoot, the drop night.
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-num">PHASE 03 —</div>
+      <div class="phase-title">COMMUNITY & CULTURE</div>
+      <div class="phase-period">MONTHS 3 — 5</div>
+      <div class="phase-desc">
+        Seed to 10–15 creators. Build the inner circle — a WhatsApp/Telegram group for early buyers. Second drop with expanded designs based on what the community responds to. Pop-up activation in Colombo. Start documenting the brand story on TikTok.
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-num">PHASE 04 —</div>
+      <div class="phase-title">SCALE THE SIGNAL</div>
+      <div class="phase-period">MONTHS 6 — 12</div>
+      <div class="phase-desc">
+        Third drop + seasonal campaign with full lookbook. Launch ambassador program. Explore selective wholesale with Colombo boutiques. Document the journey toward a flagship retail moment. Build the narrative that CARO is the brand Sri Lanka's next generation built.
+      </div>
+    </div>
+  </div>
+
+  <div class="callout-bar">
+    <div class="callout-icon">!</div>
+    <div class="callout-text">
+      <strong>Why no permanent stock?</strong> The brands Gen Z talks about — Supreme, Palace, Corteiz — all use controlled drops. Scarcity isn't about being exclusive. It's about making each release an event. When CARO drops, it should feel like a moment in Colombo, not a product launch.
+    </div>
+  </div>
+</div>
+
+<!-- SOCIAL MEDIA -->
+<div class="section" id="social">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <span class="section-title">Social Media Strategy</span>
+  </div>
+
+  <div class="platform-grid">
+    <div class="platform-card">
+      <div class="platform-name">INSTAGRAM</div>
+      <div class="platform-role">PRIMARY BRAND PLATFORM</div>
+      <div class="platform-desc">
+        Instagram is the storefront. This is where the brand lives visually — where product shoots, lookbooks, and identity live. Everything on Instagram should be photographically excellent and on-brand. No casual phone snaps. Aim for a feed that looks like a magazine, not a personal account.
+      </div>
+      <ul class="post-types">
+        <li><span>PRODUCT</span>Studio-shot product posts. Clean grey/white backgrounds per photo direction. Front + back of every piece.</li>
+        <li><span>EDITORIAL</span>Model shots in real Colombo locations — not just studios. Streets, architecture, urban texture.</li>
+        <li><span>STORIES</span>Behind the scenes, drops, waitlist opens. More casual, more real — but still sharp.</li>
+        <li><span>REELS</span>Short punchy clips. Drop countdowns, product reveals, event highlights. 15–30 sec max.</li>
+        <li><span>COLLAB TAGS</span>Always tag creators wearing the product. Their audience is your audience.</li>
+      </ul>
+    </div>
+    <div class="platform-card">
+      <div class="platform-name">TIKTOK</div>
+      <div class="platform-role">CULTURE & GROWTH ENGINE</div>
+      <div class="platform-desc">
+        TikTok is where you build the story, not just the brand. This is where raw, authentic content lives. TikTok has the best organic reach of any platform right now — one video can introduce CARO to 100,000 people who've never heard of it. The key is authenticity, not production value.
+      </div>
+      <ul class="post-types">
+        <li><span>PROCESS</span>From blank tee to finished graphic — designing a drop, choosing fabrics, printing the first sample.</li>
+        <li><span>CULTURE</span>"This is what Sri Lankan streetwear looks like." Own the niche. Be the reference.</li>
+        <li><span>DROPS</span>Countdown content. Announcement videos. "We're back" energy when a new collection drops.</li>
+        <li><span>REAL TALK</span>Founder-led content. The story of building CARO. Not polished. Real. "Week 1 of building a brand from Colombo."</li>
+        <li><span>COMMUNITY</span>Filming real people wearing CARO in real places. The city is the backdrop.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top: 2px;">
+    <div class="pillars-wrap">
+      <div class="content-pillar">
+        <div class="pillar-pct">60%</div>
+        <div class="pillar-name">CULTURE & LIFESTYLE</div>
+        <div class="pillar-desc">Content that shows who CARO is, not what it sells. The vibe, the city, the people. This builds the world the product lives in.</div>
+        <ul class="pillar-examples">
+          <li>→ Street photography in Colombo</li>
+          <li>→ Sri Lankan youth culture moments</li>
+          <li>→ Creator lifestyle content</li>
+          <li>→ Music / art / sport crossovers</li>
+          <li>→ "What CARO represents" story content</li>
+        </ul>
+      </div>
+      <div class="content-pillar">
+        <div class="pillar-pct">30%</div>
+        <div class="pillar-name">PRODUCT</div>
+        <div class="pillar-desc">Drops, product reveals, and styled shots. Every product post should be an event, not just a catalog image.</div>
+        <ul class="pillar-examples">
+          <li>→ Drop announcement graphics</li>
+          <li>→ Studio product photography</li>
+          <li>→ Model editorial shots</li>
+          <li>→ Detail / texture shots</li>
+          <li>→ Lookbook-style multi-image posts</li>
+        </ul>
+      </div>
+      <div class="content-pillar">
+        <div class="pillar-pct">10%</div>
+        <div class="pillar-name">BEHIND THE SCENES</div>
+        <div class="pillar-desc">The making of. People want to know the story — who's building CARO, how it's made, what the brand actually stands for.</div>
+        <ul class="pillar-examples">
+          <li>→ Graphic design process</li>
+          <li>→ Print shop / production clips</li>
+          <li>→ Team / founder moments</li>
+          <li>→ "Day before the drop" content</li>
+          <li>→ Brand building journey (TikTok)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- GRAPHIC DESIGN DIRECTIONS -->
+<div class="section" id="graphics">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <span class="section-title">First Collection: Graphic Directions</span>
+  </div>
+
+  <p style="color: var(--ash); font-size: 14px; max-width: 640px; margin-bottom: 40px; line-height: 1.8;">
+    Since no graphics exist yet, the first drop defines the brand's visual language for years. Keep it simple and bold. The best first drop is one design executed perfectly — not five designs executed moderately. Below are four directions to choose from or combine.
+  </p>
+
+  <div class="graphic-directions">
+    <div class="gd-card">
+      <div class="gd-num">DIRECTION 01</div>
+      <div class="gd-title">TYPOGRAPHY STATEMENT</div>
+      <div class="gd-desc">
+        Pure text. No illustration. Just the CARO wordmark, or a bold phrase from the brand voice, printed large and raw. Think Bebas Neue or a custom distressed serif. This is the safest first drop — impossible to get wrong, impossible to age badly.
+      </div>
+      <div class="gd-tag">RECOMMENDED DROP 1</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-num">DIRECTION 02</div>
+      <div class="gd-title">DECONSTRUCTED ISLAND</div>
+      <div class="gd-desc">
+        Take Sri Lankan iconography — the map shape, the lion, traditional motifs — and break it down, distort it, reconstruct it in a streetwear graphic style. Not literal. Not tourist-trap. Raw, abstract, confrontational. Signals: "We're from here and we're doing this differently."
+      </div>
+      <div class="gd-tag secondary">DROP 2 / COLLAB</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-num">DIRECTION 03</div>
+      <div class="gd-title">ABSTRACT MARK</div>
+      <div class="gd-desc">
+        A custom symbol or logomark that becomes CARO's icon — something that can stand alone without the wordmark. Think a geometric abstract form, a custom glyph, or a distressed print treatment unique to CARO. Over time, this mark becomes the brand's sigil.
+      </div>
+      <div class="gd-tag secondary">SEASON 2</div>
+    </div>
+    <div class="gd-card">
+      <div class="gd-num">DIRECTION 04</div>
+      <div class="gd-title">ARTIST COLLABORATION</div>
+      <div class="gd-desc">
+        Partner with a credible Sri Lankan visual artist for drop 2 or 3. Their artwork on CARO's tees — co-branded. This instantly gives CARO cultural credibility it would take years to earn alone, and gives the artist a new audience. Find the right artist in Colombo's creative scene.
+      </div>
+      <div class="gd-tag secondary">PHASE 3</div>
+    </div>
+  </div>
+
+  <div class="callout-bar">
+    <div class="callout-icon">→</div>
+    <div class="callout-text">
+      <strong>The first drop recommendation:</strong> One oversized black tee + one bone/cream tee. Both with a single, bold typography graphic — either the CARO wordmark in a custom treatment or a brand statement phrase. Limited to 50–80 units total. The goal is to sell out, not to satisfy demand. Scarcity is the strategy.
+    </div>
+  </div>
+</div>
+
+<!-- CREATOR SEEDING -->
+<div class="section" id="creators">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <span class="section-title">Creator Seeding Strategy</span>
+  </div>
+
+  <div class="strategy-grid" style="margin-bottom: 2px;">
+    <div class="strategy-card">
+      <div class="card-label">The Philosophy</div>
+      <div class="card-title">NOT INFLUENCERS.<br>CULTURE CARRIERS.</div>
+      <div class="card-body">
+        Forget follower counts. The person with 3,000 followers who is genuinely respected in Colombo's skate scene is worth more to CARO than a lifestyle influencer with 200,000 followers who promotes everything. Seed to people whose opinion the target audience actually trusts — people who would wear CARO because it's real, not because they got paid.
+        <br><br>
+        This is a gift strategy, not a paid strategy. Give them the tee. No posting requirements. If it's good enough, they'll wear it.
+      </div>
+    </div>
+    <div class="strategy-card accent">
+      <div class="card-label">What to Send</div>
+      <div class="card-title">THE SEED PACKAGE</div>
+      <div class="card-body">
+        Don't just send the tee. Send a package that feels like it came from people who care. The tee + a handwritten (or beautifully printed) note + the CARO story in one page. Make the unboxing itself worth photographing. This is the content.
+      </div>
+      <ul class="card-bullets">
+        <li>1x tee in their size (check their Instagram for reference)</li>
+        <li>1x custom printed notecard — personal, direct, from the brand</li>
+        <li>1x one-pager: the CARO story in brand voice</li>
+        <li>No posting requirements. No contracts. No scripts.</li>
+        <li>Follow up with a DM only after they receive it — not before.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="creator-grid">
+    <div class="creator-card">
+      <div class="creator-type">TIER 01 — MOST IMPORTANT</div>
+      <div class="creator-title">SKATERS & STREET ATHLETES</div>
+      <div class="creator-range">500 — 5,000 followers</div>
+      <div class="creator-why">The OG streetwear credibility. Skaters define what's real on the street. If they wear it, the broader streetwear audience follows. Find them in Colombo's skate parks and local skate content.</div>
+    </div>
+    <div class="creator-card">
+      <div class="creator-type">TIER 01 — MOST IMPORTANT</div>
+      <div class="creator-title">VISUAL ARTISTS & PHOTOGRAPHERS</div>
+      <div class="creator-range">1,000 — 15,000 followers</div>
+      <div class="creator-why">Sri Lankan photographers and graphic artists have built real audiences around taste and vision. When they wear CARO, it's a style endorsement from someone their audience already trusts for aesthetic judgment.</div>
+    </div>
+    <div class="creator-card">
+      <div class="creator-type">TIER 02 — HIGH VALUE</div>
+      <div class="creator-title">MUSICIANS & PRODUCERS</div>
+      <div class="creator-range">2,000 — 20,000 followers</div>
+      <div class="creator-why">Sri Lanka's underground music scene has a Gen Z audience that's culturally fluid and brand-aware. Hip-hop, electronic, indie — especially emerging acts who are building their visual identity alongside their music.</div>
+    </div>
+    <div class="creator-card">
+      <div class="creator-type">TIER 02 — HIGH VALUE</div>
+      <div class="creator-title">FITNESS & SPORTS CREATORS</div>
+      <div class="creator-range">2,000 — 20,000 followers</div>
+      <div class="creator-why">The oversized streetwear aesthetic crosses directly into fitness and gym culture. Sri Lankan fitness creators have real, engaged audiences. They wear the product in motion — which is better content than any studio shot.</div>
+    </div>
+    <div class="creator-card">
+      <div class="creator-type">TIER 03 — SUPPLEMENTARY</div>
+      <div class="creator-title">LIFESTYLE & TRAVEL</div>
+      <div class="creator-range">5,000 — 30,000 followers</div>
+      <div class="creator-why">Select carefully. Only creators who don't promote everything — ones who are known for being selective about what they show. Their recommendation carries weight precisely because it's rare.</div>
+    </div>
+    <div class="creator-card">
+      <div class="creator-type">TIER 03 — FOR PHASE 3</div>
+      <div class="creator-title">DIASPORA COMMUNITY</div>
+      <div class="creator-range">ANY SIZE</div>
+      <div class="creator-why">Sri Lankan diaspora accounts in the UK, Australia, Canada, UAE. "Local made. Global worn." isn't just a tagline — seeding to diaspora creators takes the brand international at almost zero cost and validates the global vision.</div>
+    </div>
+  </div>
+</div>
+
+<!-- DROP MODEL -->
+<div class="section" id="drop">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <span class="section-title">The Drop Mechanic</span>
+  </div>
+  <div class="callout-bar" style="margin-bottom: 2px;">
+    <div class="callout-icon">↓</div>
+    <div class="callout-text">
+      <strong>This ritual applies to Drop Collection products only.</strong> Core Essentials are restocked quietly — no countdown, no hype cycle. The ceremony stays exclusive to what's actually scarce. See Section 06 for the Core model.
+    </div>
+  </div>
+  <div class="drop-flow">
+    <div class="drop-step">
+      <div class="drop-step-num">STEP 01</div>
+      <div class="drop-step-title">SIGNAL DROP</div>
+      <div class="drop-step-body">First hint. No details. A single image, a date, or a color swatch. Volt on black. Caption: nothing, or 2 words. Let people guess.</div>
+      <div class="drop-step-time">7 DAYS BEFORE</div>
+    </div>
+    <div class="drop-step">
+      <div class="drop-step-num">STEP 02</div>
+      <div class="drop-step-title">PRODUCT REVEAL</div>
+      <div class="drop-step-body">Full product reveal. Flat lay + model shot. Link to waitlist in bio. Stories countdown begins. Creators receive their seed packages — DM them to confirm receipt.</div>
+      <div class="drop-step-time">3 DAYS BEFORE</div>
+    </div>
+    <div class="drop-step">
+      <div class="drop-step-num">STEP 03</div>
+      <div class="drop-step-title">FINAL COUNTDOWN</div>
+      <div class="drop-step-body">Stories with countdown sticker. Behind-the-scenes content: the shirts packed, the order link almost ready. Email waitlist. Build the pressure.</div>
+      <div class="drop-step-time">24 HOURS BEFORE</div>
+    </div>
+    <div class="drop-step" style="border-left: 3px solid var(--volt);">
+      <div class="drop-step-num">STEP 04</div>
+      <div class="drop-step-title">DROP LIVE</div>
+      <div class="drop-step-body">Link goes live — Instagram bio, Stories, TikTok. Notify waitlist by WhatsApp and email simultaneously. Post goes up: "Now. Limited. Get it." No restock promised.</div>
+      <div class="drop-step-time">DROP DAY</div>
+    </div>
+    <div class="drop-step">
+      <div class="drop-step-num">STEP 05</div>
+      <div class="drop-step-title">SOLD OUT STORY</div>
+      <div class="drop-step-body">Post the "sold out" content within 48 hrs — whether it's 50 units or 500. Document who bought it. Film people picking up orders. The sold-out moment IS the marketing for the next drop.</div>
+      <div class="drop-step-time">24–48 HRS AFTER</div>
+    </div>
+  </div>
+
+  <div class="callout-bar">
+    <div class="callout-icon">!</div>
+    <div class="callout-text">
+      <strong>On pricing:</strong> Drop Collection: Rs. 3,000 – 4,500. Core Essentials: Rs. 2,500 – 3,000. The gap needs to be meaningful — Core is the entry point, drops are the event. Both tiers sit above fast fashion and well below imported streetwear. Never run sales on either tier in year one. Discounting kills perceived value permanently.
+    </div>
+  </div>
+</div>
+
+<!-- CORE ESSENTIALS -->
+<div class="section" id="core">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <span class="section-title">Core Essentials Tier</span>
+  </div>
+  <div class="strategy-grid">
+    <div class="strategy-card accent">
+      <div class="card-label">What Core Essentials Are</div>
+      <div class="card-title">ALWAYS ON.<br>NEVER LOUD.</div>
+      <div class="card-body">
+        Core Essentials are CARO's permanent, replenishable products — always available in the shop, no countdown, no scarcity. They are the entry point for customers who missed a drop, and the revenue floor that keeps the brand operating between drops.
+        <br><br>
+        The design brief is deliberately restrained: wordmark treatments, tonal prints, minimal graphics. If a piece could pass for a drop, it's too good for Core. The drop is the event. Core is what you wear while you wait for the next one.
+      </div>
+    </div>
+    <div class="strategy-card">
+      <div class="card-label">The Rules</div>
+      <div class="card-title">FOUR LINES WE DON'T CROSS</div>
+      <ul class="card-bullets">
+        <li>No drop countdown ritual for Core restocks — the ceremony belongs to scarce products only.</li>
+        <li>No sales or discounts on Core pieces, ever. Full price always, both tiers.</li>
+        <li>Core designs must be clearly less graphic than drops — wordmark, tonal, clean. Not a consolation prize; a different object.</li>
+        <li>Frame Core as the entry point: "the piece you wear every day." The drop is what you collect.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top: 2px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px;">
+    <div class="strategy-card">
+      <div class="card-label">Products</div>
+      <div class="card-title">WHAT TO BUILD</div>
+      <ul class="card-bullets">
+        <li>Wordmark tee — CARO logo, clean execution, black and bone colourways</li>
+        <li>Tonal graphic tee — subdued print, same colour family as fabric</li>
+        <li>Core hoodie — minimal branding, quality fabric, oversized fit</li>
+      </ul>
+    </div>
+    <div class="strategy-card">
+      <div class="card-label">Pricing</div>
+      <div class="card-title">THE GAP MATTERS</div>
+      <div class="card-body">
+        Core Essentials: Rs. 2,500 – 3,000<br>
+        Drop Collection: Rs. 3,000 – 4,500<br><br>
+        The price gap reinforces the tier difference. Core is accessible. Drops are premium. Both are worth it.
+      </div>
+    </div>
+    <div class="strategy-card">
+      <div class="card-label">When to Launch</div>
+      <div class="card-title">TIMING IS THE STRATEGY</div>
+      <div class="card-body">
+        Do not launch Core before Drop 1 sells out. Establish scarcity and desire first.<br><br>
+        Introduce Core quietly alongside Drop 2 — no announcement post, no fanfare. Let people discover it. Watch the demand signal before scaling inventory.
+      </div>
+    </div>
+  </div>
+
+  <div class="callout-bar">
+    <div class="callout-icon">→</div>
+    <div class="callout-text">
+      <strong>How Core serves the drops:</strong> Every Core customer is a pre-warmed buyer for the next drop. They already own CARO, they already believe in the brand — now give them something to compete for. Core builds the audience; drops give that audience a reason to act.
+    </div>
+  </div>
+</div>
+
+<!-- PHYSICAL ACTIVATION -->
+<div class="section" id="activation">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <span class="section-title">Physical Activation</span>
+  </div>
+  <div class="activation-grid">
+    <div class="activation-main">
+      <div class="card-label">The First Pop-Up</div>
+      <div class="activation-title">ONE NIGHT.<br>COLOMBO.<br>CARO.</div>
+      <div class="activation-body">
+        The first physical activation should happen around Drop 2 or 3. Not a permanent store — a one-night or one-weekend pop-up in a venue that already has cultural credibility in Colombo. Think a gallery space, a rooftop in Colombo 3 or 7, or an existing creative studio.
+        <br><br>
+        The pop-up is not primarily a sales event — it's a brand moment. People come to experience CARO, not just to buy a shirt. Have a photographer. Play the right music. Invite the creators. Make it look amazing on camera, because the content from that night is what drives the next wave of followers.
+        <br><br>
+        Invite-only for the first two hours. Open to all after. This creates a hierarchy of belonging — the inner circle and the wider community — that makes both groups feel valued.
+      </div>
+    </div>
+    <div class="activation-side">
+      <div class="activation-detail">
+        <div class="detail-label">LOCATION</div>
+        <div class="detail-value">COLOMBO 3 / 7</div>
+        <div class="detail-note">Gallery space, rooftop, or creative studio. Ideally somewhere with existing cultural credibility.</div>
+      </div>
+      <div class="activation-detail">
+        <div class="detail-label">TIMING</div>
+        <div class="detail-value">DROP 2 OR 3</div>
+        <div class="detail-note">After first online success validates demand. Phase 3, approximately month 4–5.</div>
+      </div>
+      <div class="activation-detail">
+        <div class="detail-label">FORMAT</div>
+        <div class="detail-value">ONE NIGHT ONLY</div>
+        <div class="detail-note">Invite-only 2hrs → open to all. Document everything. The content IS the marketing.</div>
+      </div>
+      <div class="activation-detail">
+        <div class="detail-label">PARTNERS</div>
+        <div class="detail-value">CO-ACTIVATIONS</div>
+        <div class="detail-note">Partner with a Sri Lankan musician or DJ for the night. A local photographer for the visual content. A complementary non-competing brand for shared audience reach.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- METRICS -->
+<div class="section" id="metrics">
+  <div class="section-header">
+    <span class="section-num">08</span>
+    <span class="section-title">Success Metrics by Phase</span>
+  </div>
+  <div class="metrics-grid">
+    <div class="metric-block">
+      <div class="metric-period">PHASE 01 / WEEKS 1-4</div>
+      <div class="metric-val">500</div>
+      <div class="metric-label">WAITLIST SIZE</div>
+      <div class="metric-note">Minimum email + WhatsApp subscribers before first drop. This is the captive audience that makes Drop 1 possible.</div>
+    </div>
+    <div class="metric-block">
+      <div class="metric-period">PHASE 02 / DROP 1</div>
+      <div class="metric-val">100%</div>
+      <div class="metric-label">SELL-THROUGH RATE</div>
+      <div class="metric-note">Sell out of the first drop. Size units accordingly — 50–80 total if needed. Sold out is the only acceptable outcome.</div>
+    </div>
+    <div class="metric-block">
+      <div class="metric-period">PHASE 03 / MONTH 4</div>
+      <div class="metric-val">5K</div>
+      <div class="metric-label">INSTAGRAM FOLLOWERS</div>
+      <div class="metric-note">After creator seeding and Drop 1 momentum. This is a realistic, achievable target — not a vanity number. 5K engaged > 50K passive.</div>
+    </div>
+    <div class="metric-block">
+      <div class="metric-period">PHASE 03 / MONTH 4–5</div>
+      <div class="metric-val">30%</div>
+      <div class="metric-label">CORE REVENUE SHARE</div>
+      <div class="metric-note">Target 30% of total revenue from Core Essentials by month 5. This is the revenue floor that funds the next drop without external pressure.</div>
+    </div>
+    <div class="metric-block">
+      <div class="metric-period">PHASE 04 / MONTH 12</div>
+      <div class="metric-val">3x</div>
+      <div class="metric-label">REVENUE GROWTH</div>
+      <div class="metric-note">Drop 3 revenue at 3x Drop 1, with Core providing consistent baseline. Growth through increasing drop size, higher per-unit price, and stable Core revenue.</div>
+    </div>
+  </div>
+
+  <div class="h-rule"></div>
+
+  <div class="strategy-grid">
+    <div class="strategy-card">
+      <div class="card-label">What We Track Every Drop + Monthly</div>
+      <div class="card-title">THE REAL NUMBERS</div>
+      <ul class="card-bullets">
+        <li>Drop sell-through rate (sold units / total units)</li>
+        <li>Time to sell out (how fast demand clears supply)</li>
+        <li>Waitlist conversion rate (waitlist → purchase)</li>
+        <li>Core monthly units sold + reorder velocity</li>
+        <li>Core revenue as % of total (target: 30% by month 5)</li>
+        <li>UGC count — how many people posted wearing CARO</li>
+        <li>Repeat buyer rate — are people coming back for Drop 2, 3?</li>
+        <li>Earned reach from creator posts (no-cost impressions)</li>
+      </ul>
+    </div>
+    <div class="strategy-card">
+      <div class="card-label">What We Ignore</div>
+      <div class="card-title">VANITY METRICS</div>
+      <ul class="card-bullets">
+        <li>Total follower count (engagement rate matters more)</li>
+        <li>Story views on organic brand content</li>
+        <li>Reach on non-converting posts</li>
+        <li>Press mentions without direct traffic</li>
+        <li>Any metric that doesn't connect to real people wearing the brand</li>
+        <li>Competitor follower counts — irrelevant</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- CLOSING -->
+<div class="closing">
+  <div>
+    <div class="closing-big">WEAR THE<br><span>NEXT</span><br>GENERATION.</div>
+    <div class="closing-rule">
+      <span class="rule-item">LOCAL ROOTS</span>
+      <span class="rule-item">GLOBAL VISION</span>
+      <span class="rule-item">EST. 2026</span>
+    </div>
+  </div>
+  <div>
+    <p class="closing-note">
+      The brands that last in streetwear are the ones that built a real community before they built a business. CARO has the right identity, the right positioning, and the right moment. Sri Lanka's Gen Z has been waiting for a brand that's actually theirs.
+      <br><br>
+      The strategy is simple: build culture, drop with discipline, seed to the right people, and document everything. Don't rush the growth. The brands that explode too fast, fade just as fast. Build something that belongs to the next generation — and they'll carry it for you.
+      <br><br>
+      <strong style="color: var(--bone); font-weight: 500;">From Colombo to everywhere.</strong>
+    </p>
+    <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #2a2a2a;">
+      <div style="font-family: 'Space Mono', monospace; font-size: 9px; color: var(--ash); letter-spacing: 2px; margin-bottom: 16px;">NEXT IMMEDIATE ACTIONS</div>
+      <ul style="list-style: none;">
+        <li style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--volt); padding: 6px 0; border-bottom: 1px solid #1c1c1c; letter-spacing: 0.5px;">01 — Lock all social handles today. @carosl or equivalent.</li>
+        <li style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--volt); padding: 6px 0; border-bottom: 1px solid #1c1c1c; letter-spacing: 0.5px;">02 — Commission first graphic from a Sri Lankan designer.</li>
+        <li style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--volt); padding: 6px 0; border-bottom: 1px solid #1c1c1c; letter-spacing: 0.5px;">03 — Source a print partner. Lock quality before quantity.</li>
+        <li style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--volt); padding: 6px 0; border-bottom: 1px solid #1c1c1c; letter-spacing: 0.5px;">04 — Post first Instagram: the CARO wordmark. Nothing else.</li>
+        <li style="font-family: 'Space Mono', monospace; font-size: 10px; color: var(--volt); padding: 6px 0; letter-spacing: 0.5px;">05 — Set up waitlist link (WhatsApp broadcast + Google Form).</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">CARO CLOTHING</div>
+  <div class="footer-meta">
+    Marketing Strategy — Year One<br>
+    Sri Lanka · 2025 · CONFIDENTIAL
+  </div>
+</footer>
+
+</body>
+</html>

@@ -12,28 +12,46 @@
 	];
 </script>
 
+<svelte:head>
+	<title>Addresses | Caro Clothing</title>
+	<meta name="description" content="Your saved addresses" />
+</svelte:head>
+
 <div class="flex flex-col gap-6">
-	<div class="flex justify-between items-baseline">
-		<h2 class="font-mono text-xs text-ash uppercase tracking-[0.2em]">Saved Addresses</h2>
+	<div class="flex items-baseline justify-between">
+		<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Saved Addresses</h2>
 	</div>
 
-	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+	<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 		{#each addresses as address}
-			<div class="bg-charcoal/40 p-5 flex flex-col gap-4 border border-transparent hover:border-ash/10 transition-colors">
-				<div class="flex justify-between items-start">
+			<div
+				class="flex flex-col gap-4 border border-transparent bg-charcoal/40 p-5 transition-colors hover:border-ash/10"
+			>
+				<div class="flex items-start justify-between">
 					<div class="flex flex-col gap-1">
-						<span class="font-mono text-[9px] text-volt uppercase tracking-widest">{address.label}</span>
+						<span class="font-mono text-[9px] tracking-widest text-volt uppercase"
+							>{address.label}</span
+						>
 						{#if address.isDefault}
-							<span class="w-fit border border-volt/30 text-volt font-mono text-[8px] px-1.5 py-0.5 uppercase">Default</span>
+							<span
+								class="w-fit border border-volt/30 px-1.5 py-0.5 font-mono text-[8px] text-volt uppercase"
+								>Default</span
+							>
 						{/if}
 					</div>
 					<div class="flex gap-4">
-						<button class="font-mono text-[9px] text-ash/60 uppercase tracking-widest hover:text-bone">Edit</button>
-						<button class="font-mono text-[9px] text-red-400/60 uppercase tracking-widest hover:text-red-400">Delete</button>
+						<button
+							class="font-mono text-[9px] tracking-widest text-ash/60 uppercase hover:text-bone"
+							>Edit</button
+						>
+						<button
+							class="font-mono text-[9px] tracking-widest text-red-400/60 uppercase hover:text-red-400"
+							>Delete</button
+						>
 					</div>
 				</div>
 
-				<div class="flex flex-col font-sans text-sm text-bone leading-relaxed">
+				<div class="flex flex-col font-sans text-sm leading-relaxed text-bone">
 					<span class="font-medium">{address.recipientName}</span>
 					<span>{address.addressLine1}</span>
 					<span>{address.city}, {address.district}</span>
@@ -41,9 +59,13 @@
 			</div>
 		{/each}
 
-		<button class="border border-dashed border-ash/20 p-8 flex flex-col items-center justify-center gap-3 group hover:border-volt transition-colors">
-			<span class="font-mono text-2xl text-ash group-hover:text-volt transition-colors">+</span>
-			<span class="font-mono text-[10px] text-ash uppercase tracking-widest group-hover:text-bone">Add New Address</span>
+		<button
+			class="group flex flex-col items-center justify-center gap-3 border border-dashed border-ash/20 p-8 transition-colors hover:border-volt"
+		>
+			<span class="font-mono text-2xl text-ash transition-colors group-hover:text-volt">+</span>
+			<span class="font-mono text-[10px] tracking-widest text-ash uppercase group-hover:text-bone"
+				>Add New Address</span
+			>
 		</button>
 	</div>
 </div>

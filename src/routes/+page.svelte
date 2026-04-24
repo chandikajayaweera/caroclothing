@@ -15,6 +15,14 @@
 	};
 </script>
 
+<svelte:head>
+	<title>Caro Clothing | Sri Lankan Streetwear</title>
+	<meta
+		name="description"
+		content="Caro Clothing is a Sri Lankan streetwear brand that sells high-quality clothing to customers in Sri Lanka and around the world."
+	/>
+</svelte:head>
+
 <HeroSection />
 <NewInGrid />
 <SocialProofRail />

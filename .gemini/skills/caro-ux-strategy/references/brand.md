@@ -6,7 +6,7 @@
 | -------- | ------------------------------------------------------------ |
 | Name     | Caro Clothing                                                |
 | Country  | Sri Lanka                                                    |
-| Est.     | 2024                                                         |
+| Est.     | 2026                                                         |
 | Category | Streetwear / Graphic Tees                                    |
 | Tagline  | "Wear the Next Generation"                                   |
 | Audience | Men & women, 16–30, Gen Z, digitally native, style-conscious |
@@ -17,6 +17,15 @@
 2. **RAW** — No filter, no fakery. Honest about what it is.
 3. **FREE** — Oversized fits, open expression. Room to move and be.
 4. **LOCAL** — Rooted in Sri Lanka. Worn by the next generation.
+
+## Two-Tier Product Identity
+
+The brand expresses itself differently across its two tiers. Both tiers are Caro — they're just different objects with different roles.
+
+| Tier                | Identity Expression                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Drop Collection** | Bold graphic statements, full-face prints, seasonal or concept-driven, Volt accent permitted as feature. Every piece must feel like an event.        |
+| **Core Essentials** | Wordmark only or minimal tonal print. Black, bone, and charcoal colourways. Consistency over novelty. If it could be a drop, it's too good for Core. |
 
 ## Color System
 
@@ -72,6 +81,7 @@
 | ------------------------- | ----------------------------- |
 | Primary (hero/storefront) | "Wear the Next Generation"    |
 | Product drops             | "New Drop. Same Energy."      |
+| Core Essentials           | "Wear It Every Day."          |
 | Social                    | "Made Here. Worn Everywhere." |
 | Seasonal                  | "This Is Your Season."        |
 

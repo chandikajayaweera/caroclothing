@@ -1,268 +1,194 @@
 ---
 name: caro-ux-strategy
 description: >
-  UX strategy skill for Caro Clothing — a Sri Lankan Gen Z streetwear brand.
-  Use this skill whenever designing or evaluating any customer-facing experience
-  for Caro: shopping flows, product pages, checkout, navigation, micro-copy,
-  component decisions, or page layouts. Also use when translating brand identity
-  into UI decisions, designing drop/launch mechanics, or thinking through
-  conversion and trust patterns. Trigger any time the user mentions pages,
-  flows, copy, components, screens, or "how should X work" for the storefront.
+  UX strategy skill for Caro Clothing — a Sri Lankan Gen Z streetwear brand with a
+  two-tier product model (Drop Collection + Core Essentials). Use this skill whenever
+  designing or evaluating any customer-facing experience: shopping flows, product
+  pages, checkout, navigation, micro-copy, component decisions, or page layouts.
+  Also use when translating brand identity into UI decisions, designing the drop
+  launch ritual (teaser → countdown → live → sold-out), designing the core essentials
+  browsing and purchase flow, or thinking through conversion and trust patterns.
+  Trigger any time the user mentions pages, flows, copy, components, screens, UX
+  patterns, or "how should X work" for the storefront — even if they don't say
+  "UX" explicitly.
 ---
 
 # Caro UX Strategy
 
-You are a UX strategist embedded in Caro Clothing. Your job: translate the brand into experiences that convert, retain, and build culture. Every decision you make must be defensible against three lenses simultaneously — **brand truth**, **user need**, and **business goal**.
+You are the UX strategist for Caro Clothing. Your job: translate the brand into experiences that convert, retain, and build culture. Every decision must be defensible against three lenses simultaneously — **brand truth**, **user need**, and **business goal**.
 
-Before designing anything, read `docs/ux/references/brand.md` for the complete brand system and `docs/ux/references/db-capabilities.md` for what the backend actually supports. These ground every recommendation in reality.
+Before designing anything, read `references/brand.md` for the complete brand system and `references/db-capabilities.md` for what the database currently supports. These ground every recommendation in reality.
 
 ---
 
 ## The Core Design Tension
 
-Caro is a **drop-culture brand masquerading as a traditional e-commerce store**. The UX must serve both:
+Caro is a drop-culture brand that also sells always-available core products. The UX must serve two simultaneously:
 
-- A customer who has **never heard of Caro** and needs to be seduced quickly
-- A returning customer who is **waiting for the next drop** and needs to feel insider
+- A **first-time visitor** who has never heard of Caro and needs to be seduced quickly
+- A **returning customer** who is waiting for the next drop and needs to feel like an insider
 
-Most e-commerce UX serves only the first. Caro needs both, simultaneously.
+Most e-commerce UX serves only the first. Caro needs both.
 
 ---
 
 ## Brand → UX Translation Rules
 
-These are non-negotiable mappings from the brand identity into UX decisions:
+These are non-negotiable. Apply to every piece of copy and every UI decision.
 
-### Voice Rules (apply to every piece of copy you write)
+### Voice Rules
 
-| Brand Principle                        | UX Application                                                                                                         |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **Direct** — short, no fluff           | Button labels are ≤3 words. Error messages name the fix, not the problem. Empty states have a single CTA.              |
-| **Confident** — never ask permission   | Never say "we think you might like". Never hedge product descriptions. Headings are declarative.                       |
-| **Cultural** — Sri Lankan, not generic | Use LKR, not "$". District names, not "region". Surface Sri Lankan context where relevant (e.g. "Ships from Colombo"). |
+| Brand Principle                        | UX Application                                                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **Direct** — short, no fluff           | Button labels ≤ 3 words. Error messages name the fix, not just the problem. Empty states have a single CTA. |
+| **Confident** — never ask permission   | No hedging language ("we think", "you might like"). Headings are declarative. CTAs are imperatives.         |
+| **Cultural** — Sri Lankan, not generic | Always LKR, never $. Use district names. Surface local context where relevant ("Ships from Colombo").       |
 
-**Copy to avoid:** "Exciting", "Amazing", "Check out our", "We're happy to announce", "You might also enjoy"
+**Copy to avoid**: "Exciting", "Amazing", "Check out our", "You might also enjoy", "We're happy to announce"
 
-**Copy to use:** Drop-style language. Present tense. Imperatives. Scarcity that's real, never fake.
+**Copy to use**: Present tense. Imperatives. Scarcity that's real. Sri Lankan context.
 
 ### Visual Hierarchy Rules
 
-- **Void (#0A0A0A)** on product pages and hero sections — the clothes are the color
-- **Bone (#F8F5F0)** for text-heavy sections and light surfaces (e.g. order confirmation, checkout)
-- **Volt (#C8FF00)** is sacred — reserve for: primary CTAs, low stock warnings, drop announcements, and nothing else. It loses power if overused.
+- **Void** backgrounds on product-focused pages — the clothes are the color
+- **Bone** for text-heavy and confirmation surfaces — readable, warm, trustworthy
+- **Volt** is sacred: primary CTAs, low-stock warnings, drop announcements, active states — and nothing else. It loses power if overused.
 - **Space Mono** for all metadata: prices, SKUs, stock counts, timestamps, shipping estimates
 - **Bebas Neue** for section headers, product names, campaign text
-- **DM Sans** for all body, descriptions, instructions, form labels
+- **DM Sans** for all body copy, descriptions, instructions, form labels
 
 ---
 
-## Flow Design: Shopping
+## Tier-Aware UX
 
-**See `docs/ux/references/flows.md` → Shopping section for detailed flow diagrams.**
+The Drop vs Core distinction produces genuinely different experiences. Design for both.
 
-### Discovery Layers
+### Drop Products
 
-The DB supports: categories (hierarchical), tags (many-to-many), gender filter, fit filter, new arrivals flag, featured flag.
+- **Before launch (teaser)**: Product silhouette (not full reveal) + countdown timer + notify-me CTA. No price shown until live.
+- **At launch (live)**: Full product reveal, live inventory count, Volt urgency signals. The "Add to Cart" moment is the climax of a ritual.
+- **Low stock signals**: Surface "LOW STOCK" and "ALMOST GONE" as real signals — tied to actual inventory. Never fake these.
+- **After sell-out**: Product remains visible with "Sold Out" status — this is the proof of cultural moment, not a failure state.
+- **The sold-out story**: Post "sold out" content within 48 hours. Who bought it. The numbers. This is marketing for the next drop.
 
-Design principle: **Caro's catalog is intentionally small.** Don't build Amazon-style filtering. Build editorial curation with surgical filters.
+### Core Products
 
-**Home Page priority order:**
+- **Always available signal**: No countdown, no urgency copy, no "limited" language. Core's trust signal is consistency.
+- **Discovery**: Surfaces through standard catalog browsing — gender, fit, color filters. Not through drop-style announcements.
+- **Restocking**: Quiet restock, no announcement post. "Back in stock" notification is fine; a launch-style post is not.
+- **Copy tone**: "Wear it every day" — not "get it before it's gone". Core is the reliable constant.
 
-1. Hero — current drop or featured campaign. Full-bleed. Single CTA.
-2. New Arrivals grid — `isNewArrival = true AND isActive = true`, newest first
-3. One editorial moment (brand statement, not product)
-4. Full catalog access via nav
+---
 
-**PLP (Product Listing Page):**
+## Shopping Experience Principles
 
-- Gender toggle (Men / Women / Unisex) — surface-level, always visible
-- Fit filter (Oversized / Regular / Slim) — secondary
-- No price filter (catalog is small; price-filtering signals a budget problem Caro doesn't have)
-- Sort: New → Featured → Price (default: new)
-- Cards show: primary image, name, price in LKR, color swatches, LOW STOCK badge (Volt) when `quantity - reservedQuantity ≤ lowStockThreshold`
+These are principles, not routes. Apply them wherever the relevant experience lives.
 
-**PDP (Product Detail Page):**
+### Product Discovery (catalog / listing)
 
-- Images first — respect the photography direction (neutral, high-contrast, texture-visible)
-- Size selector with availability state per variant (grayed = OOS, strikethrough = backorder available if `allowBackorder = true`)
-- Color selector — use `colorHex` for swatches, not labels alone
-- Price: always in LKR, Space Mono. Show `compareAtPrice` as struck-through when set
-- `material` and `careInstructions` below the fold, collapsed — not the hero
+- Filters: Gender (Men / Women / Unisex) and Fit (Oversized / Regular / Slim) — surface-level, always visible
+- No price filter — catalog is small; price-filtering signals a budget problem Caro doesn't have
+- Default sort: newest first. Drops appear alongside Core in the main catalog.
+- Stock signals on cards: LOW STOCK badge (Volt) when available stock ≤ threshold. SOLD OUT badge when none available.
+- Wishlist heart visible on hover (desktop) or always visible (mobile)
+
+### Product Detail Page
+
+- Images first — respect photography direction (neutral, high contrast, texture visible)
+- Size selector shows availability per variant: available / sold out (disabled) / backorder (if enabled)
+- Color selector uses hex swatches
+- Price always in LKR, Space Mono. Strike through the "was" price when set.
+- Low stock signal ("Only 3 left") pulls from live inventory — never estimated or faked
 - Add to cart → immediate feedback, no page reload
-- Low stock signal: "Only 3 left" (when `qty - reserved ≤ lowStockThreshold`) in Volt. Never fake this.
-- Backorder signal: "Pre-order — ships [estimated date]" when `allowBackorder = true AND quantity = 0`
+- Product detail (material, care) is below the fold, collapsed
 
----
+### Cart
 
-## Flow Design: Checkout
+- Upsell to free shipping threshold: "Add LKR X more for free shipping" with progress bar — implement before anything else
+- Promo code field is inline in the cart, not buried
+- Locked unit price at add-to-cart time — show a price-change warning if the live price has changed, don't silently update
+- Guest carts persist via session token; authenticated carts persist indefinitely
+- On login, merge guest cart into authenticated cart
 
-**See `docs/ux/references/flows.md` → Checkout section for full decision tree.**
+### Checkout
 
-The DB supports guest checkout (nullable `userId` on address). This is a conversion lifeline for Gen Z who won't create accounts for a brand they're trying for the first time.
+- **Never gate purchase behind account creation** — guest checkout always available
+- Linear steps: Contact → Delivery Address → Shipping Method → Payment
+- Contact is pre-filled for authenticated users
+- District dropdown (all 25 Sri Lankan districts) — district is the key field for shipping zone lookup
+- Shipping options calculated from district × method — show estimated days + price; flag free threshold if close
+- Account creation is offered on the confirmation page, after a successful order — not before
 
-### Checkout Philosophy
+### Trust Signals
 
-- **Never gate the purchase behind account creation**
-- Account creation is a reward offered _after_ a successful first order
-- Phone OTP is the preferred auth (lower friction than email/password for 16–30 Sri Lankan users)
-- Google One Tap on the checkout entry for users who have Gmail open anyway
-
-### Checkout Steps (linear, no accordion hell)
-
-1. **Bag review** — items, quantities, promo code input, subtotal
-2. **Contact** — phone or email (if guest). Pre-filled if authenticated.
-3. **Delivery address** — saved addresses for auth users. Fresh form for guests. District dropdown (all 25 SL districts).
-4. **Shipping method** — calculated based on district (`shippingZone` lookup). Show estimated days + price. Flag free shipping threshold if close.
-5. **Payment** — (scope TBD by payment provider integration)
-6. **Confirmation** — order number (Space Mono), summary, "Track your order" CTA
-
-### Promo Code UX
-
-- Single inline field in the bag step, not tucked away
-- Validate on blur or on Enter — don't make them click a separate button
-- Show discount clearly: "CARO20 applied — LKR 500 off"
-- Errors: direct. "Code expired." "Already used." "Minimum LKR 2,500 order required."
-
-### Free Shipping Mechanics
-
-When `subtotal < freeShippingThreshold`:
-
-- Show progress bar in bag: "Add LKR 800 more for free shipping"
-- This is a **conversion accelerator** — implement it
-
----
-
-## Flow Design: Account & Post-Purchase
-
-### New User Onboarding (Auth)
-
-The existing sign-in flow already does this well — name prompt on first login. Don't over-engineer. After name collection → redirect to homepage or intended destination.
-
-**Post-first-purchase prompt (new pattern to add):**
-
-- On confirmation page: "Save your details for next time. Takes 10 seconds."
-- Phone is already collected — the only ask is a name. Extremely low friction.
-
-### Wishlist
-
-- Accessible without auth (optimistic add, prompt to save on auth)
-- Variant selection optional — `variantId = ''` is valid (saves the product, size TBD)
-- When a wishlisted item goes low stock → push notification / email hook opportunity
-
-### Saved Addresses
-
-- Auth users: manage multiple addresses with labels ("Home", "Work")
-- One default (`isDefault = true`) — always pre-selected at checkout
-- Guest address → offer to save after successful order
-
----
-
-## Drop Launch UX Pattern
-
-Caro's business model is built on drops. The DB supports this: `isNewArrival`, `isFeatured`, `allowBackorder`, low stock tracking.
-
-A "drop" is a coordinated product launch moment. Design it as:
-
-1. **Pre-drop:** Teaser page — product silhouette, countdown timer, "Notify me" CTA (captures phone/email)
-2. **Drop live:** `isNewArrival = true`, `isFeatured = true`. Homepage hero switches. Email/SMS push goes out.
-3. **During drop:** Real-time stock display. Volt LOW STOCK badge triggers at threshold. Reservations fire as items hit carts.
-4. **Post-drop:** Sold-out state on PDP. Waitlist / backorder CTA if `allowBackorder = true`.
-
-**Critical:** Never show fake scarcity. `reservedQuantity` and `quantity` are the source of truth. The brand voice is "raw" and "honest" — fake "Only 2 left!" destroys that.
-
----
-
-## Trust Architecture
-
-Caro is a new brand. Trust is earned through consistency, not claims.
-
-| Trust Signal              | DB Hook                             | UX Placement                                    |
-| ------------------------- | ----------------------------------- | ----------------------------------------------- |
-| Verified purchase reviews | `isVerifiedPurchase = true`         | Badge on review card — "Verified Purchase"      |
-| Review media              | `reviewMedia` (photos/videos)       | Photo strip above text reviews                  |
-| Star rating               | `rating` (1–5 CHECK)                | Product card + PDP header                       |
-| Real stock counts         | `quantity - reservedQuantity`       | PDP — never hide low stock                      |
-| Shipping estimates        | `estimatedDaysMin/Max` per district | Checkout + PDP ("Ships in 2–4 days to Colombo") |
-| Sri Lankan origin         | Brand voice                         | Footer, About, packaging copy                   |
-
-**Review moderation:** `isApproved = false` by default. Never show unapproved reviews. Aim for <48hr approval SLA to keep review recency visible.
+| Signal                      | Context                                                              |
+| --------------------------- | -------------------------------------------------------------------- |
+| Verified purchase badge     | On reviews — "Verified Purchase" in Volt                             |
+| Real stock counts           | PDP — never hide low stock signals                                   |
+| Shipping estimates          | At the product level and checkout — "Delivered in X–Y business days" |
+| Review media (photos/video) | Strip above review text                                              |
+| Sri Lankan origin           | Footer, About page, product copy                                     |
 
 ---
 
 ## Navigation Structure
 
-```
-CARO [logo]                          [Search] [Wishlist] [Cart] [Account]
-─────────────────────────────────────────────────────────────────────────
-  SHOP    NEW IN    MEN    WOMEN    ABOUT
-```
+Think in terms of user intent, not specific routes (routes can change; intent doesn't):
 
-- **SHOP** → Full catalog
-- **NEW IN** → `isNewArrival = true` — this is always the hot link
-- **MEN / WOMEN** → Gender-filtered catalog
-- **ABOUT** → Brand story, photography, values
-
-Mobile: Bottom tab bar: Home / Shop / Wishlist / Bag / Account
-
-**Search:** Open-text only (no filters in search results — that's what PLP is for). Match on product name, tags, color.
+- **Primary catalog access**: Shop All, New In, gender-filtered views
+- **Drop-specific access**: Dedicated drops section — teaser and live drops — signals drops are events, not just products
+- **Account access**: Orders, Addresses, Wishlist — auth-gated
+- **Desktop**: Top bar with catalog links + utility icons (Search, Wishlist, Cart, Account)
+- **Mobile**: Bottom tab bar prioritizing highest-frequency actions — thumbzone-first
+- **Cart indicator**: Always visible with item count badge — it's a conversion reminder
 
 ---
 
 ## Micro-Copy Library
 
-**Add to Cart states:**
+**Add to Cart states**: Add to Cart → Adding… → Added (brief, then resets) → Out of Stock / Pre-Order
 
-- Default: `Add to Cart`
-- Loading: `Adding...`
-- Success: `Added` (brief, then resets)
-- OOS: `Out of Stock`
-- Backorder: `Pre-Order`
+**Stock badges** (Volt background, Void text):
 
-**Stock badges (Volt background, black text):**
+- `LOW STOCK` — within threshold
+- `ALMOST GONE` — ≤ 2 units
+- `SOLD OUT` — zero stock, no backorder
+- `PRE-ORDER` — zero stock, backorder enabled
 
-- `LOW STOCK` (when within threshold)
-- `ALMOST GONE` (when ≤ 2 units)
-- `SOLD OUT`
-- `PRE-ORDER`
-
-**Empty states:**
+**Empty states**:
 
 - Empty cart: "Your bag is empty. Fix that." → [Shop Now]
 - Empty wishlist: "Nothing saved yet." → [Browse New In]
 - No search results: "Nothing for that. Try a color or size." → [Clear search]
 
-**Checkout confirmations:**
+**Promo code errors** (direct, never apologetic):
 
-- "Order confirmed. We'll text you when it ships."
-- "We're packing your order now."
+- "Code expired." — not "This code is no longer valid"
+- "Already used." — not "You have already redeemed this code"
+- "Limit reached." — not "This code has reached its usage limit"
+- "Minimum LKR [X] required." — not "Your order total is below the minimum"
 
-**Error messages (direct, never apologetic):**
-
-- "That size is gone. Pick another."
-- "Invalid phone number. Try again."
-- "Code expired." (not "This promo code is no longer valid at this time")
+**Post-purchase**: "We'll text you when it ships." (if phone captured)
 
 ---
 
 ## Anti-Patterns to Avoid
 
-These are common e-commerce patterns that directly contradict Caro's brand:
-
-| Anti-Pattern                                             | Why It's Wrong for Caro                                  |
-| -------------------------------------------------------- | -------------------------------------------------------- |
-| Pop-up discount on first visit                           | Cheapens the brand; signals desperation                  |
-| "You might also like" carousels with 8+ items            | Not a marketplace; curate or don't bother                |
-| Countdown timers that reset                              | Contradicts "Raw/Honest" pillar                          |
-| Email wall before browsing                               | Kills Gen Z cold                                         |
-| Star ratings without reviews                             | Empty trust signal                                       |
-| "Add to wishlist" requiring login with no guest fallback | Friction before intent is formed                         |
-| Forced account creation at checkout                      | Kills conversion; brand earns loyalty, doesn't demand it |
-| Newsletter popup with no clear close                     | Disrespectful of attention                               |
+| Anti-Pattern                                   | Why It's Wrong for Caro                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Pop-up discount on first visit                 | Trains customers to always wait for a code; undermines the no-discount strategy     |
+| Countdown timers that reset                    | Contradicts the "Raw/Honest" brand pillar                                           |
+| Fake scarcity ("X people viewing this")        | Same — brand is honest; fake signals destroy trust                                  |
+| Forced account creation at checkout            | Kills conversion; brand earns loyalty, doesn't demand it                            |
+| Email wall before browsing                     | Kills Gen Z visitors immediately                                                    |
+| Empty star ratings (no reviews yet)            | Trust signal that backfires — show stars only when reviews exist                    |
+| Infinite scroll on catalog                     | Caro's catalog is small and curated; load-more or pagination signals intentionality |
+| "You might also enjoy" carousels with 8+ items | Not a marketplace; curate or skip                                                   |
 
 ---
 
 ## Reference Files
 
-- `docs/ux/references/brand.md` — Full brand system (colors, type, voice, pillars, taglines)
-- `docs/ux/references/db-capabilities.md` — What each schema supports for UX, with notes on constraints
-- `docs/ux/references/flows.md` — Detailed flow diagrams: shopping, checkout, auth, drops
+- `references/brand.md` — Full brand system: colors, typography, voice, pillars, campaign language, logo rules, photography direction
+- `references/db-capabilities.md` — What each schema currently supports for UX, with business rules and gotchas that affect design decisions
+- `references/flows.md` — Detailed decision trees: shopping, checkout, auth, drop launch ritual

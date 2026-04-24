@@ -72,7 +72,7 @@
 		{
 			id: 'fit',
 			title: 'Fit & Sizing',
-			content: "Oversized fit. True to size. Model is 6'1\" wearing size L."
+			content: 'Oversized fit. True to size. Model is 6\'1" wearing size L.'
 		}
 	];
 
@@ -109,24 +109,31 @@
 	}
 </script>
 
-<div class="min-h-screen lg:pt-16 bg-void">
+<svelte:head>
+	<title>{product.name} | Caro Clothing</title>
+	<meta name="description" content={product.description} />
+</svelte:head>
+
+<div class="min-h-screen bg-void lg:pt-16">
 	<!-- Main Product Section -->
-	<div class="lg:grid lg:grid-cols-[55%_45%] lg:gap-0 max-w-[1600px] mx-auto">
+	<div class="mx-auto max-w-[1600px] lg:grid lg:grid-cols-[55%_45%] lg:gap-0">
 		<!-- Left Col: Image Gallery -->
-		<div class="lg:sticky lg:top-16 lg:h-[calc(100vh-64px)] overflow-y-auto no-scrollbar">
+		<div class="no-scrollbar overflow-y-auto lg:sticky lg:top-16 lg:h-[calc(100vh-64px)]">
 			<PDPImageGallery images={product.images} />
 		</div>
 
 		<!-- Right Col: Product Info -->
-		<div class="px-4 py-6 md:px-6 md:py-8 lg:px-10 lg:py-12 flex flex-col">
-			<span class="font-mono text-[9px] text-ash/60 uppercase tracking-[0.2em] mb-1">
+		<div class="flex flex-col px-4 py-6 md:px-6 md:py-8 lg:px-10 lg:py-12">
+			<span class="mb-1 font-mono text-[9px] tracking-[0.2em] text-ash/60 uppercase">
 				{product.sku}
 			</span>
-			<h1 class="font-display text-5xl md:text-6xl lg:text-7xl text-bone leading-none mb-4 uppercase">
+			<h1
+				class="mb-4 font-display text-5xl leading-none text-bone uppercase md:text-6xl lg:text-7xl"
+			>
 				{product.name}
 			</h1>
 
-			<div class="flex items-baseline gap-3 mb-8">
+			<div class="mb-8 flex items-baseline gap-3">
 				<span class="font-mono text-2xl text-bone">LKR {product.price.toLocaleString()}</span>
 				{#if product.compareAtPrice}
 					<span class="font-mono text-sm text-ash line-through">
@@ -134,37 +141,27 @@
 					</span>
 				{/if}
 				{#if product.stockStatus === 'low-stock'}
-					<span class="bg-volt text-void font-mono text-[9px] uppercase tracking-[0.15em] px-2 py-0.5 ml-2">
+					<span
+						class="ml-2 bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+					>
 						LOW STOCK
 					</span>
-					<span class="font-mono text-[10px] text-ash uppercase tracking-widest ml-1">
+					<span class="ml-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 						Only {product.availableCount} left
 					</span>
 				{/if}
 			</div>
 
 			<div class="flex flex-col gap-8">
-				<ColorSelector
-					colors={product.colors}
-					{activeColor}
-					onSelect={(c) => (activeColor = c)}
-				/>
+				<ColorSelector colors={product.colors} {activeColor} onSelect={(c) => (activeColor = c)} />
 
-				<SizeSelector
-					sizes={product.sizes}
-					{activeSize}
-					onSelect={(s) => (activeSize = s)}
-				/>
+				<SizeSelector sizes={product.sizes} {activeSize} onSelect={(s) => (activeSize = s)} />
 			</div>
 
 			<!-- CTAs -->
 			<div class="mt-10 flex flex-col gap-3">
-				<Button variant="primary" class="w-full py-4" onclick={addToCart}>
-					Add to Cart
-				</Button>
-				<Button variant="outline" class="w-full py-4">
-					Save to Wishlist
-				</Button>
+				<Button variant="primary" class="w-full py-4" onclick={addToCart}>Add to Cart</Button>
+				<Button variant="outline" class="w-full py-4">Save to Wishlist</Button>
 			</div>
 
 			<!-- Product Details -->
@@ -176,7 +173,7 @@
 	</div>
 
 	<!-- Reviews Section -->
-	<div class="px-4 md:px-6 lg:px-12 max-w-7xl mx-auto border-t border-charcoal mt-12">
+	<div class="mx-auto mt-12 max-w-7xl border-t border-charcoal px-4 md:px-6 lg:px-12">
 		<ReviewsSection summary={product.reviewSummary} reviews={product.reviews} />
 	</div>
 </div>

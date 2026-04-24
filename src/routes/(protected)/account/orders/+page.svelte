@@ -20,39 +20,62 @@
 
 	function getStatusClass(status: string) {
 		switch (status) {
-			case 'Delivered': return 'text-volt';
-			case 'Shipped': return 'text-ash';
-			case 'Cancelled': return 'text-red-400';
-			default: return 'text-bone';
+			case 'Delivered':
+				return 'text-volt';
+			case 'Shipped':
+				return 'text-ash';
+			case 'Cancelled':
+				return 'text-red-400';
+			default:
+				return 'text-bone';
 		}
 	}
 </script>
 
+<svelte:head>
+	<title>Order History | Caro Clothing</title>
+	<meta name="description" content="Your order history" />
+</svelte:head>
+
 <div class="flex flex-col gap-6">
-	<h2 class="font-mono text-xs text-ash uppercase tracking-[0.2em]">Order History</h2>
+	<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Order History</h2>
 
 	<div class="flex flex-col gap-4">
 		{#each orders as order}
-			<div class="bg-charcoal/40 p-4 md:p-6 flex gap-4 md:gap-8 items-center border border-transparent hover:border-ash/10 transition-colors">
-				<img src={order.image} alt="" class="w-14 h-18 md:w-20 md:h-24 object-cover flex-shrink-0" />
-				
-				<div class="flex-1 flex flex-col gap-1 md:gap-2">
-					<div class="flex justify-between items-start">
-						<span class="font-mono text-xs text-bone uppercase tracking-widest">{order.id}</span>
+			<div
+				class="flex items-center gap-4 border border-transparent bg-charcoal/40 p-4 transition-colors hover:border-ash/10 md:gap-8 md:p-6"
+			>
+				<img
+					src={order.image}
+					alt=""
+					class="h-18 w-14 flex-shrink-0 object-cover md:h-24 md:w-20"
+				/>
+
+				<div class="flex flex-1 flex-col gap-1 md:gap-2">
+					<div class="flex items-start justify-between">
+						<span class="font-mono text-xs tracking-widest text-bone uppercase">{order.id}</span>
 						<span class="font-mono text-sm text-bone">LKR {order.total.toLocaleString()}</span>
 					</div>
-					<span class="font-mono text-[9px] text-ash/60 uppercase tracking-widest">{order.date}</span>
-					<div class="flex items-center gap-4 mt-1 md:mt-2">
-						<span class="font-mono text-[10px] uppercase tracking-widest {getStatusClass(order.status)}">
+					<span class="font-mono text-[9px] tracking-widest text-ash/60 uppercase"
+						>{order.date}</span
+					>
+					<div class="mt-1 flex items-center gap-4 md:mt-2">
+						<span
+							class="font-mono text-[10px] tracking-widest uppercase {getStatusClass(order.status)}"
+						>
 							{order.status}
 						</span>
-						<span class="font-mono text-[9px] text-ash/40 uppercase tracking-widest">
-							{order.itemCount} {order.itemCount === 1 ? 'Item' : 'Items'}
+						<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">
+							{order.itemCount}
+							{order.itemCount === 1 ? 'Item' : 'Items'}
 						</span>
 					</div>
 				</div>
 
-				<a href="/account/orders/{order.id}" class="hidden md:block font-mono text-[10px] text-volt uppercase tracking-widest hover:underline">
+				<a
+					href="/account/orders/{order.id}"
+					class="hidden font-mono text-[10px] tracking-widest text-volt uppercase hover:underline md:block"
+				>
 					View Details →
 				</a>
 			</div>
@@ -60,9 +83,11 @@
 	</div>
 
 	{#if orders.length === 0}
-		<div class="py-20 flex flex-col items-center justify-center text-center">
-			<span class="font-display text-3xl text-bone mb-2 uppercase">No orders yet.</span>
-			<a href="/shop" class="font-mono text-xs text-volt uppercase tracking-widest hover:underline">Start Shopping →</a>
+		<div class="flex flex-col items-center justify-center py-20 text-center">
+			<span class="mb-2 font-display text-3xl text-bone uppercase">No orders yet.</span>
+			<a href="/shop" class="font-mono text-xs tracking-widest text-volt uppercase hover:underline"
+				>Start Shopping →</a
+			>
 		</div>
 	{/if}
 </div>
