@@ -1,8 +1,7 @@
 import { getRequestEvent } from '$app/server';
-import { getEnv } from '$lib/server/modules/env';
+import { getClientEnv } from '$lib/client/modules/env';
 import { OtpRateLimitError } from '$lib/server/modules/errors';
 
-const OTP_COOLDOWN_SECONDS = getEnv().OTP_COOLDOWN_SECONDS;
 const OTP_COOLDOWN_PREFIX = 'otp:cooldown:';
 
 function normalizePhoneNumber(phoneNumber: string): string {
@@ -16,6 +15,8 @@ function normalizePhoneNumber(phoneNumber: string): string {
 }
 
 export async function reserveOtpCooldown(phoneNumber: string) {
+	const { PUBLIC_OTP_COOLDOWN_SECONDS } = getClientEnv();
+
 	const event = getRequestEvent();
 
 	if (!event?.platform?.env?.OTP_COOLDOWNS) {
@@ -24,18 +25,18 @@ export async function reserveOtpCooldown(phoneNumber: string) {
 
 	const kv = event.platform.env.OTP_COOLDOWNS;
 	const normalized = normalizePhoneNumber(phoneNumber);
-	const key = `${OTP_COOLDOWN_PREFIX}${normalizePhoneNumber(phoneNumber)}`;
+	const key = `${OTP_COOLDOWN_PREFIX}${normalized}`;
 
 	const existing = await kv.get(key);
 	if (existing) {
 		throw new OtpRateLimitError({
 			phoneNumber: normalized,
-			retryAfter: OTP_COOLDOWN_SECONDS
+			retryAfter: PUBLIC_OTP_COOLDOWN_SECONDS
 		});
 	}
 
 	await kv.put(key, '1', {
-		expirationTtl: OTP_COOLDOWN_SECONDS
+		expirationTtl: PUBLIC_OTP_COOLDOWN_SECONDS
 	});
 
 	return { kv, key };

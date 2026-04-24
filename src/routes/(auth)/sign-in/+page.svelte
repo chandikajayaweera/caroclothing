@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { onDestroy } from 'svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import { getClientEnv } from '$lib/client/modules/env';
 
 	// ─── Redirect Logic ─────────────────────────────────────────────────────────
 	const redirectTo = $derived(page.url.searchParams.get('redirectTo') || '/');
@@ -24,10 +25,11 @@
 	let error = $state('');
 
 	// ─── OTP resend cooldown ──────────────────────────────────────────────────────
+	const env = getClientEnv();
 	let resendCooldown = $state(0);
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 
-	function startResendCooldown(seconds = 30) {
+	function startResendCooldown(seconds = Number(env.PUBLIC_OTP_COOLDOWN_SECONDS)) {
 		resendCooldown = seconds;
 		cooldownTimer = setInterval(() => {
 			resendCooldown -= 1;

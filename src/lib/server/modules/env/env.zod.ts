@@ -17,10 +17,7 @@ export const envSchema = z.object({
 
 	// SMS
 	TEXT_LK_API_KEY: z.string().min(1, 'TEXT_LK_API_KEY is required'),
-	TEXT_LK_SENDER_ID: z.string().min(1, 'TEXT_LK_SENDER_ID is required'),
-
-	// OTP
-	OTP_COOLDOWN_SECONDS: z.coerce.number().min(1, 'OTP_COOLDOWN_SECONDS must be at least 1 second')
+	TEXT_LK_SENDER_ID: z.string().min(1, 'TEXT_LK_SENDER_ID is required')
 });
 
 export type Env = z.infer<typeof envSchema>;
