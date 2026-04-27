@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/ui/Button.svelte';
 	import { authClient } from '$lib/client/modules/auth';
+	import { parseAuthError } from '$lib/client/modules/auth/utils';
 
 	const session = authClient.useSession();
 
@@ -28,21 +29,29 @@
 	}
 
 	async function unlinkGoogle() {
-		if (accounts.length === 1 && !$session.data?.user.phoneNumber) {
+		if (!$session.data?.user.phoneNumber) {
 			alert('You must have at least one login method.');
 			return;
 		}
-		await authClient.unlinkAccount({ providerId: 'google' });
+		const { error } = await authClient.unlinkAccount({ providerId: 'google' });
+		if (error) {
+			alert(parseAuthError(error));
+			return;
+		}
 		const { data } = await authClient.listAccounts();
 		if (data) accounts = data;
 	}
 
 	async function unlinkPhone() {
-		if (accounts.length === 0) {
+		if (!isGoogleLinked) {
 			alert('You must have at least one login method.');
 			return;
 		}
-		await authClient.updateUser({ phoneNumber: null });
+		const { error } = await authClient.updateUser({ phoneNumber: null });
+		if (error) {
+			alert(parseAuthError(error));
+			return;
+		}
 		window.location.reload();
 	}
 </script>

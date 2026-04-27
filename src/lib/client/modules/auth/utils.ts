@@ -1,16 +1,53 @@
 interface BetterAuthClientError {
 	message?: string;
-	status: number;
-	statusText: string;
+	status?: number;
+	statusText?: string;
 	code?: string;
+	details?: Record<string, unknown>;
+	body?: {
+		details?: Record<string, unknown>;
+	};
 }
 
-export function parseAuthError(error: BetterAuthClientError): string {
-	if (error.code === 'INVALID_EMAIL_OR_PASSWORD') {
-		return 'Invalid email or password.';
-	}
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+	INVALID_EMAIL_OR_PASSWORD: 'Invalid email or password.',
+	AUTHENTICATION_REQUIRED: 'Sign in to continue.',
+	INVALID_PHONE_NUMBER: 'Enter a valid phone number.',
+	PHONE_NUMBER_ALREADY_LINKED: 'Phone number is already linked to another account.',
+	GOOGLE_ACCOUNT_ALREADY_LINKED: 'Google account is already linked to another account.',
+	GOOGLE_ACCOUNT_ALREADY_LINKED_TO_USER: 'Only one Google account can be linked.',
+	LAST_AUTH_METHOD_REQUIRED: 'At least one sign-in method must remain linked.',
+	OTP_RATE_LIMITED: 'Please wait before requesting another OTP code.',
+	OTP_SEND_FAILED: 'Unable to send OTP code. Please try again.',
+	ANONYMOUS_MIGRATION_FAILED: 'Unable to move your cart to this account. Please try again.'
+};
 
-	if (error.status >= 500) {
+export const OTP_RATE_LIMITED_MESSAGE = AUTH_ERROR_MESSAGES.OTP_RATE_LIMITED;
+
+function parsePositiveSeconds(value: unknown): number | null {
+	const seconds = typeof value === 'number' ? value : Number(value);
+	if (!Number.isFinite(seconds) || seconds <= 0) return null;
+
+	return Math.ceil(seconds);
+}
+
+export function getAuthErrorRetryAfterSeconds(
+	error: BetterAuthClientError | null | undefined
+): number | null {
+	if (!error) return null;
+
+	return (
+		parsePositiveSeconds(error.details?.retryAfter) ??
+		parsePositiveSeconds(error.body?.details?.retryAfter)
+	);
+}
+
+export function parseAuthError(error: BetterAuthClientError | null | undefined): string {
+	if (!error) return 'An unknown error occurred.';
+
+	if (error.code && AUTH_ERROR_MESSAGES[error.code]) return AUTH_ERROR_MESSAGES[error.code];
+
+	if (error.status && error.status >= 500) {
 		return 'Something went wrong on our end. Please try again later.';
 	}
 

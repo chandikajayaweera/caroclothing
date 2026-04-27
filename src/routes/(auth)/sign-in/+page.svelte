@@ -1,14 +1,83 @@
 <script lang="ts">
 	import { authClient } from '$lib/client/modules/auth';
-	import { parseAuthError, parseUnknownError } from '$lib/client/modules/auth/utils';
+	import {
+		getAuthErrorRetryAfterSeconds,
+		OTP_RATE_LIMITED_MESSAGE,
+		parseAuthError,
+		parseUnknownError
+	} from '$lib/client/modules/auth/utils';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onDestroy } from 'svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import { getClientEnv } from '$lib/client/modules/env';
 
-	// ─── Redirect Logic ─────────────────────────────────────────────────────────
-	const redirectTo = $derived(page.url.searchParams.get('redirectTo') || '/');
+	type RedirectPath =
+		| '/'
+		| '/account'
+		| '/account/addresses'
+		| '/account/orders'
+		| '/app'
+		| '/cart'
+		| '/checkout'
+		| '/drops'
+		| '/shop'
+		| '/wishlist';
+
+	const DEFAULT_REDIRECT_TO: RedirectPath = '/';
+	const ALLOWED_REDIRECT_PATHS = new Set<string>([
+		'/',
+		'/account',
+		'/account/addresses',
+		'/account/orders',
+		'/app',
+		'/cart',
+		'/checkout',
+		'/drops',
+		'/shop',
+		'/wishlist'
+	]);
+	const PHONE_DIGITS_PATTERN = /^7\d{8}$/;
+	const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
+	const MAX_DISPLAY_NAME_LENGTH = 80;
+	type RedirectTarget = {
+		pathname: RedirectPath;
+		suffix: string;
+		href: string;
+	};
+
+	function getDefaultRedirectTarget(): RedirectTarget {
+		return { pathname: DEFAULT_REDIRECT_TO, suffix: '', href: DEFAULT_REDIRECT_TO };
+	}
+
+	function getSafeRedirectTarget(value: string | null): RedirectTarget {
+		if (!value || !value.startsWith('/') || value.startsWith('//'))
+			return getDefaultRedirectTarget();
+
+		let redirectUrl: URL;
+		try {
+			redirectUrl = new URL(value, 'https://caroclothing.local');
+		} catch {
+			return getDefaultRedirectTarget();
+		}
+
+		const pathname = redirectUrl.pathname;
+		if (!ALLOWED_REDIRECT_PATHS.has(pathname)) return getDefaultRedirectTarget();
+		const suffix = `${redirectUrl.search}${redirectUrl.hash}`;
+		return { pathname: pathname as RedirectPath, suffix, href: `${pathname}${suffix}` };
+	}
+
+	function resolveRedirectTarget(target: RedirectTarget): string {
+		return `${resolve(target.pathname)}${target.suffix}`;
+	}
+
+	function getOtpCooldownSeconds(): number {
+		return Math.max(1, Math.ceil(Number(env.PUBLIC_OTP_COOLDOWN_SECONDS) || 30));
+	}
+
+	const redirectTarget = $derived(getSafeRedirectTarget(page.url.searchParams.get('redirectTo')));
+	const showRedirectNotice = $derived(redirectTarget.href !== DEFAULT_REDIRECT_TO);
 	const session = authClient.useSession();
 
 	// ─── View state ──────────────────────────────────────────────────────────────
@@ -19,19 +88,51 @@
 	let rawDigits = $state('');
 	let otpCode = $state('');
 	let displayName = $state('');
+	let pendingAuthMethod = $state<'google' | 'phone' | null>(null);
 
 	// ─── Async state ─────────────────────────────────────────────────────────────
 	let loading = $state(false);
 	let error = $state('');
+	let errorCountdown = $state(0);
 
 	// ─── OTP resend cooldown ──────────────────────────────────────────────────────
 	const env = getClientEnv();
 	let resendCooldown = $state(0);
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
+	let errorTimer: ReturnType<typeof setInterval> | null = null;
 
-	function startResendCooldown() {
-		const seconds = Number(env.PUBLIC_OTP_COOLDOWN_SECONDS) || 30;
-		resendCooldown = seconds;
+	function stopErrorTimer() {
+		if (!errorTimer) return;
+		clearInterval(errorTimer);
+		errorTimer = null;
+	}
+
+	function clearErrorMessage() {
+		stopErrorTimer();
+		error = '';
+		errorCountdown = 0;
+	}
+
+	function setErrorMessage(message: string) {
+		stopErrorTimer();
+		error = message;
+		errorCountdown = 0;
+	}
+
+	function setOtpCooldownError(seconds: number) {
+		stopErrorTimer();
+		error = OTP_RATE_LIMITED_MESSAGE;
+		errorCountdown = Math.max(1, Math.ceil(seconds));
+		errorTimer = setInterval(() => {
+			errorCountdown -= 1;
+			if (errorCountdown <= 0) {
+				clearErrorMessage();
+			}
+		}, 1000);
+	}
+
+	function startResendCooldown(seconds = getOtpCooldownSeconds()) {
+		resendCooldown = Math.max(1, Math.ceil(seconds));
 		if (cooldownTimer) clearInterval(cooldownTimer);
 		cooldownTimer = setInterval(() => {
 			resendCooldown -= 1;
@@ -47,6 +148,7 @@
 
 	onDestroy(() => {
 		if (cooldownTimer) clearInterval(cooldownTimer);
+		stopErrorTimer();
 	});
 
 	// ─── Post-Login Effect ────────────────────────────────────────────────────────
@@ -64,96 +166,156 @@
 		return Date.now() - new Date(createdAt).getTime() < 300_000;
 	}
 
-	async function afterSignIn(user: { createdAt: string | Date; name?: string | null }) {
+	function normalizeDigits(value: string | null | undefined): string {
+		return value?.replace(/\D/g, '') ?? '';
+	}
+
+	function shouldSeedDisplayName(user: {
+		email?: string | null;
+		name?: string | null;
+		phoneNumber?: string | null;
+	}): boolean {
+		if (pendingAuthMethod === 'phone') return false;
+		if (user.email?.includes(PHONE_EMAIL_DOMAIN)) return false;
+
+		const nameDigits = normalizeDigits(user.name);
+		const phoneDigits = normalizeDigits(user.phoneNumber);
+
+		return !nameDigits || !phoneDigits || nameDigits !== phoneDigits;
+	}
+
+	function formatCountdown(seconds: number): string {
+		const minutes = Math.floor(seconds / 60);
+		const remainingSeconds = seconds % 60;
+
+		return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+	}
+
+	async function afterSignIn(user: {
+		createdAt: string | Date;
+		email?: string | null;
+		name?: string | null;
+		phoneNumber?: string | null;
+	}) {
 		if (isNewUser(user.createdAt)) {
-			displayName = user.name?.trim() ?? '';
+			displayName = shouldSeedDisplayName(user) ? (user.name?.trim() ?? '') : '';
 			view = 'name-prompt';
 		} else {
-			await goto(redirectTo);
+			await goto(resolveRedirectTarget(redirectTarget));
 		}
 	}
 
 	async function handleGoogleSignIn() {
-		error = '';
+		if (loading) return;
+		clearErrorMessage();
 		loading = true;
+		pendingAuthMethod = 'google';
 		try {
-			const callbackURL = page.url.searchParams.has('redirectTo')
-				? `/sign-in?redirectTo=${encodeURIComponent(page.url.searchParams.get('redirectTo')!)}`
-				: '/sign-in';
+			const callbackURL =
+				redirectTarget.href === DEFAULT_REDIRECT_TO
+					? '/sign-in'
+					: `/sign-in?redirectTo=${encodeURIComponent(redirectTarget.href)}`;
 
-			await authClient.signIn.social({ provider: 'google', callbackURL });
+			const result = await authClient.signIn.social({ provider: 'google', callbackURL });
+			if (result?.error) {
+				setErrorMessage(parseAuthError(result.error));
+				loading = false;
+			}
 		} catch (e) {
-			error = parseUnknownError(e);
+			setErrorMessage(parseUnknownError(e));
 			loading = false;
 		}
 	}
 
 	async function handleSendOtp() {
-		if (!/^7\d{8}$/.test(rawDigits)) {
-			error = 'Enter a valid Sri Lankan mobile number (e.g. 7X XXX XXXX)';
+		if (loading) return;
+		if (!PHONE_DIGITS_PATTERN.test(rawDigits)) {
+			setErrorMessage('Enter a valid Sri Lankan mobile number (e.g. 7X XXX XXXX)');
 			return;
 		}
-		error = '';
+		clearErrorMessage();
 		loading = true;
 		try {
 			const { error: err } = await authClient.phoneNumber.sendOtp({
 				phoneNumber: '+94' + rawDigits
 			});
 			if (err) {
-				error = parseAuthError(err);
+				const message = parseAuthError(err);
+				if (message === OTP_RATE_LIMITED_MESSAGE) {
+					const retryAfter = getAuthErrorRetryAfterSeconds(err) ?? getOtpCooldownSeconds();
+					startResendCooldown(retryAfter);
+					setOtpCooldownError(retryAfter);
+					return;
+				}
+
+				setErrorMessage(message);
 				return;
 			}
 			otpCode = '';
 			startResendCooldown();
 			view = 'otp';
 		} catch (e) {
-			error = parseUnknownError(e);
+			setErrorMessage(parseUnknownError(e));
 		} finally {
 			loading = false;
 		}
 	}
 
 	async function handleVerifyOtp() {
-		if (otpCode.length !== 6) return;
-		error = '';
+		if (loading || otpCode.length !== 6) return;
+		clearErrorMessage();
 		loading = true;
+		pendingAuthMethod = 'phone';
 		try {
 			const { data, error: err } = await authClient.phoneNumber.verify({
 				phoneNumber: '+94' + rawDigits,
 				code: otpCode.trim()
 			});
 			if (err) {
-				error = parseAuthError(err);
+				setErrorMessage(parseAuthError(err));
 				return;
 			}
 			if (data?.user) await afterSignIn(data.user);
 		} catch (e) {
-			error = parseUnknownError(e);
+			setErrorMessage(parseUnknownError(e));
 		} finally {
 			loading = false;
 		}
 	}
 
 	function handleOtpInput(e: Event) {
-		const value = (e.target as HTMLInputElement).value;
-		if (value.length === 6) handleVerifyOtp();
+		const input = e.currentTarget as HTMLInputElement;
+		otpCode = input.value.replace(/\D/g, '').slice(0, 6);
+		input.value = otpCode;
+		if (otpCode.length === 6) void handleVerifyOtp();
+	}
+
+	function handlePhoneInput(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		rawDigits = input.value.replace(/\D/g, '').slice(0, 9);
+		input.value = rawDigits;
 	}
 
 	async function handleSaveName() {
-		error = '';
+		if (loading) return;
+		clearErrorMessage();
 		loading = true;
 		try {
 			const trimmed = displayName.trim();
+			if (trimmed.length > MAX_DISPLAY_NAME_LENGTH) {
+				setErrorMessage(`Name must be ${MAX_DISPLAY_NAME_LENGTH} characters or less.`);
+				return;
+			}
 			if (trimmed) {
 				const { error: err } = await authClient.updateUser({ name: trimmed });
 				if (err) {
-					error = parseAuthError(err);
+					setErrorMessage(parseAuthError(err));
 					return;
 				}
 			}
-			await goto(redirectTo);
+			await goto(resolveRedirectTarget(redirectTarget));
 		} catch (e) {
-			error = parseUnknownError(e);
+			setErrorMessage(parseUnknownError(e));
 		} finally {
 			loading = false;
 		}
@@ -189,7 +351,7 @@
 		<div class="mx-auto w-full max-w-sm space-y-12">
 			<!-- Header -->
 			<div class="space-y-4 text-center">
-				<a href="/" class="font-bebas text-4xl tracking-[0.2em] text-bone">CARO</a>
+				<a href={resolve('/')} class="font-bebas text-4xl tracking-[0.2em] text-bone">CARO</a>
 				{#if view === 'idle'}
 					<h2 class="font-bebas text-5xl tracking-tight text-bone uppercase">Access</h2>
 				{:else if view === 'phone'}
@@ -201,11 +363,25 @@
 				{/if}
 			</div>
 
+			{#if showRedirectNotice}
+				<div class="border border-volt/20 bg-volt/10 p-4 text-center" role="status">
+					<p class="font-mono text-[10px] font-bold tracking-widest text-volt">
+						After sign in, you will be redirected to
+						<span class="break-all">{redirectTarget.href}</span>.
+					</p>
+				</div>
+			{/if}
+
 			{#if error}
-				<div class="border border-red-500/20 bg-red-500/10 p-4 text-center">
+				<div class="border border-red-500/20 bg-red-500/10 p-4 text-center" role="alert">
 					<p class="font-mono text-[10px] font-bold tracking-widest text-red-500 uppercase">
 						{error}
 					</p>
+					{#if errorCountdown > 0}
+						<p class="mt-2 font-mono text-xs font-bold tracking-widest text-red-500">
+							{formatCountdown(errorCountdown)}
+						</p>
+					{/if}
 				</div>
 			{/if}
 
@@ -213,6 +389,7 @@
 			{#if view === 'idle'}
 				<div class="space-y-4">
 					<button
+						type="button"
 						onclick={handleGoogleSignIn}
 						disabled={loading}
 						class="flex w-full items-center justify-center gap-4 border border-charcoal bg-charcoal py-5 font-mono text-[10px] tracking-[0.2em] text-bone uppercase transition-all hover:border-volt disabled:opacity-50"
@@ -270,9 +447,12 @@
 							<input
 								id="phone-input"
 								type="tel"
+								inputmode="numeric"
+								autocomplete="tel-national"
 								placeholder="7X XXX XXXX"
 								maxlength="9"
 								bind:value={rawDigits}
+								oninput={handlePhoneInput}
 								class="w-full border-none bg-transparent p-0 font-mono text-xl tracking-widest text-bone focus:ring-0"
 							/>
 						</div>
@@ -306,8 +486,10 @@
 						<input
 							id="otp-input"
 							type="tel"
+							inputmode="numeric"
+							autocomplete="one-time-code"
 							maxlength="6"
-							placeholder="••••••"
+							placeholder="000000"
 							bind:value={otpCode}
 							oninput={handleOtpInput}
 							class="w-full border-none bg-transparent p-0 text-center font-mono text-5xl tracking-[0.3em] text-bone placeholder:text-charcoal focus:ring-0"
@@ -349,6 +531,7 @@
 							id="name-input"
 							type="text"
 							placeholder="AMARA"
+							maxlength={MAX_DISPLAY_NAME_LENGTH}
 							bind:value={displayName}
 							class="font-bebas w-full border-b-2 border-charcoal bg-transparent px-0 py-4 text-4xl tracking-widest text-bone uppercase transition-colors placeholder:text-charcoal focus:border-volt focus:ring-0"
 						/>
@@ -364,7 +547,8 @@
 							Start Shopping
 						</Button>
 						<button
-							onclick={() => goto(redirectTo)}
+							type="button"
+							onclick={() => goto(resolveRedirectTarget(redirectTarget))}
 							class="w-full text-center font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:text-bone"
 						>
 							Skip

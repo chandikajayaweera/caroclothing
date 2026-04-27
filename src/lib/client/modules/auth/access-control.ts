@@ -7,7 +7,7 @@ const statements = {
 	order: ['create', 'read', 'update', 'delete'],
 	settings: ['create', 'read', 'update', 'delete'],
 	user: ['create', 'read', 'update', 'delete']
-};
+} as const;
 
 export const accessControl = createAccessControl(statements);
 
@@ -27,5 +27,10 @@ export const customerUser = accessControl.newRole({
 	user: ['read']
 });
 
-export const userRoles = [adminUser, customerUser] as const;
-export type UserRole = (typeof userRoles)[number];
+export const userRoles = {
+	adminUser,
+	customerUser
+} as const;
+
+export const userRoleIds = ['adminUser', 'customerUser'] as const;
+export type UserRole = (typeof userRoleIds)[number];

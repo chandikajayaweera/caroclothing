@@ -7,13 +7,12 @@
 	import Toast from '$lib/components/shared/Toast.svelte';
 	import BottomNav from '$lib/components/layout/BottomNav.svelte';
 	import { page } from '$app/state';
+	import { fly } from 'svelte/transition';
 
 	let { children } = $props();
 
-	const hideNavFooterRoutes = ['/account', '/sign-in', '/app', '/checkout'];
-	const shouldHide = $derived.by(() => {
-		return hideNavFooterRoutes.some((path) => page.url.pathname.startsWith(path));
-	});
+	const showFooterRoutes = ['/', '/about'];
+	const shouldShowFooter = $derived(showFooterRoutes.includes(page.url.pathname));
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -29,11 +28,13 @@
 
 	<main class="grow pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0">
 		{#key page.url.pathname}
-			{@render children()}
+			<main in:fly={{ delay: 100, x: 10 }}>
+				{@render children()}
+			</main>
 		{/key}
 	</main>
 
-	{#if !shouldHide}
+	{#if shouldShowFooter}
 		<Footer />
 	{/if}
 </div>

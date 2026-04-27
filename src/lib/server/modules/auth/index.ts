@@ -11,6 +11,8 @@ import { getDb } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
 import { sendOtpSms } from '$lib/server/modules/notifications/sms';
 import { reserveOtpCooldown } from './otp-cooldown';
+import { migrateAnonymousUserData } from './anonymous-migration';
+import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/modules/errors';
 
 import {
 	accessControl as ac,
@@ -18,19 +20,27 @@ import {
 	customerUser
 } from '$lib/client/modules/auth/access-control';
 
-type Auth = ReturnType<typeof betterAuth>;
+function getPhoneTempEmail(phoneNumber: string) {
+	const digits = phoneNumber.replace(/\D/g, '');
+	return `phone-${digits}@phone.caroclothing.lk`;
+}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _auth: any;
+function maskPhoneNumber(phoneNumber: string) {
+	const digits = phoneNumber.replace(/\D/g, '');
+	return digits.length > 4 ? `***${digits.slice(-4)}` : '***';
+}
 
-export function getAuth(): Auth {
-	if (_auth) return _auth as Auth;
+function throwForBetterAuth(error: unknown): never {
+	if (isAppError(error)) throw toBetterAuthApiError(error);
+	throw error;
+}
 
+function createAuth() {
 	const env = getEnv();
 	const clientEnv = getClientEnv();
 	const db = getDb();
 
-	_auth = betterAuth({
+	return betterAuth({
 		baseURL: clientEnv.PUBLIC_APP_URL,
 		secret: env.BETTER_AUTH_SECRET,
 
@@ -52,6 +62,7 @@ export function getAuth(): Auth {
 				enabled: true,
 				trustedProviders: ['google'],
 				allowDifferentEmails: true,
+				allowUnlinkingAll: true,
 				updateUserInfoOnLink: true
 			}
 		},
@@ -65,16 +76,17 @@ export function getAuth(): Auth {
 			}
 		},
 
-		databaseHooks: databaseHooks,
+		databaseHooks,
 
 		plugins: [
 			anonymous({
 				emailDomainName: 'anon.caroclothing.lk',
 				onLinkAccount: async ({ anonymousUser, newUser }) => {
-					// FIXME
-					// Cart / wishlist migration is owned by the orders module.
-					// Log the ID mapping so the calling server action can act on it.
-					console.info(`[auth] Anonymous ${anonymousUser.user.id} → account ${newUser.user.id}`);
+					try {
+						await migrateAnonymousUserData(anonymousUser.user.id, newUser.user.id);
+					} catch (error) {
+						throwForBetterAuth(error);
+					}
 				}
 			}),
 
@@ -86,46 +98,56 @@ export function getAuth(): Auth {
 				signUpOnVerification: {
 					getTempEmail(phoneNumber) {
 						// Required because BetterAuth internally expects an email field
-						return `phone-${phoneNumber}@phone.caroclothing.lk`;
+						return getPhoneTempEmail(phoneNumber);
 					}
 				},
 
 				async sendOTP({ phoneNumber, code }) {
-					let cooldown;
+					const maskedPhoneNumber = maskPhoneNumber(phoneNumber);
+					let cooldown: Awaited<ReturnType<typeof reserveOtpCooldown>>;
+
 					try {
 						cooldown = await reserveOtpCooldown(phoneNumber);
 					} catch (error) {
-						if (error instanceof Error && error.name === 'OtpRateLimitError') {
-							throw new APIError('TOO_MANY_REQUESTS', {
-								message: error.message
-							});
-						}
-						throw error;
+						throwForBetterAuth(error);
 					}
 
 					try {
 						const result = await sendOtpSms(phoneNumber, code);
 
 						if (!result.ok) {
-							throw new APIError('INTERNAL_SERVER_ERROR', {
-								message: `[auth] Failed to send OTP to ${phoneNumber}: ${result.error}`
-							});
+							console.error(
+								`[auth] Failed to send OTP SMS to ${maskedPhoneNumber}: ${result.error}`
+							);
+							throw new AuthError(
+								'Unable to send OTP code. Please try again.',
+								ErrorCode.OTP_SEND_FAILED
+							);
 						}
 					} catch (error) {
 						// rollback cooldown on failure
 						try {
 							await cooldown.kv.delete(cooldown.key);
 						} catch (rollbackError) {
-							console.error(`[auth] Failed to rollback OTP cooldown for ${phoneNumber}:`, rollbackError);
+							console.error(
+								`[auth] Failed to rollback OTP cooldown for ${maskedPhoneNumber}:`,
+								rollbackError
+							);
 						}
 
 						if (error instanceof APIError) {
 							throw error;
 						}
 
-						throw new APIError('INTERNAL_SERVER_ERROR', {
-							message: error instanceof Error ? error.message : 'Unknown error during OTP send'
-						});
+						if (isAppError(error)) {
+							throw toBetterAuthApiError(error);
+						}
+
+						console.error(`[auth] Unexpected OTP send error for ${maskedPhoneNumber}:`, error);
+
+						throw toBetterAuthApiError(
+							new AuthError('Unable to send OTP code. Please try again.', ErrorCode.OTP_SEND_FAILED)
+						);
 					}
 				}
 			}),
@@ -139,6 +161,16 @@ export function getAuth(): Auth {
 			sveltekitCookies(getRequestEvent)
 		]
 	});
+}
 
-	return _auth;
+type Auth = ReturnType<typeof createAuth>;
+
+let authInstance: Auth | undefined;
+
+export function getAuth(): Auth {
+	if (!authInstance) {
+		authInstance = createAuth();
+	}
+
+	return authInstance;
 }

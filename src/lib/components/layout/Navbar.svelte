@@ -165,29 +165,48 @@
 				{/if}
 			</button>
 
-			<!-- Account (Tablet/Desktop) -->
+			<!-- Account / Sign In (Tablet/Desktop) -->
 			<a
-				href="/account"
-				class="hidden transition-colors md:block {isActive('/account')
+				href={$session.data ? '/account' : '/sign-in'}
+				class="hidden transition-colors md:block {isActive($session.data ? '/account' : '/sign-in')
 					? 'text-volt'
 					: 'text-bone hover:text-volt'}"
-				aria-label="Account"
+				aria-label={$session.data ? 'Account' : 'Sign in'}
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					class="lucide lucide-user"
-				>
-					<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-					<circle cx="12" cy="7" r="4" />
-				</svg>
+				{#if $session.data}
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						class="lucide lucide-user"
+					>
+						<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+						<circle cx="12" cy="7" r="4" />
+					</svg>
+				{:else}
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						class="lucide lucide-log-in"
+					>
+						<path d="m10 17 5-5-5-5" />
+						<path d="M15 12H3" />
+						<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+					</svg>
+				{/if}
 			</a>
 		</div>
 	</div>
