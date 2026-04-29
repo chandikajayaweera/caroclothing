@@ -19,7 +19,7 @@
 		| '/account/addresses'
 		| '/account/orders'
 		| '/app'
-		| '/cart'
+		| '/bag'
 		| '/checkout'
 		| '/drops'
 		| '/shop'
@@ -32,7 +32,7 @@
 		'/account/addresses',
 		'/account/orders',
 		'/app',
-		'/cart',
+		'/bag',
 		'/checkout',
 		'/drops',
 		'/shop',
@@ -41,6 +41,7 @@
 	const PHONE_DIGITS_PATTERN = /^7\d{8}$/;
 	const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
 	const MAX_DISPLAY_NAME_LENGTH = 80;
+	const env = getClientEnv();
 	type RedirectTarget = {
 		pathname: RedirectPath;
 		suffix: string;
@@ -57,7 +58,7 @@
 
 		let redirectUrl: URL;
 		try {
-			redirectUrl = new URL(value, 'https://caroclothing.local');
+			redirectUrl = new URL(value, env.PUBLIC_APP_URL);
 		} catch {
 			return getDefaultRedirectTarget();
 		}
@@ -96,7 +97,6 @@
 	let errorCountdown = $state(0);
 
 	// ─── OTP resend cooldown ──────────────────────────────────────────────────────
-	const env = getClientEnv();
 	let resendCooldown = $state(0);
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 	let errorTimer: ReturnType<typeof setInterval> | null = null;

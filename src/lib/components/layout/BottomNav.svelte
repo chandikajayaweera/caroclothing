@@ -18,12 +18,12 @@
 			label: 'Shop',
 			href: '/shop',
 			icon: `
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-store"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-2 1 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-2 1 2.7 2.7 0 0 1-2-1 2.7 2.7 0 0 1-2 1 2.7 2.7 0 0 1-2-1 2 2 0 0 1-2 1 2 2 0 0 1-2-2V7"/></svg>
       `
 		},
 		{
-			label: 'Cart',
-			href: '/cart',
+			label: 'Bag',
+			href: '/bag',
 			icon: `
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-shopping-bag"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
       `
@@ -50,7 +50,18 @@
 				: `
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-log-in"><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg>
       `
-		}
+		},
+		...($session?.data?.user.role === 'adminUser'
+			? [
+					{
+						label: 'Admin',
+						href: '/app',
+						icon: `
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-layout-dashboard"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+      `
+					}
+				]
+			: [])
 	]);
 
 	const isActive = (href: string) => {
@@ -67,7 +78,7 @@
 		{#each navItems as item}
 			<a
 				href={item.href}
-				class="relative flex min-w-[64px] flex-col items-center justify-center gap-1 transition-colors
+				class="relative flex min-w-12 flex-1 flex-col items-center justify-center gap-1 transition-colors
           {isActive(item.href) ? 'text-volt' : 'text-ash hover:text-bone'}"
 			>
 				<div class="transition-transform duration-200 {isActive(item.href) ? 'scale-110' : ''}">
@@ -75,7 +86,7 @@
 				</div>
 				<span class="font-mono text-[10px] tracking-wider uppercase">{item.label}</span>
 
-				{#if item.label === 'Cart' && $cartCount > 0}
+				{#if item.label === 'Bag' && $cartCount > 0}
 					<span
 						class="absolute top-0 right-3 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void"
 					>

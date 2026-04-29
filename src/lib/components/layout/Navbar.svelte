@@ -4,9 +4,11 @@
 	import { cartCount } from '$lib/client/modules/stores/cart';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
+	import { LayoutDashboard } from 'lucide-svelte';
 
 	const session = authClient.useSession();
 	let scrolled = $state(false);
+	const isAdminUser = $derived($session.data?.user.role === 'adminUser');
 
 	const navLinks = [
 		{ label: 'Shop', href: '/shop' },
@@ -82,28 +84,6 @@
 
 		<!-- Right: Icons -->
 		<div class="flex items-center gap-4 md:gap-6">
-			<!-- Search (Desktop only) -->
-			<button
-				class="hidden text-bone transition-colors hover:text-volt lg:block"
-				aria-label="Search"
-			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					class="lucide lucide-search"
-				>
-					<circle cx="11" cy="11" r="8" />
-					<path d="m21 21-4.3-4.3" />
-				</svg>
-			</button>
-
 			<!-- Wishlist (Tablet/Desktop) - Auth Only -->
 			{#if $session.data}
 				<a
@@ -132,13 +112,13 @@
 				</a>
 			{/if}
 
-			<!-- Cart (Desktop only) -->
+			<!-- Bag (Desktop only) -->
 			<button
 				class="relative hidden text-bone transition-colors hover:text-volt md:block"
 				onclick={() => {
 					toggleCartDrawer();
 				}}
-				aria-label="Cart"
+				aria-label="Bag"
 			>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
@@ -208,6 +188,19 @@
 					</svg>
 				{/if}
 			</a>
+			{#if $session.data}
+				{#if isAdminUser}
+					<a
+						href="/app"
+						class="relative hidden transition-colors md:block {isActive('/app')
+							? 'text-volt'
+							: 'text-bone hover:text-volt'}"
+						aria-label="Admin dashboard"
+					>
+						<LayoutDashboard size={20} strokeWidth={2} />
+					</a>
+				{/if}
+			{/if}
 		</div>
 	</div>
 </nav>

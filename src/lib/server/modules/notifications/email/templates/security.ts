@@ -1,5 +1,6 @@
 import { getClientEnv } from '$lib/client/modules/env';
 import { baseLayout } from './layout';
+import { h } from './escape';
 import type { SecurityEventType } from '../types';
 
 interface SecurityTemplateResult {
@@ -21,22 +22,22 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
 			new_login: {
 				subject: `Security: New sign-in detected`,
 				headline: 'New sign-in detected',
-				body: 'We noticed a new sign-in to your account. If this was you, no action is needed.'
+				body: 'New sign-in on your account. If this was you, no action is needed.'
 			},
 			password_changed: {
 				subject: `Security: Password changed`,
 				headline: 'Password changed',
-				body: 'Your account password was successfully changed.'
+				body: 'Your account password changed.'
 			},
 			email_changed: {
 				subject: `Security: Email updated`,
 				headline: 'Email updated',
-				body: 'The email address on your account has been changed.'
+				body: 'The email address on your account changed.'
 			},
 			account_linked: {
 				subject: `Security: Account linked`,
 				headline: 'Account linked',
-				body: 'A sign-in method has been linked to your account.'
+				body: 'A sign-in method was linked to your account.'
 			}
 		};
 
@@ -46,14 +47,14 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
 		input.deviceInfo || input.ipAddress
 			? `
         <table style="width:100%;border-collapse:collapse;margin:24px 0;font-size:13px;color:#0A0A0A;font-family:'Space Mono',monospace;text-transform:uppercase;">
-          ${input.deviceInfo ? `<tr><td style="padding:8px 0;opacity:0.6;width:120px;">Device</td><td style="padding:8px 0;">${input.deviceInfo}</td></tr>` : ''}
-          ${input.ipAddress ? `<tr><td style="padding:8px 0;opacity:0.6;">IP Address</td><td style="padding:8px 0;">${input.ipAddress}</td></tr>` : ''}
+          ${input.deviceInfo ? `<tr><td style="padding:8px 0;opacity:0.6;width:120px;">Device</td><td style="padding:8px 0;">${h(input.deviceInfo)}</td></tr>` : ''}
+          ${input.ipAddress ? `<tr><td style="padding:8px 0;opacity:0.6;">IP Address</td><td style="padding:8px 0;">${h(input.ipAddress)}</td></tr>` : ''}
         </table>
       `
 			: '';
 
 	const content = `
-    <h2 style="margin:0 0 16px;font-size:24px;font-weight:900;color:#0A0A0A;text-transform:uppercase;letter-spacing:-0.5px;">${copy.headline}</h2>
+    <h2 style="margin:0 0 16px;font-family:'Bebas Neue','DM Sans',sans-serif;font-size:32px;font-weight:400;color:#0A0A0A;text-transform:uppercase;letter-spacing:0;line-height:1;">${copy.headline}</h2>
     <p style="margin:0 0 8px;font-size:16px;color:#0A0A0A;line-height:1.5;">${copy.body}</p>
     ${detailsHtml}
     
@@ -62,7 +63,7 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
         If this wasn't you, secure your account immediately.
       </p>
       <a href="${clientEnv.PUBLIC_APP_URL}/account/security" 
-         style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:12px 24px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:1px;">
+         style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:12px 24px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;">
         Secure Account
       </a>
     </div>

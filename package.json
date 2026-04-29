@@ -24,7 +24,8 @@
 		"deploy:production": "pnpm run build && wrangler deploy && pnpm run secret:production",
 		"cf-typegen": "wrangler types ./src/worker-configuration.d.ts",
 		"tree": "npx tree-node-cli -I \".claude|.gemini|.svelte-kit|.vscode|.wrangler|docs|drizzle|node_modules\"",
-		"drizzle:dump": "node scripts/print-drizzle-files.mjs"
+		"drizzle:dump": "node scripts/print-drizzle-files.mjs",
+		"notifications:test": "node scripts/send-demo-notifications.mjs"
 	},
 	"devDependencies": {
 		"@better-auth/cli": "^1.4.21",

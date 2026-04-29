@@ -37,6 +37,18 @@
 	],
 	"workers_dev": true,
 	"preview_urls": true,
+	"triggers": {
+		"crons": [
+			// Drop launch + waitlist notifications.
+			"*/5 * * * *",
+			// Pending online payment order auto-cancel.
+			"*/10 * * * *",
+			// Expired guest cart cleanup + inventory reservation release.
+			"0 * * * *",
+			// Daily promo usedCount reconciliation. Cron times are UTC.
+			"17 20 * * *"
+		]
+	},
 	"r2_buckets": [
 		{
 			"binding": "MEDIA",
@@ -93,6 +105,9 @@
 					"bucket_name": "caroclothing-media-preview"
 				}
 			],
+			"triggers": {
+				"crons": ["*/5 * * * *", "*/10 * * * *", "0 * * * *", "17 20 * * *"]
+			},
 			"secrets": {
 				"required": [
 					"DATABASE_URL",

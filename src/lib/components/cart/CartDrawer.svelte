@@ -19,7 +19,7 @@
 		onkeydown={(e) => e.key === 'Escape' && closeCartDrawer()}
 		role="button"
 		tabindex="0"
-		aria-label="Close cart"
+		aria-label="Close bag"
 	></div>
 
 	<!-- Drawer -->
@@ -85,7 +85,7 @@
 					Checkout
 				</Button>
 				<a
-					href="/cart"
+					href="/bag"
 					class="font-mono text-[10px] text-ash text-center block mt-3 hover:text-bone uppercase tracking-widest"
 					onclick={closeCartDrawer}
 				>

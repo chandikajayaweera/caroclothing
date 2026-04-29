@@ -76,6 +76,7 @@ export const ErrorCode = {
 
 	// Shipping & Delivery
 	SHIPPING_METHOD_NOT_FOUND: 'SHIPPING_METHOD_NOT_FOUND',
+	SHIPPING_ZONE_NOT_FOUND: 'SHIPPING_ZONE_NOT_FOUND',
 	INVALID_SHIPPING_ADDRESS: 'INVALID_SHIPPING_ADDRESS',
 	DELIVERY_UNAVAILABLE_FOR_REGION: 'DELIVERY_UNAVAILABLE_FOR_REGION',
 
@@ -85,6 +86,7 @@ export const ErrorCode = {
 	PROMO_ALREADY_USED: 'PROMO_ALREADY_USED',
 	PROMO_NOT_APPLICABLE: 'PROMO_NOT_APPLICABLE',
 	PROMO_USAGE_LIMIT_EXCEEDED: 'PROMO_USAGE_LIMIT_EXCEEDED',
+	PROMO_USAGE_NOT_FOUND: 'PROMO_USAGE_NOT_FOUND',
 	MINIMUM_ORDER_VALUE_NOT_MET: 'MINIMUM_ORDER_VALUE_NOT_MET',
 
 	// Reviews
@@ -191,6 +193,7 @@ const defaultStatusByCode = {
 	REFUND_FAILED: 400,
 
 	SHIPPING_METHOD_NOT_FOUND: 404,
+	SHIPPING_ZONE_NOT_FOUND: 404,
 	INVALID_SHIPPING_ADDRESS: 400,
 	DELIVERY_UNAVAILABLE_FOR_REGION: 409,
 
@@ -199,6 +202,7 @@ const defaultStatusByCode = {
 	PROMO_ALREADY_USED: 409,
 	PROMO_NOT_APPLICABLE: 400,
 	PROMO_USAGE_LIMIT_EXCEEDED: 409,
+	PROMO_USAGE_NOT_FOUND: 404,
 	MINIMUM_ORDER_VALUE_NOT_MET: 400,
 
 	REVIEW_NOT_FOUND: 404,
@@ -292,6 +296,17 @@ export class ProductError extends AppError {
 }
 
 export class CartError extends AppError {
+	constructor(
+		message: string,
+		code: ErrorCode,
+		details?: Record<string, unknown>,
+		statusCode?: number
+	) {
+		super(message, code, statusCode ?? getDefaultStatusCode(code), details);
+	}
+}
+
+export class WishlistError extends AppError {
 	constructor(
 		message: string,
 		code: ErrorCode,

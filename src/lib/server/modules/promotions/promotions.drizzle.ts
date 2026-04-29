@@ -117,7 +117,7 @@ export const promoCodeUsageRelations = relations(promoCodeUsage, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-export const insertPromoCodeSchema = createInsertSchema(promoCode, {
+export const insertPromoCodeBaseSchema = createInsertSchema(promoCode, {
 	code: z
 		.string()
 		.min(3)
@@ -132,7 +132,8 @@ export const insertPromoCodeSchema = createInsertSchema(promoCode, {
 	// insert and update schemas both accept raw millisecond integers consistently.
 	startsAt: z.number().int().positive().optional().nullable(),
 	expiresAt: z.number().int().positive().optional().nullable()
-})
+});
+export const insertPromoCodeSchema = insertPromoCodeBaseSchema
 	.refine(
 		(d) => d.discountType !== 'percentage' || (d.discountValue > 0 && d.discountValue <= 100),
 		{

@@ -212,7 +212,7 @@ const r2KeySchema = z
 	.max(512)
 	.regex(/^[a-zA-Z0-9_\-./]+$/, 'Invalid R2 key format');
 
-export const insertDropSchema = createInsertSchema(drop, {
+export const insertDropBaseSchema = createInsertSchema(drop, {
 	slug: slugSchema,
 	name: z.string().min(1).max(100),
 	tagline: z.string().max(300).optional().nullable(),
@@ -222,10 +222,14 @@ export const insertDropSchema = createInsertSchema(drop, {
 	endAt: z.number().int().positive().optional().nullable(),
 	heroImageR2Key: r2KeySchema.optional().nullable(),
 	sortOrder: z.number().int().min(0).optional()
-}).refine((d) => !d.launchAt || !d.endAt || d.endAt > d.launchAt, {
-	message: 'endAt must be after launchAt',
-	path: ['endAt']
 });
+export const insertDropSchema = insertDropBaseSchema.refine(
+	(d) => !d.launchAt || !d.endAt || d.endAt > d.launchAt,
+	{
+		message: 'endAt must be after launchAt',
+		path: ['endAt']
+	}
+);
 export const selectDropSchema = createSelectSchema(drop);
 export const updateDropSchema = createUpdateSchema(drop, {
 	slug: slugSchema.optional(),

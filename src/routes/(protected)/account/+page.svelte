@@ -2,7 +2,9 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import { authClient } from '$lib/client/modules/auth';
 	import { parseAuthError } from '$lib/client/modules/auth/utils';
+	import type { PageData } from './$types';
 
+	let { data }: { data: PageData } = $props();
 	const session = authClient.useSession();
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,11 +19,15 @@
 	});
 
 	const isGoogleLinked = $derived(accounts.some((a) => a.providerId === 'google'));
+	const profileUser = $derived(data.user ?? $session.data?.user);
 	const displayEmail = $derived(
-		$session.data?.user.email?.includes('phone.caroclothing.lk') ||
-			$session.data?.user.email?.includes('anon.caroclothing.lk')
+		profileUser?.email?.includes('phone.caroclothing.lk') ||
+			profileUser?.email?.includes('anon.caroclothing.lk')
 			? 'Linked'
-			: $session.data?.user.email
+			: profileUser?.email
+	);
+	const memberSince = $derived(
+		profileUser?.createdAt ? new Date(profileUser.createdAt).toLocaleDateString() : ''
 	);
 
 	async function linkGoogle() {
@@ -29,7 +35,7 @@
 	}
 
 	async function unlinkGoogle() {
-		if (!$session.data?.user.phoneNumber) {
+		if (!profileUser?.phoneNumber) {
 			alert('You must have at least one login method.');
 			return;
 		}
@@ -68,7 +74,7 @@
 			<div class="flex flex-col gap-1.5">
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Full Name</span>
 				<div class="flex items-center gap-4">
-					<span class="font-sans text-sm text-bone">{$session.data?.user.name}</span>
+					<span class="font-sans text-sm text-bone">{profileUser?.name}</span>
 					<button class="font-mono text-[9px] tracking-widest text-volt uppercase hover:underline"
 						>Edit</button
 					>
@@ -76,9 +82,9 @@
 			</div>
 			<div class="flex flex-col gap-1.5">
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Phone Number</span>
-				{#if $session.data?.user.phoneNumber}
+				{#if profileUser?.phoneNumber}
 					<div class="flex items-center gap-4">
-						<span class="font-mono text-sm text-bone">{$session.data?.user.phoneNumber}</span>
+						<span class="font-mono text-sm text-bone">{profileUser.phoneNumber}</span>
 						<div class="bg-volt/10 px-1.5 py-0.5 font-mono text-[8px] text-volt uppercase">
 							Verified
 						</div>
@@ -128,9 +134,7 @@
 			</div>
 			<div class="flex flex-col gap-1.5">
 				<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">Member Since</span>
-				<span class="font-mono text-sm text-bone uppercase"
-					>{$session.data?.user.createdAt.toLocaleDateString()}</span
-				>
+				<span class="font-mono text-sm text-bone uppercase">{memberSince}</span>
 			</div>
 		</div>
 	</section>

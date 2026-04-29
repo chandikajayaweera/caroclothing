@@ -8,8 +8,8 @@
 </script>
 
 <svelte:head>
-	<title>Cart | Caro Clothing</title>
-	<meta name="description" content="Your shopping cart" />
+	<title>Bag | Caro Clothing</title>
+	<meta name="description" content="Your shopping bag" />
 </svelte:head>
 
 <div class="min-h-screen bg-void pt-20 pb-32 px-4 md:px-8 lg:pt-24 lg:pb-20">

@@ -12,14 +12,14 @@ export function buildWelcomeEmail(name: string): WelcomeTemplateResult {
 	const safeName = h(name);
 
 	const content = `
-    <h2 style="margin:0 0 16px;font-size:28px;font-weight:900;color:#0A0A0A;text-transform:uppercase;letter-spacing:-1px;">
+    <h2 style="margin:0 0 16px;font-family:'Bebas Neue','DM Sans',sans-serif;font-size:34px;font-weight:400;color:#0A0A0A;text-transform:uppercase;letter-spacing:0;line-height:1;">
       Welcome to Caro, ${safeName}.
     </h2>
     <p style="margin:0 0 32px;font-size:16px;color:#0A0A0A;line-height:1.6;">
-      The next generation of streetwear is here. Explore the latest drops and core essentials.
+      Streetwear made here. Drops move fast. Core stays ready.
     </p>
     <a href="${clientEnv.PUBLIC_APP_URL}/shop"
-       style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:16px 32px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:1px;border:1px solid #0A0A0A;">
+       style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:16px 32px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:0;border:1px solid #0A0A0A;">
       Shop All
     </a>
     <p style="margin:40px 0 0;font-size:13px;color:#0A0A0A;opacity:0.6;font-family:'Space Mono',monospace;text-transform:uppercase;">
@@ -30,7 +30,7 @@ export function buildWelcomeEmail(name: string): WelcomeTemplateResult {
 	return {
 		subject: `Welcome to ${clientEnv.PUBLIC_APP_NAME}`,
 		html: baseLayout({
-			previewText: `Welcome to ${clientEnv.PUBLIC_APP_NAME}. Explore the next generation.`,
+			previewText: `Welcome to ${clientEnv.PUBLIC_APP_NAME}. Drops and core are ready.`,
 			content
 		})
 	};

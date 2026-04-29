@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
+	import { fly } from 'svelte/transition';
 	let { children } = $props();
 
 	const navLinks = [
@@ -72,7 +73,11 @@
 
 		<main class="overflow-y-auto px-4 py-8 md:px-8 md:py-10 lg:px-12 lg:py-12">
 			<div class="max-w-4xl">
-				{@render children()}
+				{#key page.url.pathname}
+					<div in:fly={{ delay: 100, x: 10 }}>
+						{@render children()}
+					</div>
+				{/key}
 			</div>
 		</main>
 	</div>

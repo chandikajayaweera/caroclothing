@@ -16,7 +16,7 @@ export interface EmailPayload {
 
 export type EmailResult = { ok: true; id: string } | { ok: false; error: string };
 
-// ── OTP ──────────────────────────────────────────────────────────────────────
+// OTP
 
 export interface OTPEmailInput {
 	email: string;
@@ -24,17 +24,17 @@ export interface OTPEmailInput {
 	type: OTPType;
 }
 
-// ── Security ──────────────────────────────────────────────────────────────────
+// Security
 
 export interface SecurityEmailInput {
 	email: string;
 	event: SecurityEventType;
-	/** e.g. "Chrome on Windows · Colombo, LK" */
+	/** e.g. "Chrome on Windows, Colombo, LK" */
 	deviceInfo?: string;
 	ipAddress?: string;
 }
 
-// ── Transactional ─────────────────────────────────────────────────────────────
+// Transactional
 
 export interface OrderItem {
 	name: string;
@@ -67,13 +67,14 @@ export interface ShippingUpdateInput {
 	carrier?: string;
 }
 
-// ── Marketing ─────────────────────────────────────────────────────────────────
+// Marketing
 
 export interface PromotionalEmailInput {
 	to: string | string[];
 	subject: string;
 	previewText?: string;
 	headline: string;
+	/** Plain text. Paragraphs can be separated with a blank line. */
 	body: string;
 	ctaLabel: string;
 	ctaUrl: string;

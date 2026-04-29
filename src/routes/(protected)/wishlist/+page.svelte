@@ -46,7 +46,7 @@
 					<div class="flex flex-col gap-3 group">
 						<ProductCard {product} />
 						<button class="w-full bg-void border border-ash/20 text-bone font-mono text-[10px] uppercase tracking-widest py-3 hover:bg-volt hover:text-void hover:border-volt transition-all duration-300">
-							Move to Cart
+							Move to Bag
 						</button>
 					</div>
 				{/each}

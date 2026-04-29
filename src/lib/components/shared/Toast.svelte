@@ -3,10 +3,10 @@
 	import { toasts } from '$lib/client/modules/stores/toast';
 </script>
 
-<div class="fixed bottom-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
+<div class="pointer-events-none fixed right-6 bottom-6 z-100 flex flex-col gap-3">
 	{#each $toasts as toast (toast.id)}
 		<div
-			class="px-5 py-3 bg-charcoal border border-ash/20 font-mono text-[10px] uppercase tracking-widest pointer-events-auto shadow-xl"
+			class="pointer-events-auto border border-ash/20 bg-charcoal px-5 py-3 font-mono text-[10px] tracking-widest uppercase shadow-xl"
 			transition:fly={{ y: 20, duration: 250 }}
 		>
 			<span class={toast.type === 'error' ? 'text-red-500' : 'text-volt'}>

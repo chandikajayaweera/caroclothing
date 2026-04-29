@@ -47,6 +47,20 @@ export const PAYMENT_METHODS = [
 	'webxpay' // WebXPay SL gateway
 ] as const;
 
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export const ONLINE_PAYMENT_METHODS = [
+	'card',
+	'payhere',
+	'ipg',
+	'webxpay'
+] as const satisfies readonly PaymentMethod[];
+
+export const OFFLINE_PAYMENT_METHODS = [
+	'bank_transfer',
+	'cash_on_delivery'
+] as const satisfies readonly PaymentMethod[];
+
 export const PAYMENT_STATUSES = [
 	'pending',
 	'authorized',
@@ -86,6 +100,8 @@ export const order = sqliteTable(
 		// null if placed by a guest
 		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
 		status: text('status', { enum: ORDER_STATUSES }).default('pending').notNull(),
+		// null = no automatic payment expiry. Online payment methods set a short hold.
+		paymentExpiresAt: integer('payment_expires_at', { mode: 'timestamp_ms' }),
 
 		// ── Pricing breakdown ──────────────────────────────────────────────────
 		subtotal: real('subtotal').notNull(),
@@ -138,6 +154,7 @@ export const order = sqliteTable(
 		index('order_user_idx').on(table.userId),
 		index('order_status_idx').on(table.status),
 		index('order_status_created_idx').on(table.status, table.createdAt),
+		index('order_status_payment_expiry_idx').on(table.status, table.paymentExpiresAt),
 		index('order_created_idx').on(table.createdAt)
 	]
 );
@@ -343,6 +360,7 @@ export const insertOrderSchema = createInsertSchema(order, {
 	customerNote: z.string().max(1000).optional().nullable(),
 	trackingNumber: z.string().max(100).optional().nullable(),
 	trackingUrl: z.string().url().optional().nullable(),
+	paymentExpiresAt: z.number().int().positive().optional().nullable(),
 	// FIX: validate snapshot fields are parseable JSON
 	promoCodeSnapshot: jsonStringSchema.optional().nullable(),
 	shippingAddressSnapshot: jsonStringSchema.optional().nullable()
@@ -363,10 +381,11 @@ export const updateOrderSchema = createUpdateSchema(order, {
 	trackingNumber: z.string().max(100).optional().nullable(),
 	trackingCarrier: z.string().max(100).optional().nullable(),
 	trackingUrl: z.string().url().optional().nullable(),
+	paymentExpiresAt: z.number().int().positive().optional().nullable(),
 	adminNote: z.string().max(1000).optional().nullable()
 });
 
-export const insertOrderItemSchema = createInsertSchema(orderItem, {
+export const insertOrderItemBaseSchema = createInsertSchema(orderItem, {
 	productName: z.string().min(1).max(255),
 	variantSku: z.string().min(1).max(100),
 	variantSize: z.string().min(1).max(10),
@@ -374,22 +393,30 @@ export const insertOrderItemSchema = createInsertSchema(orderItem, {
 	quantity: z.number().int().positive(),
 	unitPrice: z.number().positive(),
 	totalPrice: z.number().positive()
-}).refine((d) => Math.abs(d.totalPrice - d.quantity * d.unitPrice) < 0.01, {
-	message: 'totalPrice must equal quantity × unitPrice',
-	path: ['totalPrice']
 });
+export const insertOrderItemSchema = insertOrderItemBaseSchema.refine(
+	(d) => Math.abs(d.totalPrice - d.quantity * d.unitPrice) < 0.01,
+	{
+		message: 'totalPrice must equal quantity × unitPrice',
+		path: ['totalPrice']
+	}
+);
 export const selectOrderItemSchema = createSelectSchema(orderItem);
 
-export const insertPaymentSchema = createInsertSchema(payment, {
+export const insertPaymentBaseSchema = createInsertSchema(payment, {
 	amount: z.number().positive(),
 	currency: z.string().length(3).optional(),
 	method: z.enum(PAYMENT_METHODS),
 	transactionId: z.string().max(255).optional().nullable(),
 	refundAmount: z.number().min(0).optional().nullable()
-}).refine((d) => d.refundAmount == null || d.refundAmount <= d.amount, {
-	message: 'refundAmount cannot exceed amount',
-	path: ['refundAmount']
 });
+export const insertPaymentSchema = insertPaymentBaseSchema.refine(
+	(d) => d.refundAmount == null || d.refundAmount <= d.amount,
+	{
+		message: 'refundAmount cannot exceed amount',
+		path: ['refundAmount']
+	}
+);
 export const selectPaymentSchema = createSelectSchema(payment);
 // NOTE: refundAmount upper-bound (must not exceed the payment's amount) cannot be
 // validated here because amount is not part of the update payload. Enforce this

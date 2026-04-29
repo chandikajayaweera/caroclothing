@@ -160,7 +160,7 @@
 
 			<!-- CTAs -->
 			<div class="mt-10 flex flex-col gap-3">
-				<Button variant="primary" class="w-full py-4" onclick={addToCart}>Add to Cart</Button>
+				<Button variant="primary" class="w-full py-4" onclick={addToCart}>Add to Bag</Button>
 				<Button variant="outline" class="w-full py-4">Save to Wishlist</Button>
 			</div>
 
@@ -187,3 +187,4 @@
 		scrollbar-width: none;
 	}
 </style>
+

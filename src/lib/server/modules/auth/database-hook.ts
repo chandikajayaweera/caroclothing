@@ -5,14 +5,92 @@ import { eq, and, ne } from 'drizzle-orm';
 import { account, user as userTable } from '$lib/server/db/schema';
 import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/notifications/email';
 import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/modules/errors';
+import { linkDropWaitlistEntriesToUser } from '$lib/server/modules/drops/waitlist.service';
 
 const GOOGLE_PROVIDER_ID = 'google';
 const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
+const ANONYMOUS_EMAIL_DOMAIN = '@anon.caroclothing.lk';
 const LAST_AUTH_METHOD_MESSAGE = 'At least one sign-in method must remain linked.';
 
 function throwForBetterAuth(error: unknown): never {
 	if (isAppError(error)) throw toBetterAuthApiError(error);
 	throw error;
+}
+
+function isInternalTempEmail(email: string) {
+	const normalizedEmail = email.toLowerCase();
+	return (
+		normalizedEmail.endsWith(PHONE_EMAIL_DOMAIN) || normalizedEmail.endsWith(ANONYMOUS_EMAIL_DOMAIN)
+	);
+}
+
+function getUserPhoneNumber(user: unknown): string | null {
+	const phoneNumber = (user as { phoneNumber?: unknown } | null)?.phoneNumber;
+	return typeof phoneNumber === 'string' && phoneNumber.trim() ? phoneNumber.trim() : null;
+}
+
+function getUserPublicEmail(user: unknown): string | null {
+	const email = (user as { email?: unknown } | null)?.email;
+	if (typeof email !== 'string') return null;
+
+	const normalizedEmail = email.trim().toLowerCase();
+	if (!normalizedEmail || isInternalTempEmail(normalizedEmail)) return null;
+	return normalizedEmail;
+}
+
+function getWaitlistContactsForUser(user: unknown): string[] {
+	return [
+		...new Set([getUserPublicEmail(user), getUserPhoneNumber(user)].filter(Boolean) as string[])
+	];
+}
+
+async function linkDropWaitlistContactsForUser(
+	userId: string,
+	contacts: string[],
+	source: string
+): Promise<void> {
+	const uniqueContacts = [...new Set(contacts.filter(Boolean))];
+	if (uniqueContacts.length === 0) return;
+
+	try {
+		const linkedEntries = await linkDropWaitlistEntriesToUser(
+			{ userId, contacts: uniqueContacts },
+			{ actor: { id: userId, role: 'customerUser' } }
+		);
+
+		if (linkedEntries.length > 0) {
+			logger.info(
+				`[auth] Linked ${linkedEntries.length} drop waitlist entries for ${userId} from ${source}`
+			);
+		}
+	} catch (error) {
+		logger.warn(`[auth] Failed to link drop waitlist entries for ${userId} from ${source}`, error);
+	}
+}
+
+function decodeBase64UrlJson(value: string): unknown {
+	const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+	const paddedBase64 = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+	return JSON.parse(atob(paddedBase64));
+}
+
+function getVerifiedGoogleEmail(idToken: string | null | undefined) {
+	if (!idToken) return null;
+
+	try {
+		const payload = decodeBase64UrlJson(idToken.split('.')[1] ?? '') as {
+			email?: unknown;
+			email_verified?: unknown;
+		};
+
+		if (payload.email_verified !== true || typeof payload.email !== 'string') return null;
+
+		const email = payload.email.trim().toLowerCase();
+		return email.includes('@') ? email : null;
+	} catch (error) {
+		logger.warn('[auth] Failed to decode Google ID token email', error);
+		return null;
+	}
 }
 
 function getSessionUserId(context: unknown): string | undefined {
@@ -102,10 +180,67 @@ async function assertGoogleAccountAvailable(userId: string, googleAccountId: str
 	}
 }
 
+async function promoteTempUserEmailFromGoogleAccount(
+	userId: string,
+	idToken: string | null | undefined
+) {
+	const googleEmail = getVerifiedGoogleEmail(idToken);
+	if (!googleEmail) return null;
+
+	const [user] = await getDb()
+		.select({ id: userTable.id, email: userTable.email })
+		.from(userTable)
+		.where(eq(userTable.id, userId))
+		.limit(1);
+
+	if (!user?.email || !isInternalTempEmail(user.email)) return null;
+
+	const [existingUser] = await getDb()
+		.select({ id: userTable.id })
+		.from(userTable)
+		.where(and(eq(userTable.email, googleEmail), ne(userTable.id, userId)))
+		.limit(1);
+
+	if (existingUser) {
+		logger.warn(
+			`[auth] Skipped Google email promotion for ${userId}; email already belongs to another user`
+		);
+		return null;
+	}
+
+	await getDb()
+		.update(userTable)
+		.set({ email: googleEmail, emailVerified: true })
+		.where(eq(userTable.id, userId));
+
+	await linkDropWaitlistContactsForUser(userId, [googleEmail], 'google email promotion');
+
+	logger.info(`[auth] Promoted temp email to linked Google email for ${userId}`);
+	return googleEmail;
+}
+
+export async function repairTempUserEmailFromLinkedGoogleAccount(userId: string) {
+	const [googleAccount] = await getDb()
+		.select({ idToken: account.idToken })
+		.from(account)
+		.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
+		.limit(1);
+
+	if (!googleAccount) return null;
+
+	return promoteTempUserEmailFromGoogleAccount(userId, googleAccount.idToken);
+}
+
 export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 	user: {
 		create: {
 			after: async (user) => {
+				await linkDropWaitlistContactsForUser(
+					user.id,
+					getWaitlistContactsForUser(user),
+					'user create'
+				);
+
 				// Sends welcome email to new users
 				if (user.email && !user.email.includes(PHONE_EMAIL_DOMAIN)) {
 					const result = await sendWelcomeEmail(user.email, user.name);
@@ -144,6 +279,16 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 				} catch (error) {
 					throwForBetterAuth(error);
 				}
+			},
+			after: async (user, context) => {
+				const userId = getSessionUserId(context);
+				if (!userId) return;
+
+				await linkDropWaitlistContactsForUser(
+					userId,
+					getWaitlistContactsForUser(user),
+					'user update'
+				);
 			}
 		}
 	},
@@ -165,13 +310,15 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 				// Notify user that their google account has been linked
 				if (acct.providerId !== GOOGLE_PROVIDER_ID) return;
 
+				await promoteTempUserEmailFromGoogleAccount(acct.userId, acct.idToken);
+
 				const user = await getDb().query.user.findFirst({
 					where: (u, { eq }) => eq(u.id, acct.userId)
 				});
 
 				if (!user?.email) return;
 
-				if (user.email.includes(PHONE_EMAIL_DOMAIN)) return;
+				if (isInternalTempEmail(user.email)) return;
 
 				const userAccounts = await getDb().query.account.findMany({
 					where: (a, { eq }) => eq(a.userId, acct.userId)

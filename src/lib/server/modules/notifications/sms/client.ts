@@ -6,7 +6,7 @@ const BASE_URL = 'https://app.text.lk/api/v3';
 const REQUEST_TIMEOUT_MS = 10000;
 
 /**
- * Core send primitive. All SMS senders call this — never the text.lk API directly.
+ * Core send primitive. All SMS senders call this; never the text.lk API directly.
  * Returns a typed result rather than throwing, so callers can decide how to handle failures.
  */
 export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
@@ -62,9 +62,9 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 	}
 }
 
-// ── Internal schema (not exported — callers use SmsSendInput) ─────────────────
+// Internal schema. Callers use SmsSendInput.
 const SmsSendInputSchema = z.object({
-	/** E.164-ish phone number — digits only, 7-15 chars (e.g. "94771234567") */
+	/** E.164 phone number, e.g. "+94771234567" */
 	to: z.e164({ error: 'Invalid phone number format' }),
 	message: z.string().min(1, 'Message cannot be empty').max(918, 'Message exceeds max SMS length')
 });

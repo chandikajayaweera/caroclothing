@@ -13,6 +13,17 @@
 
 	const showFooterRoutes = ['/', '/about'];
 	const shouldShowFooter = $derived(showFooterRoutes.includes(page.url.pathname));
+	const isAccountRoute = $derived(
+		page.url.pathname === '/account' || page.url.pathname.startsWith('/account/')
+	);
+	const isAppRoute = $derived(
+		page.url.pathname === '/app' || page.url.pathname.startsWith('/app/')
+	);
+	const routeAnimationKey = $derived.by(() => {
+		if (isAccountRoute) return '/account';
+
+		return page.url.pathname;
+	});
 </script>
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
@@ -20,18 +31,26 @@
 <div
 	class="relative flex min-h-screen flex-col overflow-x-hidden selection:bg-volt selection:text-void"
 >
-	<Navbar />
-	<BottomNav />
+	{#if !isAppRoute}
+		<Navbar />
+		<BottomNav />
+	{/if}
 
-	<CartDrawer />
+	{#if !isAppRoute}
+		<CartDrawer />
+	{/if}
 	<Toast />
 
 	<main class="grow pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0">
-		{#key page.url.pathname}
-			<main in:fly={{ delay: 100, x: 10 }}>
-				{@render children()}
-			</main>
-		{/key}
+		{#if isAppRoute}
+			{@render children()}
+		{:else}
+			{#key routeAnimationKey}
+				<main in:fly={{ delay: 100, x: 10 }}>
+					{@render children()}
+				</main>
+			{/key}
+		{/if}
 	</main>
 
 	{#if shouldShowFooter}

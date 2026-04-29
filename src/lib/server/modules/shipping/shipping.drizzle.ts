@@ -96,32 +96,40 @@ export const shippingZoneRelations = relations(shippingZone, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-export const insertShippingMethodSchema = createInsertSchema(shippingMethod, {
+export const insertShippingMethodBaseSchema = createInsertSchema(shippingMethod, {
 	name: z.string().min(1).max(100),
 	price: z.number().min(0),
 	freeShippingThreshold: z.number().min(0).optional().nullable(),
 	estimatedDaysMin: z.number().int().min(0),
 	estimatedDaysMax: z.number().int().min(1),
 	sortOrder: z.number().int().min(0).optional()
-}).refine((d) => d.estimatedDaysMax >= d.estimatedDaysMin, {
-	message: 'estimatedDaysMax must be >= estimatedDaysMin',
-	path: ['estimatedDaysMax']
 });
+export const insertShippingMethodSchema = insertShippingMethodBaseSchema.refine(
+	(d) => d.estimatedDaysMax >= d.estimatedDaysMin,
+	{
+		message: 'estimatedDaysMax must be >= estimatedDaysMin',
+		path: ['estimatedDaysMax']
+	}
+);
 export const selectShippingMethodSchema = createSelectSchema(shippingMethod);
 export const updateShippingMethodSchema = createUpdateSchema(shippingMethod, {
 	price: z.number().min(0).optional(),
 	freeShippingThreshold: z.number().min(0).optional().nullable()
 });
 
-export const insertShippingZoneSchema = createInsertSchema(shippingZone, {
+export const insertShippingZoneBaseSchema = createInsertSchema(shippingZone, {
 	district: z.enum(SRI_LANKA_DISTRICTS),
 	priceOverride: z.number().min(0),
 	estimatedDaysMin: z.number().int().min(0),
 	estimatedDaysMax: z.number().int().min(1)
-}).refine((d) => d.estimatedDaysMax >= d.estimatedDaysMin, {
-	message: 'estimatedDaysMax must be >= estimatedDaysMin',
-	path: ['estimatedDaysMax']
 });
+export const insertShippingZoneSchema = insertShippingZoneBaseSchema.refine(
+	(d) => d.estimatedDaysMax >= d.estimatedDaysMin,
+	{
+		message: 'estimatedDaysMax must be >= estimatedDaysMin',
+		path: ['estimatedDaysMax']
+	}
+);
 export const selectShippingZoneSchema = createSelectSchema(shippingZone);
 export const updateShippingZoneSchema = createUpdateSchema(shippingZone, {
 	priceOverride: z.number().min(0).optional(),

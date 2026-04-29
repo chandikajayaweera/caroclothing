@@ -1,15 +1,15 @@
-// ── Core primitives ──
+// Core primitives
 export type SmsResult = { ok: true; messageId: string } | { ok: false; error: string };
 
-// ── Send SMS ──
+// Send SMS
 
 export interface SmsSendInput {
-	/** E.164 format recommended, e.g. "94771234567" */
+	/** E.164 format, e.g. "+94771234567" */
 	to: string;
 	message: string;
 }
 
-// ── text.lk API shapes ──
+// text.lk API shapes
 
 export interface TextLkSendPayload {
 	recipient: string;

@@ -19,7 +19,7 @@ function getFromAddress(): string {
 }
 
 /**
- * Core send primitive. All senders call this — never Resend directly.
+ * Core send primitive. All senders call this; never Resend directly.
  * Returns a typed result rather than throwing, so callers can decide
  * how to handle failures.
  */
@@ -48,7 +48,7 @@ export async function sendEmail(payload: EmailPayload): Promise<EmailResult> {
 			return { ok: false, error: 'NO_ID_RETURNED' };
 		}
 
-		console.info(`[email] Sent "${payload.subject}" → ${payload.to} (id: ${data.id})`);
+		console.info(`[email] Sent "${payload.subject}" to ${payload.to} (id: ${data.id})`);
 		return { ok: true, id: data.id };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'UNKNOWN_SEND_ERROR';

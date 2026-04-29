@@ -1,17 +1,16 @@
 <script lang="ts">
-	import { authClient } from '$lib/client/modules/auth';
-	import { goto } from '$app/navigation';
-
-	async function handleLogout() {
-		const { error } = await authClient.signOut();
-		goto('/login', { invalidateAll: true });
-
-		if (error) {
-			console.error(error);
-		} else {
-			console.log('Logged out successfully');
-		}
-	}
+	import AdminScaffoldPage from '$lib/components/admin/AdminScaffoldPage.svelte';
 </script>
 
-<button onclick={handleLogout}>Logout</button>
+<AdminScaffoldPage
+	kicker="Admin dashboard"
+	title="Overview"
+	description="High-level control room for orders, stock, drops, catalog, customers, and service settings."
+	primaryAction="Review Ops"
+	items={[
+		'Add live metrics',
+		'Surface urgent orders',
+		'Show low-stock alerts',
+		'Track drop readiness'
+	]}
+/>
