@@ -1,6 +1,6 @@
 import { relations, sql } from 'drizzle-orm';
 import { sqliteTable, text, integer, index, check } from 'drizzle-orm/sqlite-core';
-import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
+import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { productVariant } from '../products/products.drizzle';
@@ -69,16 +69,18 @@ export const inventory = sqliteTable(
 		// application must not attempt to increment reservedQuantity when quantity = 0.
 		check(
 			'reserved_not_exceed_quantity',
-			sql`${table.reservedQuantity} >= 0 AND ${table.reservedQuantity} <= ${table.quantity}`
-		)
+			sql`${table.quantity} >= 0 AND ${table.reservedQuantity} >= 0 AND ${table.reservedQuantity} <= ${table.quantity}`
+		),
+		check('inventory_low_stock_threshold_nonnegative', sql`${table.lowStockThreshold} >= 0`)
 	]
 );
 
 // ---------------------------------------------------------------------------
 // INVENTORY MOVEMENTS  (append-only audit log — never delete rows)
 //
-// Every change to stock quantity MUST produce a movement row.
-// This gives a complete history for reconciliation and dispute resolution.
+// Every stock or reservation change MUST produce a movement row.
+// quantity* fields track physical stock; reservedQuantity* fields track holds
+// for active carts / pending orders. This preserves full reservation auditability.
 // ---------------------------------------------------------------------------
 
 export const inventoryMovement = sqliteTable(
@@ -101,10 +103,15 @@ export const inventoryMovement = sqliteTable(
 				'cancelled' // order cancelled → stock released back
 			]
 		}).notNull(),
-		// Signed delta: positive = stock in, negative = stock out
-		quantityDelta: integer('quantity_delta').notNull(),
+		// Signed delta: positive = stock in, negative = stock out.
+		// Reservation-only movements set this to 0.
+		quantityDelta: integer('quantity_delta').default(0).notNull(),
 		// Snapshot of quantity AFTER this movement applied (for reconciliation)
 		quantityAfter: integer('quantity_after').notNull(),
+		// Signed delta for reservedQuantity. Physical stock-only movements set this to 0.
+		reservedQuantityDelta: integer('reserved_quantity_delta').default(0).notNull(),
+		// Snapshot of reservedQuantity AFTER this movement applied.
+		reservedQuantityAfter: integer('reserved_quantity_after').notNull(),
 		// Causal reference: orderId, cartItemId, etc.
 		referenceId: text('reference_id'),
 		note: text('note'),
@@ -116,7 +123,13 @@ export const inventoryMovement = sqliteTable(
 		index('inv_movement_variant_idx').on(table.variantId),
 		index('inv_movement_type_idx').on(table.type),
 		index('inv_movement_ref_idx').on(table.referenceId),
-		index('inv_movement_created_idx').on(table.createdAt)
+		index('inv_movement_created_idx').on(table.createdAt),
+		check(
+			'inv_movement_delta_nonzero',
+			sql`${table.quantityDelta} <> 0 OR ${table.reservedQuantityDelta} <> 0`
+		),
+		check('inv_movement_quantity_after_nonnegative', sql`${table.quantityAfter} >= 0`),
+		check('inv_movement_reserved_after_nonnegative', sql`${table.reservedQuantityAfter} >= 0`)
 	]
 );
 
@@ -129,13 +142,18 @@ export const inventoryRelations = relations(inventory, ({ one, many }) => ({
 		fields: [inventory.variantId],
 		references: [productVariant.id]
 	}),
-	movements: many(inventoryMovement)
+	movements: many(inventoryMovement, { relationName: 'inventory_movements' })
 }));
 
 export const inventoryMovementRelations = relations(inventoryMovement, ({ one }) => ({
 	variant: one(productVariant, {
 		fields: [inventoryMovement.variantId],
 		references: [productVariant.id]
+	}),
+	inventory: one(inventory, {
+		fields: [inventoryMovement.variantId],
+		references: [inventory.variantId],
+		relationName: 'inventory_movements'
 	})
 }));
 
@@ -144,23 +162,62 @@ export const inventoryMovementRelations = relations(inventoryMovement, ({ one })
 // ---------------------------------------------------------------------------
 
 export const insertInventorySchema = createInsertSchema(inventory, {
+	variantId: z.string().min(1).max(64),
 	quantity: z.number().int().min(0),
 	reservedQuantity: z.number().int().min(0),
-	lowStockThreshold: z.number().int().min(0).optional()
-});
+	lowStockThreshold: z.number().int().min(0).optional(),
+	trackInventory: z.boolean().optional(),
+	allowBackorder: z.boolean().optional()
+})
+	.omit({
+		id: true,
+		updatedAt: true
+	})
+	.refine((d) => d.reservedQuantity === undefined || d.reservedQuantity <= (d.quantity ?? 0), {
+		message: 'reservedQuantity cannot exceed quantity',
+		path: ['reservedQuantity']
+	});
 export const selectInventorySchema = createSelectSchema(inventory);
+export const updateInventorySchema = createUpdateSchema(inventory, {
+	quantity: z.number().int().min(0).optional(),
+	reservedQuantity: z.number().int().min(0).optional(),
+	lowStockThreshold: z.number().int().min(0).optional(),
+	trackInventory: z.boolean().optional(),
+	allowBackorder: z.boolean().optional()
+})
+	.omit({
+		id: true,
+		variantId: true,
+		updatedAt: true
+	})
+	.refine(
+		(d) =>
+			d.quantity === undefined ||
+			d.reservedQuantity === undefined ||
+			d.reservedQuantity <= d.quantity,
+		{
+			message: 'reservedQuantity cannot exceed quantity',
+			path: ['reservedQuantity']
+		}
+	);
 
 export const insertInventoryMovementSchema = createInsertSchema(inventoryMovement, {
-	quantityDelta: z
-		.number()
-		.int()
-		.refine((v) => v !== 0, {
-			message: 'quantityDelta cannot be zero'
-		}),
+	variantId: z.string().min(1).max(64),
+	quantityDelta: z.number().int(),
 	quantityAfter: z.number().int().min(0),
+	reservedQuantityDelta: z.number().int(),
+	reservedQuantityAfter: z.number().int().min(0),
 	referenceId: z.string().min(1).optional().nullable(),
 	note: z.string().max(500).optional().nullable()
-});
+})
+	.omit({
+		id: true,
+		createdAt: true
+	})
+	.refine((d) => d.quantityDelta !== 0 || d.reservedQuantityDelta !== 0, {
+		message: 'quantityDelta or reservedQuantityDelta must be non-zero',
+		path: ['quantityDelta']
+	});
 export const selectInventoryMovementSchema = createSelectSchema(inventoryMovement);
 
 // ---------------------------------------------------------------------------
@@ -169,5 +226,10 @@ export const selectInventoryMovementSchema = createSelectSchema(inventoryMovemen
 
 export type Inventory = typeof inventory.$inferSelect;
 export type NewInventory = typeof inventory.$inferInsert;
+export type InsertInventory = z.infer<typeof insertInventorySchema>;
+export type SelectInventory = z.infer<typeof selectInventorySchema>;
+export type UpdateInventory = z.infer<typeof updateInventorySchema>;
 export type InventoryMovement = typeof inventoryMovement.$inferSelect;
 export type NewInventoryMovement = typeof inventoryMovement.$inferInsert;
+export type InsertInventoryMovement = z.infer<typeof insertInventoryMovementSchema>;
+export type SelectInventoryMovement = z.infer<typeof selectInventoryMovementSchema>;

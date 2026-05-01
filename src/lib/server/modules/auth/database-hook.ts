@@ -5,7 +5,7 @@ import { eq, and, ne } from 'drizzle-orm';
 import { account, user as userTable } from '$lib/server/db/schema';
 import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/notifications/email';
 import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/modules/errors';
-import { linkDropWaitlistEntriesToUser } from '$lib/server/modules/drops/waitlist.service';
+// import { linkDropWaitlistEntriesToUser } from '$lib/server/modules/drops/waitlist.service';
 
 const GOOGLE_PROVIDER_ID = 'google';
 const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
@@ -52,20 +52,20 @@ async function linkDropWaitlistContactsForUser(
 	const uniqueContacts = [...new Set(contacts.filter(Boolean))];
 	if (uniqueContacts.length === 0) return;
 
-	try {
-		const linkedEntries = await linkDropWaitlistEntriesToUser(
-			{ userId, contacts: uniqueContacts },
-			{ actor: { id: userId, role: 'customerUser' } }
-		);
+	// try {
+	// 	const linkedEntries = await linkDropWaitlistEntriesToUser(
+	// 		{ userId, contacts: uniqueContacts },
+	// 		{ actor: { id: userId, role: 'customerUser' } }
+	// 	);
 
-		if (linkedEntries.length > 0) {
-			logger.info(
-				`[auth] Linked ${linkedEntries.length} drop waitlist entries for ${userId} from ${source}`
-			);
-		}
-	} catch (error) {
-		logger.warn(`[auth] Failed to link drop waitlist entries for ${userId} from ${source}`, error);
-	}
+	// 	if (linkedEntries.length > 0) {
+	// 		logger.info(
+	// 			`[auth] Linked ${linkedEntries.length} drop waitlist entries for ${userId} from ${source}`
+	// 		);
+	// 	}
+	// } catch (error) {
+	// 	logger.warn(`[auth] Failed to link drop waitlist entries for ${userId} from ${source}`, error);
+	// }
 }
 
 function decodeBase64UrlJson(value: string): unknown {

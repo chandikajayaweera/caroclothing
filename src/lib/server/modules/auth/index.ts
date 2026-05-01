@@ -14,11 +14,7 @@ import { reserveOtpCooldown } from './otp-cooldown';
 import { migrateAnonymousUserData } from './anonymous-migration';
 import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/modules/errors';
 
-import {
-	accessControl as ac,
-	adminUser,
-	customerUser
-} from '$lib/client/modules/auth/access-control';
+import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
 
 function getPhoneTempEmail(phoneNumber: string) {
 	const digits = phoneNumber.replace(/\D/g, '');

@@ -1,6 +1,6 @@
 import { relations, sql } from 'drizzle-orm';
 import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
+import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { user } from '../auth/auth.drizzle';
@@ -11,15 +11,12 @@ import { product, productVariant } from '../products/products.drizzle';
 //
 // Users can save a product with or without a specific variant (size/colour).
 //
-// IMPORTANT — SQLite NULL uniqueness behaviour:
-// SQLite treats each NULL as distinct in UNIQUE constraints, so
-// UNIQUE(userId, productId, variantId) with variantId = NULL would allow
-// multiple "no-variant" wishlist entries for the same product per user.
+// SQLite NULL uniqueness behaviour requires partial unique indexes:
+//   - one row per selected variant
+//   - one row per product when variantId is NULL
 //
-// Fix: use the sentinel value '' (empty string) for "no specific variant"
-// instead of NULL. variantId is NOT NULL; '' means "any size / not chosen yet".
-// On insert, set variantId = '' when the user hasn't picked a variant.
-// When looking up the live variant, treat '' as "no variant selected".
+// variantId is nullable and has a real FK to productVariant. This keeps
+// referential integrity while still supporting "no variant selected yet".
 // ---------------------------------------------------------------------------
 
 export const wishlistItem = sqliteTable(
@@ -34,22 +31,19 @@ export const wishlistItem = sqliteTable(
 		productId: text('product_id')
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
-		// '' = no specific variant selected; any other value = a valid variantId.
-		// Cannot use a FK here because '' is not a valid productVariant.id.
-		// The application layer validates that non-empty values reference a real variant.
-		variantId: text('variant_id').notNull().default(''),
+		variantId: text('variant_id').references(() => productVariant.id, { onDelete: 'set null' }),
 		addedAt: integer('added_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull()
 	},
 	(table) => [
 		index('wishlist_user_idx').on(table.userId),
-		// Now safe: '' is a concrete value, not NULL — duplicates are prevented correctly
-		uniqueIndex('wishlist_user_product_variant_idx').on(
-			table.userId,
-			table.productId,
-			table.variantId
-		),
+		uniqueIndex('wishlist_user_product_variant_idx')
+			.on(table.userId, table.productId, table.variantId)
+			.where(sql`${table.variantId} IS NOT NULL`),
+		uniqueIndex('wishlist_user_product_no_variant_idx')
+			.on(table.userId, table.productId)
+			.where(sql`${table.variantId} IS NULL`),
 		index('wishlist_product_idx').on(table.productId)
 	]
 );
@@ -57,10 +51,7 @@ export const wishlistItem = sqliteTable(
 // ---------------------------------------------------------------------------
 // RELATIONS
 //
-// variantId cannot have a FK relation because '' is not a valid DB reference.
-// Resolve the variant at the application layer:
-//   variantId === '' → show product without variant selection
-//   variantId !== '' → fetch productVariant by id
+// variantId null → show product without selected size/color.
 // ---------------------------------------------------------------------------
 
 export const wishlistItemRelations = relations(wishlistItem, ({ one }) => ({
@@ -71,6 +62,10 @@ export const wishlistItemRelations = relations(wishlistItem, ({ one }) => ({
 	product: one(product, {
 		fields: [wishlistItem.productId],
 		references: [product.id]
+	}),
+	variant: one(productVariant, {
+		fields: [wishlistItem.variantId],
+		references: [productVariant.id]
 	})
 }));
 
@@ -78,42 +73,25 @@ export const wishlistItemRelations = relations(wishlistItem, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-// nanoid alphabet — used to validate non-sentinel variantId values
-const NANOID_RE = /^[A-Za-z0-9_-]{21}$/;
+const idSchema = z.string().min(1).max(255);
 
 export const insertWishlistItemSchema = createInsertSchema(wishlistItem, {
-	// '' = no specific variant; any non-empty value must be a valid nanoid.
-	// The application layer is still responsible for confirming the variant exists
-	// and belongs to the correct product, but this catches obvious garbage values
-	// (typos, UUIDs, empty-ish strings) before they reach the database.
-	variantId: z
-		.string()
-		.refine((v) => v === '' || NANOID_RE.test(v), {
-			message: "variantId must be '' (no variant) or a valid 21-character nanoid"
-		})
-		.optional()
+	userId: idSchema,
+	productId: idSchema,
+	variantId: idSchema.optional().nullable()
+}).omit({
+	id: true,
+	addedAt: true
 });
 export const selectWishlistItemSchema = createSelectSchema(wishlistItem);
-
-// ---------------------------------------------------------------------------
-// MIGRATION NOTE — alternative uniqueness approach (avoids the sentinel)
-//
-// If you migrate away from the sentinel, replace the Drizzle uniqueIndex with
-// two raw partial indexes in your migration file:
-//
-//   CREATE UNIQUE INDEX wishlist_user_product_variant_idx
-//     ON wishlist_item(user_id, product_id, variant_id)
-//     WHERE variant_id IS NOT NULL;
-//
-//   CREATE UNIQUE INDEX wishlist_user_product_no_variant_idx
-//     ON wishlist_item(user_id, product_id)
-//     WHERE variant_id IS NULL;
-//
-// This lets variant_id be a proper nullable FK to product_variant(id) while
-// still preventing duplicate (user, product, no-variant) rows.
-// Drizzle does not yet support partial indexes in schema definitions,
-// so these must live in raw migration SQL.
-// ---------------------------------------------------------------------------
+export const updateWishlistItemSchema = createUpdateSchema(wishlistItem, {
+	variantId: idSchema.optional().nullable()
+}).omit({
+	id: true,
+	userId: true,
+	productId: true,
+	addedAt: true
+});
 
 // ---------------------------------------------------------------------------
 // INFERRED TYPES
@@ -121,3 +99,6 @@ export const selectWishlistItemSchema = createSelectSchema(wishlistItem);
 
 export type WishlistItem = typeof wishlistItem.$inferSelect;
 export type NewWishlistItem = typeof wishlistItem.$inferInsert;
+export type InsertWishlistItem = z.infer<typeof insertWishlistItemSchema>;
+export type SelectWishlistItem = z.infer<typeof selectWishlistItemSchema>;
+export type UpdateWishlistItem = z.infer<typeof updateWishlistItemSchema>;

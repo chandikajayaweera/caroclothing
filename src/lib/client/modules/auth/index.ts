@@ -5,11 +5,7 @@ import {
 	phoneNumberClient,
 	adminClient
 } from 'better-auth/client/plugins';
-import {
-	accessControl as ac,
-	adminUser,
-	customerUser
-} from '$lib/client/modules/auth/access-control';
+import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
 import { getClientEnv } from '$lib/client/modules/env';
 
 const clientEnv = getClientEnv();

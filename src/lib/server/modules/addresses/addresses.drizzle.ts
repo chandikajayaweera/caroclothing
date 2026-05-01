@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, index, check } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, check } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -81,16 +81,11 @@ export const address = sqliteTable(
 		index('address_user_idx').on(table.userId),
 		// Fast lookup for "get my default address"
 		index('address_user_default_idx').on(table.userId, table.isDefault),
+		uniqueIndex('address_one_default_per_user')
+			.on(table.userId)
+			.where(sql`${table.isDefault} = 1 AND ${table.userId} IS NOT NULL`),
 		// isDefault is only meaningful for authenticated users
 		check('default_requires_user', sql`${table.userId} IS NOT NULL OR ${table.isDefault} = 0`)
-		// NOTE: uniqueness of isDefault=true per user cannot be expressed as a Drizzle
-		// schema index (requires a partial index). Add this to your migration SQL:
-		//
-		//   CREATE UNIQUE INDEX address_one_default_per_user
-		//     ON address(user_id) WHERE is_default = 1;
-		//
-		// This prevents a user from having multiple default addresses while still
-		// allowing multiple non-default ones.
 	]
 );
 
@@ -118,8 +113,23 @@ const sriLankaPhoneSchema = z
 	);
 
 const districtSchema = z.enum(SRI_LANKA_DISTRICTS);
+const idSchema = z.string().min(1).max(255);
 
-export const insertAddressSchema = createInsertSchema(address, {
+function validateDefaultAddressOwner(
+	data: { userId?: string | null; isDefault?: boolean },
+	ctx: z.RefinementCtx
+) {
+	if (data.isDefault && !data.userId) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'Default address requires a userId',
+			path: ['isDefault']
+		});
+	}
+}
+
+export const insertAddressBaseSchema = createInsertSchema(address, {
+	userId: idSchema.optional().nullable(),
 	recipientName: z.string().min(1).max(150),
 	phone: sriLankaPhoneSchema,
 	addressLine1: z.string().min(1).max(255),
@@ -127,8 +137,14 @@ export const insertAddressSchema = createInsertSchema(address, {
 	city: z.string().min(1).max(100),
 	district: districtSchema,
 	postalCode: z.string().max(10).optional().nullable(),
-	label: z.string().max(50).optional().nullable()
+	label: z.string().max(50).optional().nullable(),
+	isDefault: z.boolean().optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
+export const insertAddressSchema = insertAddressBaseSchema.superRefine(validateDefaultAddressOwner);
 export const selectAddressSchema = createSelectSchema(address);
 export const updateAddressSchema = createUpdateSchema(address, {
 	recipientName: z.string().min(1).max(150).optional(),
@@ -138,7 +154,13 @@ export const updateAddressSchema = createUpdateSchema(address, {
 	city: z.string().min(1).max(100).optional(),
 	district: districtSchema.optional(),
 	postalCode: z.string().max(10).optional().nullable(),
-	label: z.string().max(50).optional().nullable()
+	label: z.string().max(50).optional().nullable(),
+	isDefault: z.boolean().optional()
+}).omit({
+	id: true,
+	userId: true,
+	createdAt: true,
+	updatedAt: true
 });
 
 // ---------------------------------------------------------------------------
@@ -147,3 +169,6 @@ export const updateAddressSchema = createUpdateSchema(address, {
 
 export type Address = typeof address.$inferSelect;
 export type NewAddress = typeof address.$inferInsert;
+export type InsertAddress = z.infer<typeof insertAddressSchema>;
+export type SelectAddress = z.infer<typeof selectAddressSchema>;
+export type UpdateAddress = z.infer<typeof updateAddressSchema>;

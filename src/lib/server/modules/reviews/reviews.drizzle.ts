@@ -4,7 +4,7 @@ import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'driz
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { user } from '../auth/auth.drizzle';
-import { product } from '../products/products.drizzle';
+import { product, r2KeySchema } from '../products/products.drizzle';
 import { order } from '../orders/orders.drizzle';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +59,11 @@ export const review = sqliteTable(
 		uniqueIndex('review_product_user_idx').on(table.productId, table.userId),
 		// Enforce star rating bounds at DB level (Zod enforces this on the way in,
 		// but CHECK catches direct SQL writes and migration seeds too)
-		check('rating_range', sql`${table.rating} BETWEEN 1 AND 5`)
+		check('rating_range', sql`${table.rating} BETWEEN 1 AND 5`),
+		check(
+			'review_verified_requires_order',
+			sql`${table.isVerifiedPurchase} = 0 OR ${table.orderId} IS NOT NULL`
+		)
 	]
 );
 
@@ -92,7 +96,8 @@ export const reviewMedia = sqliteTable(
 	},
 	(table) => [
 		index('review_media_review_idx').on(table.reviewId),
-		index('review_media_position_idx').on(table.reviewId, table.position)
+		index('review_media_position_idx').on(table.reviewId, table.position),
+		check('review_media_position_nonnegative', sql`${table.position} >= 0`)
 	]
 );
 
@@ -127,17 +132,22 @@ export const reviewMediaRelations = relations(reviewMedia, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-const r2KeySchema = z
-	.string()
-	.min(1)
-	.max(512)
-	.regex(/^[a-zA-Z0-9_\-./]+$/, 'Invalid R2 key format');
+const idSchema = z.string().min(1).max(255);
 
 export const insertReviewSchema = createInsertSchema(review, {
+	productId: idSchema,
+	userId: idSchema,
+	orderId: idSchema.optional().nullable(),
 	rating: z.number().int().min(1).max(5),
 	title: z.string().min(1).max(150).optional().nullable(),
 	body: z.string().min(10).max(2000).optional().nullable(),
-	adminNote: z.string().max(500).optional().nullable()
+	isVerifiedPurchase: z.boolean().optional()
+}).omit({
+	id: true,
+	isApproved: true,
+	adminNote: true,
+	createdAt: true,
+	updatedAt: true
 });
 export const selectReviewSchema = createSelectSchema(review);
 export const updateReviewSchema = createUpdateSchema(review, {
@@ -145,16 +155,35 @@ export const updateReviewSchema = createUpdateSchema(review, {
 	adminNote: z.string().max(500).optional().nullable(),
 	title: z.string().min(1).max(150).optional().nullable(),
 	body: z.string().min(10).max(2000).optional().nullable()
+}).omit({
+	id: true,
+	productId: true,
+	userId: true,
+	orderId: true,
+	rating: true,
+	isVerifiedPurchase: true,
+	createdAt: true,
+	updatedAt: true
 });
 
 export const insertReviewMediaSchema = createInsertSchema(reviewMedia, {
+	reviewId: idSchema,
 	r2Key: r2KeySchema,
 	type: z.enum(['image', 'video']).optional(),
 	position: z.number().int().min(0).optional()
+}).omit({
+	id: true,
+	createdAt: true
 });
 export const selectReviewMediaSchema = createSelectSchema(reviewMedia);
 export const updateReviewMediaSchema = createUpdateSchema(reviewMedia, {
 	position: z.number().int().min(0).optional()
+}).omit({
+	id: true,
+	reviewId: true,
+	r2Key: true,
+	type: true,
+	createdAt: true
 });
 
 // ---------------------------------------------------------------------------
@@ -163,5 +192,11 @@ export const updateReviewMediaSchema = createUpdateSchema(reviewMedia, {
 
 export type Review = typeof review.$inferSelect;
 export type NewReview = typeof review.$inferInsert;
+export type InsertReview = z.infer<typeof insertReviewSchema>;
+export type SelectReview = z.infer<typeof selectReviewSchema>;
+export type UpdateReview = z.infer<typeof updateReviewSchema>;
 export type ReviewMedia = typeof reviewMedia.$inferSelect;
 export type NewReviewMedia = typeof reviewMedia.$inferInsert;
+export type InsertReviewMedia = z.infer<typeof insertReviewMediaSchema>;
+export type SelectReviewMedia = z.infer<typeof selectReviewMediaSchema>;
+export type UpdateReviewMedia = z.infer<typeof updateReviewMediaSchema>;

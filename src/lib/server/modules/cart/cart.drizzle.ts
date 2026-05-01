@@ -1,13 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import {
-	sqliteTable,
-	text,
-	integer,
-	real,
-	index,
-	uniqueIndex,
-	check
-} from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, check } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -19,6 +11,7 @@ import { promoCode } from '../promotions/promotions.drizzle';
 // CART
 //
 // Supports authenticated users (userId set) and guests (sessionToken set).
+// Ownership is exclusive: guest carts use sessionToken, authenticated carts use userId.
 // On login, merge guest cart into user cart at the application layer:
 //   1. Find guest cart by sessionToken.
 //   2. Find or create user cart by userId.
@@ -41,8 +34,6 @@ export const cart = sqliteTable(
 		promoCodeId: text('promo_code_id').references(() => promoCode.id, {
 			onDelete: 'set null'
 		}),
-		// Pre-computed discount applied to the cart total
-		discountAmount: real('discount_amount').default(0).notNull(),
 		// null = never expires (authenticated user carts)
 		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -58,8 +49,12 @@ export const cart = sqliteTable(
 		index('cart_session_idx').on(table.sessionToken),
 		// Used by the cleanup cron to find and expire old guest carts
 		index('cart_expires_idx').on(table.expiresAt),
-		// Every cart must be claimable: at least one of userId or sessionToken must be set
-		check('cart_has_owner', sql`${table.userId} IS NOT NULL OR ${table.sessionToken} IS NOT NULL`)
+		// Exactly one owner: user cart or guest cart, never both.
+		check(
+			'cart_has_one_owner',
+			sql`(${table.userId} IS NOT NULL AND ${table.sessionToken} IS NULL) OR (${table.userId} IS NULL AND ${table.sessionToken} IS NOT NULL)`
+		),
+		check('cart_expiry_positive', sql`${table.expiresAt} IS NULL OR ${table.expiresAt} > 0`)
 	]
 );
 
@@ -93,8 +88,8 @@ export const cartItem = sqliteTable(
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
 		quantity: integer('quantity').default(1).notNull(),
-		// Locked price at add-to-cart time. Recompute cart total from this, not the live price.
-		unitPrice: real('unit_price').notNull(),
+		// Locked whole-LKR price at add-to-cart time. Recompute cart total from this.
+		unitPrice: integer('unit_price').notNull(),
 		addedAt: integer('added_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -111,7 +106,9 @@ export const cartItem = sqliteTable(
 		// can race past application-layer deduplication and create two rows.
 		// Application code must use an upsert (INSERT ... ON CONFLICT DO UPDATE)
 		// to increment quantity instead of inserting a new row.
-		uniqueIndex('cart_item_cart_variant_idx').on(table.cartId, table.variantId)
+		uniqueIndex('cart_item_cart_variant_idx').on(table.cartId, table.variantId),
+		check('cart_item_quantity_range', sql`${table.quantity} BETWEEN 1 AND 10`),
+		check('cart_item_unit_price_positive', sql`${table.unitPrice} > 0`)
 	]
 );
 
@@ -150,23 +147,68 @@ export const cartItemRelations = relations(cartItem, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-export const insertCartSchema = createInsertSchema(cart, {
+const idSchema = z.string().min(1).max(255);
+const timestampMsSchema = z.number().int().positive();
+
+function validateCartOwner(
+	data: { userId?: string | null; sessionToken?: string | null },
+	ctx: z.RefinementCtx
+) {
+	const ownerCount = Number(Boolean(data.userId)) + Number(Boolean(data.sessionToken));
+	if (ownerCount !== 1) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'Cart requires exactly one of userId or sessionToken',
+			path: ['sessionToken']
+		});
+	}
+}
+
+export const insertCartBaseSchema = createInsertSchema(cart, {
+	userId: idSchema.optional().nullable(),
 	sessionToken: z.string().min(1).max(255).optional().nullable(),
-	discountAmount: z.number().min(0).optional()
+	promoCodeId: idSchema.optional().nullable(),
+	expiresAt: timestampMsSchema.optional().nullable()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
+export const insertCartSchema = insertCartBaseSchema.superRefine(validateCartOwner);
 export const selectCartSchema = createSelectSchema(cart);
 export const updateCartSchema = createUpdateSchema(cart, {
-	promoCodeId: z.string().optional().nullable(),
-	discountAmount: z.number().min(0).optional()
+	promoCodeId: idSchema.optional().nullable(),
+	expiresAt: timestampMsSchema.optional().nullable()
+}).omit({
+	id: true,
+	userId: true,
+	sessionToken: true,
+	createdAt: true,
+	updatedAt: true
 });
 
 export const insertCartItemSchema = createInsertSchema(cartItem, {
+	cartId: idSchema,
+	variantId: idSchema,
+	productId: idSchema,
 	quantity: z.number().int().min(1).max(10),
-	unitPrice: z.number().positive()
+	unitPrice: z.number().int().positive()
+}).omit({
+	id: true,
+	addedAt: true,
+	updatedAt: true
 });
 export const selectCartItemSchema = createSelectSchema(cartItem);
 export const updateCartItemSchema = createUpdateSchema(cartItem, {
-	quantity: z.number().int().min(1).max(10)
+	quantity: z.number().int().min(1).max(10).optional()
+}).omit({
+	id: true,
+	cartId: true,
+	variantId: true,
+	productId: true,
+	unitPrice: true,
+	addedAt: true,
+	updatedAt: true
 });
 
 // ---------------------------------------------------------------------------
@@ -175,5 +217,11 @@ export const updateCartItemSchema = createUpdateSchema(cartItem, {
 
 export type Cart = typeof cart.$inferSelect;
 export type NewCart = typeof cart.$inferInsert;
+export type InsertCart = z.infer<typeof insertCartSchema>;
+export type SelectCart = z.infer<typeof selectCartSchema>;
+export type UpdateCart = z.infer<typeof updateCartSchema>;
 export type CartItem = typeof cartItem.$inferSelect;
 export type NewCartItem = typeof cartItem.$inferInsert;
+export type InsertCartItem = z.infer<typeof insertCartItemSchema>;
+export type SelectCartItem = z.infer<typeof selectCartItemSchema>;
+export type UpdateCartItem = z.infer<typeof updateCartItemSchema>;

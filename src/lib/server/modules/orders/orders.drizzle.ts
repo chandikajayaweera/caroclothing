@@ -1,10 +1,10 @@
 import { relations, sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, check } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { user } from '../auth/auth.drizzle';
-import { product, productVariant } from '../products/products.drizzle';
+import { product, productVariant, r2KeySchema } from '../products/products.drizzle';
 import { address } from '../addresses/addresses.drizzle';
 import { promoCode } from '../promotions/promotions.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
@@ -73,7 +73,7 @@ export const PAYMENT_STATUSES = [
 // ---------------------------------------------------------------------------
 // ORDERS
 //
-// All monetary values in LKR (Sri Lankan Rupees).
+// All monetary values are whole LKR integer amounts. No floats.
 //
 // Address denormalization strategy:
 //   - shippingAddressId = FK to the live address row (for UI "where did this go?")
@@ -82,6 +82,7 @@ export const PAYMENT_STATUSES = [
 //
 // Promo code is similarly snapshotted so price history is accurate even if
 // the code is later deactivated or changed.
+// Shipping method is also snapshotted so historical orders keep carrier/name/ETA.
 //
 // NOTE: Table is named 'orders' (not 'order') to avoid the SQL reserved keyword.
 // The TypeScript export remains `order` for minimal import churn.
@@ -104,10 +105,10 @@ export const order = sqliteTable(
 		paymentExpiresAt: integer('payment_expires_at', { mode: 'timestamp_ms' }),
 
 		// ── Pricing breakdown ──────────────────────────────────────────────────
-		subtotal: real('subtotal').notNull(),
-		discountAmount: real('discount_amount').default(0).notNull(),
-		shippingAmount: real('shipping_amount').default(0).notNull(),
-		totalAmount: real('total_amount').notNull(),
+		subtotal: integer('subtotal').notNull(),
+		discountAmount: integer('discount_amount').default(0).notNull(),
+		shippingAmount: integer('shipping_amount').default(0).notNull(),
+		totalAmount: integer('total_amount').notNull(),
 
 		// ── Promo ─────────────────────────────────────────────────────────────
 		promoCodeId: text('promo_code_id').references(() => promoCode.id, {
@@ -123,6 +124,8 @@ export const order = sqliteTable(
 		shippingAddressId: text('shipping_address_id').references(() => address.id, {
 			onDelete: 'set null'
 		}),
+		// JSON snapshot: { name, carrier, price, estimatedDaysMin, estimatedDaysMax }
+		shippingMethodSnapshot: text('shipping_method_snapshot'),
 		// JSON snapshot: full address at order time — used for fulfilment, never changes
 		shippingAddressSnapshot: text('shipping_address_snapshot'),
 
@@ -155,7 +158,19 @@ export const order = sqliteTable(
 		index('order_status_idx').on(table.status),
 		index('order_status_created_idx').on(table.status, table.createdAt),
 		index('order_status_payment_expiry_idx').on(table.status, table.paymentExpiresAt),
-		index('order_created_idx').on(table.createdAt)
+		index('order_created_idx').on(table.createdAt),
+		check(
+			'order_amounts_nonnegative',
+			sql`${table.subtotal} >= 0 AND ${table.discountAmount} >= 0 AND ${table.shippingAmount} >= 0 AND ${table.totalAmount} >= 0`
+		),
+		check(
+			'order_total_matches_parts',
+			sql`${table.totalAmount} = (${table.subtotal} - ${table.discountAmount} + ${table.shippingAmount})`
+		),
+		check(
+			'order_payment_expiry_positive',
+			sql`${table.paymentExpiresAt} IS NULL OR ${table.paymentExpiresAt} > 0`
+		)
 	]
 );
 
@@ -194,13 +209,18 @@ export const orderItem = sqliteTable(
 		productImageR2Key: text('product_image_r2_key'),
 
 		quantity: integer('quantity').notNull(),
-		unitPrice: real('unit_price').notNull(), // price at purchase time
-		totalPrice: real('total_price').notNull() // quantity × unitPrice
+		unitPrice: integer('unit_price').notNull(), // whole-LKR price at purchase time
+		totalPrice: integer('total_price').notNull() // quantity × unitPrice
 	},
 	(table) => [
 		index('order_item_order_idx').on(table.orderId),
 		index('order_item_variant_idx').on(table.variantId),
-		index('order_item_product_idx').on(table.productId)
+		index('order_item_product_idx').on(table.productId),
+		check('order_item_quantity_positive', sql`${table.quantity} > 0`),
+		check(
+			'order_item_prices_valid',
+			sql`${table.unitPrice} > 0 AND ${table.totalPrice} > 0 AND ${table.totalPrice} = (${table.quantity} * ${table.unitPrice})`
+		)
 	]
 );
 
@@ -217,7 +237,7 @@ export const payment = sqliteTable(
 		orderId: text('order_id')
 			.notNull()
 			.references(() => order.id, { onDelete: 'cascade' }),
-		amount: real('amount').notNull(),
+		amount: integer('amount').notNull(),
 		currency: text('currency').default('LKR').notNull(),
 		method: text('method', { enum: PAYMENT_METHODS }).notNull(),
 		status: text('status', { enum: PAYMENT_STATUSES }).default('pending').notNull(),
@@ -225,7 +245,7 @@ export const payment = sqliteTable(
 		transactionId: text('transaction_id'),
 		// Raw JSON response from gateway — useful for debugging failed payments
 		gatewayResponse: text('gateway_response'),
-		refundAmount: real('refund_amount'),
+		refundAmount: integer('refund_amount'),
 		refundedAt: integer('refunded_at', { mode: 'timestamp_ms' }),
 		paidAt: integer('paid_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -239,7 +259,12 @@ export const payment = sqliteTable(
 	(table) => [
 		index('payment_order_idx').on(table.orderId),
 		index('payment_status_idx').on(table.status),
-		index('payment_transaction_idx').on(table.transactionId)
+		index('payment_transaction_idx').on(table.transactionId),
+		check('payment_amount_positive', sql`${table.amount} > 0`),
+		check(
+			'payment_refund_valid',
+			sql`${table.refundAmount} IS NULL OR (${table.refundAmount} >= 0 AND ${table.refundAmount} <= ${table.amount})`
+		)
 	]
 );
 
@@ -269,7 +294,11 @@ export const orderStatusHistory = sqliteTable(
 	},
 	(table) => [
 		index('order_status_history_order_idx').on(table.orderId),
-		index('order_status_history_created_idx').on(table.createdAt)
+		index('order_status_history_created_idx').on(table.createdAt),
+		check(
+			'order_status_history_changes_status',
+			sql`${table.fromStatus} IS NULL OR ${table.fromStatus} <> ${table.toStatus}`
+		)
 	]
 );
 
@@ -336,8 +365,8 @@ export const orderStatusHistoryRelations = relations(orderStatusHistory, ({ one 
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-// FIX: validates that snapshot fields are parseable JSON before they reach the DB.
-// Both columns are the immutable source of truth for historical orders, so
+// Validates snapshot fields are parseable JSON before they reach the DB.
+// These columns are immutable source of truth for historical orders, so
 // silently storing malformed JSON would be unrecoverable without manual SQL.
 const jsonStringSchema = z.string().refine(
 	(v) => {
@@ -351,51 +380,109 @@ const jsonStringSchema = z.string().refine(
 	{ message: 'Must be valid JSON' }
 );
 
-export const insertOrderSchema = createInsertSchema(order, {
+const idSchema = z.string().min(1).max(255);
+const timestampMsSchema = z.number().int().positive();
+
+function validateOrderTotal(
+	data: {
+		subtotal?: number;
+		discountAmount?: number;
+		shippingAmount?: number;
+		totalAmount?: number;
+	},
+	ctx: z.RefinementCtx
+) {
+	if (data.subtotal === undefined || data.totalAmount === undefined) return;
+	const expected = data.subtotal - (data.discountAmount ?? 0) + (data.shippingAmount ?? 0);
+	if (data.totalAmount !== expected) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'totalAmount must equal subtotal - discountAmount + shippingAmount',
+			path: ['totalAmount']
+		});
+	}
+}
+
+export const insertOrderBaseSchema = createInsertSchema(order, {
 	orderNumber: z.string().min(1).max(50),
-	subtotal: z.number().min(0),
-	discountAmount: z.number().min(0).optional(),
-	shippingAmount: z.number().min(0).optional(),
-	totalAmount: z.number().min(0),
+	userId: idSchema.optional().nullable(),
+	status: z.enum(ORDER_STATUSES).optional(),
+	subtotal: z.number().int().min(0),
+	discountAmount: z.number().int().min(0).optional(),
+	shippingAmount: z.number().int().min(0).optional(),
+	totalAmount: z.number().int().min(0),
+	promoCodeId: idSchema.optional().nullable(),
+	shippingMethodId: idSchema.optional().nullable(),
+	shippingAddressId: idSchema.optional().nullable(),
 	customerNote: z.string().max(1000).optional().nullable(),
 	trackingNumber: z.string().max(100).optional().nullable(),
+	trackingCarrier: z.string().max(100).optional().nullable(),
 	trackingUrl: z.string().url().optional().nullable(),
-	paymentExpiresAt: z.number().int().positive().optional().nullable(),
+	paymentExpiresAt: timestampMsSchema.optional().nullable(),
 	// FIX: validate snapshot fields are parseable JSON
 	promoCodeSnapshot: jsonStringSchema.optional().nullable(),
+	shippingMethodSnapshot: jsonStringSchema.optional().nullable(),
 	shippingAddressSnapshot: jsonStringSchema.optional().nullable()
-}).refine(
-	// FIX: cross-validate totalAmount against its components
-	(d) => {
-		const expected = (d.subtotal ?? 0) - (d.discountAmount ?? 0) + (d.shippingAmount ?? 0);
-		return Math.abs((d.totalAmount ?? 0) - expected) < 0.01;
-	},
-	{
-		message: 'totalAmount must equal subtotal − discountAmount + shippingAmount',
-		path: ['totalAmount']
-	}
-);
+}).omit({
+	id: true,
+	confirmedAt: true,
+	shippedAt: true,
+	deliveredAt: true,
+	cancelledAt: true,
+	refundedAt: true,
+	createdAt: true,
+	updatedAt: true
+});
+export const insertOrderSchema = insertOrderBaseSchema.superRefine(validateOrderTotal);
 export const selectOrderSchema = createSelectSchema(order);
 export const updateOrderSchema = createUpdateSchema(order, {
 	status: z.enum(ORDER_STATUSES).optional(),
 	trackingNumber: z.string().max(100).optional().nullable(),
 	trackingCarrier: z.string().max(100).optional().nullable(),
 	trackingUrl: z.string().url().optional().nullable(),
-	paymentExpiresAt: z.number().int().positive().optional().nullable(),
-	adminNote: z.string().max(1000).optional().nullable()
+	paymentExpiresAt: timestampMsSchema.optional().nullable(),
+	adminNote: z.string().max(1000).optional().nullable(),
+	confirmedAt: timestampMsSchema.optional().nullable(),
+	shippedAt: timestampMsSchema.optional().nullable(),
+	deliveredAt: timestampMsSchema.optional().nullable(),
+	cancelledAt: timestampMsSchema.optional().nullable(),
+	refundedAt: timestampMsSchema.optional().nullable()
+}).omit({
+	id: true,
+	orderNumber: true,
+	userId: true,
+	subtotal: true,
+	discountAmount: true,
+	shippingAmount: true,
+	totalAmount: true,
+	promoCodeId: true,
+	promoCodeSnapshot: true,
+	shippingMethodId: true,
+	shippingMethodSnapshot: true,
+	shippingAddressId: true,
+	shippingAddressSnapshot: true,
+	customerNote: true,
+	createdAt: true,
+	updatedAt: true
 });
 
 export const insertOrderItemBaseSchema = createInsertSchema(orderItem, {
+	orderId: idSchema,
+	variantId: idSchema.optional().nullable(),
+	productId: idSchema.optional().nullable(),
 	productName: z.string().min(1).max(255),
 	variantSku: z.string().min(1).max(100),
 	variantSize: z.string().min(1).max(10),
 	variantColor: z.string().min(1).max(50),
+	productImageR2Key: r2KeySchema.optional().nullable(),
 	quantity: z.number().int().positive(),
-	unitPrice: z.number().positive(),
-	totalPrice: z.number().positive()
+	unitPrice: z.number().int().positive(),
+	totalPrice: z.number().int().positive()
+}).omit({
+	id: true
 });
 export const insertOrderItemSchema = insertOrderItemBaseSchema.refine(
-	(d) => Math.abs(d.totalPrice - d.quantity * d.unitPrice) < 0.01,
+	(d) => d.totalPrice === d.quantity * d.unitPrice,
 	{
 		message: 'totalPrice must equal quantity × unitPrice',
 		path: ['totalPrice']
@@ -404,11 +491,20 @@ export const insertOrderItemSchema = insertOrderItemBaseSchema.refine(
 export const selectOrderItemSchema = createSelectSchema(orderItem);
 
 export const insertPaymentBaseSchema = createInsertSchema(payment, {
-	amount: z.number().positive(),
+	orderId: idSchema,
+	amount: z.number().int().positive(),
 	currency: z.string().length(3).optional(),
 	method: z.enum(PAYMENT_METHODS),
+	status: z.enum(PAYMENT_STATUSES).optional(),
 	transactionId: z.string().max(255).optional().nullable(),
-	refundAmount: z.number().min(0).optional().nullable()
+	gatewayResponse: jsonStringSchema.optional().nullable(),
+	refundAmount: z.number().int().min(0).optional().nullable()
+}).omit({
+	id: true,
+	refundedAt: true,
+	paidAt: true,
+	createdAt: true,
+	updatedAt: true
 });
 export const insertPaymentSchema = insertPaymentBaseSchema.refine(
 	(d) => d.refundAmount == null || d.refundAmount <= d.amount,
@@ -424,15 +520,37 @@ export const selectPaymentSchema = createSelectSchema(payment);
 export const updatePaymentSchema = createUpdateSchema(payment, {
 	status: z.enum(PAYMENT_STATUSES).optional(),
 	transactionId: z.string().max(255).optional().nullable(),
-	gatewayResponse: z.string().optional().nullable(),
-	refundAmount: z.number().min(0).optional().nullable()
+	gatewayResponse: jsonStringSchema.optional().nullable(),
+	refundAmount: z.number().int().min(0).optional().nullable(),
+	refundedAt: timestampMsSchema.optional().nullable(),
+	paidAt: timestampMsSchema.optional().nullable()
+}).omit({
+	id: true,
+	orderId: true,
+	amount: true,
+	currency: true,
+	method: true,
+	createdAt: true,
+	updatedAt: true
 });
 
-export const insertOrderStatusHistorySchema = createInsertSchema(orderStatusHistory, {
+export const insertOrderStatusHistoryBaseSchema = createInsertSchema(orderStatusHistory, {
+	orderId: idSchema,
 	toStatus: z.enum(ORDER_STATUSES),
 	fromStatus: z.enum(ORDER_STATUSES).optional().nullable(),
+	changedBy: idSchema.optional().nullable(),
 	note: z.string().max(500).optional().nullable()
+}).omit({
+	id: true,
+	createdAt: true
 });
+export const insertOrderStatusHistorySchema = insertOrderStatusHistoryBaseSchema.refine(
+	(d) => d.fromStatus == null || d.fromStatus !== d.toStatus,
+	{
+		message: 'fromStatus and toStatus must be different',
+		path: ['toStatus']
+	}
+);
 export const selectOrderStatusHistorySchema = createSelectSchema(orderStatusHistory);
 
 // ---------------------------------------------------------------------------
@@ -441,8 +559,19 @@ export const selectOrderStatusHistorySchema = createSelectSchema(orderStatusHist
 
 export type Order = typeof order.$inferSelect;
 export type NewOrder = typeof order.$inferInsert;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type SelectOrder = z.infer<typeof selectOrderSchema>;
+export type UpdateOrder = z.infer<typeof updateOrderSchema>;
 export type OrderItem = typeof orderItem.$inferSelect;
 export type NewOrderItem = typeof orderItem.$inferInsert;
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type SelectOrderItem = z.infer<typeof selectOrderItemSchema>;
 export type Payment = typeof payment.$inferSelect;
 export type NewPayment = typeof payment.$inferInsert;
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+export type SelectPayment = z.infer<typeof selectPaymentSchema>;
+export type UpdatePayment = z.infer<typeof updatePaymentSchema>;
 export type OrderStatusHistory = typeof orderStatusHistory.$inferSelect;
+export type NewOrderStatusHistory = typeof orderStatusHistory.$inferInsert;
+export type InsertOrderStatusHistory = z.infer<typeof insertOrderStatusHistorySchema>;
+export type SelectOrderStatusHistory = z.infer<typeof selectOrderStatusHistorySchema>;

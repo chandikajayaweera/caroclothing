@@ -5,6 +5,7 @@ import {
 	integer,
 	real,
 	index,
+	check,
 	uniqueIndex,
 	type AnySQLiteColumn
 } from 'drizzle-orm/sqlite-core';
@@ -21,7 +22,7 @@ import { z } from 'zod';
 //           when the drop is live.
 //
 // 'core'  — Always available. Minimal wordmark / tonal design. Restockable.
-//           Priced LKR 2,500–3,000. No countdown, no ceremony.
+//           Priced LKR 2,500–3,200. No countdown, no ceremony.
 //           If a piece could be a drop, it's too good for Core.
 //
 // Design rules per tier are defined in caro_brand_identity.html §06.
@@ -29,6 +30,15 @@ import { z } from 'zod';
 
 export const PRODUCT_TIERS = ['drop', 'core'] as const;
 export type ProductTier = (typeof PRODUCT_TIERS)[number];
+
+export const GENDER_TIERS = ['men', 'women', 'unisex'] as const;
+export type GenderTier = (typeof GENDER_TIERS)[number];
+
+export const FIT_TIERS = ['oversized', 'regular', 'slim'] as const;
+export type FitTier = (typeof FIT_TIERS)[number];
+
+export const SIZE_TIERS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
+export type SizeTier = (typeof SIZE_TIERS)[number];
 
 // ---------------------------------------------------------------------------
 // CATEGORIES
@@ -64,7 +74,8 @@ export const category = sqliteTable(
 	},
 	(table) => [
 		index('category_parent_idx').on(table.parentId),
-		index('category_active_idx').on(table.isActive)
+		index('category_active_idx').on(table.isActive),
+		check('category_sort_nonnegative', sql`${table.sortOrder} >= 0`)
 	]
 );
 
@@ -92,21 +103,12 @@ export const product = sqliteTable(
 		// See PRODUCT_TIERS and brand identity §06 for full design rules.
 		tier: text('tier', { enum: PRODUCT_TIERS }).default('core').notNull(),
 		// ── Pricing ───────────────────────────────────────────────────────────
-		// Monetary values in LKR (full units, 2 decimal places max).
-		// real = IEEE 754 double; safe for LKR values at typical price ranges.
-		basePrice: real('base_price').notNull(),
-		compareAtPrice: real('compare_at_price'), // "was" price for strike-through
+		// Monetary values are stored as whole LKR integer amounts. No floats.
+		basePrice: integer('base_price').notNull(),
+		compareAtPrice: integer('compare_at_price'), // "was" price for strike-through
 		// ── Attributes ────────────────────────────────────────────────────────
-		gender: text('gender', {
-			enum: ['men', 'women', 'unisex']
-		})
-			.default('unisex')
-			.notNull(),
-		fit: text('fit', {
-			enum: ['oversized', 'regular', 'slim']
-		})
-			.default('oversized')
-			.notNull(),
+		gender: text('gender', { enum: GENDER_TIERS }).default('unisex').notNull(),
+		fit: text('fit', { enum: FIT_TIERS }).default('oversized').notNull(),
 		material: text('material'), // e.g. "100% Combed Cotton 220GSM"
 		careInstructions: text('care_instructions'),
 		// ── Flags ─────────────────────────────────────────────────────────────
@@ -131,7 +133,16 @@ export const product = sqliteTable(
 		index('product_new_arrival_idx').on(table.isNewArrival, table.isActive),
 		index('product_created_idx').on(table.createdAt),
 		// Tier-based queries: PLP "Shop Core", "Shop Drops", admin tier management
-		index('product_tier_active_idx').on(table.tier, table.isActive)
+		index('product_tier_active_idx').on(table.tier, table.isActive),
+		check('product_base_price_positive', sql`${table.basePrice} > 0`),
+		check(
+			'product_compare_at_gt_base',
+			sql`${table.compareAtPrice} IS NULL OR ${table.compareAtPrice} > ${table.basePrice}`
+		),
+		check(
+			'product_tier_price_band',
+			sql`(${table.tier} = 'drop' AND ${table.basePrice} BETWEEN 3000 AND 4500) OR (${table.tier} = 'core' AND ${table.basePrice} BETWEEN 2500 AND 3200)`
+		)
 	]
 );
 
@@ -150,12 +161,12 @@ export const productVariant = sqliteTable(
 			.references(() => product.id, { onDelete: 'cascade' }),
 		sku: text('sku').notNull().unique(), // e.g. CARO-BLK-001-L
 		size: text('size', {
-			enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']
+			enum: SIZE_TIERS
 		}).notNull(),
 		color: text('color').notNull(), // display name e.g. "Void Black"
 		colorHex: text('color_hex'), // "#0A0A0A" for swatch rendering
 		// null = inherit product.basePrice at query time — do NOT cache here
-		priceOverride: real('price_override'),
+		priceOverride: integer('price_override'),
 		weight: real('weight'), // grams — used by shipping calc
 		isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
 		sortOrder: integer('sort_order').default(0).notNull(),
@@ -171,7 +182,13 @@ export const productVariant = sqliteTable(
 		index('variant_product_idx').on(table.productId),
 		// Prevents duplicate size+color combos per product
 		uniqueIndex('variant_product_size_color_idx').on(table.productId, table.size, table.color),
-		index('variant_active_idx').on(table.isActive)
+		index('variant_active_idx').on(table.isActive),
+		check(
+			'variant_price_override_positive',
+			sql`${table.priceOverride} IS NULL OR ${table.priceOverride} > 0`
+		),
+		check('variant_weight_positive', sql`${table.weight} IS NULL OR ${table.weight} > 0`),
+		check('variant_sort_nonnegative', sql`${table.sortOrder} >= 0`)
 	]
 );
 
@@ -184,22 +201,9 @@ export const productVariant = sqliteTable(
 //
 // variantId null means the image applies to all variants (e.g. a lifestyle shot).
 //
-// isPrimary uniqueness:
-//   There should be at most one isPrimary image per product (for null-variant images)
-//   and at most one isPrimary image per variant. Drizzle does not support partial
-//   indexes in schema definitions, so this cannot be expressed here. Add the
-//   following to your migration SQL:
-//
-//   -- One primary image per product (applies to all variants)
-//   CREATE UNIQUE INDEX product_image_one_primary_per_product
-//     ON product_image(product_id) WHERE is_primary = 1 AND variant_id IS NULL;
-//
-//   -- One primary image per variant
-//   CREATE UNIQUE INDEX product_image_one_primary_per_variant
-//     ON product_image(variant_id) WHERE is_primary = 1 AND variant_id IS NOT NULL;
-//
-// Without these indexes, multiple images can have isPrimary = true for the same
-// product/variant, causing ambiguous results in any query that fetches the primary image.
+// isPrimary uniqueness is enforced by partial unique indexes:
+//   - one primary image per product when variantId is null
+//   - one primary image per variant when variantId is not null
 // ---------------------------------------------------------------------------
 
 export const productImage = sqliteTable(
@@ -226,7 +230,14 @@ export const productImage = sqliteTable(
 		index('image_product_idx').on(table.productId),
 		index('image_variant_idx').on(table.variantId),
 		// Composite index for ordered image retrieval per product
-		index('image_product_position_idx').on(table.productId, table.position)
+		index('image_product_position_idx').on(table.productId, table.position),
+		uniqueIndex('product_image_one_primary_per_product')
+			.on(table.productId)
+			.where(sql`${table.isPrimary} = 1 AND ${table.variantId} IS NULL`),
+		uniqueIndex('product_image_one_primary_per_variant')
+			.on(table.variantId)
+			.where(sql`${table.isPrimary} = 1 AND ${table.variantId} IS NOT NULL`),
+		check('image_position_nonnegative', sql`${table.position} >= 0`)
 	]
 );
 
@@ -320,93 +331,223 @@ export const productTagRelations = relations(productTag, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-const slugSchema = z
+export const slugSchema = z
 	.string()
 	.min(1)
 	.max(255)
 	.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be lowercase alphanumeric with hyphens');
 
-const r2KeySchema = z
+export const r2KeySchema = z
 	.string()
 	.min(1)
 	.max(512)
-	.regex(/^[a-zA-Z0-9_\-./]+$/, 'Invalid R2 key format');
+	.regex(/^[a-zA-Z0-9_\-./]+$/, 'Invalid R2 key format')
+	.refine((key) => !key.includes('..') && !key.startsWith('/'), {
+		message: 'R2 key must not contain path traversal or start with /'
+	});
+
+const idSchema = z.string().min(1).max(64);
+const nameSchema = z.string().min(1).max(255);
+const sortOrderSchema = z.number().int().min(0);
+const positiveMoneySchema = z.number().int().positive();
+
+function isPriceInTierBand(tier: ProductTier | undefined, price: number | undefined): boolean {
+	if (tier === undefined || price === undefined) return true;
+	if (tier === 'drop') return price >= 3000 && price <= 4500;
+	return price >= 2500 && price <= 3200;
+}
+
+function validateProductPricing(
+	data: { tier?: ProductTier; basePrice?: number; compareAtPrice?: number | null },
+	ctx: z.RefinementCtx
+) {
+	if (
+		data.compareAtPrice != null &&
+		data.basePrice != null &&
+		data.compareAtPrice <= data.basePrice
+	) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'compareAtPrice must be greater than basePrice',
+			path: ['compareAtPrice']
+		});
+	}
+
+	if (!isPriceInTierBand(data.tier, data.basePrice)) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'basePrice must match the selected product tier price band',
+			path: ['basePrice']
+		});
+	}
+}
 
 export const insertCategorySchema = createInsertSchema(category, {
 	name: z.string().min(1).max(100),
 	slug: slugSchema,
-	sortOrder: z.number().int().min(0).optional(),
+	description: z.string().max(1000).optional().nullable(),
+	parentId: idSchema.optional().nullable(),
+	sortOrder: sortOrderSchema.optional(),
+	isActive: z.boolean().optional(),
 	imageR2Key: r2KeySchema.optional().nullable()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
+
 export const selectCategorySchema = createSelectSchema(category);
+
 export const updateCategorySchema = createUpdateSchema(category, {
 	name: z.string().min(1).max(100).optional(),
 	slug: slugSchema.optional(),
+	description: z.string().max(1000).optional().nullable(),
+	parentId: idSchema.optional().nullable(),
+	sortOrder: sortOrderSchema.optional(),
+	isActive: z.boolean().optional(),
 	imageR2Key: r2KeySchema.optional().nullable()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
 
-export const insertProductSchema = createInsertSchema(product, {
-	name: z.string().min(1).max(255),
+export const insertProductBaseSchema = createInsertSchema(product, {
+	name: nameSchema,
 	slug: slugSchema,
+	description: z.string().max(5000).optional().nullable(),
+	shortDescription: z.string().max(500).optional().nullable(),
+	categoryId: idSchema.optional().nullable(),
 	tier: z.enum(PRODUCT_TIERS).optional(),
-	basePrice: z.number().positive('Price must be positive'),
-	compareAtPrice: z.number().positive().optional().nullable(),
-	metaTitle: z.string().max(60).optional().nullable(),
-	metaDescription: z.string().max(160).optional().nullable(),
-	shortDescription: z.string().max(500).optional().nullable()
-});
-export const selectProductSchema = createSelectSchema(product);
-export const updateProductSchema = createUpdateSchema(product, {
-	name: z.string().min(1).max(255).optional(),
-	tier: z.enum(PRODUCT_TIERS).optional(),
-	basePrice: z.number().positive().optional(),
-	compareAtPrice: z.number().positive().optional().nullable(),
+	basePrice: positiveMoneySchema,
+	compareAtPrice: positiveMoneySchema.optional().nullable(),
+	gender: z.enum(GENDER_TIERS).optional(),
+	fit: z.enum(FIT_TIERS).optional(),
+	material: z.string().max(200).optional().nullable(),
+	careInstructions: z.string().max(1000).optional().nullable(),
+	isActive: z.boolean().optional(),
+	isFeatured: z.boolean().optional(),
+	isNewArrival: z.boolean().optional(),
 	metaTitle: z.string().max(60).optional().nullable(),
 	metaDescription: z.string().max(160).optional().nullable()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
+export const insertProductSchema = insertProductBaseSchema.superRefine(validateProductPricing);
+
+export const selectProductSchema = createSelectSchema(product);
+
+export const updateProductBaseSchema = createUpdateSchema(product, {
+	name: nameSchema.optional(),
+	slug: slugSchema.optional(),
+	description: z.string().max(5000).optional().nullable(),
+	shortDescription: z.string().max(500).optional().nullable(),
+	categoryId: idSchema.optional().nullable(),
+	tier: z.enum(PRODUCT_TIERS).optional(),
+	basePrice: positiveMoneySchema.optional(),
+	compareAtPrice: positiveMoneySchema.optional().nullable(),
+	gender: z.enum(GENDER_TIERS).optional(),
+	fit: z.enum(FIT_TIERS).optional(),
+	material: z.string().max(200).optional().nullable(),
+	careInstructions: z.string().max(1000).optional().nullable(),
+	isActive: z.boolean().optional(),
+	isFeatured: z.boolean().optional(),
+	isNewArrival: z.boolean().optional(),
+	metaTitle: z.string().max(60).optional().nullable(),
+	metaDescription: z.string().max(160).optional().nullable()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+export const updateProductSchema = updateProductBaseSchema.superRefine(validateProductPricing);
 
 export const insertProductVariantSchema = createInsertSchema(productVariant, {
+	productId: idSchema,
 	sku: z.string().min(1).max(100),
+	size: z.enum(SIZE_TIERS),
 	color: z.string().min(1).max(50),
 	colorHex: z
 		.string()
 		.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
 		.optional()
 		.nullable(),
-	priceOverride: z.number().positive().optional().nullable(),
+	priceOverride: positiveMoneySchema.optional().nullable(),
 	weight: z.number().positive().optional().nullable(),
-	sortOrder: z.number().int().min(0).optional()
-});
-export const selectProductVariantSchema = createSelectSchema(productVariant);
-export const updateProductVariantSchema = createUpdateSchema(productVariant, {
-	priceOverride: z.number().positive().optional().nullable(),
 	isActive: z.boolean().optional(),
-	sortOrder: z.number().int().min(0).optional()
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+
+export const selectProductVariantSchema = createSelectSchema(productVariant);
+
+export const updateProductVariantSchema = createUpdateSchema(productVariant, {
+	productId: idSchema.optional(),
+	sku: z.string().min(1).max(100).optional(),
+	size: z.enum(SIZE_TIERS).optional(),
+	color: z.string().min(1).max(50).optional(),
+	colorHex: z
+		.string()
+		.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
+		.optional()
+		.nullable(),
+	priceOverride: positiveMoneySchema.optional().nullable(),
+	weight: z.number().positive().optional().nullable(),
+	isActive: z.boolean().optional(),
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
 
 export const insertProductImageSchema = createInsertSchema(productImage, {
+	productId: idSchema,
+	variantId: idSchema.optional().nullable(),
 	r2Key: r2KeySchema,
 	altText: z.string().max(255).optional().nullable(),
-	position: z.number().int().min(0).optional()
+	position: sortOrderSchema.optional(),
+	isPrimary: z.boolean().optional()
+}).omit({
+	id: true,
+	createdAt: true
 });
 export const selectProductImageSchema = createSelectSchema(productImage);
 export const updateProductImageSchema = createUpdateSchema(productImage, {
+	productId: idSchema.optional(),
+	variantId: idSchema.optional().nullable(),
 	altText: z.string().max(255).optional().nullable(),
-	position: z.number().int().min(0).optional(),
+	position: sortOrderSchema.optional(),
 	isPrimary: z.boolean().optional()
+}).omit({
+	id: true,
+	r2Key: true,
+	createdAt: true
 });
 
 export const insertTagSchema = createInsertSchema(tag, {
 	name: z.string().min(1).max(50),
-	slug: z
-		.string()
-		.min(1)
-		.max(50)
-		.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+	slug: slugSchema
+}).omit({
+	id: true
 });
 export const selectTagSchema = createSelectSchema(tag);
+export const updateTagSchema = createUpdateSchema(tag, {
+	name: z.string().min(1).max(50).optional(),
+	slug: slugSchema.optional()
+}).omit({
+	id: true
+});
 
-export const insertProductTagSchema = createInsertSchema(productTag);
+export const insertProductTagSchema = createInsertSchema(productTag, {
+	productId: idSchema,
+	tagId: idSchema
+});
 export const selectProductTagSchema = createSelectSchema(productTag);
 
 // ---------------------------------------------------------------------------
@@ -415,10 +556,35 @@ export const selectProductTagSchema = createSelectSchema(productTag);
 
 export type Category = typeof category.$inferSelect;
 export type NewCategory = typeof category.$inferInsert;
+export type InsertCategory = z.infer<typeof insertCategorySchema>;
+export type SelectCategory = z.infer<typeof selectCategorySchema>;
+export type UpdateCategory = z.infer<typeof updateCategorySchema>;
+
 export type Product = typeof product.$inferSelect;
 export type NewProduct = typeof product.$inferInsert;
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type SelectProduct = z.infer<typeof selectProductSchema>;
+export type UpdateProduct = z.infer<typeof updateProductSchema>;
+
 export type ProductVariant = typeof productVariant.$inferSelect;
 export type NewProductVariant = typeof productVariant.$inferInsert;
+export type InsertProductVariant = z.infer<typeof insertProductVariantSchema>;
+export type SelectProductVariant = z.infer<typeof selectProductVariantSchema>;
+export type UpdateProductVariant = z.infer<typeof updateProductVariantSchema>;
+
 export type ProductImage = typeof productImage.$inferSelect;
 export type NewProductImage = typeof productImage.$inferInsert;
+export type InsertProductImage = z.infer<typeof insertProductImageSchema>;
+export type SelectProductImage = z.infer<typeof selectProductImageSchema>;
+export type UpdateProductImage = z.infer<typeof updateProductImageSchema>;
+
 export type Tag = typeof tag.$inferSelect;
+export type NewTag = typeof tag.$inferInsert;
+export type InsertTag = z.infer<typeof insertTagSchema>;
+export type SelectTag = z.infer<typeof selectTagSchema>;
+export type UpdateTag = z.infer<typeof updateTagSchema>;
+
+export type ProductTag = typeof productTag.$inferSelect;
+export type NewProductTag = typeof productTag.$inferInsert;
+export type InsertProductTag = z.infer<typeof insertProductTagSchema>;
+export type SelectProductTag = z.infer<typeof selectProductTagSchema>;

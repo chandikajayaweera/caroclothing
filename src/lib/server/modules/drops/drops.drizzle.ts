@@ -1,10 +1,10 @@
 import { relations, sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, check } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { user } from '../auth/auth.drizzle';
-import { product } from '../products/products.drizzle';
+import { product, r2KeySchema, slugSchema } from '../products/products.drizzle';
 
 // ---------------------------------------------------------------------------
 // DROP STATUS ENUM
@@ -73,7 +73,12 @@ export const drop = sqliteTable(
 		// Homepage: find the current live drop or next upcoming teaser
 		index('drop_status_launch_idx').on(table.status, table.launchAt),
 		// Drops listing page: ordered display
-		index('drop_sort_idx').on(table.sortOrder, table.createdAt)
+		index('drop_sort_idx').on(table.sortOrder, table.createdAt),
+		check('drop_sort_nonnegative', sql`${table.sortOrder} >= 0`),
+		check(
+			'drop_end_after_launch',
+			sql`${table.launchAt} IS NULL OR ${table.endAt} IS NULL OR ${table.endAt} > ${table.launchAt}`
+		)
 	]
 );
 
@@ -85,8 +90,7 @@ export const drop = sqliteTable(
 // the application layer when transitioning a drop to 'live'.
 //
 // isHero = true → this product's primary image is the drop hero visual.
-//   At most one hero per drop (enforced at application layer; Drizzle cannot
-//   express partial unique indexes in schema definitions).
+//   At most one hero per drop (enforced by partial unique index).
 //
 // sortOrder controls the display sequence within the drop's product grid.
 // ---------------------------------------------------------------------------
@@ -109,8 +113,12 @@ export const dropProduct = sqliteTable(
 	(table) => [
 		// A product appears in a given drop exactly once
 		uniqueIndex('drop_product_unique_idx').on(table.dropId, table.productId),
+		uniqueIndex('drop_product_one_hero_per_drop')
+			.on(table.dropId)
+			.where(sql`${table.isHero} = 1`),
 		index('drop_product_drop_idx').on(table.dropId),
-		index('drop_product_product_idx').on(table.productId)
+		index('drop_product_product_idx').on(table.productId),
+		check('drop_product_sort_nonnegative', sql`${table.sortOrder} >= 0`)
 	]
 );
 
@@ -200,69 +208,120 @@ export const dropWaitlistRelations = relations(dropWaitlist, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
-const slugSchema = z
-	.string()
-	.min(1)
-	.max(255)
-	.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be lowercase alphanumeric with hyphens');
+const idSchema = z.string().min(1).max(64);
+const sortOrderSchema = z.number().int().min(0);
+const timestampMsSchema = z.number().int().positive();
 
-const r2KeySchema = z
-	.string()
-	.min(1)
-	.max(512)
-	.regex(/^[a-zA-Z0-9_\-./]+$/, 'Invalid R2 key format');
+function validateDropWindow(
+	data: { launchAt?: number | null; endAt?: number | null },
+	ctx: z.RefinementCtx
+) {
+	if (data.launchAt && data.endAt && data.endAt <= data.launchAt) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'endAt must be after launchAt',
+			path: ['endAt']
+		});
+	}
+}
 
 export const insertDropBaseSchema = createInsertSchema(drop, {
 	slug: slugSchema,
 	name: z.string().min(1).max(100),
 	tagline: z.string().max(300).optional().nullable(),
-	description: z.string().optional().nullable(),
+	description: z.string().max(5000).optional().nullable(),
 	status: z.enum(DROP_STATUSES).optional(),
-	launchAt: z.number().int().positive().optional().nullable(),
-	endAt: z.number().int().positive().optional().nullable(),
+	launchAt: timestampMsSchema.optional().nullable(),
+	endAt: timestampMsSchema.optional().nullable(),
 	heroImageR2Key: r2KeySchema.optional().nullable(),
-	sortOrder: z.number().int().min(0).optional()
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
-export const insertDropSchema = insertDropBaseSchema.refine(
-	(d) => !d.launchAt || !d.endAt || d.endAt > d.launchAt,
-	{
-		message: 'endAt must be after launchAt',
-		path: ['endAt']
-	}
-);
+export const insertDropSchema = insertDropBaseSchema.superRefine(validateDropWindow);
 export const selectDropSchema = createSelectSchema(drop);
-export const updateDropSchema = createUpdateSchema(drop, {
+export const updateDropBaseSchema = createUpdateSchema(drop, {
 	slug: slugSchema.optional(),
 	name: z.string().min(1).max(100).optional(),
 	tagline: z.string().max(300).optional().nullable(),
+	description: z.string().max(5000).optional().nullable(),
 	status: z.enum(DROP_STATUSES).optional(),
-	launchAt: z.number().int().positive().optional().nullable(),
-	endAt: z.number().int().positive().optional().nullable(),
+	launchAt: timestampMsSchema.optional().nullable(),
+	endAt: timestampMsSchema.optional().nullable(),
 	heroImageR2Key: r2KeySchema.optional().nullable(),
-	sortOrder: z.number().int().min(0).optional()
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
+export const updateDropSchema = updateDropBaseSchema.superRefine(validateDropWindow);
 
 export const insertDropProductSchema = createInsertSchema(dropProduct, {
-	sortOrder: z.number().int().min(0).optional(),
+	dropId: idSchema,
+	productId: idSchema,
+	sortOrder: sortOrderSchema.optional(),
 	isHero: z.boolean().optional()
 });
 export const selectDropProductSchema = createSelectSchema(dropProduct);
 export const updateDropProductSchema = createUpdateSchema(dropProduct, {
 	isHero: z.boolean().optional(),
-	sortOrder: z.number().int().min(0).optional()
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	dropId: true,
+	productId: true
 });
 
 // Phone E.164 or email — same dual-format as used in DropTeaser.svelte
-const dropContactSchema = z.union([
-	z.e164({ error: 'Invalid phone number format' }),
-	z.email({ error: 'Invalid email address' })
-]);
+const dropPhoneSchema = z.e164({ error: 'Invalid phone number format' });
+const dropEmailSchema = z.email({ error: 'Invalid email address' });
+const dropContactSchema = z.union([dropPhoneSchema, dropEmailSchema]);
 
-export const insertDropWaitlistSchema = createInsertSchema(dropWaitlist, {
+function validateDropContact(
+	data: { contact?: string; contactType?: 'phone' | 'email' },
+	ctx: z.RefinementCtx
+) {
+	if (!data.contact || !data.contactType) return;
+
+	const result =
+		data.contactType === 'phone'
+			? dropPhoneSchema.safeParse(data.contact)
+			: dropEmailSchema.safeParse(data.contact);
+
+	if (!result.success) {
+		ctx.addIssue({
+			code: 'custom',
+			message: `contact must match contactType ${data.contactType}`,
+			path: ['contact']
+		});
+	}
+}
+
+export const insertDropWaitlistBaseSchema = createInsertSchema(dropWaitlist, {
+	dropId: idSchema,
 	contact: dropContactSchema,
-	contactType: z.enum(['phone', 'email'])
+	contactType: z.enum(['phone', 'email']),
+	userId: idSchema.optional().nullable()
+}).omit({
+	id: true,
+	notifiedAt: true,
+	createdAt: true
 });
+export const insertDropWaitlistSchema =
+	insertDropWaitlistBaseSchema.superRefine(validateDropContact);
 export const selectDropWaitlistSchema = createSelectSchema(dropWaitlist);
+export const updateDropWaitlistSchema = createUpdateSchema(dropWaitlist, {
+	userId: idSchema.optional().nullable(),
+	notifiedAt: timestampMsSchema.optional().nullable()
+}).omit({
+	id: true,
+	dropId: true,
+	contact: true,
+	contactType: true,
+	createdAt: true
+});
 
 // ---------------------------------------------------------------------------
 // INFERRED TYPES
@@ -270,7 +329,16 @@ export const selectDropWaitlistSchema = createSelectSchema(dropWaitlist);
 
 export type Drop = typeof drop.$inferSelect;
 export type NewDrop = typeof drop.$inferInsert;
+export type InsertDrop = z.infer<typeof insertDropSchema>;
+export type SelectDrop = z.infer<typeof selectDropSchema>;
+export type UpdateDrop = z.infer<typeof updateDropSchema>;
 export type DropProduct = typeof dropProduct.$inferSelect;
 export type NewDropProduct = typeof dropProduct.$inferInsert;
+export type InsertDropProduct = z.infer<typeof insertDropProductSchema>;
+export type SelectDropProduct = z.infer<typeof selectDropProductSchema>;
+export type UpdateDropProduct = z.infer<typeof updateDropProductSchema>;
 export type DropWaitlist = typeof dropWaitlist.$inferSelect;
 export type NewDropWaitlist = typeof dropWaitlist.$inferInsert;
+export type InsertDropWaitlist = z.infer<typeof insertDropWaitlistSchema>;
+export type SelectDropWaitlist = z.infer<typeof selectDropWaitlistSchema>;
+export type UpdateDropWaitlist = z.infer<typeof updateDropWaitlistSchema>;

@@ -23,7 +23,7 @@
 		"deploy:staging": "pnpm run build && wrangler deploy --env staging && pnpm run secret:staging",
 		"deploy:production": "pnpm run build && wrangler deploy && pnpm run secret:production",
 		"cf-typegen": "wrangler types ./src/worker-configuration.d.ts",
-		"tree": "npx tree-node-cli -I \".claude|.gemini|.svelte-kit|.vscode|.wrangler|docs|drizzle|node_modules\"",
+		"tree": "npx tree-node-cli -I \".claude|.gemini|.svelte-kit|.vscode|.wrangler|docs|drizzle/|node_modules\"",
 		"drizzle:dump": "node scripts/print-drizzle-files.mjs"
 	},
 	"devDependencies": {

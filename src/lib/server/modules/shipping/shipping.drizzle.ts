@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, check } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -24,9 +24,9 @@ export const shippingMethod = sqliteTable(
 		description: text('description'), // shown to customer at checkout
 		carrier: text('carrier'), // "PickMe Flash", "Kapruka", etc.
 		// Default price applies when no shippingZone override exists for the district
-		price: real('price').notNull(), // LKR flat rate
+		price: integer('price').notNull(), // whole-LKR flat rate
 		// When order subtotal >= this value the method becomes free (null = never free)
-		freeShippingThreshold: real('free_shipping_threshold'),
+		freeShippingThreshold: integer('free_shipping_threshold'),
 		estimatedDaysMin: integer('estimated_days_min').notNull(),
 		estimatedDaysMax: integer('estimated_days_max').notNull(),
 		isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
@@ -39,7 +39,19 @@ export const shippingMethod = sqliteTable(
 			.$onUpdate(() => new Date())
 			.notNull()
 	},
-	(table) => [index('shipping_method_active_idx').on(table.isActive, table.sortOrder)]
+	(table) => [
+		index('shipping_method_active_idx').on(table.isActive, table.sortOrder),
+		check('shipping_method_price_nonnegative', sql`${table.price} >= 0`),
+		check(
+			'shipping_method_free_threshold_nonnegative',
+			sql`${table.freeShippingThreshold} IS NULL OR ${table.freeShippingThreshold} >= 0`
+		),
+		check(
+			'shipping_method_days_valid',
+			sql`${table.estimatedDaysMin} >= 0 AND ${table.estimatedDaysMax} >= ${table.estimatedDaysMin}`
+		),
+		check('shipping_method_sort_nonnegative', sql`${table.sortOrder} >= 0`)
+	]
 );
 
 // ---------------------------------------------------------------------------
@@ -66,14 +78,19 @@ export const shippingZone = sqliteTable(
 		// Note: Drizzle SQLite enums are TypeScript-only — no CHECK is added to DDL.
 		// Application-layer validation (Zod) remains the enforcement mechanism for writes.
 		district: text('district', { enum: SRI_LANKA_DISTRICTS }).notNull(),
-		priceOverride: real('price_override').notNull(),
+		priceOverride: integer('price_override').notNull(),
 		estimatedDaysMin: integer('estimated_days_min').notNull(),
 		estimatedDaysMax: integer('estimated_days_max').notNull()
 	},
 	(table) => [
 		index('shipping_zone_method_idx').on(table.shippingMethodId),
 		// Unique: only one price override per method+district combination
-		uniqueIndex('shipping_zone_lookup_idx').on(table.shippingMethodId, table.district)
+		uniqueIndex('shipping_zone_lookup_idx').on(table.shippingMethodId, table.district),
+		check('shipping_zone_price_nonnegative', sql`${table.priceOverride} >= 0`),
+		check(
+			'shipping_zone_days_valid',
+			sql`${table.estimatedDaysMin} >= 0 AND ${table.estimatedDaysMax} >= ${table.estimatedDaysMin}`
+		)
 	]
 );
 
@@ -96,49 +113,88 @@ export const shippingZoneRelations = relations(shippingZone, ({ one }) => ({
 // ZOD SCHEMAS
 // ---------------------------------------------------------------------------
 
+const idSchema = z.string().min(1).max(64);
+
+function validateDeliveryEstimate(
+	data: { estimatedDaysMin?: number; estimatedDaysMax?: number },
+	ctx: z.RefinementCtx
+) {
+	if (
+		data.estimatedDaysMin !== undefined &&
+		data.estimatedDaysMax !== undefined &&
+		data.estimatedDaysMax < data.estimatedDaysMin
+	) {
+		ctx.addIssue({
+			code: 'custom',
+			message: 'estimatedDaysMax must be >= estimatedDaysMin',
+			path: ['estimatedDaysMax']
+		});
+	}
+}
+
 export const insertShippingMethodBaseSchema = createInsertSchema(shippingMethod, {
 	name: z.string().min(1).max(100),
-	price: z.number().min(0),
-	freeShippingThreshold: z.number().min(0).optional().nullable(),
+	description: z.string().max(500).optional().nullable(),
+	carrier: z.string().max(100).optional().nullable(),
+	price: z.number().int().min(0),
+	freeShippingThreshold: z.number().int().min(0).optional().nullable(),
 	estimatedDaysMin: z.number().int().min(0),
 	estimatedDaysMax: z.number().int().min(1),
+	isActive: z.boolean().optional(),
 	sortOrder: z.number().int().min(0).optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
 });
-export const insertShippingMethodSchema = insertShippingMethodBaseSchema.refine(
-	(d) => d.estimatedDaysMax >= d.estimatedDaysMin,
-	{
-		message: 'estimatedDaysMax must be >= estimatedDaysMin',
-		path: ['estimatedDaysMax']
-	}
-);
+export const insertShippingMethodSchema =
+	insertShippingMethodBaseSchema.superRefine(validateDeliveryEstimate);
 export const selectShippingMethodSchema = createSelectSchema(shippingMethod);
 export const updateShippingMethodSchema = createUpdateSchema(shippingMethod, {
-	price: z.number().min(0).optional(),
-	freeShippingThreshold: z.number().min(0).optional().nullable()
-});
+	name: z.string().min(1).max(100).optional(),
+	description: z.string().max(500).optional().nullable(),
+	carrier: z.string().max(100).optional().nullable(),
+	price: z.number().int().min(0).optional(),
+	freeShippingThreshold: z.number().int().min(0).optional().nullable(),
+	estimatedDaysMin: z.number().int().min(0).optional(),
+	estimatedDaysMax: z.number().int().min(1).optional(),
+	isActive: z.boolean().optional(),
+	sortOrder: z.number().int().min(0).optional()
+})
+	.omit({
+		id: true,
+		createdAt: true,
+		updatedAt: true
+	})
+	.superRefine(validateDeliveryEstimate);
 
 export const insertShippingZoneBaseSchema = createInsertSchema(shippingZone, {
+	shippingMethodId: idSchema,
 	district: z.enum(SRI_LANKA_DISTRICTS),
-	priceOverride: z.number().min(0),
+	priceOverride: z.number().int().min(0),
 	estimatedDaysMin: z.number().int().min(0),
 	estimatedDaysMax: z.number().int().min(1)
+}).omit({
+	id: true
 });
-export const insertShippingZoneSchema = insertShippingZoneBaseSchema.refine(
-	(d) => d.estimatedDaysMax >= d.estimatedDaysMin,
-	{
-		message: 'estimatedDaysMax must be >= estimatedDaysMin',
-		path: ['estimatedDaysMax']
-	}
-);
+export const insertShippingZoneSchema =
+	insertShippingZoneBaseSchema.superRefine(validateDeliveryEstimate);
 export const selectShippingZoneSchema = createSelectSchema(shippingZone);
 export const updateShippingZoneSchema = createUpdateSchema(shippingZone, {
-	priceOverride: z.number().min(0).optional(),
+	shippingMethodId: idSchema.optional(),
+	priceOverride: z.number().int().min(0).optional(),
 	// FIX: district was previously unvalidated in updates. Because the column was
 	// plain text(), createUpdateSchema inferred it as z.string().optional(), meaning
 	// any string bypassed validation. Explicitly enforce the enum here to match
 	// the insert schema.
-	district: z.enum(SRI_LANKA_DISTRICTS).optional()
-});
+	district: z.enum(SRI_LANKA_DISTRICTS).optional(),
+	estimatedDaysMin: z.number().int().min(0).optional(),
+	estimatedDaysMax: z.number().int().min(1).optional()
+})
+	.omit({
+		id: true
+	})
+	.superRefine(validateDeliveryEstimate);
 
 // ---------------------------------------------------------------------------
 // INFERRED TYPES
@@ -146,5 +202,11 @@ export const updateShippingZoneSchema = createUpdateSchema(shippingZone, {
 
 export type ShippingMethod = typeof shippingMethod.$inferSelect;
 export type NewShippingMethod = typeof shippingMethod.$inferInsert;
+export type InsertShippingMethod = z.infer<typeof insertShippingMethodSchema>;
+export type SelectShippingMethod = z.infer<typeof selectShippingMethodSchema>;
+export type UpdateShippingMethod = z.infer<typeof updateShippingMethodSchema>;
 export type ShippingZone = typeof shippingZone.$inferSelect;
 export type NewShippingZone = typeof shippingZone.$inferInsert;
+export type InsertShippingZone = z.infer<typeof insertShippingZoneSchema>;
+export type SelectShippingZone = z.infer<typeof selectShippingZoneSchema>;
+export type UpdateShippingZone = z.infer<typeof updateShippingZoneSchema>;
