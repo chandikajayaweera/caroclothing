@@ -1,6 +1,5 @@
 import { Resend } from 'resend';
 import { getEnv } from '$lib/server/modules/env';
-import { getClientEnv } from '$lib/client/modules/env';
 import type { EmailPayload, EmailResult } from './types';
 
 let _resend: Resend | undefined;
@@ -12,9 +11,7 @@ function getResend(): Resend {
 }
 
 function getFromAddress(): string {
-	const env = getEnv();
-	const clientEnv = getClientEnv();
-	_fromAddress ??= `${clientEnv.PUBLIC_APP_NAME} <${env.EMAIL_FROM_ADDRESS}>`;
+	_fromAddress ??= `${getEnv().PUBLIC_APP_NAME} <${getEnv().EMAIL_FROM_ADDRESS}>`;
 	return _fromAddress;
 }
 

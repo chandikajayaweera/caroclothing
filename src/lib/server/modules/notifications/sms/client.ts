@@ -10,7 +10,6 @@ const REQUEST_TIMEOUT_MS = 10000;
  * Returns a typed result rather than throwing, so callers can decide how to handle failures.
  */
 export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
-	const env = getEnv();
 	const parsed = SmsSendInputSchema.safeParse(input);
 	if (!parsed.success) {
 		const error = parsed.error.issues.map((i) => i.message).join(', ');
@@ -25,13 +24,13 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 		const response = await fetch(`${BASE_URL}/sms/send`, {
 			method: 'POST',
 			headers: {
-				Authorization: `Bearer ${env.TEXT_LK_API_KEY}`,
+				Authorization: `Bearer ${getEnv().TEXT_LK_API_KEY}`,
 				'Content-Type': 'application/json',
 				Accept: 'application/json'
 			},
 			body: JSON.stringify({
 				recipient: input.to,
-				sender_id: env.TEXT_LK_SENDER_ID,
+				sender_id: getEnv().TEXT_LK_SENDER_ID,
 				type: 'plain',
 				message: input.message
 			}),

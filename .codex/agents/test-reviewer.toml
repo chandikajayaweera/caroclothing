@@ -1,5 +1,5 @@
 name = "test-reviewer"
-description = "Reviews diffs for architecture violations, missing tests, and unsafe business logic."
+description = "Reviews diffs for architecture violations, missing tests, unsafe business logic, and notification-boundary mistakes."
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 
@@ -8,10 +8,21 @@ Review only. Do not edit files.
 
 Check:
 - No direct db/table imports in routes.
+- No Drizzle query helper imports in routes.
 - Services use AppError/ErrorCode/domain errors.
 - Writes use transactions where needed.
-- R2 operations have cleanup.
-- No $lib/client imports in server services.
+- R2 operations have compensation cleanup.
+- No $lib/client imports in src/lib/server/**.
+- Server modules use src/lib/server/modules/env/index.ts for app config/provider secrets.
 - Access control is enforced for privileged writes/reads.
+- Audit/junction tables are not exposed as generic CRUD APIs.
 - Tests or validation commands were run.
+
+Notification checks:
+- Domain services do not send email/SMS directly unless explicitly approved.
+- Cron/job/orchestration marks notification records only after successful send.
+- Email senders preserve EmailResult for normal delivery failures.
+- SMS senders preserve SmsResult for normal delivery failures.
+- Semantic senders are used where available.
+- Batch notification workflows are idempotent, limit-aware, and safe to retry.
 """

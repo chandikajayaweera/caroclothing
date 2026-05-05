@@ -1,4 +1,4 @@
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import { h } from './escape';
 import type { OTPType } from '../types';
@@ -9,26 +9,24 @@ interface OTPTemplateResult {
 }
 
 export function buildOTPEmail(otp: string, type: OTPType): OTPTemplateResult {
-	const clientEnv = getClientEnv();
-
 	const OTP_COPY: Record<OTPType, { subject: string; action: string; note: string }> = {
 		'sign-in': {
-			subject: `${clientEnv.PUBLIC_APP_NAME}: Sign-in code`,
+			subject: `${getEnv().PUBLIC_APP_NAME}: Sign-in code`,
 			action: 'sign in',
 			note: "If you didn't try to sign in, ignore this email."
 		},
 		'email-verification': {
-			subject: `Verify your email - ${clientEnv.PUBLIC_APP_NAME}`,
+			subject: `Verify your email - ${getEnv().PUBLIC_APP_NAME}`,
 			action: 'verify your email',
 			note: "If you didn't create an account, ignore this email."
 		},
 		'forget-password': {
-			subject: `Reset password - ${clientEnv.PUBLIC_APP_NAME}`,
+			subject: `Reset password - ${getEnv().PUBLIC_APP_NAME}`,
 			action: 'reset your password',
 			note: "If you didn't request a reset, ignore this email."
 		},
 		'change-email': {
-			subject: `Confirm new email - ${clientEnv.PUBLIC_APP_NAME}`,
+			subject: `Confirm new email - ${getEnv().PUBLIC_APP_NAME}`,
 			action: 'confirm your new email',
 			note: "If you didn't request this, secure your account."
 		}

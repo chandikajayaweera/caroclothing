@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture Plan
 
 **Audience:** project collaborators and LLM coding agents  
-**Status:** validated development-ready architecture plan — rechecked against project files and current official docs on 2026-05-01  
+**Status:** validated development-ready architecture plan — updated with notification/email/SMS rules on 2026-05-02  
 **Scope:** server module services, route boundaries, forms, access control, errors, R2 media, cron workflows, and module-by-module implementation order
 
 ## Validation Notes From Final Review
@@ -12,6 +12,7 @@ This version includes the final validation pass. The main corrections applied ar
 2. New server services and cron services must not import from `$lib/client/*`. If a server-side workflow needs public app configuration such as `PUBLIC_APP_URL`, extract that helper into a server-safe or shared module.
 3. The Cloudflare scheduled-handler workaround should remain project-specific and should be revalidated whenever `@sveltejs/adapter-cloudflare` is upgraded.
 4. R2 cleanup should rely on the project `deleteObjectSafe` wrapper, not direct bucket deletion from feature services.
+5. Notification workflows now have a dedicated contract: domain services expose idempotent list/mark helpers, while cron/job orchestration sends email/SMS and marks records notified only after successful delivery.
 
 ---
 
@@ -35,6 +36,8 @@ src/lib/server/modules/media/r2.ts
 src/lib/server/modules/media/utils.ts
 src/lib/server/modules/auth/index.ts
 src/lib/server/modules/cron/scheduled-jobs.ts
+src/lib/server/modules/notifications/email
+src/lib/server/modules/notifications/sms
 src/lib/shared/modules/access-control.ts
 ```
 
@@ -46,6 +49,7 @@ Important existing conventions:
 4. R2 media helpers already exist and are event/bucket based.
 5. Media is served through `/media/[...key]` using safe R2 key validation.
 6. Cron scaffolding already expects service-layer functions such as cart cleanup, drop launch, order expiry cancellation, promo reconciliation, and waitlist notification.
+7. Notification modules expose typed email/SMS send primitives and semantic senders such as drop launch email/SMS wrappers.
 
 Do not replace these foundations. Extend them.
 
@@ -208,19 +212,38 @@ If a read function has options that can expose non-public data, such as `include
 
 ## 5.1 Server-Safe Public Environment Access
 
-Current infrastructure code may already import `getClientEnv` where it only needs public values such as `PUBLIC_APP_URL`. Do not copy that pattern into new services. Before enabling cron/services that build public URLs, create a server-safe helper such as:
+Server modules, service modules, notification modules, and cron jobs must not import from `$lib/client/*`.
 
-```txt
-src/lib/shared/modules/env/public.ts
+If a server-side workflow needs public application values such as app name or app URL, use the server env module:
+
+```ts
+import { getEnv } from '$lib/server/modules/env';
 ```
 
-or:
+`getEnv()` should expose the public values needed by server workflows, such as:
 
 ```txt
-src/lib/server/modules/env/public.ts
+PUBLIC_APP_NAME
+PUBLIC_APP_URL
 ```
 
-That helper should expose only public configuration needed on the server, for example `getPublicAppUrl()`. New service modules and cron jobs must avoid importing from `$lib/client/*`.
+It should also expose server-only secrets used by infrastructure modules, such as:
+
+```txt
+RESEND_API_KEY
+EMAIL_FROM_ADDRESS
+TEXT_LK_API_KEY
+TEXT_LK_SENDER_ID
+```
+
+Guidelines:
+
+```txt
+- New server services must not import from `$lib/client/*`.
+- Notification templates and senders must use `$lib/server/modules/env` or another server-safe/shared helper.
+- Cron jobs that build public URLs must use `getEnv().PUBLIC_APP_URL` or a server-safe wrapper around it.
+- Do not pass secrets through client/shared modules.
+```
 
 ---
 
@@ -423,6 +446,210 @@ type CategoryDTO = {
 	imageR2Key: string | null;
 	imageUrl: string | null;
 };
+```
+
+---
+
+## 8.4 Notification Services: Email and SMS
+
+The project has dedicated server-side notification modules:
+
+```txt
+src/lib/server/modules/notifications/email
+src/lib/server/modules/notifications/sms
+```
+
+These modules are infrastructure helpers used by auth, transactional order flows, shipping updates, marketing communications, drop launch notifications, and cron jobs.
+
+### 8.4.1 Notification boundary rules
+
+Business services should not become notification orchestrators unless the notification is part of that service's explicit business transaction contract.
+
+Preferred split:
+
+```txt
+Business service:
+  - validates domain rules
+  - writes database state
+  - exposes list/mark helpers for notification workflows
+  - keeps notification state idempotent
+
+Cron/job/orchestration layer:
+  - calls service list helpers
+  - sends email/SMS through notification modules
+  - marks records notified only after successful send
+```
+
+Example for drop waitlist notifications:
+
+```txt
+drops.service.ts:
+  - transitionDueDropsToLive
+  - listUnnotifiedDropWaitlistEntries
+  - markDropWaitlistEntriesNotified
+
+cron/scheduled-jobs.ts:
+  - call transitionDueDropsToLive
+  - call listUnnotifiedDropWaitlistEntries
+  - call sendDropLaunchEmail or sendDropLaunchSms
+  - mark entries notified only after successful send
+```
+
+Do not put actual email/SMS sending inside `drops.service.ts`. Drops service should own drop state and notification state; cron/job code should own delivery orchestration.
+
+### 8.4.2 Email module contract
+
+The email module should export its public API through:
+
+```txt
+src/lib/server/modules/notifications/email/index.ts
+```
+
+Core contract:
+
+```ts
+export type EmailResult =
+	| { ok: true; id: string }
+	| { ok: false; error: string };
+```
+
+Normal email delivery failures should return `EmailResult` instead of throwing. This allows batch jobs to continue processing and prevents failed delivery attempts from being marked as notified.
+
+Acceptable exception:
+
+```txt
+Auth-specific OTP email helpers may throw if they are integrated with auth flows that expect thrown failures.
+```
+
+Semantic senders should be preferred over generic template calls inside cron/job code. Examples:
+
+```ts
+sendOrderConfirmationEmail(...)
+sendShippingUpdateEmail(...)
+sendDropLaunchEmail(...)
+```
+
+Drop launch email support should expose both the sender and its input type:
+
+```ts
+export type DropLaunchEmailInput = {
+	to: string | string[];
+	dropName: string;
+	dropSlug?: string;
+	dropUrl: string;
+	tagline?: string | null;
+	heroImageUrl?: string;
+};
+
+export async function sendDropLaunchEmail(
+	input: DropLaunchEmailInput
+): Promise<EmailResult>;
+```
+
+`sendDropLaunchEmail` may internally reuse the promotional email template, but cron code should call the semantic drop sender.
+
+### 8.4.3 SMS module contract
+
+The SMS module should export its public API through:
+
+```txt
+src/lib/server/modules/notifications/sms/index.ts
+```
+
+Core contract:
+
+```ts
+export type SmsResult =
+	| { ok: true; messageId: string }
+	| { ok: false; error: string };
+```
+
+Normal SMS delivery failures should return `SmsResult` instead of throwing.
+
+Semantic SMS senders should be added as workflows need them. For drop launch notifications, prefer:
+
+```ts
+export type DropLaunchSmsInput = {
+	to: string;
+	dropName: string;
+	dropUrl: string;
+};
+
+export async function sendDropLaunchSms(
+	input: DropLaunchSmsInput
+): Promise<SmsResult>;
+```
+
+### 8.4.4 Server environment rule
+
+Notification modules are server modules. They must not import from:
+
+```txt
+$lib/client/*
+```
+
+If notification code needs public app values or secrets, use:
+
+```ts
+import { getEnv } from '$lib/server/modules/env';
+```
+
+Required env values may include:
+
+```txt
+PUBLIC_APP_NAME
+PUBLIC_APP_URL
+EMAIL_FROM_ADDRESS
+RESEND_API_KEY
+TEXT_LK_API_KEY
+TEXT_LK_SENDER_ID
+```
+
+### 8.4.5 Cron notification safety rules
+
+Cron notification workflows must be:
+
+```txt
+- idempotent
+- batch-limited
+- safe to retry
+- explicit about now
+- independent per recipient
+- not dependent on browser/client modules
+```
+
+A failed email/SMS send must not mark the target record as notified.
+
+A successful email/SMS send may mark the record as notified using a service helper such as:
+
+```ts
+markDropWaitlistEntriesNotified(ctx, {
+	entryIds,
+	notifiedAt: now
+});
+```
+
+The marking helper must be idempotent:
+
+```txt
+- handle empty entryIds safely
+- update only rows where notifiedAt IS NULL
+- return markedCount
+- avoid failing merely because already-notified entries are included, unless strict mode is explicitly requested
+```
+
+### 8.4.6 Progressive notification updates
+
+Notification modules can be improved progressively as service modules need them.
+
+Do not block service-layer development on a complete notification redesign. Instead:
+
+```txt
+1. Keep core send primitives typed.
+2. Add semantic senders as modules need them.
+3. Keep senders returning typed results for ordinary delivery failures.
+4. Keep domain state changes in services.
+5. Keep delivery orchestration in cron/jobs/webhooks.
 ```
 
 ---
@@ -1498,9 +1725,25 @@ listUnnotifiedDropWaitlistEntries(drop.id, {
 	limit: WAITLIST_BATCH_SIZE
 })
 
-markDropWaitlistEntryNotified(entry.id, {
-	actor: systemActor
+sendDropLaunchEmail({
+	to: entry.contact,
+	dropName: drop.name,
+	dropSlug: drop.slug,
+	dropUrl,
+	tagline: drop.tagline,
+	heroImageUrl
 })
+
+sendDropLaunchSms({
+	to: entry.contact,
+	dropName: drop.name,
+	dropUrl
+})
+
+markDropWaitlistEntriesNotified(
+	{ actor: systemActor, now },
+	{ entryIds: successfullySentEntryIds }
+)
 
 listPromoCodes({
 	actor: systemActor,
@@ -1521,6 +1764,16 @@ const systemActor = {
 	id: 'system:cron',
 	role: 'adminUser'
 } satisfies SystemActor;
+```
+
+Cron notification orchestration rules:
+
+```txt
+- Cron/job code sends email/SMS.
+- Domain services expose list/mark helpers.
+- Only mark records notified after successful delivery.
+- Continue processing when one recipient fails.
+- Use semantic notification senders such as sendDropLaunchEmail and sendDropLaunchSms.
 ```
 
 Cron services must be:
@@ -1774,6 +2027,8 @@ Check:
 - Jobs respect batch limits.
 - Unknown cron values are ignored safely.
 - Failed notification does not mark waitlist entry notified.
+- Successful notification marks only the successfully delivered entries.
+- Email/SMS sender failures return typed result objects and do not stop the whole batch.
 ```
 
 ---
@@ -1797,6 +2052,10 @@ When implementing this architecture, LLM agents must follow these rules:
 12. Return DTOs from services, not raw DB rows when the UI needs derived fields.
 13. Cron functions must be idempotent and retry-safe.
 14. Never import client modules into server services unless the file is explicitly shared under src/lib/shared.
+15. Notification modules must use server-safe env access through `$lib/server/modules/env` or another approved shared/server helper.
+16. Do not put email/SMS delivery orchestration inside domain services such as `drops.service.ts`; expose list/mark helpers and let cron/jobs send.
+17. Do not mark notification records as notified unless the corresponding email/SMS send succeeded.
+18. Prefer semantic notification senders such as `sendDropLaunchEmail` and `sendDropLaunchSms` over rebuilding message copy in cron code.
 ```
 
 ---
@@ -1816,7 +2075,10 @@ Before considering the architecture complete, verify:
 - DTOs convert R2 keys to /media URLs.
 - Server services enforce permissions with auth guards.
 - Client UI access checks are treated as convenience only.
-- Cron jobs call service functions only.
+- Cron jobs call service functions and semantic notification senders only.
+- Notification modules do not import from `$lib/client/*`.
+- Email/SMS senders return typed result objects for ordinary delivery failures.
+- Waitlist notification marking is idempotent and only follows successful delivery.
 - AppErrors are mapped consistently in route actions.
 - Raw unexpected errors are not swallowed.
 ```
@@ -1834,6 +2096,8 @@ src/lib/shared/modules/access-control.ts
 src/lib/server/modules/errors/index.ts
 src/lib/server/modules/media/r2.ts
 src/lib/server/modules/media/utils.ts
+src/lib/server/modules/notifications/email
+src/lib/server/modules/notifications/sms
 ```
 
 Services should be business-oriented, not CRUD-only wrappers. They should expose efficient APIs such as `getCategory({ id | slug | name })`, `placeOrderFromCart`, `reserveInventory`, `mergeGuestCartIntoUserCart`, `transitionOrderStatus`, and `calculateShippingQuote`.

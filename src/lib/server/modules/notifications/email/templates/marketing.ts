@@ -1,10 +1,9 @@
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import { h } from './escape';
 import type { PromotionalEmailInput } from '../types';
 
 export function buildPromotionalEmail(input: PromotionalEmailInput): string {
-	const clientEnv = getClientEnv();
 	const heroHtml = input.heroImageUrl
 		? `<img src="${h(input.heroImageUrl)}" alt="" style="width:100%;margin-bottom:24px;display:block;" />`
 		: '';
@@ -29,7 +28,7 @@ export function buildPromotionalEmail(input: PromotionalEmailInput): string {
     <div style="margin-top:40px;padding-top:24px;border-top:1px solid #0A0A0A;">
       <p style="font-size:12px;color:#0A0A0A;margin:0;opacity:0.6;">
         Sent to those who opted in. 
-        <a href="${clientEnv.PUBLIC_APP_URL}/account/notifications" style="color:#0A0A0A;text-decoration:underline;">Unsubscribe here.</a>
+        <a href="${getEnv().PUBLIC_APP_URL}/account/notifications" style="color:#0A0A0A;text-decoration:underline;">Unsubscribe here.</a>
       </p>
     </div>
   `;

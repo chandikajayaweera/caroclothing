@@ -9,7 +9,8 @@ export type {
 	OrderConfirmationInput,
 	ShippingUpdateInput,
 	PromotionalEmailInput,
-	OrderItem
+	OrderItem,
+	DropLaunchEmailInput
 } from './types';
 
 // Auth
@@ -23,3 +24,5 @@ export { sendOrderConfirmationEmail, sendShippingUpdateEmail } from './senders/t
 
 // Marketing
 export { sendPromotionalEmail } from './senders/marketing';
+
+export { sendDropLaunchEmail } from './senders/drops';

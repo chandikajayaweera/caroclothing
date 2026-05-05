@@ -10,7 +10,19 @@ Before implementing or modifying service-layer code, read:
   - `src/lib/server/modules/errors/index.ts`
   - `src/lib/server/modules/media/r2.ts`
   - `src/lib/server/modules/media/utils.ts`
+  - `src/lib/server/modules/env/index.ts`
   - `src/lib/shared/modules/access-control.ts`
+
+When working on notifications, also inspect the relevant notification modules before inventing senders or types:
+
+- `src/lib/server/modules/notifications/email/index.ts`
+- `src/lib/server/modules/notifications/email/client.ts`
+- `src/lib/server/modules/notifications/email/types.ts`
+- `src/lib/server/modules/notifications/email/senders/*`
+- `src/lib/server/modules/notifications/sms/index.ts`
+- `src/lib/server/modules/notifications/sms/client.ts`
+- `src/lib/server/modules/notifications/sms/types.ts`
+- `src/lib/server/modules/notifications/sms/senders/*`
 
 ## Non-negotiable architecture rules
 
@@ -23,13 +35,35 @@ Before implementing or modifying service-layer code, read:
 - Do not create a second error framework.
 - Use `$lib/shared/modules/access-control` for Better Auth role/access-control definitions.
 - Add server-only authorization helpers where services need permission checks.
-- Do not import from `$lib/client/*` inside new server services.
+- Do not import from `$lib/client/*` inside new server modules, services, cron jobs, or notification modules.
+- Server modules that need app URL/app name/config must use `src/lib/server/modules/env/index.ts` via `getEnv()`.
 - Do not expose generic CRUD for audit/internal tables such as:
   - inventory movements
   - promo usage
   - order status history
   - product-tag junction writes
   - drop-product junction writes
+
+## Notification module rules
+
+- Email and SMS modules are infrastructure helpers, not domain-state owners.
+- Domain services should expose idempotent list/mark helpers for notification workflows.
+- Cron/job/orchestration code should send email/SMS and only mark records notified after successful send.
+- Do not put actual email/SMS sending inside domain services such as `drops.service.ts` unless explicitly approved.
+- Prefer semantic senders over inline message construction:
+  - `sendOrderConfirmationEmail`
+  - `sendShippingUpdateEmail`
+  - `sendDropLaunchEmail`
+  - `sendDropLaunchSms`
+  - `sendOtpSms`
+- Normal delivery failures must return typed result objects rather than throwing:
+  - `EmailResult`
+  - `SmsResult`
+- Auth-specific OTP helpers may throw only if the existing auth flow expects thrown failures.
+- Batch notification workflows must be idempotent, limit-aware, and safe to retry.
+- Failed email/SMS sends must not mark waitlist entries or notification records as notified.
+- Notification modules must not import from `$lib/client/*`.
+- Notification modules should use `$lib/server/modules/env` for app URL/app name and provider secrets.
 
 ## Required workflow
 
@@ -52,3 +86,4 @@ Before implementing or modifying service-layer code, read:
 - If a dependency API is uncertain, use Context7 MCP or Svelte MCP before coding.
 - If tests fail, fix the cause. Do not weaken tests or remove checks.
 - If the implementation conflicts with schema comments, stop and explain the conflict.
+- If notification behavior conflicts with `docs/service-layer-architecture.md`, stop and explain the conflict before editing.

@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import type { LayoutServerLoad } from './$types';
 
 const DEFAULT_AUTH_REDIRECT = '/account';
@@ -21,7 +21,7 @@ function getSafeRedirectTo(value: string | null): string {
 
 	let redirectUrl: URL;
 	try {
-		redirectUrl = new URL(value, getClientEnv().PUBLIC_APP_URL);
+		redirectUrl = new URL(value, getEnv().PUBLIC_APP_URL);
 	} catch {
 		return DEFAULT_AUTH_REDIRECT;
 	}

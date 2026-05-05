@@ -1,6 +1,6 @@
 ---
 name: caro-review
-description: Use when reviewing a diff for CaroClothing architecture compliance, service-layer correctness, hallucinated imports, missing transactions, and unsafe route logic.
+description: Use when reviewing a diff for CaroClothing architecture compliance, service-layer correctness, notification boundaries, hallucinated imports, missing transactions, and unsafe route logic.
 ---
 
 # Caro architecture review checklist
@@ -14,6 +14,7 @@ Check:
 - No Drizzle query helper imports in `src/routes/**`.
 - No R2 primitive imports in routes.
 - No `$lib/client/*` imports inside `src/lib/server/**`.
+- Server modules use `$lib/server/modules/env` for server-side app config and provider secrets.
 - Service functions enforce access control for privileged operations.
 - Expected business errors use existing `AppError`, `ErrorCode`, and domain error classes.
 - Multi-table writes use transactions.
@@ -22,6 +23,21 @@ Check:
 - Promo usage updates are atomic.
 - R2 upload/update/delete flows have compensation cleanup.
 - Form schemas are separate from DB schemas when files or UI-only fields exist.
+- Internal junction/audit tables are not exposed as generic CRUD resources.
+
+Notification checks:
+
+- Domain services do not send email/SMS directly unless explicitly approved.
+- Domain services expose idempotent list/mark helpers for notification workflows.
+- Cron/job/orchestration code sends notifications and marks records notified only after successful send.
+- `sendEmail`/email senders preserve `EmailResult` for normal delivery failures.
+- `sendSms`/SMS senders preserve `SmsResult` for normal delivery failures.
+- Semantic senders are used instead of inline message construction where available.
+- Failed notification sends do not mark entries as notified.
+- Batch notification workflows are limit-aware and safe to retry.
+
+Validation checks:
+
 - Validation commands were run.
 - No tests were weakened or removed to pass validation.
 

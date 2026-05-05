@@ -1,4 +1,4 @@
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import type { OrderConfirmationInput, ShippingUpdateInput } from '../types';
 import { h } from './escape';
@@ -7,7 +7,6 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationInput): {
 	subject: string;
 	html: string;
 } {
-	const clientEnv = getClientEnv();
 	const safeOrderId = h(input.orderId);
 	const itemRows = input.items
 		.map(
@@ -56,7 +55,7 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationInput): {
       ${input.estimatedDelivery ? `<p style="margin:12px 0 0;font-family:'Space Mono',monospace;font-size:12px;color:#0A0A0A;text-transform:uppercase;">Est: ${h(input.estimatedDelivery)}</p>` : ''}
     </div>
 
-    <a href="${clientEnv.PUBLIC_APP_URL}/orders/${safeOrderId}"
+    <a href="${getEnv().PUBLIC_APP_URL}/orders/${safeOrderId}"
        style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:14px 28px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;border:1px solid #0A0A0A;">
       View Order
     </a>
@@ -72,7 +71,6 @@ export function buildShippingUpdateEmail(input: ShippingUpdateInput): {
 	subject: string;
 	html: string;
 } {
-	const clientEnv = getClientEnv();
 	const safeOrderId = h(input.orderId);
 	const content = `
     <h2 style="margin:0 0 8px;font-family:'Bebas Neue','DM Sans',sans-serif;font-size:32px;font-weight:400;color:#0A0A0A;text-transform:uppercase;letter-spacing:0;line-height:1;">On Its Way</h2>
@@ -95,7 +93,7 @@ export function buildShippingUpdateEmail(input: ShippingUpdateInput): {
        </a>`
 			: ''
 	}
-  <a href="${clientEnv.PUBLIC_APP_URL}/orders/${safeOrderId}"
+  <a href="${getEnv().PUBLIC_APP_URL}/orders/${safeOrderId}"
      style="display:inline-block;background:#0A0A0A;color:#F8F5F0;text-decoration:none;padding:14px 28px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;margin-bottom:12px;">
     View Order
   </a>

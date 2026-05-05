@@ -1,4 +1,4 @@
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { h } from './escape';
 
 interface LayoutOptions {
@@ -7,8 +7,7 @@ interface LayoutOptions {
 }
 
 export function baseLayout({ previewText = '', content }: LayoutOptions): string {
-	const clientEnv = getClientEnv();
-	const appName = h(clientEnv.PUBLIC_APP_NAME);
+	const appName = h(getEnv().PUBLIC_APP_NAME);
 	const safePreviewText = h(previewText);
 	const brandColors = {
 		void: '#0A0A0A',

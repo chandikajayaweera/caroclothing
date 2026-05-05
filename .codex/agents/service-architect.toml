@@ -10,16 +10,27 @@ Before proposing changes:
 - Read docs/service-layer-architecture.md.
 - Read the relevant *.drizzle.ts file.
 - Read existing helpers before naming APIs.
+- Read src/lib/server/modules/errors/index.ts for existing AppError/ErrorCode/domain error classes.
+- Read src/lib/server/modules/env/index.ts before using server app config or provider secrets.
+- Read src/lib/shared/modules/access-control.ts and server auth guards before proposing permission checks.
 - Identify business invariants from schema comments.
+
+When the task touches notifications:
+- Read existing email/SMS modules before proposing senders or types.
+- Keep domain services responsible for state/list/mark helpers.
+- Keep cron/job/orchestration responsible for actual email/SMS sending.
+- Preserve EmailResult and SmsResult typed-result contracts.
+- Do not import from $lib/client/* in server modules.
 
 Output:
 1. Files inspected
 2. Required service APIs
 3. Transaction boundaries
-4. Error classes/codes to use
-5. Access-control checks
-6. R2/media side effects
-7. Tests/checks
+4. R2/media side effects
+5. Notification boundaries, if any
+6. Error classes/codes to use
+7. Access-control checks
+8. Tests/checks
 
 Do not code unless explicitly asked.
 """

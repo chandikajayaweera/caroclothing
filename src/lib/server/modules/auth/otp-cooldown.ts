@@ -1,5 +1,5 @@
 import { getRequestEvent } from '$app/server';
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { OtpRateLimitError, AuthError, ErrorCode } from '$lib/server/modules/errors';
 
 const OTP_COOLDOWN_PREFIX = 'otp:cooldown:';
@@ -33,8 +33,7 @@ function getRetryAfterSeconds(value: string | null, fallbackSeconds: number) {
 }
 
 export async function reserveOtpCooldown(phoneNumber: string) {
-	const { PUBLIC_OTP_COOLDOWN_SECONDS } = getClientEnv();
-	const cooldownSeconds = Math.ceil(PUBLIC_OTP_COOLDOWN_SECONDS);
+	const cooldownSeconds = Math.ceil(getEnv().PUBLIC_OTP_COOLDOWN_SECONDS);
 
 	const event = getRequestEvent();
 

@@ -3,9 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
 import { APIError } from 'better-auth/api';
-
 import { getEnv } from '$lib/server/modules/env';
-import { getClientEnv } from '$lib/client/modules/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
@@ -33,11 +31,10 @@ function throwForBetterAuth(error: unknown): never {
 
 function createAuth() {
 	const env = getEnv();
-	const clientEnv = getClientEnv();
 	const db = getDb();
 
 	return betterAuth({
-		baseURL: clientEnv.PUBLIC_APP_URL,
+		baseURL: env.PUBLIC_APP_URL,
 		secret: env.BETTER_AUTH_SECRET,
 
 		database: drizzleAdapter(db, { provider: 'sqlite' }),
@@ -48,7 +45,7 @@ function createAuth() {
 
 		socialProviders: {
 			google: {
-				clientId: clientEnv.PUBLIC_GOOGLE_CLIENT_ID,
+				clientId: env.PUBLIC_GOOGLE_CLIENT_ID,
 				clientSecret: env.GOOGLE_CLIENT_SECRET
 			}
 		},
@@ -68,7 +65,7 @@ function createAuth() {
 			defaultCookieAttributes: {
 				httpOnly: true,
 				sameSite: 'lax',
-				secure: clientEnv.PUBLIC_APP_URL.startsWith('https')
+				secure: env.PUBLIC_APP_URL.startsWith('https')
 			}
 		},
 
@@ -87,7 +84,7 @@ function createAuth() {
 			}),
 
 			oneTap({
-				clientId: clientEnv.PUBLIC_GOOGLE_CLIENT_ID
+				clientId: env.PUBLIC_GOOGLE_CLIENT_ID
 			}),
 
 			phoneNumber({

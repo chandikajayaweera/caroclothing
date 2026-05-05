@@ -1,4 +1,4 @@
-import { getClientEnv } from '$lib/client/modules/env';
+import { getEnv } from '$lib/server/modules/env';
 import { baseLayout } from './layout';
 import { h } from './escape';
 import type { SecurityEventType } from '../types';
@@ -15,8 +15,6 @@ interface SecurityTemplateInput {
 }
 
 export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTemplateResult {
-	const clientEnv = getClientEnv();
-
 	const EVENT_COPY: Record<SecurityEventType, { subject: string; headline: string; body: string }> =
 		{
 			new_login: {
@@ -62,7 +60,7 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
       <p style="margin:0 0 16px;font-size:14px;color:#F8F5F0;font-weight:500;">
         If this wasn't you, secure your account immediately.
       </p>
-      <a href="${clientEnv.PUBLIC_APP_URL}/account/security" 
+      <a href="${getEnv().PUBLIC_APP_URL}/account/security" 
          style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:12px 24px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;">
         Secure Account
       </a>
