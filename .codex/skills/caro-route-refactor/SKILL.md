@@ -10,6 +10,7 @@ description: Use when refactoring SvelteKit routes to call service-layer functio
 Before editing:
 
 - `docs/service-layer-architecture.md`
+- `docs/codex-service-layer-workflow.md`
 - The relevant route file
 - The relevant module service file
 - The relevant module form schema file
@@ -21,11 +22,19 @@ Before editing:
 - Do not import Drizzle tables in routes.
 - Do not import Drizzle query helpers in routes.
 - Do not import R2 primitives in routes.
+- Exception: `src/routes/media/[...key]/+server.ts` may import media R2 helpers because it is the media delivery endpoint.
 - Do not call notification senders directly from routes unless explicitly approved.
 - Use service functions for business reads/writes.
 - Use module form schemas for superforms.
-- Use existing route error helpers for AppError handling.
+- Use existing route error helpers for AppError handling when present.
+- If `src/lib/server/modules/errors/route-adapter.ts` is missing, plan or add it before importing it.
 - Keep components untouched unless explicitly requested.
+
+## Current route/service availability
+
+- `auth`, `addresses`, `products`, `drops`, and `wishlist` services exist.
+- `cart`, `inventory`, `orders`, `promotions`, `reviews`, and `shipping` services do not exist yet.
+- `src/routes/(protected)/account/+page.server.ts` has been refactored to use the auth service.
 
 ## Notification route boundary
 
@@ -50,6 +59,7 @@ Use Svelte MCP or Context7 MCP before changing uncertain:
 2. Existing route responsibilities
 3. Direct DB/R2 imports to remove
 4. Service calls to use
-5. Form schema changes
-6. Notification boundary considerations, if any
-7. Validation commands
+5. Missing service/helper blockers
+6. Form schema changes
+7. Notification boundary considerations, if any
+8. Validation commands

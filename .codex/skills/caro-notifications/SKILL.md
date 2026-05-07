@@ -10,6 +10,7 @@ description: Use when adding or modifying CaroClothing email/SMS notification he
 Before editing, read:
 
 - `docs/service-layer-architecture.md`
+- `docs/codex-service-layer-workflow.md`
 - `src/lib/server/modules/env/index.ts`
 - `src/lib/server/modules/notifications/email/index.ts`
 - `src/lib/server/modules/notifications/email/types.ts`
@@ -32,7 +33,9 @@ Before editing, read:
   - `EmailResult`
   - `SmsResult`
 - Do not make normal delivery failures throw unless the existing auth flow explicitly expects thrown failures.
-- Prefer semantic senders such as `sendDropLaunchEmail` and `sendDropLaunchSms`.
+- Prefer semantic senders such as `sendDropLaunchEmail`.
+- `sendDropLaunchEmail` currently exists and is exported.
+- `sendDropLaunchSms` is planned but not currently implemented/exported; add its type, sender, and index export before using it.
 - Do not add notification database tables unless explicitly requested.
 - Do not redesign the notification system for small sender additions.
 
@@ -49,10 +52,11 @@ Before editing, read:
 1. Files inspected
 2. Existing sender/result contracts
 3. Existing exports
-4. Proposed sender/type changes
-5. Domain/cron integration boundary
-6. Validation commands
-7. Risks/questions
+4. Missing sender/type/export gaps
+5. Proposed sender/type changes
+6. Domain/cron integration boundary
+7. Validation commands
+8. Risks/questions
 
 ## After coding, output
 

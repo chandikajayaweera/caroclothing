@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture Plan
 
 **Audience:** project collaborators and LLM coding agents  
-**Status:** validated development-ready architecture plan — updated with notification/email/SMS rules on 2026-05-02  
+**Status:** validated development-ready architecture plan - updated with Codex workflow/current-code snapshot on 2026-05-06
 **Scope:** server module services, route boundaries, forms, access control, errors, R2 media, cron workflows, and module-by-module implementation order
 
 ## Validation Notes From Final Review
@@ -13,6 +13,40 @@ This version includes the final validation pass. The main corrections applied ar
 3. The Cloudflare scheduled-handler workaround should remain project-specific and should be revalidated whenever `@sveltejs/adapter-cloudflare` is upgraded.
 4. R2 cleanup should rely on the project `deleteObjectSafe` wrapper, not direct bucket deletion from feature services.
 5. Notification workflows now have a dedicated contract: domain services expose idempotent list/mark helpers, while cron/job orchestration sends email/SMS and marks records notified only after successful delivery.
+
+---
+
+## Current Implementation Snapshot
+
+This document describes the target service-layer architecture and must stay aligned with current code. As of 2026-05-06:
+
+```txt
+Implemented service modules:
+- src/lib/server/modules/auth/auth.service.ts
+- src/lib/server/modules/addresses/addresses.service.ts
+- src/lib/server/modules/products/products.service.ts
+- src/lib/server/modules/drops/drops.service.ts
+- src/lib/server/modules/wishlist/wishlist.service.ts
+
+Implemented foundation helpers:
+- src/lib/server/modules/service-context.ts
+- src/lib/server/modules/auth/guards.ts
+
+Schema-only business modules still needing services:
+- cart, inventory, orders, promotions, reviews, shipping
+
+Known route debt:
+- No known business route direct-DB imports after the account route refactor.
+
+Documented/planned helpers not yet present:
+- src/lib/server/modules/service-utils.ts
+
+Notification sender state:
+- sendDropLaunchEmail exists and is exported.
+- sendDropLaunchSms is planned but not yet implemented/exported.
+```
+
+When this document conflicts with code, stop and inspect the relevant files before editing runtime code.
 
 ---
 
@@ -48,8 +82,8 @@ Important existing conventions:
 3. `src/lib/server/modules/errors/index.ts` already has `AppError`, domain-specific error classes, stable `ErrorCode` values, HTTP status mapping, and Better Auth conversion helpers.
 4. R2 media helpers already exist and are event/bucket based.
 5. Media is served through `/media/[...key]` using safe R2 key validation.
-6. Cron scaffolding already expects service-layer functions such as cart cleanup, drop launch, order expiry cancellation, promo reconciliation, and waitlist notification.
-7. Notification modules expose typed email/SMS send primitives and semantic senders such as drop launch email/SMS wrappers.
+6. Cron scaffolding is currently commented and still contains stale imports; future activation must update it to current service signatures before enabling scheduled jobs.
+7. Notification modules expose typed email/SMS send primitives and semantic email senders such as `sendDropLaunchEmail`; the semantic SMS drop-launch wrapper is still planned.
 
 Do not replace these foundations. Extend them.
 
@@ -83,23 +117,29 @@ Components
 `+page.server.ts`, `+layout.server.ts`, and route actions must not import:
 
 ```ts
-db
-getDb
-eq
-and
-sql
-category
-product
-cart
-order
-inventory
-uploadImage
-buildMediaKey
+db;
+getDb;
+eq;
+and;
+sql;
+category;
+product;
+cart;
+order;
+inventory;
+uploadImage;
+buildMediaKey;
 ```
 
 Routes should import service functions and form schemas only.
 
-Allowed route imports:
+Exception:
+
+```txt
+src/routes/media/[...key]/+server.ts may import media R2 helpers because it is the media delivery endpoint, not a business route.
+```
+
+Allowed route imports once the referenced helpers exist:
 
 ```ts
 import { createCategory, listCategories } from '$lib/server/modules/products';
@@ -138,7 +178,7 @@ Examples:
 | `orderStatusHistory` |           No | `transitionOrderStatus`, `placeOrderFromCart`, `cancelOrder`                    |
 | `promoCodeUsage`     |           No | `recordPromoUsage`, `applyPromoCodeToCart`, `placeOrderFromCart`                |
 | `productTag`         |           No | `setProductTags`, `addProductTag`, `removeProductTag`                           |
-| `dropProduct`        |           No | `assignProductsToDrop`, `setDropHeroProduct`                                    |
+| `dropProduct`        |           No | `setDropProducts`, `setDropHeroProduct`                                         |
 | `reviewMedia`        |    Mostly no | `addReviewMedia`, `deleteReviewMedia`                                           |
 
 ### 4.4 Services throw typed domain errors
@@ -306,7 +346,7 @@ Use `adminUser` and `customerUser` consistently because Better Auth is configure
 
 The existing `errors/index.ts` is already the canonical error system. Keep it.
 
-Add a route adapter file:
+Planned helper, not currently present as of 2026-05-05:
 
 ```txt
 src/lib/server/modules/errors/route-adapter.ts
@@ -387,10 +427,13 @@ mediaUrl(key)
 Example:
 
 ```ts
-await createCategory({
-	actor: locals.user,
-	event
-}, input);
+await createCategory(
+	{
+		actor: locals.user,
+		event
+	},
+	input
+);
 ```
 
 Inside the service:
@@ -491,7 +534,8 @@ drops.service.ts:
 cron/scheduled-jobs.ts:
   - call transitionDueDropsToLive
   - call listUnnotifiedDropWaitlistEntries
-  - call sendDropLaunchEmail or sendDropLaunchSms
+  - call sendDropLaunchEmail for email entries
+  - call sendDropLaunchSms for phone entries only after that sender exists
   - mark entries notified only after successful send
 ```
 
@@ -508,9 +552,7 @@ src/lib/server/modules/notifications/email/index.ts
 Core contract:
 
 ```ts
-export type EmailResult =
-	| { ok: true; id: string }
-	| { ok: false; error: string };
+export type EmailResult = { ok: true; id: string } | { ok: false; error: string };
 ```
 
 Normal email delivery failures should return `EmailResult` instead of throwing. This allows batch jobs to continue processing and prevents failed delivery attempts from being marked as notified.
@@ -541,9 +583,7 @@ export type DropLaunchEmailInput = {
 	heroImageUrl?: string;
 };
 
-export async function sendDropLaunchEmail(
-	input: DropLaunchEmailInput
-): Promise<EmailResult>;
+export async function sendDropLaunchEmail(input: DropLaunchEmailInput): Promise<EmailResult>;
 ```
 
 `sendDropLaunchEmail` may internally reuse the promotional email template, but cron code should call the semantic drop sender.
@@ -559,14 +599,12 @@ src/lib/server/modules/notifications/sms/index.ts
 Core contract:
 
 ```ts
-export type SmsResult =
-	| { ok: true; messageId: string }
-	| { ok: false; error: string };
+export type SmsResult = { ok: true; messageId: string } | { ok: false; error: string };
 ```
 
 Normal SMS delivery failures should return `SmsResult` instead of throwing.
 
-Semantic SMS senders should be added as workflows need them. For drop launch notifications, prefer:
+Semantic SMS senders should be added as workflows need them. For drop launch notifications, the planned shape is:
 
 ```ts
 export type DropLaunchSmsInput = {
@@ -575,10 +613,10 @@ export type DropLaunchSmsInput = {
 	dropUrl: string;
 };
 
-export async function sendDropLaunchSms(
-	input: DropLaunchSmsInput
-): Promise<SmsResult>;
+export async function sendDropLaunchSms(input: DropLaunchSmsInput): Promise<SmsResult>;
 ```
+
+Do not call `sendDropLaunchSms` until it is implemented and exported from `src/lib/server/modules/notifications/sms/index.ts`.
 
 ### 8.4.4 Server environment rule
 
@@ -730,18 +768,14 @@ const imageFileSchema = z
 	.refine((file) => file.size <= MAX_IMAGE_BYTES, 'Image must be 5MB or less.')
 	.refine((file) => ALLOWED_IMAGE_TYPES.has(file.type), 'Unsupported image type.');
 
-export const createCategoryFormSchema = insertCategorySchema
-	.omit({ imageR2Key: true })
-	.extend({
-		image: imageFileSchema.optional()
-	});
+export const createCategoryFormSchema = insertCategorySchema.omit({ imageR2Key: true }).extend({
+	image: imageFileSchema.optional()
+});
 
-export const updateCategoryFormSchema = updateCategorySchema
-	.omit({ imageR2Key: true })
-	.extend({
-		image: imageFileSchema.optional(),
-		removeImage: z.boolean().optional()
-	});
+export const updateCategoryFormSchema = updateCategorySchema.omit({ imageR2Key: true }).extend({
+	image: imageFileSchema.optional(),
+	removeImage: z.boolean().optional()
+});
 ```
 
 Rule:
@@ -797,18 +831,18 @@ src/lib/server/modules/wishlist/
 Use camelCase:
 
 ```ts
-createCategory
-getCategory
-listCategories
-updateCategory
-deleteCategory
+createCategory;
+getCategory;
+listCategories;
+updateCategory;
+deleteCategory;
 ```
 
 Avoid PascalCase service functions:
 
 ```ts
-CreateCategory
-GetCategory
+CreateCategory;
+GetCategory;
 ```
 
 ### 12.2 Inputs
@@ -829,10 +863,7 @@ Avoid long positional argument lists.
 Use strict lookup unions instead of many getter functions.
 
 ```ts
-export type CategoryLookup =
-	| { id: string }
-	| { slug: string }
-	| { name: string };
+export type CategoryLookup = { id: string } | { slug: string } | { name: string };
 
 export async function getCategory(lookup: CategoryLookup) {}
 ```
@@ -855,10 +886,7 @@ import { formFailFromAppError } from '$lib/server/modules/errors/route-adapter';
 
 export const load = async (event) => {
 	return {
-		categories: await listCategories(
-			{ actor: event.locals.user },
-			{ includeInactive: true }
-		),
+		categories: await listCategories({ actor: event.locals.user }, { includeInactive: true }),
 		form: await superValidate(zod(createCategoryFormSchema))
 	};
 };
@@ -954,39 +982,84 @@ productTag
 ### API
 
 ```ts
-export type CategoryLookup =
-	| { id: string }
-	| { slug: string }
-	| { name: string };
+export type CategoryLookup = { id: string } | { slug: string } | { name: string };
 
-export type ProductLookup =
-	| { id: string }
-	| { slug: string };
+export type ProductLookup = { id: string } | { slug: string };
 
-export async function createCategory(ctx: ServiceContext, input: CreateCategoryInput): Promise<CategoryDTO>;
-export async function getCategory(ctx: ServiceContext | null, lookup: CategoryLookup, options?: GetCategoryOptions): Promise<CategoryDTO>;
-export async function listCategories(ctx?: ServiceContext | null, options?: ListCategoriesOptions): Promise<CategoryDTO[]>;
-export async function updateCategory(ctx: ServiceContext, lookup: CategoryLookup, input: UpdateCategoryInput): Promise<CategoryDTO>;
+export async function createCategory(
+	ctx: ServiceContext,
+	input: CreateCategoryInput
+): Promise<CategoryDTO>;
+export async function getCategory(
+	ctx: ServiceContext | null,
+	lookup: CategoryLookup,
+	options?: GetCategoryOptions
+): Promise<CategoryDTO>;
+export async function listCategories(
+	ctx?: ServiceContext | null,
+	options?: ListCategoriesOptions
+): Promise<CategoryDTO[]>;
+export async function updateCategory(
+	ctx: ServiceContext,
+	lookup: CategoryLookup,
+	input: UpdateCategoryInput
+): Promise<CategoryDTO>;
 export async function deleteCategory(ctx: ServiceContext, lookup: CategoryLookup): Promise<void>;
 
-export async function createProduct(ctx: ServiceContext, input: CreateProductInput): Promise<ProductDTO>;
-export async function getProduct(ctx: ServiceContext | null, lookup: ProductLookup, options?: GetProductOptions): Promise<ProductDTO>;
-export async function listProducts(ctx?: ServiceContext | null, options?: ListProductsOptions): Promise<ProductListResult>;
-export async function updateProduct(ctx: ServiceContext, lookup: ProductLookup, input: UpdateProductInput): Promise<ProductDTO>;
+export async function createProduct(
+	ctx: ServiceContext,
+	input: CreateProductInput
+): Promise<ProductDTO>;
+export async function getProduct(
+	ctx: ServiceContext | null,
+	lookup: ProductLookup,
+	options?: GetProductOptions
+): Promise<ProductDTO>;
+export async function listProducts(
+	ctx?: ServiceContext | null,
+	options?: ListProductsOptions
+): Promise<ProductListResult>;
+export async function updateProduct(
+	ctx: ServiceContext,
+	lookup: ProductLookup,
+	input: UpdateProductInput
+): Promise<ProductDTO>;
 export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup): Promise<void>;
 
-export async function createProductVariant(ctx: ServiceContext, productId: string, input: CreateProductVariantInput): Promise<ProductVariantDTO>;
-export async function updateProductVariant(ctx: ServiceContext, variantId: string, input: UpdateProductVariantInput): Promise<ProductVariantDTO>;
+export async function createProductVariant(
+	ctx: ServiceContext,
+	productId: string,
+	input: CreateProductVariantInput
+): Promise<ProductVariantDTO>;
+export async function updateProductVariant(
+	ctx: ServiceContext,
+	variantId: string,
+	input: UpdateProductVariantInput
+): Promise<ProductVariantDTO>;
 export async function deleteProductVariant(ctx: ServiceContext, variantId: string): Promise<void>;
 
-export async function addProductImage(ctx: ServiceContext, input: AddProductImageInput): Promise<ProductImageDTO>;
-export async function setPrimaryProductImage(ctx: ServiceContext, imageId: string): Promise<ProductImageDTO>;
-export async function reorderProductImages(ctx: ServiceContext, productId: string, imageIdsInOrder: string[]): Promise<ProductImageDTO[]>;
+export async function addProductImage(
+	ctx: ServiceContext,
+	input: AddProductImageInput
+): Promise<ProductImageDTO>;
+export async function setPrimaryProductImage(
+	ctx: ServiceContext,
+	imageId: string
+): Promise<ProductImageDTO>;
+export async function reorderProductImages(
+	ctx: ServiceContext,
+	productId: string,
+	imageIdsInOrder: string[]
+): Promise<ProductImageDTO[]>;
 export async function deleteProductImage(ctx: ServiceContext, imageId: string): Promise<void>;
 
 export async function createTag(ctx: ServiceContext, input: CreateTagInput): Promise<TagDTO>;
 export async function listTags(): Promise<TagDTO[]>;
-export async function setProductTags(ctx: ServiceContext, productId: string, tagIds: string[]): Promise<void>;
+export async function setProductTags(
+	ctx: ServiceContext,
+	productId: string,
+	tagIds: string[]
+): Promise<void>;
 ```
 
 ### Required behavior
@@ -1046,40 +1119,43 @@ export async function adjustInventory(
 	}
 ): Promise<InventoryDTO>;
 
-export async function reserveInventory(
-	input: {
-		variantId: string;
-		quantity: number;
-		referenceId: string;
-		now?: Date;
-	}
-): Promise<InventoryReservationResult>;
+export async function reserveInventory(input: {
+	variantId: string;
+	quantity: number;
+	referenceId: string;
+	now?: Date;
+}): Promise<InventoryReservationResult>;
 
-export async function releaseInventoryReservation(
-	input: {
-		variantId: string;
-		quantity: number;
-		referenceId: string;
-		now?: Date;
-	}
-): Promise<InventoryDTO>;
+export async function releaseInventoryReservation(input: {
+	variantId: string;
+	quantity: number;
+	referenceId: string;
+	now?: Date;
+}): Promise<InventoryDTO>;
 
-export async function recordInventorySale(
-	input: {
-		variantId: string;
-		quantity: number;
-		referenceId: string;
-		now?: Date;
-	}
-): Promise<InventoryDTO>;
+export async function recordInventorySale(input: {
+	variantId: string;
+	quantity: number;
+	referenceId: string;
+	now?: Date;
+}): Promise<InventoryDTO>;
 ```
 
 ### Internal transaction helpers
 
 ```ts
-export async function reserveInventoryTx(tx: Tx, input: ReserveInventoryInput): Promise<InventoryReservationResult>;
-export async function releaseInventoryReservationTx(tx: Tx, input: ReleaseInventoryInput): Promise<InventoryDTO>;
-export async function recordInventorySaleTx(tx: Tx, input: RecordInventorySaleInput): Promise<InventoryDTO>;
+export async function reserveInventoryTx(
+	tx: Tx,
+	input: ReserveInventoryInput
+): Promise<InventoryReservationResult>;
+export async function releaseInventoryReservationTx(
+	tx: Tx,
+	input: ReleaseInventoryInput
+): Promise<InventoryDTO>;
+export async function recordInventorySaleTx(
+	tx: Tx,
+	input: RecordInventorySaleInput
+): Promise<InventoryDTO>;
 ```
 
 ### Required behavior
@@ -1196,9 +1272,7 @@ src/lib/server/modules/orders/orders.types.ts
 ### API
 
 ```ts
-export type OrderLookup =
-	| { id: string }
-	| { orderNumber: string };
+export type OrderLookup = { id: string } | { orderNumber: string };
 
 export async function placeOrderFromCart(
 	ctx: ServiceContext,
@@ -1256,16 +1330,14 @@ export async function cancelOrder(
 	}
 ): Promise<OrderDTO>;
 
-export async function recordPayment(
-	input: {
-		orderId: string;
-		method: PaymentMethod;
-		amount: number;
-		transactionId?: string;
-		gatewayResponse?: unknown;
-		now?: Date;
-	}
-): Promise<PaymentDTO>;
+export async function recordPayment(input: {
+	orderId: string;
+	method: PaymentMethod;
+	amount: number;
+	transactionId?: string;
+	gatewayResponse?: unknown;
+	now?: Date;
+}): Promise<PaymentDTO>;
 
 export async function cancelExpiredPendingOrders(input: {
 	actor: ServiceActor | SystemActor;
@@ -1304,18 +1376,25 @@ src/lib/server/modules/promotions/promotions.types.ts
 ### API
 
 ```ts
-export type PromoCodeLookup =
-	| { id: string }
-	| { code: string };
+export type PromoCodeLookup = { id: string } | { code: string };
 
-export async function createPromoCode(ctx: ServiceContext, input: CreatePromoCodeInput): Promise<PromoCodeDTO>;
-export async function getPromoCode(ctx: ServiceContext, lookup: PromoCodeLookup): Promise<PromoCodeDTO>;
+export async function createPromoCode(
+	ctx: ServiceContext,
+	input: CreatePromoCodeInput
+): Promise<PromoCodeDTO>;
+export async function getPromoCode(
+	ctx: ServiceContext,
+	lookup: PromoCodeLookup
+): Promise<PromoCodeDTO>;
 
-export async function listPromoCodes(ctx: ServiceContext, options?: {
-	includeInactive?: boolean;
-	limit?: number;
-	offset?: number;
-}): Promise<PromoCodeDTO[]>;
+export async function listPromoCodes(
+	ctx: ServiceContext,
+	options?: {
+		includeInactive?: boolean;
+		limit?: number;
+		offset?: number;
+	}
+): Promise<PromoCodeDTO[]>;
 
 export async function updatePromoCode(
 	ctx: ServiceContext,
@@ -1369,14 +1448,21 @@ src/lib/server/modules/drops/drops.types.ts
 
 ### API
 
+Current implemented signatures:
+
 ```ts
-export type DropLookup =
-	| { id: string }
-	| { slug: string };
+export type DropLookup = { id: string; slug?: never } | { id?: never; slug: string };
 
 export async function createDrop(ctx: ServiceContext, input: CreateDropInput): Promise<DropDTO>;
-export async function getDrop(ctx: ServiceContext | null, lookup: DropLookup, options?: GetDropOptions): Promise<DropDTO>;
-export async function listDrops(ctx?: ServiceContext | null, options?: ListDropsOptions): Promise<DropDTO[]>;
+export async function getDrop(
+	ctx: ServiceContext | null,
+	lookup: DropLookup,
+	options?: GetDropOptions
+): Promise<DropDTO>;
+export async function listDrops(
+	ctx?: ServiceContext | null,
+	options?: ListDropsOptions
+): Promise<DropListResult>;
 
 export async function updateDrop(
 	ctx: ServiceContext,
@@ -1384,57 +1470,52 @@ export async function updateDrop(
 	input: UpdateDropInput
 ): Promise<DropDTO>;
 
-export async function assignProductsToDrop(
+export async function deleteDrop(ctx: ServiceContext, lookup: DropLookup): Promise<void>;
+
+export async function setDropProducts(
 	ctx: ServiceContext,
-	input: {
-		dropId: string;
-		productIds: string[];
-	}
-): Promise<void>;
+	input: SetDropProductsInput
+): Promise<DropDTO>;
 
 export async function setDropHeroProduct(
 	ctx: ServiceContext,
-	input: {
-		dropId: string;
-		productId: string;
-	}
-): Promise<void>;
+	input: SetDropHeroProductInput
+): Promise<DropDTO>;
 
 export async function transitionDropStatus(
 	ctx: ServiceContext,
-	input: {
-		dropId: string;
-		toStatus: DropStatus;
-		now?: Date;
-	}
+	input: TransitionDropStatusInput
 ): Promise<DropDTO>;
 
-export async function transitionDueDropsToLive(input: {
-	actor: ServiceActor | SystemActor;
-	now: Date;
-	limit?: number;
-}): Promise<DropDTO[]>;
+export async function transitionDueDropsToLive(
+	ctx: ServiceContext,
+	input: TransitionDueDropsToLiveInput
+): Promise<DropLaunchBatchResult>;
 
-export async function joinDropWaitlist(input: {
-	dropId: string;
-	contact: string;
-	contactType: 'phone' | 'email';
-	userId?: string | null;
-	now?: Date;
-}): Promise<void>;
+export async function joinDropWaitlist(
+	ctx: ServiceContext | null,
+	input: JoinDropWaitlistInput
+): Promise<DropWaitlistEntryDTO>;
+
+export async function listDropWaitlistEntries(
+	ctx: ServiceContext,
+	input: ListDropWaitlistEntriesInput
+): Promise<DropWaitlistEntryListResult>;
 
 export async function listUnnotifiedDropWaitlistEntries(
-	dropId: string,
-	options: {
-		actor: ServiceActor | SystemActor;
-		limit: number;
-	}
+	ctx: ServiceContext,
+	input: ListUnnotifiedDropWaitlistEntriesInput
 ): Promise<DropWaitlistEntryDTO[]>;
 
+export async function markDropWaitlistEntriesNotified(
+	ctx: ServiceContext,
+	input: MarkDropWaitlistEntriesNotifiedInput
+): Promise<DropWaitlistMarkResult>;
+
 export async function markDropWaitlistEntryNotified(
-	entryId: string,
-	ctx: ServiceContext
-): Promise<void>;
+	ctx: ServiceContext,
+	input: MarkDropWaitlistEntryNotifiedInput
+): Promise<DropWaitlistMarkResult>;
 ```
 
 ### Required behavior
@@ -1504,10 +1585,7 @@ export async function addReviewMedia(
 	}
 ): Promise<ReviewDTO>;
 
-export async function deleteReview(
-	ctx: ServiceContext,
-	reviewId: string
-): Promise<void>;
+export async function deleteReview(ctx: ServiceContext, reviewId: string): Promise<void>;
 ```
 
 ### Required behavior
@@ -1602,10 +1680,7 @@ export async function createAddress(
 
 export async function listMyAddresses(ctx: ServiceContext): Promise<AddressDTO[]>;
 
-export async function getAddress(
-	ctx: ServiceContext,
-	id: string
-): Promise<AddressDTO>;
+export async function getAddress(ctx: ServiceContext, id: string): Promise<AddressDTO>;
 
 export async function updateAddress(
 	ctx: ServiceContext,
@@ -1613,15 +1688,9 @@ export async function updateAddress(
 	input: UpdateAddressInput
 ): Promise<AddressDTO>;
 
-export async function deleteAddress(
-	ctx: ServiceContext,
-	id: string
-): Promise<void>;
+export async function deleteAddress(ctx: ServiceContext, id: string): Promise<void>;
 
-export async function setDefaultAddress(
-	ctx: ServiceContext,
-	id: string
-): Promise<AddressDTO>;
+export async function setDefaultAddress(ctx: ServiceContext, id: string): Promise<AddressDTO>;
 
 export function createAddressSnapshot(input: AddressSnapshotInput): AddressSnapshot;
 ```
@@ -1668,8 +1737,9 @@ export async function removeFromWishlist(
 ): Promise<void>;
 
 export async function listWishlist(
-	ctx: ServiceContext
-): Promise<WishlistItemDTO[]>;
+	ctx: ServiceContext,
+	options?: ListWishlistOptions
+): Promise<WishlistListResult>;
 
 export async function isWishlisted(
 	ctx: ServiceContext,
@@ -1678,6 +1748,33 @@ export async function isWishlisted(
 		variantId?: string | null;
 	}
 ): Promise<boolean>;
+
+export async function getWishlistStatuses(
+	ctx: ServiceContext,
+	input: {
+		targets: Array<{
+			productId: string;
+			variantId?: string | null;
+		}>;
+	}
+): Promise<WishlistStatusDTO[]>;
+
+export async function clearWishlist(ctx: ServiceContext): Promise<void>;
+
+export async function listUserWishlist(
+	ctx: ServiceContext,
+	input: {
+		userId: string;
+		includeUnavailable?: boolean;
+		limit?: number;
+		offset?: number;
+	}
+): Promise<WishlistListResult>;
+
+export async function listWishlistSignals(
+	ctx: ServiceContext,
+	options?: ListWishlistSignalsOptions
+): Promise<WishlistSignalListResult>;
 ```
 
 ### Required behavior
@@ -1685,8 +1782,10 @@ export async function isWishlisted(
 ```txt
 - Non-anonymous authenticated user required.
 - Add/remove should be idempotent.
+- Customer add/status APIs validate active product, variant ownership, and active variant.
 - Support product-only wishlist rows and product+variant wishlist rows.
 - DTO should include product card data, selected variant data, imageUrl, and effective price.
+- Admin gets read-only support/demand signal APIs, not generic wishlist mutation CRUD.
 ```
 
 ---
@@ -1700,28 +1799,20 @@ Expected service functions:
 ```ts
 deleteExpiredGuestCarts(now: Date)
 
-cancelExpiredPendingOrders({
-	actor: systemActor,
-	now,
-	limit: 50
-})
+cancelExpiredPendingOrders({ actor: systemActor, now, limit: 50 })
 
-transitionDueDropsToLive({
-	actor: systemActor,
-	now
-})
+transitionDueDropsToLive({ actor: systemActor, now }, { now, limit })
 
 listDrops(
 	{ actor: systemActor },
 	{
 		status: 'live',
-		sortBy: 'launchAt',
 		limit: 100
 	}
 )
 
-listUnnotifiedDropWaitlistEntries(drop.id, {
-	actor: systemActor,
+listUnnotifiedDropWaitlistEntries({ actor: systemActor }, {
+	dropId: drop.id,
 	limit: WAITLIST_BATCH_SIZE
 })
 
@@ -1734,6 +1825,7 @@ sendDropLaunchEmail({
 	heroImageUrl
 })
 
+// Planned sender; add/export before calling from cron.
 sendDropLaunchSms({
 	to: entry.contact,
 	dropName: drop.name,
@@ -1747,10 +1839,7 @@ markDropWaitlistEntriesNotified(
 
 listPromoCodes({
 	actor: systemActor,
-	includeInactive: true,
-	limit,
-	offset
-})
+}, { includeInactive: true, limit, offset })
 
 reconcilePromoCodeUsageCount(code.id, {
 	actor: systemActor
@@ -1773,7 +1862,7 @@ Cron notification orchestration rules:
 - Domain services expose list/mark helpers.
 - Only mark records notified after successful delivery.
 - Continue processing when one recipient fails.
-- Use semantic notification senders such as sendDropLaunchEmail and sendDropLaunchSms.
+- Use semantic notification senders such as `sendDropLaunchEmail`; use `sendDropLaunchSms` only after it exists.
 ```
 
 Cron services must be:
@@ -2038,6 +2127,7 @@ Check:
 When implementing this architecture, LLM agents must follow these rules:
 
 ```txt
+0. Read docs/codex-service-layer-workflow.md before planning service APIs.
 1. Do not put business logic in +page.server.ts.
 2. Do not import db or Drizzle tables in routes.
 3. Do not create generic CRUD for audit/junction tables.
@@ -2055,7 +2145,8 @@ When implementing this architecture, LLM agents must follow these rules:
 15. Notification modules must use server-safe env access through `$lib/server/modules/env` or another approved shared/server helper.
 16. Do not put email/SMS delivery orchestration inside domain services such as `drops.service.ts`; expose list/mark helpers and let cron/jobs send.
 17. Do not mark notification records as notified unless the corresponding email/SMS send succeeded.
-18. Prefer semantic notification senders such as `sendDropLaunchEmail` and `sendDropLaunchSms` over rebuilding message copy in cron code.
+18. Prefer semantic notification senders such as `sendDropLaunchEmail`; add and export `sendDropLaunchSms` before using it for phone waitlist entries.
+19. Produce an API plan from storefront, admin dashboard, checkout/account, cron/job, support, and notification needs before coding a new service.
 ```
 
 ---

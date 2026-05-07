@@ -34,7 +34,7 @@ function getSafeRedirectTo(value: string | null): string {
 export const load: LayoutServerLoad = async ({ locals, url }) => {
 	const user = locals.user;
 
-	if (!user) return;
+	if (!user || user.isAnonymous) return;
 
 	throw redirect(302, getSafeRedirectTo(url.searchParams.get('redirectTo')));
 };

@@ -5,6 +5,7 @@
 Before implementing or modifying service-layer code, read:
 
 - `docs/service-layer-architecture.md`
+- `docs/codex-service-layer-workflow.md`
 - The relevant `src/lib/server/modules/**/**.drizzle.ts`
 - Existing helpers in:
   - `src/lib/server/modules/errors/index.ts`
@@ -24,9 +25,19 @@ When working on notifications, also inspect the relevant notification modules be
 - `src/lib/server/modules/notifications/sms/types.ts`
 - `src/lib/server/modules/notifications/sms/senders/*`
 
+## Current service-layer status
+
+- Implemented service modules: `products`, `drops`, `wishlist`.
+- Implemented foundation helpers: `src/lib/server/modules/service-context.ts`, `src/lib/server/modules/auth/guards.ts`.
+- Schema-only business modules that still need planned services: `addresses`, `cart`, `inventory`, `orders`, `promotions`, `reviews`, `shipping`.
+- Planned but not yet implemented helpers mentioned in architecture docs: `src/lib/server/modules/errors/route-adapter.ts`, `src/lib/server/modules/service-utils.ts`.
+- Existing semantic notification sender: `sendDropLaunchEmail`.
+- Missing semantic notification sender: `sendDropLaunchSms`; do not import or call it until it exists.
+
 ## Non-negotiable architecture rules
 
 - Routes must not import `db`, Drizzle tables, Drizzle query helpers, or R2 primitives directly.
+- Exception: `src/routes/media/[...key]/+server.ts` may import media R2 helpers because it is the media delivery endpoint, not a business route.
 - `+page.server.ts` files may call service functions and form schemas only.
 - Business writes must go through `*.service.ts`.
 - Multi-table writes must use transactions.
@@ -54,7 +65,7 @@ When working on notifications, also inspect the relevant notification modules be
   - `sendOrderConfirmationEmail`
   - `sendShippingUpdateEmail`
   - `sendDropLaunchEmail`
-  - `sendDropLaunchSms`
+  - `sendDropLaunchSms` only after it has been implemented and exported
   - `sendOtpSms`
 - Normal delivery failures must return typed result objects rather than throwing:
   - `EmailResult`
@@ -69,9 +80,10 @@ When working on notifications, also inspect the relevant notification modules be
 
 1. Inspect relevant files first.
 2. Produce a plan before editing.
-3. Edit the smallest safe set of files.
-4. Run typecheck/lint/tests where available.
-5. Summarize:
+3. For new services, first produce a service API plan that maps storefront, admin dashboard, cron/job, and related-system needs.
+4. Edit the smallest safe set of files.
+5. Run typecheck/lint/tests where available.
+6. Summarize:
    - changed files
    - validation commands
    - failures

@@ -1,4 +1,5 @@
-import { env as dynamicEnv } from '$env/dynamic/private';
+import { env as dynamicPrivateEnv } from '$env/dynamic/private';
+import { env as dynamicPublicEnv } from '$env/dynamic/public';
 import { envSchema } from './env.zod';
 import type { Env } from './env.zod';
 import type { z } from 'zod';
@@ -20,6 +21,10 @@ let _env: Env | undefined;
 export function getEnv(): Env {
 	if (_env) return _env;
 
+	const dynamicEnv = {
+		...dynamicPrivateEnv,
+		...dynamicPublicEnv
+	};
 	const result = envSchema.safeParse(dynamicEnv);
 
 	if (!result.success) {

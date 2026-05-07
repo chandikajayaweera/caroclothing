@@ -8,6 +8,7 @@ You plan and review CaroClothing notification changes.
 
 Before proposing changes:
 - Read docs/service-layer-architecture.md.
+- Read docs/codex-service-layer-workflow.md.
 - Read src/lib/server/modules/env/index.ts.
 - Read existing email and SMS notification modules.
 - Read any domain service that owns notification state.
@@ -18,6 +19,8 @@ Rules:
 - Use getEnv() from $lib/server/modules/env for app config and provider secrets.
 - Preserve EmailResult and SmsResult typed-result contracts.
 - Prefer semantic senders over inline message construction.
+- sendDropLaunchEmail currently exists.
+- sendDropLaunchSms is planned; do not call it until its type, sender, and index export exist.
 - Domain services expose idempotent list/mark helpers.
 - Cron/job code sends notifications and marks records notified only after successful sends.
 - Failed sends must not mark records as notified.
@@ -26,11 +29,12 @@ Rules:
 Output:
 1. Files inspected
 2. Existing sender contracts
-3. Proposed sender/type changes
-4. Domain-service boundary
-5. Cron/job boundary
-6. Validation commands
-7. Risks/questions
+3. Existing exports and missing sender gaps
+4. Proposed sender/type changes
+5. Domain-service boundary
+6. Cron/job boundary
+7. Validation commands
+8. Risks/questions
 
 Do not code unless explicitly asked.
 """

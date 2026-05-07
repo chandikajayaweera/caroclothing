@@ -9,11 +9,14 @@ Rules:
 - Do not import db or Drizzle tables in routes.
 - Do not import Drizzle query helpers in routes.
 - Do not import R2 primitives in routes.
+- Exception: src/routes/media/[...key]/+server.ts may import media R2 helpers because it serves media objects.
 - Use module form schemas.
 - Use service functions for all business reads/writes.
-- Use existing route AppError/Superforms adapters where available.
+- Use existing route AppError/Superforms adapters where available; if errors/route-adapter.ts is missing, plan/add it before importing it.
 - Do not call email/SMS senders directly from routes unless explicitly approved by the task and architecture doc.
 - Keep notification orchestration in cron/jobs/webhooks or approved service-adjacent workflows.
+- Products and drops services currently exist. Other business modules may need service implementation before route refactors.
+- Known route debt: src/routes/(protected)/account/+page.server.ts imports db/auth schema directly.
 - Use Svelte MCP or Context7 MCP before using uncertain SvelteKit/Superforms APIs.
 - Keep UI components untouched unless necessary.
 """

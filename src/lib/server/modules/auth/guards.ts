@@ -27,3 +27,15 @@ export function requireAdmin(actor: AnyActor | null | undefined): AnyActor {
 
 	return resolved;
 }
+
+export function requireOwnerOrAdmin(
+	actor: AnyActor | null | undefined,
+	ownerUserId: string | null | undefined
+): AnyActor {
+	const resolved = requireActor(actor);
+
+	if (resolved.role === ADMIN_ROLE) return resolved;
+	if (ownerUserId && resolved.id === ownerUserId) return resolved;
+
+	throw new AuthError('You do not have permission to access this resource.', ErrorCode.FORBIDDEN);
+}

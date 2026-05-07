@@ -14,6 +14,28 @@ import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/ser
 
 import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
 
+export * from './auth.types';
+
+export {
+	banUser,
+	getAccountProfile,
+	getCheckoutCustomer,
+	getMyAccountProfile,
+	getSafeAuthRedirectTo,
+	getUserAdminProfile,
+	listMyAuthMethods,
+	listMySessions,
+	listUserSessions,
+	listUsers,
+	repairMyTempEmailFromLinkedGoogle,
+	repairUserTempEmailFromLinkedGoogle,
+	revokeMySession,
+	revokeUserSessions,
+	setUserRole,
+	unbanUser,
+	updateMyDisplayName
+} from './auth.service';
+
 function getPhoneTempEmail(phoneNumber: string) {
 	const digits = phoneNumber.replace(/\D/g, '');
 	return `phone-${digits}@phone.caroclothing.lk`;
