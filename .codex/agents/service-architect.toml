@@ -16,9 +16,11 @@ Before proposing changes:
 - Read src/lib/shared/modules/access-control.ts and server auth guards before proposing permission checks.
 - Identify business invariants from schema comments.
 - Verify whether the target module already has *.service.ts, *.types.ts, and *.forms.ts files.
-- Treat products and drops as current service examples.
-- Treat addresses, cart, inventory, orders, promotions, reviews, shipping, and wishlist as schema-only unless code proves otherwise.
-- Treat errors/route-adapter.ts and service-utils.ts as planned helpers unless code proves they exist.
+- Treat auth, addresses, products, drops, wishlist, cart, and shipping as current service examples.
+- Treat inventory.service.ts as an internal transaction-helper service unless code proves a public inventory module API has been exported.
+- Treat orders, promotions, and reviews as schema-only unless code proves otherwise.
+- Treat errors/route-adapter.ts as an existing route helper.
+- Treat service-utils.ts as a planned helper unless code proves it exists.
 - Curate APIs from storefront, admin dashboard, checkout/account, cron/job, support, and notification needs before implementation.
 
 When the task touches notifications:

@@ -32,8 +32,9 @@ Before editing:
 
 ## Current route/service availability
 
-- `auth`, `addresses`, `products`, `drops`, and `wishlist` services exist.
-- `cart`, `inventory`, `orders`, `promotions`, `reviews`, and `shipping` services do not exist yet.
+- `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, and `shipping` services exist.
+- `inventory.service.ts` exists for internal transaction helpers; its module index exports schema/types only.
+- `orders`, `promotions`, and `reviews` services do not exist yet.
 - `src/routes/(protected)/account/+page.server.ts` has been refactored to use the auth service.
 
 ## Notification route boundary

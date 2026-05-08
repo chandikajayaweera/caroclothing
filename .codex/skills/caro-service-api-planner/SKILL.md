@@ -25,10 +25,12 @@ For notification-related modules, also read email/SMS modules and cron scaffoldi
 
 ## Current codebase state
 
-- Existing service modules: `products`, `drops`, `wishlist`.
-- Schema-only modules needing service plans: `addresses`, `cart`, `inventory`, `orders`, `promotions`, `reviews`, `shipping`.
+- Existing service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`.
+- Existing internal service helpers: `inventory` has transaction helpers in `inventory.service.ts`; its module index exports schema/types only.
+- Schema-only modules needing service plans: `orders`, `promotions`, `reviews`.
 - Existing foundation helpers: `service-context.ts`, `auth/guards.ts`.
-- Planned/missing helpers: `errors/route-adapter.ts`, `service-utils.ts`.
+- Existing route helper: `errors/route-adapter.ts`.
+- Planned/missing helpers: `service-utils.ts`.
 - Existing drop sender: `sendDropLaunchEmail`.
 - Missing drop SMS sender: `sendDropLaunchSms`.
 

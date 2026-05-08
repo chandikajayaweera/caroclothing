@@ -27,10 +27,12 @@ When working on notifications, also inspect the relevant notification modules be
 
 ## Current service-layer status
 
-- Implemented service modules: `products`, `drops`, `wishlist`.
+- Implemented service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`.
+- Implemented internal service helpers: `inventory` has `inventory.service.ts` transaction helpers used by cart/order-style workflows; its module index exports schema/types only.
 - Implemented foundation helpers: `src/lib/server/modules/service-context.ts`, `src/lib/server/modules/auth/guards.ts`.
-- Schema-only business modules that still need planned services: `addresses`, `cart`, `inventory`, `orders`, `promotions`, `reviews`, `shipping`.
-- Planned but not yet implemented helpers mentioned in architecture docs: `src/lib/server/modules/errors/route-adapter.ts`, `src/lib/server/modules/service-utils.ts`.
+- Schema-only business modules that still need planned services: `orders`, `promotions`, `reviews`.
+- Existing route helper: `src/lib/server/modules/errors/route-adapter.ts`.
+- Planned but not yet implemented helpers mentioned in architecture docs: `src/lib/server/modules/service-utils.ts`.
 - Existing semantic notification sender: `sendDropLaunchEmail`.
 - Missing semantic notification sender: `sendDropLaunchSms`; do not import or call it until it exists.
 

@@ -1,7 +1,7 @@
 # Codex Service-Layer Workflow Guide
 
 **Audience:** Codex agents and humans using Codex to build CaroClothing services  
-**Status:** current as of 2026-05-06  
+**Status:** current as of 2026-05-08
 **Scope:** Codex prompts, skills, custom agents, planning stages, and validation for service-layer work
 
 ## Current Codebase State
@@ -24,14 +24,18 @@ Implemented services:
 - products
 - drops
 - wishlist
+- cart
+- shipping
+- promotions
+
+Implemented internal service helpers:
+- inventory
+  - `inventory.service.ts` exists for transaction helpers used by cart/order-style workflows;
+  - `src/lib/server/modules/inventory/index.ts` intentionally exports schema/types only.
 
 Schema-only modules needing services:
-- cart
-- inventory
 - orders
-- promotions
 - reviews
-- shipping
 
 Implemented service foundations:
 - src/lib/server/modules/service-context.ts

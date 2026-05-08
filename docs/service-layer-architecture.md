@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture Plan
 
 **Audience:** project collaborators and LLM coding agents  
-**Status:** validated development-ready architecture plan - updated with Codex workflow/current-code snapshot on 2026-05-06
+**Status:** validated development-ready architecture plan - updated with Codex workflow/current-code snapshot on 2026-05-08
 **Scope:** server module services, route boundaries, forms, access control, errors, R2 media, cron workflows, and module-by-module implementation order
 
 ## Validation Notes From Final Review
@@ -18,7 +18,7 @@ This version includes the final validation pass. The main corrections applied ar
 
 ## Current Implementation Snapshot
 
-This document describes the target service-layer architecture and must stay aligned with current code. As of 2026-05-06:
+This document describes the target service-layer architecture and must stay aligned with current code. As of 2026-05-08:
 
 ```txt
 Implemented service modules:
@@ -27,13 +27,21 @@ Implemented service modules:
 - src/lib/server/modules/products/products.service.ts
 - src/lib/server/modules/drops/drops.service.ts
 - src/lib/server/modules/wishlist/wishlist.service.ts
+- src/lib/server/modules/cart/cart.service.ts
+- src/lib/server/modules/shipping/shipping.service.ts
+- src/lib/server/modules/promotions/promotions.service.ts
+
+Implemented internal service helpers:
+- src/lib/server/modules/inventory/inventory.service.ts
+  - currently consumed directly by cart/order-style transaction code;
+  - module index exports inventory schema/types only, not a public CRUD API.
 
 Implemented foundation helpers:
 - src/lib/server/modules/service-context.ts
 - src/lib/server/modules/auth/guards.ts
 
 Schema-only business modules still needing services:
-- cart, inventory, orders, promotions, reviews, shipping
+- orders, reviews
 
 Known route debt:
 - No known business route direct-DB imports after the account route refactor.
@@ -1370,6 +1378,7 @@ Files:
 
 ```txt
 src/lib/server/modules/promotions/promotions.service.ts
+src/lib/server/modules/promotions/promotions.forms.ts
 src/lib/server/modules/promotions/promotions.types.ts
 ```
 
@@ -1382,45 +1391,60 @@ export async function createPromoCode(
 	ctx: ServiceContext,
 	input: CreatePromoCodeInput
 ): Promise<PromoCodeDTO>;
+
 export async function getPromoCode(
 	ctx: ServiceContext,
-	lookup: PromoCodeLookup
+	input: { lookup: PromoCodeLookup }
 ): Promise<PromoCodeDTO>;
 
 export async function listPromoCodes(
 	ctx: ServiceContext,
-	options?: {
-		includeInactive?: boolean;
-		limit?: number;
-		offset?: number;
-	}
-): Promise<PromoCodeDTO[]>;
+	options?: ListPromoCodesOptions
+): Promise<PromoCodeListResult>;
 
 export async function updatePromoCode(
 	ctx: ServiceContext,
-	lookup: PromoCodeLookup,
-	input: UpdatePromoCodeInput
+	input: { lookup: PromoCodeLookup; data: UpdatePromoCodeInput }
 ): Promise<PromoCodeDTO>;
 
-export async function validatePromoCodeForCart(input: {
-	code: string;
-	userId?: string | null;
-	subtotal: number;
-	now?: Date;
-}): Promise<PromoValidationResult>;
+export async function setPromoCodeActive(
+	ctx: ServiceContext,
+	input: SetPromoCodeActiveInput
+): Promise<PromoCodeDTO>;
 
-export async function recordPromoUsage(input: {
-	promoCodeId: string;
-	orderId: string;
-	userId?: string | null;
-	discountAmount: number;
-	now?: Date;
-}): Promise<void>;
+export async function validatePromoCodeForCart(
+	input: ValidatePromoCodeForCartInput
+): Promise<PromoValidationResult>;
+
+export async function listPromoCodeUsages(
+	ctx: ServiceContext,
+	options?: ListPromoCodeUsagesOptions
+): Promise<PromoCodeUsageListResult>;
+
+export async function recordPromoUsage(
+	ctx: ServiceContext,
+	input: RecordPromoUsageInput
+): Promise<PromoCodeUsageDTO>;
 
 export async function reconcilePromoCodeUsageCount(
-	promoCodeId: string,
-	ctx: ServiceContext
+	ctx: ServiceContext,
+	input: ReconcilePromoCodeUsageCountInput
 ): Promise<PromoCodeDTO>;
+
+export async function reconcilePromoCodeUsageCounts(
+	ctx: ServiceContext,
+	input?: ReconcilePromoCodeUsageCountsInput
+): Promise<PromoUsageReconciliationResult>;
+
+export function createPromoCodeSnapshot(input: { promoCode: PromoCodeDTO }): PromoCodeSnapshot;
+```
+
+Internal transaction helpers are exported from `promotions.service.ts` for checkout/order services, but not from the module index:
+
+```ts
+export async function validatePromoCodeForCartTx(...): Promise<PromoValidationResult>;
+export async function recordPromoUsageTx(...): Promise<PromoCodeUsageDTO>;
+export async function reconcilePromoCodeUsageCountTx(...): Promise<PromoCodeDTO>;
 ```
 
 ### Required behavior
@@ -1428,10 +1452,13 @@ export async function reconcilePromoCodeUsageCount(
 ```txt
 - Admin required for promo CRUD.
 - New promo codes default inactive unless explicitly activated.
+- Activation/deactivation is an explicit action through setPromoCodeActive.
+- Admin route form schemas normalize promo codes by trimming and uppercasing before validation.
 - Enforce active state, startsAt, expiresAt, usageLimit, perUserLimit, minOrderAmount, and maxDiscountAmount.
 - usedCount + promoCodeUsage insert must happen in one transaction.
 - promoCodeUsage.orderId has no FK; service must verify the order exists before recording usage.
 - Scheduled reconciliation should reset usedCount from COUNT(promo_code_usage).
+- Do not expose promoCodeUsage as generic CRUD; expose list, record, and reconciliation workflows only.
 ```
 
 ---
@@ -1614,6 +1641,16 @@ src/lib/server/modules/shipping/shipping.types.ts
 ### API
 
 ```ts
+export function listShippingDistrictOptions(): ShippingDistrictOption[];
+
+export async function listShippingQuotes(
+	input?: ListShippingQuotesInput
+): Promise<ShippingQuoteDTO[]>;
+
+export async function calculateShippingQuote(
+	input: CalculateShippingQuoteInput
+): Promise<ShippingQuoteDTO>;
+
 export async function createShippingMethod(
 	ctx: ServiceContext,
 	input: CreateShippingMethodInput
@@ -1621,32 +1658,44 @@ export async function createShippingMethod(
 
 export async function updateShippingMethod(
 	ctx: ServiceContext,
-	id: string,
-	input: UpdateShippingMethodInput
+	input: UpdateShippingMethodInput & { shippingMethodId: string }
 ): Promise<ShippingMethodDTO>;
 
-export async function listShippingMethods(options?: {
-	activeOnly?: boolean;
-	district?: SriLankaDistrict;
-	subtotal?: number;
-}): Promise<ShippingMethodQuoteDTO[]>;
+export async function getShippingMethod(
+	ctx: ServiceContext,
+	input: { shippingMethodId: string; includeZones?: boolean }
+): Promise<ShippingMethodDTO>;
+
+export async function listShippingMethods(
+	ctx: ServiceContext,
+	options?: ListShippingMethodsOptions
+): Promise<ShippingMethodListResult>;
 
 export async function setShippingZone(
 	ctx: ServiceContext,
-	input: {
-		shippingMethodId: string;
-		district: SriLankaDistrict;
-		priceOverride: number;
-		estimatedDaysMin: number;
-		estimatedDaysMax: number;
-	}
+	input: SetShippingZoneInput
 ): Promise<ShippingZoneDTO>;
 
-export async function calculateShippingQuote(input: {
-	shippingMethodId: string;
-	district: SriLankaDistrict;
-	subtotal: number;
-}): Promise<ShippingQuoteDTO>;
+export async function removeShippingZone(
+	ctx: ServiceContext,
+	input: { shippingMethodId: string; district: SriLankaDistrict }
+): Promise<void>;
+
+export async function listShippingZones(
+	ctx: ServiceContext,
+	options?: ListShippingZonesOptions
+): Promise<ShippingZoneListResult>;
+
+export function createShippingMethodSnapshot(quote: ShippingQuoteDTO): ShippingMethodSnapshot;
+```
+
+Internal transaction helper available from `shipping.service.ts` for checkout/order workflows:
+
+```ts
+export async function calculateShippingQuoteTx(
+	tx: QueryExecutor,
+	input: CalculateShippingQuoteInput & { activeOnly?: boolean }
+): Promise<ShippingQuoteDTO>;
 ```
 
 ### Required behavior
@@ -1657,6 +1706,7 @@ export async function calculateShippingQuote(input: {
 - District-level shippingZone overrides method defaults.
 - Free-shipping threshold overrides price when subtotal qualifies.
 - Return UI-ready ETA text and final price.
+- Form schemas use refined insert/update schemas so delivery estimate range errors surface during route validation.
 ```
 
 ---
@@ -1837,13 +1887,15 @@ markDropWaitlistEntriesNotified(
 	{ entryIds: successfullySentEntryIds }
 )
 
-listPromoCodes({
-	actor: systemActor,
-}, { includeInactive: true, limit, offset })
+listPromoCodes(
+	{ actor: systemActor },
+	{ includeInactive: true, limit, offset }
+)
 
-reconcilePromoCodeUsageCount(code.id, {
-	actor: systemActor
-})
+reconcilePromoCodeUsageCount(
+	{ actor: systemActor, now },
+	{ lookup: { id: code.id } }
+)
 ```
 
 System actor convention:

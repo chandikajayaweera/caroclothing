@@ -20,8 +20,9 @@ Before editing, read:
 
 ## Current codebase state
 
-- Implemented services: `auth`, `addresses`, `products`, `drops`, `wishlist`.
-- Schema-only service candidates: `cart`, `inventory`, `orders`, `promotions`, `reviews`, `shipping`.
+- Implemented services: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`.
+- Implemented internal service helpers: `inventory` has `inventory.service.ts` transaction helpers used by cart/order-style workflows; its module index exports schema/types only.
+- Schema-only service candidates: `orders`, `promotions`, `reviews`.
 - Implemented foundations: `service-context.ts`, `auth/guards.ts`.
 - Planned but missing foundations: `service-utils.ts`.
 - Existing drop notification sender: `sendDropLaunchEmail`.
