@@ -18,6 +18,16 @@ import {
 import { mediaUrl } from '$lib/server/modules/media/utils';
 import type { ServiceContext } from '$lib/server/modules/service-context';
 import {
+	isCheckConstraintError,
+	isForeignKeyConstraintError,
+	isString,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	removeUndefinedValues,
+	uniqueStrings
+} from '$lib/server/modules/service-utils';
+import {
 	category,
 	insertCategorySchema,
 	insertProductImageSchema,
@@ -1823,36 +1833,6 @@ function mapProductImagePersistenceError(error: unknown): never {
 	throw error;
 }
 
-function isUniqueConstraintError(message: string): boolean {
-	return (
-		message.includes('UNIQUE constraint failed') ||
-		message.includes('SQLITE_CONSTRAINT_UNIQUE') ||
-		message.includes('SQLITE_CONSTRAINT: UNIQUE')
-	);
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	return (
-		message.includes('FOREIGN KEY constraint failed') ||
-		message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
-	);
-}
-
-function isCheckConstraintError(message: string): boolean {
-	return message.includes('CHECK constraint failed') || message.includes('SQLITE_CONSTRAINT_CHECK');
-}
-
-function normalizeLimit(limit: number | undefined): number {
-	if (limit === undefined) return 100;
-	if (!Number.isFinite(limit)) return 100;
-	return Math.min(Math.max(Math.trunc(limit), 1), 200);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
 function normalizeTagIds(tagIds: string[] | undefined): string[] {
 	if (tagIds === undefined) return [];
 
@@ -1875,14 +1855,6 @@ function normalizeTagId(tagId: string): string {
 	return normalizedTagId;
 }
 
-function uniqueStrings(values: string[]): string[] {
-	return [...new Set(values)];
-}
-
-function isString(value: string | null | undefined): value is string {
-	return typeof value === 'string';
-}
-
 function groupByProductId<T extends { productId: string }>(rows: T[]): Map<string, T[]> {
 	const groups = new Map<string, T[]>();
 
@@ -1893,10 +1865,4 @@ function groupByProductId<T extends { productId: string }>(rows: T[]): Map<strin
 	}
 
 	return groups;
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): Partial<T> {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as Partial<T>;
 }

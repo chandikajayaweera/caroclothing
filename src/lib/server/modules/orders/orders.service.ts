@@ -24,6 +24,14 @@ import {
 } from '$lib/server/modules/errors';
 import { mediaUrl } from '$lib/server/modules/media/utils';
 import type { ServiceContext } from '$lib/server/modules/service-context';
+import {
+	isForeignKeyConstraintError,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	removeUndefinedValues,
+	resolveNow
+} from '$lib/server/modules/service-utils';
 import { address as addressTable, type Address } from '../addresses/addresses.drizzle';
 import { createAddressSnapshot, validateCheckoutAddress } from '../addresses/addresses.service';
 import type { AddressSnapshot, CheckoutAddressDTO } from '../addresses/addresses.types';
@@ -308,7 +316,7 @@ export async function listMyOrders(
 	options: ListMyOrdersOptions = {}
 ): Promise<OrderListResult> {
 	const actor = requireActor(ctx.actor);
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildOrderListWhere({ ...options, userId: actor.id }, ctx);
 	return listOrdersTx(getDb(), where, limit, offset);
@@ -320,7 +328,7 @@ export async function listOrders(
 ): Promise<OrderListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildOrderListWhere(options, ctx);
 	return listOrdersTx(getDb(), where, limit, offset);
@@ -450,7 +458,7 @@ export async function listPayments(
 ): Promise<PaymentListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildPaymentListWhere(options);
 	const db = getDb();
@@ -1470,24 +1478,6 @@ function normalizeNullableText(
 	return normalized;
 }
 
-function normalizeLimit(
-	limit: number | undefined,
-	defaultLimit = DEFAULT_LIMIT,
-	maxLimit = MAX_LIMIT
-): number {
-	if (limit === undefined || !Number.isFinite(limit)) return defaultLimit;
-	return Math.min(Math.max(Math.trunc(limit), 1), maxLimit);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
-function resolveNow(ctx: ServiceContext, now?: Date): Date {
-	return now ?? ctx.now ?? new Date();
-}
-
 function formatOrderNumberDate(now: Date): string {
 	return now.toISOString().slice(0, 10).replace(/-/g, '');
 }
@@ -1521,12 +1511,6 @@ function timestampMsToDate(value: number | null | undefined): Date | null | unde
 
 function sanitizeLikeTerm(value: string): string {
 	return value.trim().replace(/[%_]/g, '');
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): T {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as T;
 }
 
 function mapOrderPersistenceError(error: unknown): never {
@@ -1565,21 +1549,6 @@ function mapPaymentPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(message: string): boolean {
-	const normalized = message.toLowerCase();
-	return (
-		normalized.includes('unique constraint failed') || normalized.includes('constraint_unique')
-	);
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	const normalized = message.toLowerCase();
-	return (
-		normalized.includes('foreign key constraint failed') ||
-		normalized.includes('constraint_foreign')
-	);
 }
 
 const onlinePaymentMethodSet = new Set<string>(ONLINE_PAYMENT_METHODS);

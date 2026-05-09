@@ -1,7 +1,7 @@
 # Codex Service-Layer Workflow Guide
 
 **Audience:** Codex agents and humans using Codex to build CaroClothing services  
-**Status:** current as of 2026-05-08
+**Status:** current as of 2026-05-09
 **Scope:** Codex prompts, skills, custom agents, planning stages, and validation for service-layer work
 
 ## Current Codebase State
@@ -41,16 +41,16 @@ Schema-only modules needing services:
 Implemented service foundations:
 - src/lib/server/modules/service-context.ts
 - src/lib/server/modules/auth/guards.ts
-
-Planned but missing foundations:
 - src/lib/server/modules/service-utils.ts
 
 Notification status:
 - sendDropLaunchEmail exists.
 - sendDropLaunchSms does not exist yet.
+- notification_outbox is planned as the durable source of truth for async notification state.
+- Cloudflare Queues, Cron Triggers, and Dead Letter Queues are planned for notification orchestration.
 ```
 
-Ignore `docs/caro_marketing_strategy.html` unless the user explicitly asks for it.
+Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` unless the user explicitly asks for them.
 
 ## Workflow Stages
 
@@ -72,7 +72,7 @@ Plan the <module> service layer. First inspect the schema and helper modules. Do
 
 ### 2. Curate Service APIs
 
-Use this before implementation. The goal is to decide what services should expose based on storefront, admin dashboard, checkout, cron/jobs, notifications, and support workflows.
+Use this before implementation. The goal is to decide what services should expose based on storefront, admin dashboard, checkout, Queue/Cron/jobs, notifications, and support workflows.
 
 - Use skill: `$caro-service-api-planner`
 - Optional agent: `service-api-curator`
@@ -85,8 +85,8 @@ API plan must include:
 - public/storefront reads
 - customer/account actions
 - admin dashboard actions
-- cron/job helpers
-- notification list/mark helpers
+- Queue/Cron/job helpers
+- notification outbox/list/mark helpers
 - DTOs and derived fields
 - cross-module dependencies
 - explicit non-goals
@@ -95,7 +95,7 @@ Starter prompt:
 
 ```txt
 $caro-service-api-planner
-Create a service API plan for <module>. Consider storefront, admin dashboard, checkout/account, cron/jobs, and related modules. Use current schemas and existing helper modules only. End with exact APIs to implement and what not to expose.
+Create a service API plan for <module>. Consider storefront, admin dashboard, checkout/account, Queue/Cron/jobs, and related modules. Use current schemas and existing helper modules only. End with exact APIs to implement and what not to expose.
 ```
 
 ### 3. Design Implementation
@@ -121,6 +121,7 @@ Authorization checks
 Transaction boundaries
 R2 compensation flow
 Notification boundary
+Outbox enqueue and idempotency strategy, if any
 Test/validation commands
 Known risks
 ```
@@ -142,8 +143,12 @@ For notifications:
 
 - Use skill: `$caro-notifications`
 - Optional agent: `notification-orchestrator`
-- Domain services expose idempotent list/mark helpers.
-- Cron/jobs send email/SMS and mark records only after successful sends.
+- DB notification_outbox is the durable source of truth for async notification state.
+- Domain services enqueue outbox intent inside the same DB transaction as the business change.
+- Queue messages carry only outboxId/idempotencyKey, never full payloads or PII.
+- Cloudflare Queue consumers/Cron jobs send email/SMS and mark records sent only after successful sends.
+- Cloudflare Cron must recover pending, due failed, and stale locked outbox rows.
+- Cloudflare DLQ is for operational review only; DB outbox remains durable audit/retry state.
 - Do not call `sendDropLaunchSms` until implemented and exported.
 
 ### 5. Integrate Routes
@@ -188,7 +193,7 @@ Only spawn subagents when the user explicitly asks for them.
 2. service-api-curator proposes service APIs from storefront/admin/cron needs.
 3. service-architect turns accepted APIs into an implementation plan.
 4. service-builder implements the approved module.
-5. notification-orchestrator handles email/SMS or cron notification plans.
+5. notification-orchestrator handles email/SMS, outbox, Queue, DLQ, or Cron notification plans.
 6. svelte-integrator refactors routes after services exist.
 7. test-reviewer reviews the diff before final summary.
 ```
@@ -206,11 +211,14 @@ rg -n '\$lib/server/db|drizzle-orm|\.drizzle|media/r2' src/routes
 rg -n '\$lib/client' src/lib/server
 ```
 
+Also run a targeted stale-contradiction search for old schema-only service status, DLQ/KV-as-source-of-truth wording, and any instruction to put full notification payloads in Queue messages.
+
 Expected current findings:
 
 ```txt
 src/routes/media/[...key]/+server.ts is the allowed media R2 route exception.
 src/lib/server/modules/cron/scheduled-jobs.ts has commented stale client-env scaffolding.
+notification_outbox, Cloudflare Queue bindings, and Queue handlers are planned but not implemented.
 ```
 
 ## Codex Sources

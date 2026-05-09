@@ -16,21 +16,25 @@ Before proposing changes:
 - Read src/lib/shared/modules/access-control.ts and server auth guards before proposing permission checks.
 - Identify business invariants from schema comments.
 - Verify whether the target module already has *.service.ts, *.types.ts, and *.forms.ts files.
-- Treat auth, addresses, products, drops, wishlist, cart, and shipping as current service examples.
+- Treat auth, addresses, products, drops, wishlist, cart, shipping, promotions, orders, and reviews as current service examples.
 - Treat inventory.service.ts as an internal transaction-helper service unless code proves a public inventory module API has been exported.
-- Treat orders, promotions, and reviews as schema-only unless code proves otherwise.
+- Treat schema-only modules as none in the current core service rollout unless code proves otherwise.
 - Treat errors/route-adapter.ts as an existing route helper.
-- Treat service-utils.ts as a planned helper unless code proves it exists.
-- Curate APIs from storefront, admin dashboard, checkout/account, cron/job, support, and notification needs before implementation.
+- Treat service-utils.ts as an existing foundation helper.
+- Treat notifications/outbox as a planned notification state helper unless code proves it exists.
+- Curate APIs from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, and notification needs before implementation.
 
 When the task touches notifications:
 - Read existing email/SMS modules before proposing senders or types.
-- Keep domain services responsible for state/list/mark helpers.
-- Keep cron/job/orchestration responsible for actual email/SMS sending.
+- Keep domain services responsible for business state and notification_outbox enqueueing.
+- Keep Queue/Cron/job orchestration responsible for actual email/SMS sending.
+- Keep Queue messages limited to outboxId/idempotencyKey, never payloads or PII.
+- Treat DLQ as operational review only; DB outbox remains durable audit/retry state.
 - Preserve EmailResult and SmsResult typed-result contracts.
 - Use sendDropLaunchEmail where available.
 - Do not call sendDropLaunchSms unless implemented and exported.
 - Do not import from $lib/client/* in server modules.
+- Do not use Cloudflare KV as the notification outbox.
 
 Output:
 1. Files inspected

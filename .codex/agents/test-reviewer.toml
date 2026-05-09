@@ -22,10 +22,16 @@ Check:
 
 Notification checks:
 - Domain services do not send email/SMS directly unless explicitly approved.
-- Cron/job/orchestration marks notification records only after successful send.
+- Async notification workflows use DB notification_outbox as durable source of truth.
+- Domain services enqueue outbox intent inside the business transaction, or use approved legacy idempotent list/mark helpers.
+- Queue messages contain only outboxId/idempotencyKey, never full payloads or customer PII.
+- Queue/Cron/job/orchestration marks notification records sent only after successful send.
+- Cron recovers pending, due failed, and stale locked outbox rows.
+- DLQ is operational review only; DB outbox remains durable audit/retry state.
 - Email senders preserve EmailResult for normal delivery failures.
 - SMS senders preserve SmsResult for normal delivery failures.
 - Semantic senders are used where available.
 - sendDropLaunchSms is not called unless implemented and exported.
 - Batch notification workflows are idempotent, limit-aware, and safe to retry.
+- Cloudflare KV is not used as the notification outbox.
 """

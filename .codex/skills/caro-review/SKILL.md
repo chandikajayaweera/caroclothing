@@ -26,19 +26,24 @@ Check:
 - Form schemas are separate from DB schemas when files or UI-only fields exist.
 - Internal junction/audit tables are not exposed as generic CRUD resources.
 - Docs match current code, especially implemented services, planned helpers, and exported notification senders.
-- New services were planned from storefront, admin dashboard, checkout/account, cron/job, support, and notification needs.
+- New services were planned from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, and notification needs.
 
 Notification checks:
 
 - Domain services do not send email/SMS directly unless explicitly approved.
-- Domain services expose idempotent list/mark helpers for notification workflows.
-- Cron/job/orchestration code sends notifications and marks records notified only after successful send.
+- Domain services enqueue notification_outbox intent inside the business transaction, or expose idempotent list/mark helpers for approved legacy workflows.
+- DB notification_outbox remains the durable source of truth for async notification state.
+- Queue messages contain only outboxId/idempotencyKey, never full payloads or customer PII.
+- Queue/Cron/job/orchestration code sends notifications and marks records sent only after successful send.
+- Cron recovers pending, due failed, and stale locked outbox rows.
+- DLQ is used for operational review only, not as durable business history.
 - `sendEmail`/email senders preserve `EmailResult` for normal delivery failures.
 - `sendSms`/SMS senders preserve `SmsResult` for normal delivery failures.
 - Semantic senders are used instead of inline message construction where available.
 - `sendDropLaunchSms` is not called unless it has been implemented and exported.
-- Failed notification sends do not mark entries as notified.
+- Failed notification sends do not mark entries as sent.
 - Batch notification workflows are limit-aware and safe to retry.
+- Cloudflare KV is not used as the notification outbox.
 
 Validation checks:
 

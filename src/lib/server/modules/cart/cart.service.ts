@@ -29,6 +29,14 @@ import type {
 	ServiceContext,
 	SystemActor
 } from '$lib/server/modules/service-context';
+import {
+	isCheckConstraintError,
+	isForeignKeyConstraintError,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	resolveNow
+} from '$lib/server/modules/service-utils';
 import { drop as dropTable, dropProduct as dropProductTable } from '../drops/drops.drizzle';
 import {
 	getInventoryAvailabilityByVariantIdsTx,
@@ -392,7 +400,7 @@ export async function listCarts(
 	requireAdmin(ctx.actor);
 
 	const now = resolveNow(ctx);
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const conditions = cartListConditions(options, now);
 	const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -453,7 +461,7 @@ export async function deleteExpiredGuestCarts(
 	requireAdmin(ctx.actor);
 
 	const now = resolveNow(ctx, input.now);
-	const limit = normalizeCleanupLimit(input.limit);
+	const limit = normalizeLimit(input.limit, CLEANUP_DEFAULT_LIMIT, CLEANUP_MAX_LIMIT);
 
 	try {
 		return await getDb().transaction(async (tx) => {
@@ -1298,21 +1306,6 @@ function validateCartItemQuantity(value: number, field: string): void {
 	}
 }
 
-function normalizeLimit(limit: number | undefined): number {
-	if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
-	return Math.min(Math.max(Math.trunc(limit), 1), MAX_LIMIT);
-}
-
-function normalizeCleanupLimit(limit: number | undefined): number {
-	if (limit === undefined || !Number.isFinite(limit)) return CLEANUP_DEFAULT_LIMIT;
-	return Math.min(Math.max(Math.trunc(limit), 1), CLEANUP_MAX_LIMIT);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
 function normalizeId(value: string, field: string): string {
 	const normalized = value.trim();
 
@@ -1325,10 +1318,6 @@ function normalizeId(value: string, field: string): string {
 
 function normalizeSessionToken(value: string): string {
 	return normalizeId(value, 'sessionToken');
-}
-
-function resolveNow(ctx: ServiceContext, now?: Date): Date {
-	return now ?? ctx.now ?? new Date();
 }
 
 function resolveCartImageUrl(images: ProductImage[], variantId: string): string | null {
@@ -1426,29 +1415,4 @@ function mapCartPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('unique constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_unique') ||
-		normalizedMessage.includes('sqlite_constraint: unique')
-	);
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('foreign key constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_foreignkey')
-	);
-}
-
-function isCheckConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('check constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_check')
-	);
 }

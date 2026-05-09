@@ -3,6 +3,16 @@ import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/modules/auth/guards';
 import { ErrorCode, PromotionError, getErrorMessage, isAppError } from '$lib/server/modules/errors';
 import type { ServiceContext } from '$lib/server/modules/service-context';
+import {
+	isCheckConstraintError,
+	isForeignKeyConstraintError,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	removeUndefinedValues,
+	resolveNow,
+	uniqueStrings
+} from '$lib/server/modules/service-utils';
 import { order as orderTable, type Order } from '../orders/orders.drizzle';
 import {
 	insertPromoCodeSchema,
@@ -93,7 +103,7 @@ export async function listPromoCodes(
 	requireAdmin(ctx.actor);
 
 	const now = resolveNow(ctx);
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildPromoCodeListWhere(options);
 	const db = getDb();
@@ -206,7 +216,7 @@ export async function listPromoCodeUsages(
 ): Promise<PromoCodeUsageListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildPromoCodeUsageListWhere(options);
 	const db = getDb();
@@ -953,32 +963,10 @@ function normalizeOptionalText(
 	return normalized;
 }
 
-function normalizeLimit(
-	limit: number | undefined,
-	defaultLimit = DEFAULT_LIMIT,
-	maxLimit = MAX_LIMIT
-): number {
-	if (limit === undefined || !Number.isFinite(limit)) return defaultLimit;
-	return Math.min(Math.max(Math.trunc(limit), 1), maxLimit);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
-function resolveNow(ctx: ServiceContext | null | undefined): Date {
-	return ctx?.now ?? new Date();
-}
-
 function timestampMsToDate(value: number | null | undefined): Date | null | undefined {
 	if (value === undefined) return undefined;
 	if (value === null) return null;
 	return new Date(value);
-}
-
-function uniqueStrings(values: string[]): string[] {
-	return [...new Set(values)];
 }
 
 function sanitizeLikeTerm(value: string): string {
@@ -1013,35 +1001,4 @@ function mapPromotionPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('unique constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_unique') ||
-		normalizedMessage.includes('sqlite_constraint: unique')
-	);
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('foreign key constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_foreignkey')
-	);
-}
-
-function isCheckConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('check constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_check')
-	);
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): Partial<T> {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as Partial<T>;
 }

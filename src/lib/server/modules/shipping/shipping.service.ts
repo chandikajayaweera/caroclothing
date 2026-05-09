@@ -3,6 +3,14 @@ import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/modules/auth/guards';
 import { ErrorCode, ShippingError, getErrorMessage, isAppError } from '$lib/server/modules/errors';
 import type { ServiceContext } from '$lib/server/modules/service-context';
+import {
+	isCheckConstraintError,
+	isForeignKeyConstraintError,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	removeUndefinedValues
+} from '$lib/server/modules/service-utils';
 import { SRI_LANKA_DISTRICTS, type SriLankaDistrict } from '../addresses/addresses.drizzle';
 import {
 	insertShippingMethodSchema,
@@ -154,7 +162,7 @@ export async function listShippingMethods(
 ): Promise<ShippingMethodListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildShippingMethodListWhere(options);
 	const db = getDb();
@@ -226,7 +234,7 @@ export async function listShippingZones(
 ): Promise<ShippingZoneListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildShippingZoneListWhere(options);
 	const db = getDb();
@@ -643,16 +651,6 @@ function normalizeOptionalText(
 	return normalized;
 }
 
-function normalizeLimit(limit: number | undefined): number {
-	if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
-	return Math.min(Math.max(Math.trunc(limit), 1), MAX_LIMIT);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
 function sanitizeLikeTerm(value: string): string {
 	return value.replace(/[%_]/g, '');
 }
@@ -675,35 +673,4 @@ function mapShippingPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('unique constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_unique') ||
-		normalizedMessage.includes('sqlite_constraint: unique')
-	);
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('foreign key constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_foreignkey')
-	);
-}
-
-function isCheckConstraintError(message: string): boolean {
-	const normalizedMessage = message.toLowerCase();
-	return (
-		normalizedMessage.includes('check constraint failed') ||
-		normalizedMessage.includes('sqlite_constraint_check')
-	);
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): Partial<T> {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as Partial<T>;
 }

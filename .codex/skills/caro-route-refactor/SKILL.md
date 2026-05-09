@@ -32,9 +32,8 @@ Before editing:
 
 ## Current route/service availability
 
-- `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, and `shipping` services exist.
+- `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `orders`, and `reviews` services exist.
 - `inventory.service.ts` exists for internal transaction helpers; its module index exports schema/types only.
-- `orders`, `promotions`, and `reviews` services do not exist yet.
 - `src/routes/(protected)/account/+page.server.ts` has been refactored to use the auth service.
 
 ## Notification route boundary
@@ -43,7 +42,9 @@ Routes should not become notification orchestrators. If a route triggers a workf
 
 - call the relevant domain service;
 - let the service write domain state;
-- let cron/job/webhook orchestration send notifications where applicable;
+- let the service enqueue notification_outbox intent where the workflow has approved async notifications;
+- let Cloudflare Queue/Cron/webhook orchestration send notifications where applicable;
+- never put full notification payloads or PII into Queue messages;
 - only use direct notification senders from routes when the architecture doc or task explicitly approves it.
 
 ## Use MCP

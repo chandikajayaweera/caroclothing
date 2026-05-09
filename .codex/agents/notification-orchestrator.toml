@@ -1,5 +1,5 @@
 name = "notification-orchestrator"
-description = "Plans or reviews Caro email/SMS notification helpers and cron notification orchestration."
+description = "Plans or reviews Caro email/SMS helpers, notification outbox state, Cloudflare Queue/Cron/DLQ orchestration, and delivery boundaries."
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 
@@ -11,8 +11,9 @@ Before proposing changes:
 - Read docs/codex-service-layer-workflow.md.
 - Read src/lib/server/modules/env/index.ts.
 - Read existing email and SMS notification modules.
+- Read notification outbox docs/files when present.
 - Read any domain service that owns notification state.
-- Read cron/scheduled-jobs.ts if job orchestration is involved.
+- Read cron/scheduled-jobs.ts and Cloudflare Queue/Cron/DLQ config or handler wiring if orchestration is involved.
 
 Rules:
 - Do not import from $lib/client/* inside server modules.
@@ -21,18 +22,24 @@ Rules:
 - Prefer semantic senders over inline message construction.
 - sendDropLaunchEmail currently exists.
 - sendDropLaunchSms is planned; do not call it until its type, sender, and index export exist.
-- Domain services expose idempotent list/mark helpers.
-- Cron/job code sends notifications and marks records notified only after successful sends.
-- Failed sends must not mark records as notified.
-- Do not add notification DB tables or redesign the system unless explicitly requested.
+- DB notification_outbox is the planned durable source of truth for async notification state.
+- The outbox module is the approved narrow exception to the normal rule against notification DB tables.
+- Domain services enqueue outbox intent inside the same DB transaction as the business state change, or expose idempotent list/mark helpers for legacy workflows.
+- Queue messages contain only outboxId/idempotencyKey, never full payloads or customer PII.
+- Queue/Cron/job code sends notifications and marks records sent only after successful sends.
+- Cron recovers pending, due failed, and stale locked outbox rows.
+- DLQ is operational review only; DB outbox remains durable audit/retry state.
+- Failed sends must not mark records as sent.
+- Do not use Cloudflare KV as the notification outbox.
+- Do not add extra notification DB tables or redesign the system unless explicitly requested.
 
 Output:
 1. Files inspected
 2. Existing sender contracts
 3. Existing exports and missing sender gaps
-4. Proposed sender/type changes
-5. Domain-service boundary
-6. Cron/job boundary
+4. Proposed sender/type/outbox changes
+5. Domain-service/outbox boundary
+6. Queue/Cron/DLQ boundary
 7. Validation commands
 8. Risks/questions
 

@@ -1,6 +1,6 @@
 ---
 name: caro-notifications
-description: Use when adding or modifying CaroClothing email/SMS notification helpers, semantic senders, cron notification orchestration, waitlist notification marking, EmailResult/SmsResult contracts, or notification-related docs.
+description: Use when adding or modifying CaroClothing email/SMS notification helpers, semantic senders, notification outbox state, Cloudflare Queue/Cron/DLQ orchestration, waitlist notification marking, EmailResult/SmsResult contracts, or notification-related docs.
 ---
 
 # Caro notification workflow
@@ -20,8 +20,10 @@ Before editing, read:
 - `src/lib/server/modules/notifications/sms/types.ts`
 - `src/lib/server/modules/notifications/sms/client.ts`
 - `src/lib/server/modules/notifications/sms/senders/*`
+- `src/lib/server/modules/notifications/outbox/*` when present.
 - Any service module whose notification state is being listed or marked.
 - `src/lib/server/modules/cron/scheduled-jobs.ts` when cron/job orchestration is involved.
+- Cloudflare Queue/Cron/DLQ bindings and handler entrypoints when transport orchestration is involved.
 
 ## Notification rules
 
@@ -36,16 +38,21 @@ Before editing, read:
 - Prefer semantic senders such as `sendDropLaunchEmail`.
 - `sendDropLaunchEmail` currently exists and is exported.
 - `sendDropLaunchSms` is planned but not currently implemented/exported; add its type, sender, and index export before using it.
-- Do not add notification database tables unless explicitly requested.
+- The planned `notification_outbox` module is the approved durable source of truth for async notification state.
+- Do not add extra notification database tables beyond the outbox unless explicitly requested.
 - Do not redesign the notification system for small sender additions.
 
 ## Domain boundary rules
 
 - Domain services should not send email/SMS directly unless explicitly approved.
-- Domain services expose idempotent list/mark helpers.
-- Cron/job/orchestration code sends email/SMS and marks records notified only after successful sends.
-- Failed sends must not mark records as notified.
+- Domain services enqueue outbox intent inside the same DB transaction as the business state change.
+- Queue messages must contain only `outboxId` or `idempotencyKey`, never full payloads or customer PII.
+- Cloudflare Queue consumers and Cron jobs send email/SMS and mark records sent only after successful sends.
+- Cloudflare Cron must recover pending, due failed, and stale locked outbox rows.
+- Cloudflare DLQ is operational review only; DB outbox remains durable audit/retry state.
+- Failed sends must not mark records as sent.
 - Batch jobs must be idempotent, limit-aware, and safe to retry.
+- Cloudflare KV must not be used as the notification outbox.
 
 ## Before coding, output
 
@@ -53,8 +60,8 @@ Before editing, read:
 2. Existing sender/result contracts
 3. Existing exports
 4. Missing sender/type/export gaps
-5. Proposed sender/type changes
-6. Domain/cron integration boundary
+5. Proposed sender/type/outbox changes
+6. Domain/outbox/Queue/Cron/DLQ integration boundary
 7. Validation commands
 8. Risks/questions
 

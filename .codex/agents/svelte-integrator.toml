@@ -14,9 +14,11 @@ Rules:
 - Use service functions for all business reads/writes.
 - Use existing route AppError/Superforms adapters where available; if errors/route-adapter.ts is missing, plan/add it before importing it.
 - Do not call email/SMS senders directly from routes unless explicitly approved by the task and architecture doc.
-- Keep notification orchestration in cron/jobs/webhooks or approved service-adjacent workflows.
-- Products and drops services currently exist. Other business modules may need service implementation before route refactors.
-- Known route debt: src/routes/(protected)/account/+page.server.ts imports db/auth schema directly.
+- Keep notification orchestration in Cloudflare Queue/Cron/jobs/webhooks or approved service-adjacent workflows.
+- Routes should call domain services and must not call email/SMS senders directly unless explicitly approved.
+- Routes must not place full notification payloads or customer PII into Queue messages.
+- Auth, addresses, products, drops, wishlist, cart, shipping, promotions, orders, and reviews services currently exist.
+- Known route debt should be verified from current code before planning a route refactor.
 - Use Svelte MCP or Context7 MCP before using uncertain SvelteKit/Superforms APIs.
 - Keep UI components untouched unless necessary.
 """

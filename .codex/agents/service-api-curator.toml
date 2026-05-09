@@ -1,5 +1,5 @@
 name = "service-api-curator"
-description = "Curates Caro service-layer API requirements from schemas, storefront, admin, checkout, cron, notifications, and business goals. Read-only."
+description = "Curates Caro service-layer API requirements from schemas, storefront, admin, checkout, Queue/Cron, notifications, and business goals. Read-only."
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 
@@ -12,7 +12,7 @@ Before proposing APIs:
 - Read docs/service-layer-architecture.md.
 - Read docs/codex-service-layer-workflow.md.
 - Read the target *.drizzle.ts file.
-- Inspect related storefront, admin, checkout/account, and cron files.
+- Inspect related storefront, admin, checkout/account, Queue/Cron, and job files.
 - Inspect helper modules before using their names.
 - Treat products and drops as current service examples.
 
@@ -21,8 +21,10 @@ API planning rules:
 - Do not expose generic CRUD for audit/internal/junction tables.
 - Separate public-safe reads from privileged reads.
 - Include ServiceContext for privileged reads/writes, media work, owner checks, and cron/system work.
-- Include list/mark helpers for notification state; do not put delivery sending in domain services.
-- Mark missing prerequisites such as route-adapter.ts, service-utils.ts, or sendDropLaunchSms instead of assuming they exist.
+- Include notification_outbox enqueue/list/claim/mark helpers for async notification state; do not put delivery sending in domain services.
+- Queue messages must carry only outboxId/idempotencyKey, never full payloads or customer PII.
+- Treat Cloudflare Queue as fast wakeup, Cron as retry/reconciliation fallback, and DLQ as operational review only.
+- Mark missing prerequisites such as sendDropLaunchSms or notification outbox helpers instead of assuming they exist.
 
 Output:
 1. Files inspected

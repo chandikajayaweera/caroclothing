@@ -22,6 +22,15 @@ import type {
 	ServiceContext,
 	SystemActor
 } from '$lib/server/modules/service-context';
+import {
+	isForeignKeyConstraintError,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	removeUndefinedValues,
+	resolveNow,
+	uniqueStrings
+} from '$lib/server/modules/service-utils';
 import { user } from '../auth/auth.drizzle';
 import { order as orderTable, orderItem } from '../orders/orders.drizzle';
 import {
@@ -106,7 +115,7 @@ export async function listProductReviews(
 	const productId = normalizeId(input.productId, 'productId');
 	await assertProductExistsTx(getDb(), productId, { activeOnly: !includeUnapproved });
 
-	const limit = normalizeLimit(input.limit);
+	const limit = normalizeLimit(input.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(input.offset);
 	const conditions: SQL[] = [eq(review.productId, productId)];
 	if (!includeUnapproved) conditions.push(eq(review.isApproved, true));
@@ -136,7 +145,7 @@ export async function listRecentApprovedReviews(
 	input: ListRecentApprovedReviewsInput = {}
 ): Promise<PublicReviewListResult> {
 	const productId = input.productId ? normalizeId(input.productId, 'productId') : null;
-	const limit = normalizeLimit(input.limit);
+	const limit = normalizeLimit(input.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(input.offset);
 	const conditions: SQL[] = [eq(review.isApproved, true), eq(product.isActive, true)];
 
@@ -254,7 +263,7 @@ export async function listMyReviews(
 	input: ListMyReviewsInput = {}
 ): Promise<ReviewListResult> {
 	const actor = requireActor(ctx.actor);
-	const limit = normalizeLimit(input.limit);
+	const limit = normalizeLimit(input.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(input.offset);
 	const conditions: SQL[] = [eq(review.userId, actor.id)];
 
@@ -470,7 +479,7 @@ export async function listReviews(
 ): Promise<ReviewListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(input.limit, ADMIN_DEFAULT_LIMIT);
+	const limit = normalizeLimit(input.limit, ADMIN_DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(input.offset);
 	const where = buildAdminReviewWhere(input);
 
@@ -485,7 +494,7 @@ export async function listPendingReviews(
 
 	return listReviewsByWhere(
 		eq(review.isApproved, false),
-		normalizeLimit(input.limit, ADMIN_DEFAULT_LIMIT),
+		normalizeLimit(input.limit, ADMIN_DEFAULT_LIMIT, MAX_LIMIT),
 		normalizeOffset(input.offset)
 	);
 }
@@ -1196,24 +1205,6 @@ function normalizeNullableText(
 	return normalized;
 }
 
-function normalizeLimit(
-	limit: number | undefined,
-	defaultLimit = DEFAULT_LIMIT,
-	maxLimit = MAX_LIMIT
-): number {
-	if (limit === undefined || !Number.isFinite(limit)) return defaultLimit;
-	return Math.min(Math.max(Math.trunc(limit), 1), maxLimit);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
-function resolveNow(ctx: ServiceContext, now?: Date): Date {
-	return now ?? ctx.now ?? new Date();
-}
-
 function roundRating(value: number): number {
 	return Math.round(value * 10) / 10;
 }
@@ -1246,16 +1237,6 @@ function groupByProductId<T extends { productId: string }>(rows: T[]): Map<strin
 	return groups;
 }
 
-function uniqueStrings(values: string[]): string[] {
-	return [...new Set(values)];
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): T {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as T;
-}
-
 function mapReviewPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
 
@@ -1275,18 +1256,4 @@ function mapReviewPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(normalizedMessage: string): boolean {
-	return (
-		normalizedMessage.includes('unique constraint failed') ||
-		normalizedMessage.includes('constraint_unique')
-	);
-}
-
-function isForeignKeyConstraintError(normalizedMessage: string): boolean {
-	return (
-		normalizedMessage.includes('foreign key constraint failed') ||
-		normalizedMessage.includes('constraint_foreign')
-	);
 }

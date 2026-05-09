@@ -4,13 +4,20 @@ import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/mod
 import { AddressError, ErrorCode, getErrorMessage, isAppError } from '$lib/server/modules/errors';
 import type { ServiceContext } from '$lib/server/modules/service-context';
 import {
+	isCheckConstraintError,
+	isForeignKeyConstraintError,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	removeUndefinedValues
+} from '$lib/server/modules/service-utils';
+import {
 	address,
 	insertAddressSchema,
 	SRI_LANKA_DISTRICTS,
 	updateAddressSchema,
 	type Address,
 	type InsertAddress,
-	type NewAddress,
 	type UpdateAddress
 } from './addresses.drizzle';
 import type {
@@ -87,7 +94,7 @@ export async function listMyAddresses(
 	options: ListMyAddressesOptions = {}
 ): Promise<AddressListResult> {
 	const actor = requireActor(ctx.actor);
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = eq(address.userId, actor.id);
 	const db = getDb();
@@ -135,8 +142,7 @@ export async function updateAddress(
 
 	assertAddressOwner(actor.id, existing);
 
-	const { addressId: _addressId, ...rawData } = input;
-	const data = parseUpdateAddress(rawData);
+	const data = parseUpdateAddress(input);
 	const updateValues = removeUndefinedValues(data);
 
 	if (Object.keys(updateValues).length === 0) {
@@ -225,7 +231,7 @@ export async function listAddresses(
 ): Promise<AddressListResult> {
 	requireAdmin(ctx.actor);
 
-	const limit = normalizeLimit(options.limit);
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(options.offset);
 	const where = buildAddressListWhere(options);
 	const db = getDb();
@@ -462,17 +468,6 @@ function normalizeOptionalText(
 	return normalized;
 }
 
-function normalizeLimit(limit: number | undefined): number {
-	if (limit === undefined) return DEFAULT_LIMIT;
-	if (!Number.isFinite(limit)) return DEFAULT_LIMIT;
-	return Math.min(Math.max(Math.trunc(limit), 1), MAX_LIMIT);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
 function sanitizeLikeTerm(value: string): string {
 	return value.replace(/[%_]/g, '');
 }
@@ -495,29 +490,4 @@ function mapAddressPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(message: string): boolean {
-	return (
-		message.includes('UNIQUE constraint failed') ||
-		message.includes('SQLITE_CONSTRAINT_UNIQUE') ||
-		message.includes('SQLITE_CONSTRAINT: UNIQUE')
-	);
-}
-
-function isCheckConstraintError(message: string): boolean {
-	return message.includes('CHECK constraint failed') || message.includes('SQLITE_CONSTRAINT_CHECK');
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	return (
-		message.includes('FOREIGN KEY constraint failed') ||
-		message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
-	);
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): Partial<T> {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as Partial<T>;
 }

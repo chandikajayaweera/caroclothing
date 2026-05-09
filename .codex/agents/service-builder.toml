@@ -25,6 +25,11 @@ Rules:
 - Do not import from $lib/client/* in server modules.
 - Use getEnv() from $lib/server/modules/env for app config/provider secrets.
 - Domain services do not send email/SMS directly unless explicitly approved.
+- Async notification workflows enqueue notification_outbox intent inside the business transaction.
+- Cloudflare Queue messages carry only outboxId/idempotencyKey, never full payloads or customer PII.
+- Queue/Cron/job orchestration marks notification records sent only after successful EmailResult/SmsResult.
+- Cloudflare DLQ is operational review only; DB outbox remains durable audit/retry state.
+- Do not use Cloudflare KV as the notification outbox.
 - Do not call sendDropLaunchSms unless implemented and exported.
 
 Final response:

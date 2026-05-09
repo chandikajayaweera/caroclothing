@@ -11,6 +11,14 @@ import {
 import { mediaUrl } from '$lib/server/modules/media/utils';
 import type { ServiceContext } from '$lib/server/modules/service-context';
 import {
+	isForeignKeyConstraintError,
+	isString,
+	isUniqueConstraintError,
+	normalizeLimit,
+	normalizeOffset,
+	uniqueStrings
+} from '$lib/server/modules/service-utils';
+import {
 	product,
 	productImage,
 	productVariant,
@@ -584,40 +592,6 @@ function mapWishlistPersistenceError(error: unknown): never {
 	}
 
 	throw error;
-}
-
-function isUniqueConstraintError(message: string): boolean {
-	return (
-		message.includes('UNIQUE constraint failed') ||
-		message.includes('SQLITE_CONSTRAINT_UNIQUE') ||
-		message.includes('SQLITE_CONSTRAINT: UNIQUE')
-	);
-}
-
-function isForeignKeyConstraintError(message: string): boolean {
-	return (
-		message.includes('FOREIGN KEY constraint failed') ||
-		message.includes('SQLITE_CONSTRAINT_FOREIGNKEY')
-	);
-}
-
-function normalizeLimit(limit: number | undefined): number {
-	if (limit === undefined) return 100;
-	if (!Number.isFinite(limit)) return 100;
-	return Math.min(Math.max(Math.trunc(limit), 1), 200);
-}
-
-function normalizeOffset(offset: number | undefined): number {
-	if (offset === undefined || !Number.isFinite(offset)) return 0;
-	return Math.max(Math.trunc(offset), 0);
-}
-
-function uniqueStrings(values: string[]): string[] {
-	return [...new Set(values)];
-}
-
-function isString(value: string | null | undefined): value is string {
-	return typeof value === 'string';
 }
 
 function groupByProductId<T extends { productId: string }>(rows: T[]): Map<string, T[]> {

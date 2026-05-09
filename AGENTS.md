@@ -27,12 +27,13 @@ When working on notifications, also inspect the relevant notification modules be
 
 ## Current service-layer status
 
-- Implemented service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`.
+- Implemented service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `orders`, `reviews`.
 - Implemented internal service helpers: `inventory` has `inventory.service.ts` transaction helpers used by cart/order-style workflows; its module index exports schema/types only.
-- Implemented foundation helpers: `src/lib/server/modules/service-context.ts`, `src/lib/server/modules/auth/guards.ts`.
-- Schema-only business modules that still need planned services: `orders`, `promotions`, `reviews`.
+- Implemented foundation helpers: `src/lib/server/modules/service-context.ts`, `src/lib/server/modules/auth/guards.ts`, `src/lib/server/modules/service-utils.ts`.
+- Schema-only business modules that still need planned services: none in the current core service rollout.
 - Existing route helper: `src/lib/server/modules/errors/route-adapter.ts`.
-- Planned but not yet implemented helpers mentioned in architecture docs: `src/lib/server/modules/service-utils.ts`.
+- Planned notification state helper: `src/lib/server/modules/notifications/outbox` as the durable source of truth for async notification state.
+- Planned Cloudflare notification transport: Queue producer/consumer bindings, Cron retry/reconciliation, and Dead Letter Queue operational review.
 - Existing semantic notification sender: `sendDropLaunchEmail`.
 - Missing semantic notification sender: `sendDropLaunchSms`; do not import or call it until it exists.
 
@@ -54,14 +55,20 @@ When working on notifications, also inspect the relevant notification modules be
   - inventory movements
   - promo usage
   - order status history
+  - notification outbox
   - product-tag junction writes
   - drop-product junction writes
 
 ## Notification module rules
 
 - Email and SMS modules are infrastructure helpers, not domain-state owners.
-- Domain services should expose idempotent list/mark helpers for notification workflows.
-- Cron/job/orchestration code should send email/SMS and only mark records notified after successful send.
+- Database `notification_outbox` is the planned durable source of truth for async notification state.
+- The outbox module is the approved narrow exception to the normal rule against adding notification database tables.
+- Domain services should enqueue notification intent in the outbox inside the same DB transaction as the business state change, or expose idempotent list/mark helpers for legacy workflows.
+- Cloudflare Queues are a fast asynchronous wakeup only; queue messages must contain only `outboxId` or `idempotencyKey`, never full payloads or customer PII.
+- Cloudflare Cron should scan/retry pending, due failed, and stale locked outbox rows so missed Queue publishes are recovered.
+- Cloudflare Dead Letter Queues are for operational review only; the DB outbox remains durable audit/retry state.
+- Queue/Cron/job/orchestration code should send email/SMS and only mark records sent after successful send.
 - Do not put actual email/SMS sending inside domain services such as `drops.service.ts` unless explicitly approved.
 - Prefer semantic senders over inline message construction:
   - `sendOrderConfirmationEmail`
@@ -74,7 +81,8 @@ When working on notifications, also inspect the relevant notification modules be
   - `SmsResult`
 - Auth-specific OTP helpers may throw only if the existing auth flow expects thrown failures.
 - Batch notification workflows must be idempotent, limit-aware, and safe to retry.
-- Failed email/SMS sends must not mark waitlist entries or notification records as notified.
+- Failed email/SMS sends must not mark waitlist entries or notification records as sent.
+- Cloudflare KV must not be used as the notification outbox; it is only acceptable for short-lived soft state such as OTP cooldowns.
 - Notification modules must not import from `$lib/client/*`.
 - Notification modules should use `$lib/server/modules/env` for app URL/app name and provider secrets.
 
@@ -82,7 +90,7 @@ When working on notifications, also inspect the relevant notification modules be
 
 1. Inspect relevant files first.
 2. Produce a plan before editing.
-3. For new services, first produce a service API plan that maps storefront, admin dashboard, cron/job, and related-system needs.
+3. For new services, first produce a service API plan that maps storefront, admin dashboard, Queue/Cron/job, notification, and related-system needs.
 4. Edit the smallest safe set of files.
 5. Run typecheck/lint/tests where available.
 6. Summarize:
