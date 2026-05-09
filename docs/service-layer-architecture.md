@@ -30,6 +30,8 @@ Implemented service modules:
 - src/lib/server/modules/cart/cart.service.ts
 - src/lib/server/modules/shipping/shipping.service.ts
 - src/lib/server/modules/promotions/promotions.service.ts
+- src/lib/server/modules/orders/orders.service.ts
+- src/lib/server/modules/reviews/reviews.service.ts
 
 Implemented internal service helpers:
 - src/lib/server/modules/inventory/inventory.service.ts
@@ -41,7 +43,7 @@ Implemented foundation helpers:
 - src/lib/server/modules/auth/guards.ts
 
 Schema-only business modules still needing services:
-- orders, reviews
+- None in the current core service rollout.
 
 Known route debt:
 - No known business route direct-DB imports after the account route refactor.
@@ -1578,41 +1580,76 @@ export async function createReview(
 	input: CreateReviewInput
 ): Promise<ReviewDTO>;
 
-export async function getProductReviews(
-	productId: string,
-	options?: {
-		approvedOnly?: boolean;
-		limit?: number;
-		offset?: number;
-	}
-): Promise<ReviewDTO[]>;
+export async function listProductReviews(
+	ctx: ServiceContext | null,
+	input: ListProductReviewsInput
+): Promise<PublicReviewListResult>;
 
-export async function listPendingReviews(
-	ctx: ServiceContext,
-	options?: {
-		limit?: number;
-		offset?: number;
-	}
-): Promise<ReviewDTO[]>;
+export async function getProductReviewSummary(
+	ctx: ServiceContext | null,
+	input: GetProductReviewSummaryInput
+): Promise<ReviewSummaryDTO>;
 
-export async function moderateReview(
+export async function listRecentApprovedReviews(
+	input?: ListRecentApprovedReviewsInput
+): Promise<PublicReviewListResult>;
+
+export async function getReview(
+	ctx: ServiceContext | null,
+	input: GetReviewInput
+): Promise<ReviewDTO | PublicReviewDTO>;
+
+export async function listMyReviews(
 	ctx: ServiceContext,
-	input: {
-		reviewId: string;
-		isApproved: boolean;
-		adminNote?: string;
-	}
+	input?: ListMyReviewsInput
+): Promise<ReviewListResult>;
+
+export async function getReviewEligibility(
+	ctx: ServiceContext,
+	input: GetReviewEligibilityInput
+): Promise<ReviewEligibilityDTO>;
+
+export async function updateMyReview(
+	ctx: ServiceContext,
+	input: UpdateMyReviewInput
 ): Promise<ReviewDTO>;
 
 export async function addReviewMedia(
 	ctx: ServiceContext,
-	input: {
-		reviewId: string;
-		files: File[];
-	}
+	input: AddReviewMediaInput
 ): Promise<ReviewDTO>;
 
-export async function deleteReview(ctx: ServiceContext, reviewId: string): Promise<void>;
+export async function deleteReviewMedia(
+	ctx: ServiceContext,
+	input: DeleteReviewMediaInput
+): Promise<ReviewDTO>;
+
+export async function reorderReviewMedia(
+	ctx: ServiceContext,
+	input: ReorderReviewMediaInput
+): Promise<ReviewDTO>;
+
+export async function listReviews(
+	ctx: ServiceContext,
+	input?: ListReviewsInput
+): Promise<ReviewListResult>;
+
+export async function listPendingReviews(
+	ctx: ServiceContext,
+	input?: ListPendingReviewsInput
+): Promise<ReviewListResult>;
+
+export async function getReviewModerationSummary(
+	ctx: ServiceContext,
+	input?: GetReviewModerationSummaryInput
+): Promise<ReviewModerationSummaryDTO>;
+
+export async function moderateReview(
+	ctx: ServiceContext,
+	input: ModerateReviewInput
+): Promise<ReviewDTO>;
+
+export async function deleteReview(ctx: ServiceContext, input: DeleteReviewInput): Promise<void>;
 ```
 
 ### Required behavior
@@ -1622,9 +1659,12 @@ export async function deleteReview(ctx: ServiceContext, reviewId: string): Promi
 - One review per user per product.
 - Verify purchase when orderId is provided.
 - Reviews default to unapproved.
-- Admin required for moderation queue and moderation actions.
+- Public/storefront reads return approved-only public DTOs by default.
+- Admin required for unapproved reads, moderation queue, moderation summary, and moderation actions.
+- Customer review edits and customer media changes reset approval.
 - Review media supports images/videos through existing R2 media helpers.
 - Review media upload/delete uses R2 compensation.
+- `reviewMedia` is managed through media workflow APIs, not generic CRUD.
 ```
 
 ---

@@ -27,6 +27,8 @@ Implemented services:
 - cart
 - shipping
 - promotions
+- orders
+- reviews
 
 Implemented internal service helpers:
 - inventory
@@ -34,8 +36,7 @@ Implemented internal service helpers:
   - `src/lib/server/modules/inventory/index.ts` intentionally exports schema/types only.
 
 Schema-only modules needing services:
-- orders
-- reviews
+- none in the current core service rollout
 
 Implemented service foundations:
 - src/lib/server/modules/service-context.ts

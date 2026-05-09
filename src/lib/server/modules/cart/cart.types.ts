@@ -78,6 +78,20 @@ export type CheckoutCartDTO = CartDTO & {
 	blockingReasons: string[];
 };
 
+export type CheckoutOrderCartItemDTO = CartItemDTO & {
+	productImageR2Key: string | null;
+};
+
+export type CheckoutOrderCartDTO = Omit<CheckoutCartDTO, 'items'> & {
+	items: CheckoutOrderCartItemDTO[];
+	promoCodeId: string | null;
+};
+
+export type OrderCartDeleteResult = {
+	cartId: string;
+	itemCount: number;
+};
+
 export type AdminCartDTO = CartDTO & {
 	sessionToken: string | null;
 	promoCodeId: string | null;

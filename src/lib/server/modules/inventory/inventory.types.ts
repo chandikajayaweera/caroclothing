@@ -81,3 +81,20 @@ export type OutstandingReservationInput = {
 	variantId: string;
 	referenceId: string;
 };
+
+export type RecordInventorySaleInput = {
+	variantId: string;
+	quantity: number;
+	referenceId: string;
+	now?: Date;
+	note?: string | null;
+};
+
+export type RestoreInventorySaleInput = {
+	variantId: string;
+	quantity: number;
+	referenceId: string;
+	now?: Date;
+	note?: string | null;
+	type?: Extract<InventoryMovement['type'], 'cancelled' | 'return'>;
+};

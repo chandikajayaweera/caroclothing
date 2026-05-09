@@ -65,16 +65,20 @@ import type {
 	CartItemDTO,
 	CartListResult,
 	CheckoutCartDTO,
+	CheckoutOrderCartDTO,
+	CheckoutOrderCartItemDTO,
 	ExpiredGuestCartCleanupResult,
 	ListCartsOptions,
 	MergeGuestCartIntoUserInput,
 	MergeUserCartIntoUserInput,
+	OrderCartDeleteResult,
 	RemoveCartItemInput,
 	UpdateCartItemQuantityInput
 } from './cart.types';
 
 type Db = ReturnType<typeof getDb>;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type CartTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+type Tx = CartTx;
 type QueryExecutor = Db | Tx;
 
 type CartOwner =
@@ -255,6 +259,43 @@ export async function getCheckoutCart(
 		...cart,
 		canCheckout: blockingReasons.length === 0,
 		blockingReasons
+	};
+}
+
+export async function getCheckoutCartForOrderTx(
+	tx: CartTx,
+	ctx: ServiceContext,
+	input: CartAccessInput = {}
+): Promise<CheckoutOrderCartDTO> {
+	const owner = resolveCartOwner(ctx, input, { required: true });
+	const now = resolveNow(ctx, input.now);
+	const row = await findCartByOwnerTx(tx, owner);
+
+	if (!row) {
+		throw new CartError('Cart not found.', ErrorCode.CART_NOT_FOUND);
+	}
+
+	if (isCartExpired(row, now)) {
+		throw new CartError('Cart has expired.', ErrorCode.CHECKOUT_SESSION_EXPIRED, {
+			cartId: row.id
+		});
+	}
+
+	return hydrateCheckoutOrderCartTx(tx, row, now);
+}
+
+export async function deleteCartAfterOrderPlacementTx(
+	tx: CartTx,
+	input: { cartId: string }
+): Promise<OrderCartDeleteResult> {
+	const cartId = normalizeId(input.cartId, 'cartId');
+	const items = await tx.select().from(cartItemTable).where(eq(cartItemTable.cartId, cartId));
+	await tx.delete(cartItemTable).where(eq(cartItemTable.cartId, cartId));
+	await tx.delete(cartTable).where(eq(cartTable.id, cartId));
+
+	return {
+		cartId,
+		itemCount: items.length
 	};
 }
 
@@ -840,6 +881,51 @@ async function hydrateCartTx(tx: QueryExecutor, row: Cart, now: Date): Promise<C
 	return dto;
 }
 
+async function hydrateCheckoutOrderCartTx(
+	tx: QueryExecutor,
+	row: Cart,
+	now: Date
+): Promise<CheckoutOrderCartDTO> {
+	const cart = await hydrateCartTx(tx, row, now);
+	const itemRows = await tx
+		.select()
+		.from(cartItemTable)
+		.where(eq(cartItemTable.cartId, row.id))
+		.orderBy(asc(cartItemTable.addedAt));
+	const productIds = uniqueStrings(itemRows.map((item) => item.productId));
+	const imageRows =
+		productIds.length > 0
+			? await tx
+					.select()
+					.from(productImageTable)
+					.where(inArray(productImageTable.productId, productIds))
+					.orderBy(asc(productImageTable.position), asc(productImageTable.createdAt))
+			: [];
+	const imagesByProductId = groupByProductId(imageRows);
+	const imageKeyByItemId = new Map(
+		itemRows.map((item) => [
+			item.id,
+			resolveCartImageR2Key(imagesByProductId.get(item.productId) ?? [], item.variantId)
+		])
+	);
+	const items: CheckoutOrderCartItemDTO[] = cart.items.map((item) => ({
+		...item,
+		productImageR2Key: imageKeyByItemId.get(item.id) ?? null
+	}));
+	const cartWithItems = {
+		...cart,
+		items
+	};
+	const blockingReasons = checkoutBlockingReasons(cartWithItems);
+
+	return {
+		...cartWithItems,
+		promoCodeId: row.promoCodeId ?? null,
+		canCheckout: blockingReasons.length === 0,
+		blockingReasons
+	};
+}
+
 async function hydrateAdminCartTx(tx: QueryExecutor, row: Cart, now: Date): Promise<AdminCartDTO> {
 	const [dto] = await hydrateAdminCartsTx(tx, [row], now);
 
@@ -1260,6 +1346,22 @@ function resolveCartImageUrl(images: ProductImage[], variantId: string): string 
 
 	const firstImage = images[0];
 	return firstImage ? mediaUrl(firstImage.r2Key) : null;
+}
+
+function resolveCartImageR2Key(images: ProductImage[], variantId: string): string | null {
+	const variantPrimary = images.find((image) => image.variantId === variantId && image.isPrimary);
+	if (variantPrimary) return variantPrimary.r2Key;
+
+	const productPrimary = images.find((image) => image.variantId === null && image.isPrimary);
+	if (productPrimary) return productPrimary.r2Key;
+
+	const anyPrimary = images.find((image) => image.isPrimary);
+	if (anyPrimary) return anyPrimary.r2Key;
+
+	const variantImage = images.find((image) => image.variantId === variantId);
+	if (variantImage) return variantImage.r2Key;
+
+	return images[0]?.r2Key ?? null;
 }
 
 function uniqueStrings(values: string[]): string[] {
