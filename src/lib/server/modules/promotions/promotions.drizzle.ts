@@ -142,7 +142,7 @@ export const promoCodeUsageRelations = relations(promoCodeUsage, ({ one }) => ({
 const idSchema = z.string().min(1).max(255);
 const timestampMsSchema = z.number().int().positive();
 
-function validatePromoCodeWindowAndValue(
+export function validatePromoCodeWindowAndValue(
 	data: {
 		discountType?: 'percentage' | 'fixed';
 		discountValue?: number;
@@ -201,7 +201,7 @@ export const insertPromoCodeSchema = insertPromoCodeBaseSchema.superRefine(
 );
 
 export const selectPromoCodeSchema = createSelectSchema(promoCode);
-export const updatePromoCodeSchema = createUpdateSchema(promoCode, {
+export const updatePromoCodeBaseSchema = createUpdateSchema(promoCode, {
 	code: z
 		.string()
 		.min(3)
@@ -219,13 +219,14 @@ export const updatePromoCodeSchema = createUpdateSchema(promoCode, {
 	usageLimit: z.number().int().positive().optional().nullable(),
 	usedCount: z.number().int().min(0).optional(),
 	perUserLimit: z.number().int().positive().optional()
-})
-	.omit({
-		id: true,
-		createdAt: true,
-		updatedAt: true
-	})
-	.superRefine(validatePromoCodeWindowAndValue);
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+export const updatePromoCodeSchema = updatePromoCodeBaseSchema.superRefine(
+	validatePromoCodeWindowAndValue
+);
 
 export const insertPromoCodeUsageSchema = createInsertSchema(promoCodeUsage, {
 	promoCodeId: idSchema,

@@ -1,4 +1,5 @@
 import type { User, Session } from 'better-auth/minimal';
+import type { NotificationQueueMessage } from './lib/server/modules/notifications/outbox/outbox.types';
 
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
@@ -19,6 +20,7 @@ declare global {
 			env: {
 				MEDIA: R2Bucket;
 				OTP_COOLDOWNS: KVNamespace;
+				NOTIFICATION_QUEUE: Queue<NotificationQueueMessage>;
 			};
 			cf: CfProperties;
 			context: ExecutionContext;

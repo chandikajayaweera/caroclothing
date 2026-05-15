@@ -30,9 +30,9 @@ For notification-related modules, also read email/SMS modules, notification outb
 - Schema-only modules needing service plans: none in the current core service rollout.
 - Existing foundation helpers: `service-context.ts`, `auth/guards.ts`, `service-utils.ts`.
 - Existing route helper: `errors/route-adapter.ts`.
-- Planned notification state helper: `notifications/outbox`.
+- Implemented notification state helper: `notifications/outbox`.
 - Existing drop sender: `sendDropLaunchEmail`.
-- Missing drop SMS sender: `sendDropLaunchSms`.
+- Existing drop SMS sender: `sendDropLaunchSms`.
 
 ## Planning rules
 

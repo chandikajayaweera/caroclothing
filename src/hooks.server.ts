@@ -1,25 +1,26 @@
 import { type Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { AuthHook as Auth } from '$lib/server/modules/auth/handleHooks';
+import { runScheduledJobs } from '$lib/server/modules/cron';
+import type { NotificationQueueMessage } from '$lib/server/modules/notifications/outbox/outbox.types';
+import { processQueueBatch } from '$lib/server/modules/queue';
 
 export const handle: Handle = sequence(Auth);
 
-// -----------------------------------------------------------------------------
-// Cloudflare Workers scheduled entry
-// -----------------------------------------------------------------------------
-//
-// NOTE:
-// This function is intentionally defined here and NOT obfuscated.
-// It is used as a stable entry point for a custom Vite plugin to inject
-//   into Cloudflare's `_worker.js` during build time.
+// Stable Cloudflare Worker entry points appended into the SvelteKit Worker by
+// scripts/cloudflare-append-worker-handlers.ts until adapter-cloudflare wires them natively.
+export const queue: ExportedHandlerQueueHandler<App.Platform['env'], NotificationQueueMessage> = (
+	batch,
+	env,
+	ctx
+) => {
+	ctx.waitUntil(processQueueBatch(batch, env, ctx));
+};
 
-// import type { ScheduledController, ExecutionContext } from '@cloudflare/workers-types';
-// import { runScheduledJobs } from '$lib/server/modules/cron/scheduled-jobs';
-
-// export const scheduled: ExportedHandlerScheduledHandler<App.Platform['env']> = (
-// 	controller: ScheduledController,
-// 	_env: App.Platform['env'],
-// 	ctx: ExecutionContext
-// ) => {
-// 	ctx.waitUntil(runScheduledJobs(controller));
-// };
+export const scheduled: ExportedHandlerScheduledHandler<App.Platform['env']> = (
+	controller,
+	env,
+	ctx
+) => {
+	ctx.waitUntil(runScheduledJobs(controller, env, ctx));
+};

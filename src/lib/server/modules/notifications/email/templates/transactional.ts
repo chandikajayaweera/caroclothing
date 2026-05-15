@@ -8,6 +8,7 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationInput): {
 	html: string;
 } {
 	const safeOrderId = h(input.orderId);
+	const displayOrderNumber = h(input.orderNumber ?? input.orderId);
 	const itemRows = input.items
 		.map(
 			(item) => `
@@ -24,12 +25,12 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationInput): {
 		.join('');
 
 	const content = `
-    <h2 style="margin:0 0 8px;font-family:'Bebas Neue','DM Sans',sans-serif;font-size:32px;font-weight:400;color:#0A0A0A;text-transform:uppercase;letter-spacing:0;line-height:1;">Order Confirmed</h2>
+    <h2 style="margin:0 0 8px;font-family:'Bebas Neue','DM Sans',sans-serif;font-size:32px;font-weight:400;color:#0A0A0A;text-transform:uppercase;letter-spacing:0;line-height:1;">Order Received</h2>
     <p style="margin:0 0 32px;font-size:16px;color:#0A0A0A;">Hi ${h(input.customerName)}, your order is locked in.</p>
 
     <div style="background:#0A0A0A;padding:24px;margin-bottom:32px;color:#F8F5F0;font-family:'Space Mono',monospace;text-transform:uppercase;">
       <p style="margin:0 0 4px;font-size:10px;opacity:0.6;letter-spacing:0;">Order ID</p>
-      <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0;">#${safeOrderId}</p>
+      <p style="margin:0;font-size:18px;font-weight:700;letter-spacing:0;">#${displayOrderNumber}</p>
       <p style="margin:8px 0 0;font-size:12px;opacity:0.8;">${h(input.orderDate)}</p>
     </div>
 
@@ -55,15 +56,18 @@ export function buildOrderConfirmationEmail(input: OrderConfirmationInput): {
       ${input.estimatedDelivery ? `<p style="margin:12px 0 0;font-family:'Space Mono',monospace;font-size:12px;color:#0A0A0A;text-transform:uppercase;">Est: ${h(input.estimatedDelivery)}</p>` : ''}
     </div>
 
-    <a href="${getEnv().PUBLIC_APP_URL}/orders/${safeOrderId}"
+    <a href="${getEnv().PUBLIC_APP_URL}/account/orders/${safeOrderId}"
        style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:14px 28px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;border:1px solid #0A0A0A;">
       View Order
     </a>
   `;
 
 	return {
-		subject: `Order #${input.orderId} confirmed`,
-		html: baseLayout({ previewText: `Order confirmed. #${input.orderId}`, content })
+		subject: `Order #${input.orderNumber ?? input.orderId} received`,
+		html: baseLayout({
+			previewText: `Order received. #${input.orderNumber ?? input.orderId}`,
+			content
+		})
 	};
 }
 
@@ -72,6 +76,7 @@ export function buildShippingUpdateEmail(input: ShippingUpdateInput): {
 	html: string;
 } {
 	const safeOrderId = h(input.orderId);
+	const displayOrderNumber = input.orderNumber ?? input.orderId;
 	const content = `
     <h2 style="margin:0 0 8px;font-family:'Bebas Neue','DM Sans',sans-serif;font-size:32px;font-weight:400;color:#0A0A0A;text-transform:uppercase;letter-spacing:0;line-height:1;">On Its Way</h2>
     <p style="margin:0 0 32px;font-size:16px;color:#0A0A0A;">Hi ${h(input.customerName)}, your order is moving.</p>
@@ -93,7 +98,7 @@ export function buildShippingUpdateEmail(input: ShippingUpdateInput): {
        </a>`
 			: ''
 	}
-  <a href="${getEnv().PUBLIC_APP_URL}/orders/${safeOrderId}"
+  <a href="${getEnv().PUBLIC_APP_URL}/account/orders/${safeOrderId}"
      style="display:inline-block;background:#0A0A0A;color:#F8F5F0;text-decoration:none;padding:14px 28px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;margin-bottom:12px;">
     View Order
   </a>
@@ -101,7 +106,7 @@ export function buildShippingUpdateEmail(input: ShippingUpdateInput): {
   `;
 
 	return {
-		subject: `Order #${input.orderId} shipped`,
+		subject: `Order #${displayOrderNumber} shipped`,
 		html: baseLayout({ previewText: `Tracking: ${input.trackingNumber}`, content })
 	};
 }

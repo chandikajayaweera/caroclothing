@@ -350,6 +350,18 @@ export async function mergeUserCartIntoUserCart(
 	ctx: ServiceContext,
 	input: MergeUserCartIntoUserInput
 ): Promise<CartDTO> {
+	try {
+		return await getDb().transaction(async (tx) => mergeUserCartIntoUserCartTx(tx, ctx, input));
+	} catch (error) {
+		throw mapCartMergeError(error);
+	}
+}
+
+export async function mergeUserCartIntoUserCartTx(
+	tx: CartTx,
+	ctx: ServiceContext,
+	input: MergeUserCartIntoUserInput
+): Promise<CartDTO> {
 	const actor = requireAccountActor(ctx);
 	const sourceUserId = normalizeId(input.sourceUserId, 'sourceUserId');
 	const now = resolveNow(ctx, input.now);
@@ -363,34 +375,28 @@ export async function mergeUserCartIntoUserCart(
 
 	const targetOwner: CartOwner = { type: 'user', userId: actor.id, sessionToken: null };
 
-	try {
-		return await getDb().transaction(async (tx) => {
-			const sourceCarts = await findUserCartsTx(tx, sourceUserId);
-			let targetCart = await findActiveCartByOwnerTx(tx, targetOwner, now);
+	const sourceCarts = await findUserCartsTx(tx, sourceUserId);
+	let targetCart = await findActiveCartByOwnerTx(tx, targetOwner, now);
 
-			if (sourceCarts.length === 0) {
-				const row = targetCart ?? (await getOrCreateCartTx(tx, targetOwner, now));
-				return hydrateCartTx(tx, row, now);
-			}
-
-			const [firstSourceCart, ...remainingSourceCarts] = sourceCarts;
-
-			if (!targetCart) {
-				targetCart = await convertCartOwnerTx(tx, firstSourceCart.id, targetOwner, now);
-			} else {
-				await mergeCartRowsTx(tx, firstSourceCart, targetCart, now);
-			}
-
-			for (const sourceCart of remainingSourceCarts) {
-				await mergeCartRowsTx(tx, sourceCart, targetCart, now);
-			}
-
-			const updatedTarget = await reloadCartByIdTx(tx, targetCart.id);
-			return hydrateCartTx(tx, updatedTarget, now);
-		});
-	} catch (error) {
-		throw mapCartMergeError(error);
+	if (sourceCarts.length === 0) {
+		const row = targetCart ?? (await getOrCreateCartTx(tx, targetOwner, now));
+		return hydrateCartTx(tx, row, now);
 	}
+
+	const [firstSourceCart, ...remainingSourceCarts] = sourceCarts;
+
+	if (!targetCart) {
+		targetCart = await convertCartOwnerTx(tx, firstSourceCart.id, targetOwner, now);
+	} else {
+		await mergeCartRowsTx(tx, firstSourceCart, targetCart, now);
+	}
+
+	for (const sourceCart of remainingSourceCarts) {
+		await mergeCartRowsTx(tx, sourceCart, targetCart, now);
+	}
+
+	const updatedTarget = await reloadCartByIdTx(tx, targetCart.id);
+	return hydrateCartTx(tx, updatedTarget, now);
 }
 
 export async function listCarts(

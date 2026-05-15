@@ -9,6 +9,15 @@ export interface SmsSendInput {
 	message: string;
 }
 
+// Drop launch
+
+export interface DropLaunchSmsInput {
+	/** E.164 format, e.g. "+94771234567" */
+	to: string;
+	dropName: string;
+	dropUrl: string;
+}
+
 // text.lk API shapes
 
 export interface TextLkSendPayload {

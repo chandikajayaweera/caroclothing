@@ -49,15 +49,15 @@ Schema-only business modules still needing services:
 Known route debt:
 - No known business route direct-DB imports after the account route refactor.
 
-Documented/planned helpers not yet present:
+Implemented notification infrastructure:
 - src/lib/server/modules/notifications/outbox
-  - planned durable source of truth for async notification state;
+  - durable source of truth for async notification state;
   - approved narrow exception to the normal "do not add notification DB tables" rule.
+- Cloudflare Queue producer/consumer bindings, Queue handler wiring, Cron retry/reconciliation, and DLQ configuration are implemented for notifications.
 
 Notification sender state:
 - sendDropLaunchEmail exists and is exported.
-- sendDropLaunchSms is planned but not yet implemented/exported.
-- Cloudflare Queue bindings and queue handlers are planned but not yet configured.
+- sendDropLaunchSms exists and is exported.
 ```
 
 When this document conflicts with code, stop and inspect the relevant files before editing runtime code.
@@ -84,6 +84,7 @@ src/lib/server/modules/media/r2.ts
 src/lib/server/modules/media/utils.ts
 src/lib/server/modules/auth/index.ts
 src/lib/server/modules/cron/scheduled-jobs.ts
+src/lib/server/modules/queue
 src/lib/server/modules/notifications/outbox
 src/lib/server/modules/notifications/email
 src/lib/server/modules/notifications/sms
@@ -97,10 +98,11 @@ Important existing conventions:
 3. `src/lib/server/modules/errors/index.ts` already has `AppError`, domain-specific error classes, stable `ErrorCode` values, HTTP status mapping, and Better Auth conversion helpers.
 4. R2 media helpers already exist and are event/bucket based.
 5. Media is served through `/media/[...key]` using safe R2 key validation.
-6. Cron scaffolding is currently commented and still contains stale imports; future activation must update it to current service signatures before enabling scheduled jobs.
-7. Notification modules expose typed email/SMS send primitives and semantic email senders such as `sendDropLaunchEmail`; the semantic SMS drop-launch wrapper is still planned.
-8. The planned notification outbox is the durable source of truth for async notification state. Cloudflare Queues are a delivery accelerator, not durable business history.
-9. Cloudflare Queue bindings, Queue consumers, and DLQ handling are planned but not yet configured in code.
+6. `src/lib/server/modules/cron/scheduled-jobs.ts` is the active scheduled-job router for configured Cloudflare cron expressions.
+7. Notification modules expose typed email/SMS send primitives and semantic senders such as `sendDropLaunchEmail` and `sendDropLaunchSms`.
+8. The implemented notification outbox is the durable source of truth for async notification state. Cloudflare Queues are a delivery accelerator, not durable business history.
+9. `src/lib/server/modules/queue` is the active Cloudflare Queue router. Cloudflare Queue bindings, Queue consumers, Cron recovery, and DLQ configuration are implemented for notification workflows.
+10. Better Auth anonymous account linking routes through `src/lib/server/modules/auth/anonymous-migration.ts`, which internally merges cart, wishlist, and drop waitlist ownership after validating the source is anonymous and the target is a full account.
 
 Do not replace these foundations. Extend them.
 
@@ -515,11 +517,12 @@ type CategoryDTO = {
 The project has dedicated server-side notification infrastructure:
 
 ```txt
-src/lib/server/modules/notifications/outbox   # planned durable state module
+src/lib/server/modules/notifications/outbox   # durable state module
 src/lib/server/modules/notifications/email
 src/lib/server/modules/notifications/sms
-src/lib/server/modules/cron/scheduled-jobs.ts
-Cloudflare Queue bindings and consumers        # planned delivery accelerator
+src/lib/server/modules/queue                 # Cloudflare Queue router
+src/lib/server/modules/cron/scheduled-jobs.ts # Cloudflare Cron router
+Cloudflare Queue bindings and consumers        # delivery accelerator
 Cloudflare Cron Triggers                       # scheduled retry/reconciliation
 Cloudflare Dead Letter Queues                  # operational failure review
 ```
@@ -574,7 +577,7 @@ Queue publishing is best-effort after the database commit. It is not the source 
 
 ### 8.4.2 Notification outbox module
 
-The planned outbox module is the approved narrow exception to the normal rule against adding notification database tables. Do not add separate per-feature notification state tables unless the architecture plan is updated again.
+The outbox module is the approved narrow exception to the normal rule against adding notification database tables. Do not add separate per-feature notification state tables unless the architecture plan is updated again.
 
 Minimum outbox state:
 
@@ -594,6 +597,7 @@ maxAttempts
 nextAttemptAt
 lockedAt
 lockedBy
+lockToken
 sentAt
 providerMessageId
 lastError
@@ -605,11 +609,16 @@ Outbox API requirements:
 
 ```txt
 enqueueNotificationTx(tx, input)
+getNotificationOutbox(ctx, input)
+listNotificationOutbox(ctx, input)
+getNotificationOutboxSummary(ctx, input)
+claimNotification(ctx, input)
 claimPendingNotifications(ctx, input)
 markNotificationSent(ctx, input)
 markNotificationFailed(ctx, input)
 releaseStaleNotificationLocks(ctx, input)
 cancelNotification(ctx, input)
+toNotificationQueueMessage(row)
 ```
 
 Rules:
@@ -638,7 +647,8 @@ Queue consumer behavior:
 4. Dispatch by outbox type/channel to a semantic sender.
 5. If sender returns ok, mark sent and ack.
 6. If provider returns a normal failure result, mark failed/retryable with nextAttemptAt and ack.
-7. If the worker crashes or infrastructure fails before DB state is updated, let Queue retry.
+7. Queue messages are explicitly acked after processing/logging; DB outbox state plus Cron drives normal retry.
+8. Cloudflare Queue retry/DLQ is only a safety net for unhandled handler-level failure.
 ```
 
 Use Dead Letter Queues for operational review after Queue retry exhaustion. DLQ entries must not be treated as durable business history; the outbox row remains the source for audit, retry, and support tooling.
@@ -657,13 +667,22 @@ Cron jobs are responsible for time-based work and repair:
 
 Cron jobs must be idempotent, batch-limited, explicit about `now`, independent per recipient, and safe to retry. Cron schedules are UTC.
 
+Current active cron branches:
+
+```txt
+*/5 * * * *     # notification outbox recovery + due drop launch transitions
+*/10 * * * *    # pending online payment order auto-cancel
+0 * * * *       # expired guest cart cleanup and reservation release
+17 20 * * *     # daily promo usage-count reconciliation; UTC
+```
+
 Do not document illustrative future workflows as active requirements unless matching service APIs and sender contracts exist. Current examples that align with code/contracts:
 
 ```txt
 - order confirmation email through sendOrderConfirmationEmail
 - shipping update email through sendShippingUpdateEmail
 - drop launch email through sendDropLaunchEmail
-- drop launch SMS only after sendDropLaunchSms is implemented and exported
+- drop launch SMS through sendDropLaunchSms
 ```
 
 Future examples such as back-in-stock, abandoned cart, review reminders, campaigns, and push notifications require their own service API and sender plans before implementation.
@@ -712,7 +731,7 @@ export type SmsResult = { ok: true; messageId: string } | { ok: false; error: st
 
 Normal SMS delivery failures should return `SmsResult` instead of throwing.
 
-Semantic SMS senders should be added as workflows need them. For drop launch notifications, the planned shape is:
+Semantic SMS senders should be added as workflows need them. For drop launch notifications, the implemented shape is:
 
 ```ts
 export type DropLaunchSmsInput = {
@@ -724,7 +743,7 @@ export type DropLaunchSmsInput = {
 export async function sendDropLaunchSms(input: DropLaunchSmsInput): Promise<SmsResult>;
 ```
 
-Do not call `sendDropLaunchSms` until it is implemented and exported from `src/lib/server/modules/notifications/sms/index.ts`. Do not invent order/shipping SMS senders without adding their types, templates/message rules, and exports first.
+Use the exported `sendDropLaunchSms` from `src/lib/server/modules/notifications/sms/index.ts` for drop launch SMS. Do not invent order/shipping SMS senders without adding their types, templates/message rules, and exports first.
 
 ### 8.4.7 Server environment and storage rules
 
@@ -1625,7 +1644,7 @@ export async function markDropWaitlistEntryNotified(
 - One hero product per drop.
 - Waitlist signup is idempotent.
 - Waitlist notification is idempotent via notifiedAt.
-- Cron launches due teaser drops and notifies waitlist batches.
+- Cron launches due teaser drops. Waitlist delivery must use notification outbox producers before any email/SMS is sent.
 ```
 
 ---
@@ -1950,7 +1969,14 @@ export async function listWishlistSignals(
 
 ## 15. Cloudflare Queue and Cron Integration Contract
 
-`src/lib/server/modules/cron/scheduled-jobs.ts` and Cloudflare Queue consumers should call service functions and notification senders only. They must not import Drizzle tables, raw database clients, R2 primitives, or `$lib/client/*`.
+Cloudflare Queue consumers and scheduled handlers should call service functions and notification senders only. They must not import Drizzle tables, raw database clients, R2 primitives, or `$lib/client/*`.
+
+Active orchestration modules:
+
+```txt
+src/lib/server/modules/queue                 # routes Cloudflare Queue batches by queue name
+src/lib/server/modules/cron/scheduled-jobs.ts # routes Cloudflare Cron triggers by controller.cron
+```
 
 Expected orchestration surfaces:
 
@@ -1969,10 +1995,13 @@ Cloudflare Queue consumer:
   - mark provider failures retryable/failed and ack the Queue message
 
 Cloudflare Cron:
-  - process or requeue due outbox rows
+  - process due outbox rows
   - release stale processing locks
-  - generate failure reports from DB outbox state
-  - run scheduled service jobs such as cart cleanup, order expiry, drop launch, and promo reconciliation
+  - launch due drops through drops.service.ts
+  - cancel expired pending orders through orders.service.ts
+  - clean up expired guest carts through cart.service.ts
+  - reconcile promo usage counts through promotions.service.ts
+  - future: generate failure reports from DB outbox state
 ```
 
 Current sender contracts that may be used by orchestration:
@@ -1981,8 +2010,6 @@ Current sender contracts that may be used by orchestration:
 sendOrderConfirmationEmail(input);
 sendShippingUpdateEmail(input);
 sendDropLaunchEmail(input);
-
-// Planned sender; add type, sender, and index export before calling.
 sendDropLaunchSms(input);
 ```
 
@@ -2004,7 +2031,7 @@ Queue/Cron notification orchestration rules:
 - Domain services enqueue outbox intent or expose explicit list/mark helpers for legacy workflows.
 - Only mark records sent/notified after successful delivery.
 - Continue processing when one recipient fails.
-- Use semantic notification senders such as `sendDropLaunchEmail`; use `sendDropLaunchSms` only after it exists.
+- Use semantic notification senders such as `sendDropLaunchEmail` and `sendDropLaunchSms`.
 - Treat DLQ as operational review, not durable business history.
 ```
 
@@ -2203,16 +2230,15 @@ Refactor all route files:
 
 ### Phase 9: Cloudflare Queue and cron activation
 
-Enable Queue/Cron handler wiring only after outbox services exist and processing is idempotent.
+Queue/Cron notification handler wiring is active. Re-check this section before extending notification transport beyond the current outbox-backed email/SMS workflows.
 
 Before relying on the custom Vite plugin permanently, re-check the installed `@sveltejs/adapter-cloudflare` version and its official release notes. If the adapter gains native support for merging custom Worker handlers, remove the workaround instead of carrying duplicate scheduled-handler wiring.
 
 ```txt
-- Add DB notification outbox schema/service and idempotent claim/mark APIs.
-- Add Cloudflare Queue producer/consumer bindings and typed environment entries.
-- Wire Queue consumer entrypoint or a separate consumer Worker.
-- Uncomment scheduled entry in hooks.server.ts when cron jobs are ready.
-- Ensure cloudflare-append-scheduled plugin remains in vite.config.ts until native adapter support replaces it.
+- Keep DB notification outbox schema/service and idempotent claim/mark APIs as the source of truth.
+- Keep Cloudflare Queue producer/consumer bindings and typed environment entries aligned with `wrangler.jsonc`.
+- Keep Queue and scheduled entrypoints wired through `hooks.server.ts` and the custom Vite append plugin.
+- Ensure the append plugin remains in vite.config.ts until native adapter support replaces it.
 - Test each cron branch independently.
 - Test Queue duplicate delivery and DLQ behavior.
 ```
@@ -2299,7 +2325,7 @@ When implementing this architecture, LLM agents must follow these rules:
 17. Do not mark notification records as sent unless the corresponding email/SMS send succeeded.
 18. Keep Queue messages limited to outboxId/idempotencyKey; never put notification payloads or PII in Queue messages.
 19. Treat Cloudflare DLQ as operational review only; audit/retry state stays in the DB outbox.
-20. Prefer semantic notification senders such as `sendDropLaunchEmail`; add and export `sendDropLaunchSms` before using it for phone waitlist entries.
+20. Prefer semantic notification senders such as `sendDropLaunchEmail` and `sendDropLaunchSms` for drop launch waitlist entries.
 21. Produce an API plan from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, and notification needs before coding a new service.
 ```
 

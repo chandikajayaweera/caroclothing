@@ -48,6 +48,7 @@ export interface OrderConfirmationInput {
 	email: string;
 	customerName: string;
 	orderId: string;
+	orderNumber?: string;
 	orderDate: string;
 	items: OrderItem[];
 	subtotal: string;
@@ -61,6 +62,7 @@ export interface ShippingUpdateInput {
 	email: string;
 	customerName: string;
 	orderId: string;
+	orderNumber?: string;
 	trackingNumber: string;
 	trackingUrl?: string;
 	estimatedDelivery?: string;

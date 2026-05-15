@@ -116,6 +116,23 @@ export type JoinDropWaitlistInput = {
 	contactType: DropWaitlistContactType;
 };
 
+export type LinkDropWaitlistEntriesToUserInput = {
+	userId: string;
+	contacts: string[];
+};
+
+export type LinkDropWaitlistEntriesFromUserToUserInput = {
+	sourceUserId: string;
+	targetUserId: string;
+};
+
+export type DropWaitlistLinkResult = {
+	targetUserId: string;
+	matchedCount: number;
+	linkedCount: number;
+	skippedCount: number;
+};
+
 export type ListDropWaitlistEntriesInput = {
 	dropId: string;
 	limit?: number;

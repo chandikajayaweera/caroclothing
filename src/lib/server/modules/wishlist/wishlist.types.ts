@@ -54,6 +54,17 @@ export type ListWishlistOptions = {
 	offset?: number;
 };
 
+export type MergeWishlistIntoUserInput = {
+	sourceUserId: string;
+};
+
+export type WishlistMergeResult = {
+	sourceUserId: string;
+	targetUserId: string;
+	movedCount: number;
+	duplicateCount: number;
+};
+
 export type WishlistListResult = {
 	items: WishlistItemDTO[];
 	total: number;

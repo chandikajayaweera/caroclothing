@@ -45,9 +45,10 @@ Implemented service foundations:
 
 Notification status:
 - sendDropLaunchEmail exists.
-- sendDropLaunchSms does not exist yet.
-- notification_outbox is planned as the durable source of truth for async notification state.
-- Cloudflare Queues, Cron Triggers, and Dead Letter Queues are planned for notification orchestration.
+- sendDropLaunchSms exists and is exported.
+- notification_outbox is implemented as the durable source of truth for async notification state.
+- Cloudflare Queue producer/consumer bindings, Cron retry/reconciliation, and Dead Letter Queue configuration are implemented for notification orchestration.
+- Dedicated Queue and Cron orchestration modules route Cloudflare `queue` and `scheduled` handlers to service-layer functions.
 ```
 
 Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` unless the user explicitly asks for them.
@@ -149,7 +150,7 @@ For notifications:
 - Cloudflare Queue consumers/Cron jobs send email/SMS and mark records sent only after successful sends.
 - Cloudflare Cron must recover pending, due failed, and stale locked outbox rows.
 - Cloudflare DLQ is for operational review only; DB outbox remains durable audit/retry state.
-- Do not call `sendDropLaunchSms` until implemented and exported.
+- Use exported `sendDropLaunchSms` for drop launch SMS workflows.
 
 ### 5. Integrate Routes
 
@@ -217,8 +218,9 @@ Expected current findings:
 
 ```txt
 src/routes/media/[...key]/+server.ts is the allowed media R2 route exception.
-src/lib/server/modules/cron/scheduled-jobs.ts has commented stale client-env scaffolding.
-notification_outbox, Cloudflare Queue bindings, and Queue handlers are planned but not implemented.
+src/lib/server/modules/queue routes Cloudflare Queue batches by queue name.
+src/lib/server/modules/cron/scheduled-jobs.ts routes configured Cloudflare cron expressions to current service-layer APIs.
+notification_outbox, Cloudflare Queue bindings, Queue handlers, and notification Cron recovery are implemented.
 ```
 
 ## Codex Sources

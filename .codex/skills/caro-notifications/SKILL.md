@@ -22,6 +22,7 @@ Before editing, read:
 - `src/lib/server/modules/notifications/sms/senders/*`
 - `src/lib/server/modules/notifications/outbox/*` when present.
 - Any service module whose notification state is being listed or marked.
+- `src/lib/server/modules/queue` when Queue orchestration is involved.
 - `src/lib/server/modules/cron/scheduled-jobs.ts` when cron/job orchestration is involved.
 - Cloudflare Queue/Cron/DLQ bindings and handler entrypoints when transport orchestration is involved.
 
@@ -37,8 +38,8 @@ Before editing, read:
 - Do not make normal delivery failures throw unless the existing auth flow explicitly expects thrown failures.
 - Prefer semantic senders such as `sendDropLaunchEmail`.
 - `sendDropLaunchEmail` currently exists and is exported.
-- `sendDropLaunchSms` is planned but not currently implemented/exported; add its type, sender, and index export before using it.
-- The planned `notification_outbox` module is the approved durable source of truth for async notification state.
+- `sendDropLaunchSms` exists and is exported for drop launch SMS workflows.
+- The implemented `notification_outbox` module is the approved durable source of truth for async notification state.
 - Do not add extra notification database tables beyond the outbox unless explicitly requested.
 - Do not redesign the notification system for small sender additions.
 
@@ -50,6 +51,7 @@ Before editing, read:
 - Cloudflare Queue consumers and Cron jobs send email/SMS and mark records sent only after successful sends.
 - Cloudflare Cron must recover pending, due failed, and stale locked outbox rows.
 - Cloudflare DLQ is operational review only; DB outbox remains durable audit/retry state.
+- Queue and Cron modules route work; notification outbox remains the owner of notification state.
 - Failed sends must not mark records as sent.
 - Batch jobs must be idempotent, limit-aware, and safe to retry.
 - Cloudflare KV must not be used as the notification outbox.

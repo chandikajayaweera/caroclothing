@@ -23,9 +23,13 @@ import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/modules/errors/route-adapter';
+import type { ServiceContext } from '$lib/server/modules/service-context';
 
-function getAdminContext(locals: App.Locals) {
-	return { actor: locals.user };
+function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceContext {
+	return {
+		actor: locals.user,
+		notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+	};
 }
 
 function getListOptions(url: URL) {
@@ -41,8 +45,8 @@ function getListOptions(url: URL) {
 	return result.success ? result.data : {};
 }
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	const ctx = getAdminContext(locals);
+export const load: PageServerLoad = async ({ locals, platform, url }) => {
+	const ctx = getAdminContext(locals, platform);
 	const orderOptions = getListOptions(url);
 
 	try {
@@ -102,8 +106,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	transitionStatus: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
+	transitionStatus: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
 		const form = await superValidate(request, zod4(transitionOrderStatusFormSchema), {
 			id: 'transitionOrderStatus'
 		});
@@ -118,8 +122,8 @@ export const actions: Actions = {
 		}
 	},
 
-	cancel: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
+	cancel: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
 		const form = await superValidate(request, zod4(cancelOrderFormSchema), {
 			id: 'cancelOrder'
 		});
@@ -134,8 +138,8 @@ export const actions: Actions = {
 		}
 	},
 
-	updateFulfillment: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
+	updateFulfillment: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
 		const form = await superValidate(request, zod4(updateOrderFulfillmentFormSchema), {
 			id: 'updateOrderFulfillment'
 		});
@@ -150,8 +154,8 @@ export const actions: Actions = {
 		}
 	},
 
-	recordPayment: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
+	recordPayment: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
 		const form = await superValidate(request, zod4(recordPaymentFormSchema), {
 			id: 'recordPayment'
 		});
@@ -166,8 +170,8 @@ export const actions: Actions = {
 		}
 	},
 
-	recordRefund: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
+	recordRefund: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
 		const form = await superValidate(request, zod4(recordRefundFormSchema), {
 			id: 'recordRefund'
 		});
@@ -182,8 +186,8 @@ export const actions: Actions = {
 		}
 	},
 
-	cancelExpired: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
+	cancelExpired: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
 		const form = await superValidate(request, zod4(cancelExpiredPendingOrdersFormSchema), {
 			id: 'cancelExpiredPendingOrders'
 		});

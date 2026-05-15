@@ -13,7 +13,6 @@ export {
 	getOrCreateCart,
 	listCarts,
 	mergeGuestCartIntoUserCart,
-	mergeUserCartIntoUserCart,
 	removeCartItem,
 	updateCartItemQuantity
 } from './cart.service';

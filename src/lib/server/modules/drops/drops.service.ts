@@ -1,7 +1,8 @@
 import { and, asc, count, desc, eq, inArray, isNull, lte, ne, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { requireAdmin } from '$lib/server/modules/auth/guards';
+import { requireAdmin, requireOwnerOrAdmin } from '$lib/server/modules/auth/guards';
+import { getEnv } from '$lib/server/modules/env';
 import {
 	DropError,
 	ErrorCode,
@@ -28,6 +29,13 @@ import {
 	removeUndefinedValues,
 	uniqueStrings
 } from '$lib/server/modules/service-utils';
+import {
+	enqueueDropLaunchEmailTx,
+	enqueueDropLaunchSmsTx,
+	publishNotificationQueueMessages,
+	type NotificationOutboxTx
+} from '../notifications/outbox/outbox.service';
+import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
 import { product, type Product } from '../products/products.drizzle';
 import type { ProductDTO } from '../products/products.types';
 import {
@@ -58,9 +66,12 @@ import type {
 	DropWaitlistContactType,
 	DropWaitlistEntryDTO,
 	DropWaitlistEntryListResult,
+	DropWaitlistLinkResult,
 	DropWaitlistMarkResult,
 	GetDropOptions,
 	JoinDropWaitlistInput,
+	LinkDropWaitlistEntriesFromUserToUserInput,
+	LinkDropWaitlistEntriesToUserInput,
 	ListDropWaitlistEntriesInput,
 	ListDropsOptions,
 	ListUnnotifiedDropWaitlistEntriesInput,
@@ -74,7 +85,8 @@ import type {
 } from './drops.types';
 
 type Db = ReturnType<typeof getDb>;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type DropsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+type Tx = DropsTx;
 
 type UploadedImage = {
 	bucket: R2Bucket;
@@ -380,6 +392,7 @@ export async function transitionDropStatus(
 	const dropId = normalizeDropId(input.dropId);
 	const toStatus = input.toStatus;
 	const now = resolveTransitionNow(ctx, input.now);
+	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
 		const row = await getDb().transaction(async (tx) => {
@@ -413,8 +426,14 @@ export async function transitionDropStatus(
 				);
 			}
 
+			if (toStatus === 'live') {
+				notificationsToPublish = await enqueueDropLaunchNotificationsTx(tx, updated, now);
+			}
+
 			return updated;
 		});
+
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
 
 		return hydrateDrop(row);
 	} catch (error) {
@@ -466,6 +485,67 @@ export async function transitionDueDropsToLive(
 	};
 }
 
+async function enqueueDropLaunchNotificationsTx(
+	tx: DropsTx,
+	dropRow: Drop,
+	now: Date
+): Promise<NotificationOutboxDTO[]> {
+	const entries = await tx
+		.select()
+		.from(dropWaitlist)
+		.where(and(eq(dropWaitlist.dropId, dropRow.id), isNull(dropWaitlist.notifiedAt)))
+		.orderBy(asc(dropWaitlist.createdAt), asc(dropWaitlist.contact));
+
+	if (entries.length === 0) return [];
+
+	const appUrl = getEnv().PUBLIC_APP_URL.replace(/\/$/, '');
+	const dropUrl = `${appUrl}/drops/${dropRow.slug}`;
+	const emailPayloadBase = {
+		dropName: dropRow.name,
+		dropSlug: dropRow.slug,
+		dropUrl,
+		tagline: dropRow.tagline,
+		heroImageUrl: dropRow.heroImageR2Key
+			? `${appUrl}${mediaUrl(dropRow.heroImageR2Key)}`
+			: undefined
+	};
+	const notifications: NotificationOutboxDTO[] = [];
+
+	for (const entry of entries) {
+		if (entry.contactType === 'phone') {
+			notifications.push(
+				await enqueueDropLaunchSmsTx(tx as NotificationOutboxTx, {
+					dropId: dropRow.id,
+					waitlistEntryId: entry.id,
+					recipientUserId: entry.userId,
+					payload: {
+						to: entry.contact,
+						dropName: dropRow.name,
+						dropUrl
+					},
+					now
+				})
+			);
+			continue;
+		}
+
+		notifications.push(
+			await enqueueDropLaunchEmailTx(tx as NotificationOutboxTx, {
+				dropId: dropRow.id,
+				waitlistEntryId: entry.id,
+				recipientUserId: entry.userId,
+				payload: {
+					...emailPayloadBase,
+					to: entry.contact
+				},
+				now
+			})
+		);
+	}
+
+	return notifications;
+}
+
 export async function joinDropWaitlist(
 	ctx: ServiceContext | null,
 	input: JoinDropWaitlistInput
@@ -484,6 +564,94 @@ export async function joinDropWaitlist(
 
 		throw mapDropWaitlistPersistenceError(error);
 	}
+}
+
+export async function linkDropWaitlistEntriesToUser(
+	ctx: ServiceContext,
+	input: LinkDropWaitlistEntriesToUserInput
+): Promise<DropWaitlistLinkResult> {
+	const userId = normalizeUserId(input.userId, 'userId');
+	requireOwnerOrAdmin(ctx.actor, userId);
+
+	const contacts = normalizeDropWaitlistContacts(input.contacts);
+	if (contacts.length === 0) {
+		return {
+			targetUserId: userId,
+			matchedCount: 0,
+			linkedCount: 0,
+			skippedCount: 0
+		};
+	}
+
+	try {
+		return await getDb().transaction(async (tx) => {
+			const rows = await tx
+				.select()
+				.from(dropWaitlist)
+				.where(inArray(dropWaitlist.contact, contacts));
+			const linkableIds = rows
+				.filter((row) => row.userId === null || row.userId === userId)
+				.map((row) => row.id);
+
+			if (linkableIds.length > 0) {
+				await tx.update(dropWaitlist).set({ userId }).where(inArray(dropWaitlist.id, linkableIds));
+			}
+
+			return {
+				targetUserId: userId,
+				matchedCount: rows.length,
+				linkedCount: rows.filter((row) => row.userId === null).length,
+				skippedCount: rows.filter((row) => row.userId !== null && row.userId !== userId).length
+			};
+		});
+	} catch (error) {
+		throw mapDropWaitlistPersistenceError(error);
+	}
+}
+
+export async function linkDropWaitlistEntriesFromUserToUser(
+	ctx: ServiceContext,
+	input: LinkDropWaitlistEntriesFromUserToUserInput
+): Promise<DropWaitlistLinkResult> {
+	try {
+		return await getDb().transaction(async (tx) =>
+			linkDropWaitlistEntriesFromUserToUserTx(tx, ctx, input)
+		);
+	} catch (error) {
+		throw mapDropWaitlistPersistenceError(error);
+	}
+}
+
+export async function linkDropWaitlistEntriesFromUserToUserTx(
+	tx: DropsTx,
+	ctx: ServiceContext,
+	input: LinkDropWaitlistEntriesFromUserToUserInput
+): Promise<DropWaitlistLinkResult> {
+	const sourceUserId = normalizeUserId(input.sourceUserId, 'sourceUserId');
+	const targetUserId = normalizeUserId(input.targetUserId, 'targetUserId');
+	requireOwnerOrAdmin(ctx.actor, targetUserId);
+
+	if (sourceUserId === targetUserId) {
+		return {
+			targetUserId,
+			matchedCount: 0,
+			linkedCount: 0,
+			skippedCount: 0
+		};
+	}
+
+	const updated = await tx
+		.update(dropWaitlist)
+		.set({ userId: targetUserId })
+		.where(eq(dropWaitlist.userId, sourceUserId))
+		.returning({ id: dropWaitlist.id });
+
+	return {
+		targetUserId,
+		matchedCount: updated.length,
+		linkedCount: updated.length,
+		skippedCount: 0
+	};
 }
 
 export async function listDropWaitlistEntries(
@@ -1275,6 +1443,16 @@ function normalizeDropId(dropId: string): string {
 	return normalizedDropId;
 }
 
+function normalizeUserId(userId: string, field: string): string {
+	const normalizedUserId = userId.trim();
+
+	if (normalizedUserId.length === 0 || normalizedUserId.length > 255) {
+		throw new DropError(`Invalid ${field}.`, ErrorCode.VALIDATION_ERROR, { [field]: userId });
+	}
+
+	return normalizedUserId;
+}
+
 function normalizeJoinDropWaitlistInput(input: JoinDropWaitlistInput): JoinDropWaitlistInput {
 	return {
 		dropId: normalizeDropId(input.dropId),
@@ -1289,6 +1467,15 @@ function normalizeDropWaitlistContact(
 ): string {
 	const normalizedContact = contact.trim();
 	return contactType === 'email' ? normalizedContact.toLowerCase() : normalizedContact;
+}
+
+function normalizeDropWaitlistContacts(contacts: string[]): string[] {
+	const normalizedContacts = contacts.map((contact) => {
+		const normalizedContact = contact.trim();
+		return normalizedContact.includes('@') ? normalizedContact.toLowerCase() : normalizedContact;
+	});
+
+	return uniqueStrings(normalizedContacts.filter(Boolean));
 }
 
 function normalizeDropWaitlistEntryIds(entryIds: string[]): string[] {

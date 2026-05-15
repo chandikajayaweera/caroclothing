@@ -1,4 +1,5 @@
 import type { RequestEvent } from '@sveltejs/kit';
+import type { NotificationQueueMessage } from './notifications/outbox/outbox.types';
 import type { UserRole } from '$lib/shared/modules/access-control';
 
 export type ServiceActor = {
@@ -15,6 +16,7 @@ export type SystemActor = {
 export type ServiceContext = {
 	actor?: ServiceActor | SystemActor | null;
 	event?: Pick<RequestEvent, 'platform'>;
+	notificationQueue?: Queue<NotificationQueueMessage> | null;
 	now?: Date;
 	requestId?: string;
 };

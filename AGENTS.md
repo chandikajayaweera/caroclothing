@@ -32,10 +32,11 @@ When working on notifications, also inspect the relevant notification modules be
 - Implemented foundation helpers: `src/lib/server/modules/service-context.ts`, `src/lib/server/modules/auth/guards.ts`, `src/lib/server/modules/service-utils.ts`.
 - Schema-only business modules that still need planned services: none in the current core service rollout.
 - Existing route helper: `src/lib/server/modules/errors/route-adapter.ts`.
-- Planned notification state helper: `src/lib/server/modules/notifications/outbox` as the durable source of truth for async notification state.
-- Planned Cloudflare notification transport: Queue producer/consumer bindings, Cron retry/reconciliation, and Dead Letter Queue operational review.
+- Implemented notification state helper: `src/lib/server/modules/notifications/outbox` as the durable source of truth for async notification state.
+- Implemented Cloudflare notification transport: Queue producer/consumer bindings, Cron retry/reconciliation, and Dead Letter Queue operational review.
+- Implemented orchestration modules: `src/lib/server/modules/queue` routes Queue batches; `src/lib/server/modules/cron/scheduled-jobs.ts` routes configured Cron triggers to service APIs.
 - Existing semantic notification sender: `sendDropLaunchEmail`.
-- Missing semantic notification sender: `sendDropLaunchSms`; do not import or call it until it exists.
+- Existing semantic notification sender: `sendDropLaunchSms`.
 
 ## Non-negotiable architecture rules
 
@@ -62,19 +63,20 @@ When working on notifications, also inspect the relevant notification modules be
 ## Notification module rules
 
 - Email and SMS modules are infrastructure helpers, not domain-state owners.
-- Database `notification_outbox` is the planned durable source of truth for async notification state.
+- Database `notification_outbox` is the durable source of truth for async notification state.
 - The outbox module is the approved narrow exception to the normal rule against adding notification database tables.
 - Domain services should enqueue notification intent in the outbox inside the same DB transaction as the business state change, or expose idempotent list/mark helpers for legacy workflows.
 - Cloudflare Queues are a fast asynchronous wakeup only; queue messages must contain only `outboxId` or `idempotencyKey`, never full payloads or customer PII.
 - Cloudflare Cron should scan/retry pending, due failed, and stale locked outbox rows so missed Queue publishes are recovered.
 - Cloudflare Dead Letter Queues are for operational review only; the DB outbox remains durable audit/retry state.
 - Queue/Cron/job/orchestration code should send email/SMS and only mark records sent after successful send.
+- Queue and Cron modules should route work to service functions or notification dispatchers; they should not own domain state.
 - Do not put actual email/SMS sending inside domain services such as `drops.service.ts` unless explicitly approved.
 - Prefer semantic senders over inline message construction:
   - `sendOrderConfirmationEmail`
   - `sendShippingUpdateEmail`
   - `sendDropLaunchEmail`
-  - `sendDropLaunchSms` only after it has been implemented and exported
+  - `sendDropLaunchSms`
   - `sendOtpSms`
 - Normal delivery failures must return typed result objects rather than throwing:
   - `EmailResult`

@@ -6,6 +6,7 @@ export * from '../modules/addresses/addresses.drizzle';
 export * from '../modules/cart/cart.drizzle';
 export * from '../modules/drops/drops.drizzle';
 export * from '../modules/inventory/inventory.drizzle';
+export * from '../modules/notifications/outbox/outbox.drizzle';
 export * from '../modules/orders/orders.drizzle';
 export * from '../modules/products/products.drizzle';
 export * from '../modules/promotions/promotions.drizzle';

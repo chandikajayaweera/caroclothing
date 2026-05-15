@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { insertPromoCodeSchema, updatePromoCodeSchema } from './promotions.drizzle';
+import {
+	insertPromoCodeBaseSchema,
+	updatePromoCodeBaseSchema,
+	validatePromoCodeWindowAndValue
+} from './promotions.drizzle';
 
 const idSchema = z.string().min(1).max(255);
 const codeSchema = z
@@ -15,20 +19,21 @@ const codeSchema = z
 const limitSchema = z.coerce.number().int().min(1).max(100).default(50);
 const offsetSchema = z.coerce.number().int().min(0).default(0);
 
-export const createPromoCodeFormSchema = insertPromoCodeSchema
+export const createPromoCodeFormSchema = insertPromoCodeBaseSchema
 	.omit({
 		isActive: true,
 		usedCount: true
 	})
 	.safeExtend({
 		code: codeSchema
-	});
+	})
+	.superRefine(validatePromoCodeWindowAndValue);
 
 export const updatePromoCodeFormSchema = z.intersection(
 	z.object({
 		promoCodeId: idSchema
 	}),
-	updatePromoCodeSchema
+	updatePromoCodeBaseSchema
 		.omit({
 			isActive: true,
 			usedCount: true
@@ -36,6 +41,7 @@ export const updatePromoCodeFormSchema = z.intersection(
 		.safeExtend({
 			code: codeSchema.optional()
 		})
+		.superRefine(validatePromoCodeWindowAndValue)
 );
 
 export const setPromoCodeActiveFormSchema = z.object({

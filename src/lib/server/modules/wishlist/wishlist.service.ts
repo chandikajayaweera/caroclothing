@@ -36,8 +36,10 @@ import {
 import type {
 	ListWishlistOptions,
 	ListWishlistSignalsOptions,
+	MergeWishlistIntoUserInput,
 	WishlistItemDTO,
 	WishlistListResult,
+	WishlistMergeResult,
 	WishlistProductSummaryDTO,
 	WishlistSignalDTO,
 	WishlistSignalListResult,
@@ -47,7 +49,8 @@ import type {
 } from './wishlist.types';
 
 type Db = ReturnType<typeof getDb>;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type WishlistTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+type Tx = WishlistTx;
 type QueryExecutor = Db | Tx;
 
 type NormalizedWishlistTarget = {
@@ -139,6 +142,63 @@ export async function clearWishlist(ctx: ServiceContext): Promise<void> {
 	const actor = requireActor(ctx.actor);
 
 	await getDb().delete(wishlistItem).where(eq(wishlistItem.userId, actor.id));
+}
+
+export async function mergeWishlistIntoUser(
+	ctx: ServiceContext,
+	input: MergeWishlistIntoUserInput
+): Promise<WishlistMergeResult> {
+	try {
+		return await getDb().transaction(async (tx) => mergeWishlistIntoUserTx(tx, ctx, input));
+	} catch (error) {
+		throw mapWishlistPersistenceError(error);
+	}
+}
+
+export async function mergeWishlistIntoUserTx(
+	tx: WishlistTx,
+	ctx: ServiceContext,
+	input: MergeWishlistIntoUserInput
+): Promise<WishlistMergeResult> {
+	const actor = requireActor(ctx.actor);
+	const sourceUserId = normalizeId(input.sourceUserId, 'sourceUserId');
+
+	if (sourceUserId === actor.id) {
+		return {
+			sourceUserId,
+			targetUserId: actor.id,
+			movedCount: 0,
+			duplicateCount: 0
+		};
+	}
+
+	const rows = await tx.select().from(wishlistItem).where(eq(wishlistItem.userId, sourceUserId));
+	let movedCount = 0;
+	let duplicateCount = 0;
+
+	for (const row of rows) {
+		const target = {
+			productId: row.productId,
+			variantId: row.variantId ?? null
+		};
+		const existing = await findWishlistItemByTarget(tx, actor.id, target);
+
+		if (existing) {
+			await tx.delete(wishlistItem).where(eq(wishlistItem.id, row.id));
+			duplicateCount += 1;
+			continue;
+		}
+
+		await tx.update(wishlistItem).set({ userId: actor.id }).where(eq(wishlistItem.id, row.id));
+		movedCount += 1;
+	}
+
+	return {
+		sourceUserId,
+		targetUserId: actor.id,
+		movedCount,
+		duplicateCount
+	};
 }
 
 export async function isWishlisted(

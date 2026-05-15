@@ -35,6 +35,7 @@ import {
 import { address as addressTable, type Address } from '../addresses/addresses.drizzle';
 import { createAddressSnapshot, validateCheckoutAddress } from '../addresses/addresses.service';
 import type { AddressSnapshot, CheckoutAddressDTO } from '../addresses/addresses.types';
+import { user as userTable } from '../auth/auth.drizzle';
 import {
 	deleteCartAfterOrderPlacementTx,
 	getCheckoutCartForOrderTx,
@@ -47,6 +48,13 @@ import {
 	restoreInventorySaleTx,
 	type InventoryTx
 } from '../inventory/inventory.service';
+import {
+	enqueueOrderConfirmationEmailTx,
+	enqueueShippingUpdateEmailTx,
+	publishNotificationQueueMessages,
+	type NotificationOutboxTx
+} from '../notifications/outbox/outbox.service';
+import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
 import {
 	recordPromoUsageTx,
 	validatePromoCodeForCartTx,
@@ -122,6 +130,8 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const CLEANUP_DEFAULT_LIMIT = 50;
 const CLEANUP_MAX_LIMIT = 200;
+const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
+const ANONYMOUS_EMAIL_DOMAIN = '@anon.caroclothing.lk';
 
 const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 	pending: ['confirmed', 'cancelled'],
@@ -168,8 +178,17 @@ export async function placeOrderFromCart(
 	ctx: ServiceContext,
 	input: PlaceOrderFromCartInput
 ): Promise<OrderDTO> {
+	let notificationsToPublish: NotificationOutboxDTO[] = [];
+
 	try {
-		return await getDb().transaction(async (tx) => placeOrderFromCartTx(tx, ctx, input));
+		const placedOrder = await getDb().transaction(async (tx) => {
+			const orderDto = await placeOrderFromCartTx(tx, ctx, input);
+			const notification = await enqueueOrderConfirmationNotificationTx(tx, orderDto);
+			if (notification) notificationsToPublish = [notification];
+			return orderDto;
+		});
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		return placedOrder;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
@@ -339,9 +358,19 @@ export async function transitionOrderStatus(
 	input: TransitionOrderStatusInput
 ): Promise<OrderDTO> {
 	requireAdmin(ctx.actor);
+	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		return await getDb().transaction(async (tx) => transitionOrderStatusTx(tx, ctx, input));
+		const updatedOrder = await getDb().transaction(async (tx) => {
+			const orderDto = await transitionOrderStatusTx(tx, ctx, input);
+			if (input.toStatus === 'shipped' && orderDto.trackingNumber) {
+				const notification = await enqueueShippingUpdateNotificationTx(tx, orderDto);
+				if (notification) notificationsToPublish = [notification];
+			}
+			return orderDto;
+		});
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		return updatedOrder;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
@@ -403,9 +432,10 @@ export async function updateOrderFulfillment(
 	requireAdmin(ctx.actor);
 	const now = resolveNow(ctx, input.now);
 	const orderId = normalizeId(input.orderId, 'orderId');
+	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		return await getDb().transaction(async (tx) => {
+		const updatedOrder = await getDb().transaction(async (tx) => {
 			const existing = await loadOrderByIdTx(tx, orderId);
 			if (isTerminalOrderStatus(existing.status)) {
 				throw new OrderError('Terminal orders cannot be modified.', ErrorCode.CANNOT_MODIFY_ORDER, {
@@ -441,12 +471,21 @@ export async function updateOrderFulfillment(
 				throw new OrderError('Order not found.', ErrorCode.ORDER_NOT_FOUND, { orderId });
 			}
 
-			return hydrateOrderTx(tx, updated, {
+			const orderDto = await hydrateOrderTx(tx, updated, {
 				includeItems: true,
 				includePayments: true,
 				includeStatusHistory: true
 			});
+
+			if (shouldEnqueueShippingUpdateForFulfillment(existing, updated)) {
+				const notification = await enqueueShippingUpdateNotificationTx(tx, orderDto);
+				if (notification) notificationsToPublish = [notification];
+			}
+
+			return orderDto;
 		});
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		return updatedOrder;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
@@ -896,6 +935,158 @@ async function hydrateOrderTx(
 		includePayments: options.includePayments ?? false,
 		includeStatusHistory: options.includeStatusHistory ?? false
 	});
+}
+
+async function enqueueOrderConfirmationNotificationTx(
+	tx: OrdersTx,
+	orderDto: OrderDTO
+): Promise<NotificationOutboxDTO | null> {
+	if (!orderDto.userId || !orderDto.shippingAddressSnapshot || !orderDto.items?.length) {
+		return null;
+	}
+
+	const recipient = await loadOrderEmailRecipientTx(
+		tx,
+		orderDto.userId,
+		orderDto.shippingAddressSnapshot.recipientName
+	);
+	if (!recipient) return null;
+
+	return enqueueOrderConfirmationEmailTx(tx as NotificationOutboxTx, {
+		orderId: orderDto.id,
+		recipientUserId: recipient.userId,
+		payload: {
+			email: recipient.email,
+			customerName: recipient.customerName,
+			orderId: orderDto.id,
+			orderNumber: orderDto.orderNumber,
+			orderDate: formatEmailDate(orderDto.createdAt),
+			items: orderDto.items.map(toOrderEmailItem),
+			subtotal: formatCurrency(orderDto.subtotal),
+			shipping: formatCurrency(orderDto.shippingAmount),
+			total: formatCurrency(orderDto.totalAmount),
+			shippingAddress: formatAddressSnapshot(orderDto.shippingAddressSnapshot),
+			estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+		},
+		metadata: { orderNumber: orderDto.orderNumber },
+		now: orderDto.createdAt
+	});
+}
+
+async function enqueueShippingUpdateNotificationTx(
+	tx: OrdersTx,
+	orderDto: OrderDTO
+): Promise<NotificationOutboxDTO | null> {
+	if (!orderDto.userId || !orderDto.trackingNumber) return null;
+
+	const recipient = await loadOrderEmailRecipientTx(
+		tx,
+		orderDto.userId,
+		orderDto.shippingAddressSnapshot?.recipientName ?? 'Customer'
+	);
+	if (!recipient) return null;
+
+	return enqueueShippingUpdateEmailTx(tx as NotificationOutboxTx, {
+		orderId: orderDto.id,
+		recipientUserId: recipient.userId,
+		payload: {
+			email: recipient.email,
+			customerName: recipient.customerName,
+			orderId: orderDto.id,
+			orderNumber: orderDto.orderNumber,
+			trackingNumber: orderDto.trackingNumber,
+			trackingUrl: orderDto.trackingUrl ?? undefined,
+			carrier: orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
+			estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+		},
+		metadata: { orderNumber: orderDto.orderNumber },
+		now: orderDto.updatedAt
+	});
+}
+
+async function loadOrderEmailRecipientTx(
+	tx: QueryExecutor,
+	userId: string,
+	fallbackName: string
+): Promise<{ userId: string; email: string; customerName: string } | null> {
+	const [row] = await tx
+		.select({
+			id: userTable.id,
+			name: userTable.name,
+			email: userTable.email
+		})
+		.from(userTable)
+		.where(eq(userTable.id, userId))
+		.limit(1);
+
+	const email = resolvePublicEmail(row?.email ?? null);
+	if (!row || !email) return null;
+
+	return {
+		userId: row.id,
+		email,
+		customerName: normalizeCustomerName(row.name, fallbackName)
+	};
+}
+
+function shouldEnqueueShippingUpdateForFulfillment(existing: Order, updated: Order): boolean {
+	if (updated.status !== 'shipped' || !updated.trackingNumber) return false;
+	return existing.status === 'shipped' && !existing.trackingNumber;
+}
+
+function toOrderEmailItem(item: OrderItemDTO): { name: string; quantity: number; price: string } {
+	const variantLabel = [item.variantSize, item.variantColor].filter(Boolean).join(' / ');
+	return {
+		name: variantLabel ? `${item.productName} (${variantLabel})` : item.productName,
+		quantity: item.quantity,
+		price: formatCurrency(item.totalPrice)
+	};
+}
+
+function formatAddressSnapshot(snapshot: AddressSnapshot): string {
+	return [
+		snapshot.recipientName,
+		snapshot.addressLine1,
+		snapshot.addressLine2,
+		snapshot.city,
+		snapshot.district,
+		snapshot.postalCode,
+		snapshot.country
+	]
+		.filter(Boolean)
+		.join(', ');
+}
+
+function formatCurrency(value: number): string {
+	return `LKR ${value.toLocaleString('en-LK')}`;
+}
+
+function formatEmailDate(value: Date): string {
+	return value.toLocaleDateString('en-LK', {
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric'
+	});
+}
+
+function normalizeCustomerName(name: string | null | undefined, fallbackName: string): string {
+	const normalizedName = name?.trim();
+	if (normalizedName) return normalizedName;
+
+	const normalizedFallback = fallbackName.trim();
+	return normalizedFallback || 'Customer';
+}
+
+function resolvePublicEmail(email: string | null): string | null {
+	if (!email || isInternalTempEmail(email)) return null;
+	return email;
+}
+
+function isInternalTempEmail(email: string): boolean {
+	const normalizedEmail = email.trim().toLowerCase();
+	return (
+		normalizedEmail.endsWith(PHONE_EMAIL_DOMAIN) || normalizedEmail.endsWith(ANONYMOUS_EMAIL_DOMAIN)
+	);
 }
 
 function toOrderDTO(
