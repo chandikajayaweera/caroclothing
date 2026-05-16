@@ -34,7 +34,9 @@
 		ghost: 'text-ash hover:text-volt p-2'
 	};
 
-	let combinedClasses = $derived(`${baseClasses} ${variantClasses[variant] || variantClasses.primary} ${className}`);
+	let combinedClasses = $derived(
+		`${baseClasses} ${variantClasses[variant] || variantClasses.primary} ${className}`
+	);
 </script>
 
 {#if href}

@@ -13,13 +13,13 @@
 </script>
 
 <section class="py-12 md:py-16">
-	<h2 class="font-display text-4xl md:text-5xl text-bone mb-8 uppercase">Reviews</h2>
+	<h2 class="mb-8 font-display text-4xl text-bone uppercase md:text-5xl">Reviews</h2>
 
 	<div class="lg:grid lg:grid-cols-[280px_1fr] lg:gap-16">
 		<!-- Rating summary sticky left -->
-		<div class="flex flex-col gap-6 h-fit lg:sticky lg:top-24 mb-12 lg:mb-0">
+		<div class="mb-12 flex h-fit flex-col gap-6 lg:sticky lg:top-24 lg:mb-0">
 			<div class="flex items-baseline gap-3">
-				<span class="font-display text-6xl text-volt leading-none">{summary.average}</span>
+				<span class="font-display text-6xl leading-none text-volt">{summary.average}</span>
 				<div class="flex flex-col">
 					<div class="flex text-volt">
 						{#each Array(5) as _, i}
@@ -39,7 +39,7 @@
 							</svg>
 						{/each}
 					</div>
-					<span class="font-mono text-[9px] text-ash uppercase tracking-widest mt-1">
+					<span class="mt-1 font-mono text-[9px] tracking-widest text-ash uppercase">
 						Based on {summary.count} reviews
 					</span>
 				</div>
@@ -49,14 +49,14 @@
 			<div class="flex flex-col gap-2">
 				{#each distribution as dist}
 					<div class="flex items-center gap-3">
-						<span class="font-mono text-[9px] text-ash w-2">{dist.stars}</span>
-						<div class="flex-1 h-1 bg-charcoal rounded-full overflow-hidden">
+						<span class="w-2 font-mono text-[9px] text-ash">{dist.stars}</span>
+						<div class="h-1 flex-1 overflow-hidden rounded-full bg-charcoal">
 							<div
 								class="h-full bg-volt"
 								style="width: {(dist.count / summary.count) * 100}%"
 							></div>
 						</div>
-						<span class="font-mono text-[9px] text-ash/40 w-4 text-right">{dist.count}</span>
+						<span class="w-4 text-right font-mono text-[9px] text-ash/40">{dist.count}</span>
 					</div>
 				{/each}
 			</div>

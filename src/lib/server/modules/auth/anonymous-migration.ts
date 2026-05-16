@@ -5,7 +5,12 @@ import {
 	linkDropWaitlistEntriesFromUserToUserTx,
 	type DropsTx
 } from '$lib/server/modules/drops/drops.service';
-import { AuthError, ErrorCode, getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
+import {
+	AuthError,
+	ErrorCode,
+	getErrorMessage,
+	isAppError
+} from '$lib/server/infrastructure/errors';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	mergeWishlistIntoUserTx,

@@ -13,7 +13,7 @@
 {#if $uiStore.cartDrawerOpen}
 	<!-- Backdrop -->
 	<div
-		class="fixed inset-0 bg-void/50 z-[54] hidden md:block"
+		class="fixed inset-0 z-[54] hidden bg-void/50 md:block"
 		transition:fade={{ duration: 250 }}
 		onclick={closeCartDrawer}
 		onkeydown={(e) => e.key === 'Escape' && closeCartDrawer()}
@@ -24,23 +24,23 @@
 
 	<!-- Drawer -->
 	<div
-		class="fixed top-0 right-0 h-full w-[420px] bg-void border-l border-charcoal z-[55] hidden md:flex flex-col"
+		class="fixed top-0 right-0 z-[55] hidden h-full w-[420px] flex-col border-l border-charcoal bg-void md:flex"
 		transition:fly={{ x: 420, duration: 250 }}
 	>
 		<!-- Header -->
-		<div class="px-6 py-5 border-b border-charcoal flex justify-between items-center">
+		<div class="flex items-center justify-between border-b border-charcoal px-6 py-5">
 			<div>
 				<span class="font-display text-3xl text-bone uppercase">Your Bag</span>
-				<span class="font-mono text-xs text-ash ml-2">({$cartCount})</span>
+				<span class="ml-2 font-mono text-xs text-ash">({$cartCount})</span>
 			</div>
-			<button class="text-ash hover:text-bone text-2xl font-light" onclick={closeCartDrawer}>
+			<button class="text-2xl font-light text-ash hover:text-bone" onclick={closeCartDrawer}>
 				×
 			</button>
 		</div>
 
 		<!-- Free shipping bar -->
-		<div class="px-6 py-3 bg-charcoal">
-			<div class="flex justify-between items-center mb-1.5">
+		<div class="bg-charcoal px-6 py-3">
+			<div class="mb-1.5 flex items-center justify-between">
 				{#if amountToFreeShipping > 0}
 					<span class="font-mono text-[10px] text-ash uppercase">
 						Add LKR {amountToFreeShipping.toLocaleString()} more for free shipping
@@ -49,7 +49,7 @@
 					<span class="font-mono text-[10px] text-volt uppercase">Free shipping unlocked</span>
 				{/if}
 			</div>
-			<div class="h-[2px] bg-ash/20 rounded-full overflow-hidden">
+			<div class="h-[2px] overflow-hidden rounded-full bg-ash/20">
 				<div
 					class="h-full bg-volt transition-all duration-500"
 					style="width: {freeShippingProgress}%"
@@ -58,11 +58,11 @@
 		</div>
 
 		<!-- Item list -->
-		<div class="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+		<div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
 			{#if $cartStore.items.length === 0}
-				<div class="h-full flex flex-col items-center justify-center text-center">
-					<span class="font-display text-3xl text-bone mb-2">Your bag is empty.</span>
-					<span class="font-mono text-xs text-ash mb-6 uppercase tracking-widest">Fix that.</span>
+				<div class="flex h-full flex-col items-center justify-center text-center">
+					<span class="mb-2 font-display text-3xl text-bone">Your bag is empty.</span>
+					<span class="mb-6 font-mono text-xs tracking-widest text-ash uppercase">Fix that.</span>
 					<Button variant="primary" onclick={closeCartDrawer} href="/shop?sort=new">
 						Shop New In →
 					</Button>
@@ -76,17 +76,15 @@
 
 		<!-- Footer -->
 		{#if $cartStore.items.length > 0}
-			<div class="px-6 py-5 border-t border-charcoal">
-				<div class="flex justify-between font-mono text-sm mb-4 uppercase">
+			<div class="border-t border-charcoal px-6 py-5">
+				<div class="mb-4 flex justify-between font-mono text-sm uppercase">
 					<span class="text-ash">Subtotal</span>
 					<span class="text-bone">LKR {$subtotal.toLocaleString()}</span>
 				</div>
-				<Button variant="primary" class="w-full" href="/checkout">
-					Checkout
-				</Button>
+				<Button variant="primary" class="w-full" href="/checkout">Checkout</Button>
 				<a
 					href="/bag"
-					class="font-mono text-[10px] text-ash text-center block mt-3 hover:text-bone uppercase tracking-widest"
+					class="mt-3 block text-center font-mono text-[10px] tracking-widest text-ash uppercase hover:text-bone"
 					onclick={closeCartDrawer}
 				>
 					View Bag →

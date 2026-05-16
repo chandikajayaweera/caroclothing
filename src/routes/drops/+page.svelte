@@ -25,53 +25,65 @@
 	<title>Drops | Caro Clothing</title>
 </svelte:head>
 
-<div class="min-h-screen bg-void pt-20 pb-32 px-4 md:px-8 lg:px-12">
-	<div class="max-w-7xl mx-auto">
+<div class="min-h-screen bg-void px-4 pt-20 pb-32 md:px-8 lg:px-12">
+	<div class="mx-auto max-w-7xl">
 		<header class="mb-16 md:mb-24">
-			<h1 class="font-display text-6xl md:text-8xl lg:text-9xl text-bone uppercase leading-[0.85]">DROPS</h1>
-			<p class="font-mono text-xs text-ash uppercase tracking-[0.2em] mt-4 max-w-md">
+			<h1 class="font-display text-6xl leading-[0.85] text-bone uppercase md:text-8xl lg:text-9xl">
+				DROPS
+			</h1>
+			<p class="mt-4 max-w-md font-mono text-xs tracking-[0.2em] text-ash uppercase">
 				Limited releases. Real stock. No restocks.
 			</p>
 		</header>
 
 		<div class="flex flex-col gap-8 md:gap-12">
 			{#each drops as drop}
-				<a 
-					href="/drops/{drop.slug}" 
-					class="group relative bg-charcoal/30 border border-charcoal hover:border-ash/20 p-8 md:p-12 lg:p-16 transition-all duration-500 overflow-hidden"
+				<a
+					href="/drops/{drop.slug}"
+					class="group relative overflow-hidden border border-charcoal bg-charcoal/30 p-8 transition-all duration-500 hover:border-ash/20 md:p-12 lg:p-16"
 				>
 					<!-- Status Badge -->
 					<div class="mb-6 flex items-center gap-3">
-						<span class="font-mono text-[10px] uppercase tracking-widest {drop.isLive ? 'text-volt' : 'text-ash/60'}">
+						<span
+							class="font-mono text-[10px] tracking-widest uppercase {drop.isLive
+								? 'text-volt'
+								: 'text-ash/60'}"
+						>
 							{drop.status}
 						</span>
 						{#if drop.isLive}
-							<span class="w-1.5 h-1.5 rounded-full bg-volt animate-pulse"></span>
+							<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-volt"></span>
 						{/if}
 					</div>
 
-					<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-8">
+					<div class="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
 						<div>
-							<h2 class="font-display text-5xl md:text-7xl lg:text-8xl text-bone uppercase group-hover:text-volt transition-colors">
+							<h2
+								class="font-display text-5xl text-bone uppercase transition-colors group-hover:text-volt md:text-7xl lg:text-8xl"
+							>
 								{drop.name}
 							</h2>
-							<p class="font-sans text-sm md:text-base text-ash mt-2 max-w-md">
+							<p class="mt-2 max-w-md font-sans text-sm text-ash md:text-base">
 								{drop.tagline}
 							</p>
 						</div>
 
-						<div class="flex flex-col items-start md:items-end gap-4">
-							<span class="font-mono text-[10px] text-ash/40 uppercase tracking-widest">
+						<div class="flex flex-col items-start gap-4 md:items-end">
+							<span class="font-mono text-[10px] tracking-widest text-ash/40 uppercase">
 								{drop.date}
 							</span>
-							<span class="font-mono text-[11px] text-bone uppercase tracking-[0.2em] border-b border-bone/20 group-hover:border-volt group-hover:text-volt transition-all">
+							<span
+								class="border-b border-bone/20 font-mono text-[11px] tracking-[0.2em] text-bone uppercase transition-all group-hover:border-volt group-hover:text-volt"
+							>
 								View Drop →
 							</span>
 						</div>
 					</div>
 
 					<!-- Visual Background Decoration -->
-					<div class="absolute -right-8 -bottom-8 font-display text-[120px] md:text-[200px] text-bone/5 opacity-[0.02] pointer-events-none group-hover:opacity-[0.05] transition-opacity uppercase select-none">
+					<div
+						class="pointer-events-none absolute -right-8 -bottom-8 font-display text-[120px] text-bone/5 uppercase opacity-[0.02] transition-opacity select-none group-hover:opacity-[0.05] md:text-[200px]"
+					>
 						{drop.name.split(' ')[1]}
 					</div>
 				</a>

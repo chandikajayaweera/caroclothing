@@ -5,7 +5,8 @@
 			user: 'Kasun M.',
 			rating: 5,
 			title: 'Best tee I own.',
-			excerpt: 'Wore this to a show in Colombo. Got stopped three times. The fit is exactly as described.',
+			excerpt:
+				'Wore this to a show in Colombo. Got stopped three times. The fit is exactly as described.',
 			isVerifiedPurchase: true,
 			productName: 'Void Oversized Tee',
 			productSlug: 'void-oversized-tee'
@@ -25,7 +26,8 @@
 			user: 'Arjun P.',
 			rating: 5,
 			title: 'Colombo standard.',
-			excerpt: 'Finally a local brand that understands proportions. This is world class streetwear.',
+			excerpt:
+				'Finally a local brand that understands proportions. This is world class streetwear.',
 			isVerifiedPurchase: true,
 			productName: 'Void Oversized Tee',
 			productSlug: 'void-oversized-tee'
@@ -33,18 +35,26 @@
 	];
 </script>
 
-<section class="py-20 bg-void border-y border-charcoal/50">
-	<div class="px-4 md:px-8 lg:px-12 max-w-7xl mx-auto">
+<section class="border-y border-charcoal/50 bg-void py-20">
+	<div class="mx-auto max-w-7xl px-4 md:px-8 lg:px-12">
 		<header class="mb-10">
-			<h2 class="font-display text-4xl md:text-5xl text-bone uppercase tracking-tight">WHAT THEY'RE SAYING</h2>
-			<p class="font-mono text-[10px] text-ash uppercase tracking-[0.2em] mt-2">Based on verified purchases</p>
+			<h2 class="font-display text-4xl tracking-tight text-bone uppercase md:text-5xl">
+				WHAT THEY'RE SAYING
+			</h2>
+			<p class="mt-2 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
+				Based on verified purchases
+			</p>
 		</header>
 
 		<!-- Horizontal Scroll on Mobile, Grid on Desktop -->
-		<div class="flex md:grid md:grid-cols-3 gap-4 overflow-x-auto no-scrollbar pb-4 md:pb-0 scroll-snap-x">
+		<div
+			class="no-scrollbar scroll-snap-x flex gap-4 overflow-x-auto pb-4 md:grid md:grid-cols-3 md:pb-0"
+		>
 			{#each reviews as review}
-				<div class="min-w-[280px] md:min-w-0 bg-charcoal/40 p-6 flex flex-col gap-4 border border-charcoal hover:border-ash/20 transition-colors scroll-snap-align-start">
-					<div class="flex justify-between items-start">
+				<div
+					class="scroll-snap-align-start flex min-w-[280px] flex-col gap-4 border border-charcoal bg-charcoal/40 p-6 transition-colors hover:border-ash/20 md:min-w-0"
+				>
+					<div class="flex items-start justify-between">
 						<div class="flex gap-0.5 text-bone">
 							{#each Array(5) as _, i}
 								<svg
@@ -68,21 +78,39 @@
 					</div>
 
 					<div>
-						<h4 class="font-sans text-sm font-semibold text-bone mb-1">{review.title}</h4>
-						<p class="font-sans text-[13px] text-bone/70 leading-relaxed line-clamp-2">"{review.excerpt}"</p>
+						<h4 class="mb-1 font-sans text-sm font-semibold text-bone">{review.title}</h4>
+						<p class="line-clamp-2 font-sans text-[13px] leading-relaxed text-bone/70">
+							"{review.excerpt}"
+						</p>
 					</div>
 
-					<div class="mt-auto pt-4 flex flex-col gap-2 border-t border-charcoal">
+					<div class="mt-auto flex flex-col gap-2 border-t border-charcoal pt-4">
 						<div class="flex items-center justify-between">
 							<span class="font-sans text-[11px] font-medium text-bone">{review.user}</span>
 							{#if review.isVerifiedPurchase}
-								<span class="font-mono text-[9px] text-volt uppercase tracking-widest flex items-center gap-1">
-									<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>
+								<span
+									class="flex items-center gap-1 font-mono text-[9px] tracking-widest text-volt uppercase"
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="10"
+										height="10"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="lucide lucide-check"><path d="M20 6 9 17l-5-5" /></svg
+									>
 									Verified
 								</span>
 							{/if}
 						</div>
-						<a href="/shop/{review.productSlug}" class="font-mono text-[9px] text-ash uppercase tracking-widest hover:text-volt transition-colors">
+						<a
+							href="/shop/{review.productSlug}"
+							class="font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:text-volt"
+						>
 							{review.productName}
 						</a>
 					</div>

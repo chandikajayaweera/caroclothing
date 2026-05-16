@@ -12,17 +12,15 @@
 	<meta name="description" content="Your shopping bag" />
 </svelte:head>
 
-<div class="min-h-screen bg-void pt-20 pb-32 px-4 md:px-8 lg:pt-24 lg:pb-20">
-	<div class="max-w-5xl mx-auto">
-		<h1 class="font-display text-5xl md:text-6xl text-bone mb-8 uppercase">Your Bag</h1>
+<div class="min-h-screen bg-void px-4 pt-20 pb-32 md:px-8 lg:pt-24 lg:pb-20">
+	<div class="mx-auto max-w-5xl">
+		<h1 class="mb-8 font-display text-5xl text-bone uppercase md:text-6xl">Your Bag</h1>
 
 		{#if $cartStore.items.length === 0}
-			<div class="py-20 flex flex-col items-center justify-center text-center">
-				<span class="font-display text-4xl text-bone mb-2">YOUR BAG IS EMPTY.</span>
-				<span class="font-mono text-xs text-ash mb-8 uppercase tracking-widest">Fix that.</span>
-				<Button variant="primary" href="/shop?sort=new">
-					Shop New In →
-				</Button>
+			<div class="flex flex-col items-center justify-center py-20 text-center">
+				<span class="mb-2 font-display text-4xl text-bone">YOUR BAG IS EMPTY.</span>
+				<span class="mb-8 font-mono text-xs tracking-widest text-ash uppercase">Fix that.</span>
+				<Button variant="primary" href="/shop?sort=new">Shop New In →</Button>
 			</div>
 		{:else}
 			<div class="lg:grid lg:grid-cols-[1fr_360px] lg:gap-12">
@@ -37,18 +35,24 @@
 
 				<!-- Right: Summary -->
 				<div class="mt-12 lg:mt-0">
-					<div class="bg-charcoal p-6 sticky top-24">
-						<h2 class="font-mono text-xs text-ash uppercase tracking-[0.2em] mb-6">Order Summary</h2>
-						
+					<div class="sticky top-24 bg-charcoal p-6">
+						<h2 class="mb-6 font-mono text-xs tracking-[0.2em] text-ash uppercase">
+							Order Summary
+						</h2>
+
 						{#if amountToFreeShipping > 0}
-							<div class="bg-charcoal p-4 mb-6 border border-charcoal hover:border-ash/10 transition-colors">
-								<div class="flex justify-between items-center mb-2">
-									<span class="font-mono text-[10px] text-ash uppercase tracking-wider">
+							<div
+								class="mb-6 border border-charcoal bg-charcoal p-4 transition-colors hover:border-ash/10"
+							>
+								<div class="mb-2 flex items-center justify-between">
+									<span class="font-mono text-[10px] tracking-wider text-ash uppercase">
 										Add LKR {amountToFreeShipping.toLocaleString()} more for free shipping
 									</span>
-									<span class="font-mono text-[10px] text-ash/40">{Math.round(($subtotal / freeShippingThreshold) * 100)}%</span>
+									<span class="font-mono text-[10px] text-ash/40"
+										>{Math.round(($subtotal / freeShippingThreshold) * 100)}%</span
+									>
 								</div>
-								<div class="h-1 bg-void rounded-full overflow-hidden">
+								<div class="h-1 overflow-hidden rounded-full bg-void">
 									<div
 										class="h-full bg-volt transition-all duration-500"
 										style="width: {Math.min(100, ($subtotal / freeShippingThreshold) * 100)}%"
@@ -56,18 +60,31 @@
 								</div>
 							</div>
 						{:else}
-							<div class="bg-volt/5 p-4 mb-6 border border-volt/20">
-								<div class="flex justify-between items-center mb-2">
-									<span class="font-mono text-[10px] text-volt uppercase tracking-widest">Free shipping unlocked</span>
+							<div class="mb-6 border border-volt/20 bg-volt/5 p-4">
+								<div class="mb-2 flex items-center justify-between">
+									<span class="font-mono text-[10px] tracking-widest text-volt uppercase"
+										>Free shipping unlocked</span
+									>
 									<span class="text-volt">
-										<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"/></svg>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="12"
+											height="12"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="3"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											class="lucide lucide-check"><path d="M20 6 9 17l-5-5" /></svg
+										>
 									</span>
 								</div>
-								<div class="h-1 bg-volt rounded-full"></div>
+								<div class="h-1 rounded-full bg-volt"></div>
 							</div>
 						{/if}
 
-						<div class="space-y-3 mb-6">
+						<div class="mb-6 space-y-3">
 							<div class="flex justify-between font-mono text-sm uppercase">
 								<span class="text-ash">Subtotal</span>
 								<span class="text-bone">LKR {$subtotal.toLocaleString()}</span>
@@ -78,16 +95,14 @@
 							</div>
 						</div>
 
-						<div class="border-t border-ash/10 pt-4 mb-8">
+						<div class="mb-8 border-t border-ash/10 pt-4">
 							<div class="flex justify-between font-mono text-base font-bold uppercase">
 								<span class="text-bone">Total</span>
 								<span class="text-bone">LKR {$subtotal.toLocaleString()}</span>
 							</div>
 						</div>
 
-						<Button variant="primary" class="w-full py-4 mb-4" href="/checkout">
-							Checkout
-						</Button>
+						<Button variant="primary" class="mb-4 w-full py-4" href="/checkout">Checkout</Button>
 
 						<!-- Promo Code -->
 						<div class="mt-6">
@@ -95,9 +110,9 @@
 								<input
 									type="text"
 									placeholder="PROMO CODE"
-									class="flex-1 bg-transparent font-mono text-[10px] text-bone placeholder:text-ash/40 outline-none uppercase"
+									class="flex-1 bg-transparent font-mono text-[10px] text-bone uppercase outline-none placeholder:text-ash/40"
 								/>
-								<button class="font-mono text-[10px] text-volt uppercase tracking-widest">
+								<button class="font-mono text-[10px] tracking-widest text-volt uppercase">
 									Apply
 								</button>
 							</div>

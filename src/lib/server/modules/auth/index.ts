@@ -10,7 +10,12 @@ import { databaseHooks } from './database-hook';
 import { sendOtpSms } from '$lib/server/infrastructure/sms';
 import { reserveOtpCooldown } from './otp-cooldown';
 import { migrateAnonymousUserData } from './anonymous-migration';
-import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/infrastructure/errors';
+import {
+	AuthError,
+	ErrorCode,
+	isAppError,
+	toBetterAuthApiError
+} from '$lib/server/infrastructure/errors';
 
 import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
 

@@ -1,7 +1,12 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/foundation/guards';
-import { ErrorCode, PromotionError, getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
+import {
+	ErrorCode,
+	PromotionError,
+	getErrorMessage,
+	isAppError
+} from '$lib/server/infrastructure/errors';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,

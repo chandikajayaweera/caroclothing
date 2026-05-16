@@ -49,19 +49,19 @@
 	];
 </script>
 
-<section class="py-12 px-4 md:px-6 lg:py-20 lg:px-8 bg-void">
-	<div class="max-w-7xl mx-auto">
-		<div class="flex items-baseline justify-between mb-6 md:mb-10 lg:mb-12">
-			<h2 class="font-display text-5xl md:text-6xl lg:text-8xl text-bone uppercase">New In</h2>
+<section class="bg-void px-4 py-12 md:px-6 lg:px-8 lg:py-20">
+	<div class="mx-auto max-w-7xl">
+		<div class="mb-6 flex items-baseline justify-between md:mb-10 lg:mb-12">
+			<h2 class="font-display text-5xl text-bone uppercase md:text-6xl lg:text-8xl">New In</h2>
 			<a
 				href="/shop?sort=new"
-				class="font-mono text-[10px] text-ash hover:text-volt uppercase tracking-widest transition-colors"
+				class="font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:text-volt"
 			>
 				[View All]
 			</a>
 		</div>
 
-		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 lg:gap-4">
+		<div class="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 lg:gap-4">
 			{#each products as product}
 				<ProductCard {product} />
 			{/each}

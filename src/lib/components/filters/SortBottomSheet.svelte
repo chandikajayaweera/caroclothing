@@ -21,7 +21,7 @@
 {#if isOpen}
 	<!-- Backdrop -->
 	<div
-		class="fixed inset-0 bg-void/60 z-40 lg:hidden"
+		class="fixed inset-0 z-40 bg-void/60 lg:hidden"
 		transition:fade={{ duration: 250 }}
 		onclick={onClose}
 		onkeydown={(e) => e.key === 'Escape' && onClose()}
@@ -32,18 +32,18 @@
 
 	<!-- Bottom Sheet -->
 	<div
-		class="fixed inset-x-0 bottom-0 z-50 bg-charcoal rounded-t-none lg:hidden flex flex-col"
+		class="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-none bg-charcoal lg:hidden"
 		transition:fly={{ y: 300, duration: 250 }}
 	>
-		<div class="px-5 py-4 border-b border-void flex justify-between items-center">
-			<span class="font-mono text-[10px] text-ash uppercase tracking-widest">Sort By</span>
-			<button class="text-ash hover:text-bone text-xl" onclick={onClose}>×</button>
+		<div class="flex items-center justify-between border-b border-void px-5 py-4">
+			<span class="font-mono text-[10px] tracking-widest text-ash uppercase">Sort By</span>
+			<button class="text-xl text-ash hover:text-bone" onclick={onClose}>×</button>
 		</div>
 
 		<div class="flex flex-col">
 			{#each sortOptions as option}
 				<button
-					class="font-sans text-sm text-bone py-4 px-5 border-b border-void/40 flex items-center justify-between text-left hover:bg-void/20 transition-colors"
+					class="flex items-center justify-between border-b border-void/40 px-5 py-4 text-left font-sans text-sm text-bone transition-colors hover:bg-void/20"
 					onclick={() => {
 						activeSort = option.value;
 						onClose();
@@ -51,12 +51,12 @@
 				>
 					{option.label}
 					{#if activeSort === option.value}
-						<div class="w-1.5 h-1.5 rounded-full bg-volt"></div>
+						<div class="h-1.5 w-1.5 rounded-full bg-volt"></div>
 					{/if}
 				</button>
 			{/each}
 		</div>
-		
+
 		<!-- Safe area padding for mobile -->
 		<div class="h-8"></div>
 	</div>

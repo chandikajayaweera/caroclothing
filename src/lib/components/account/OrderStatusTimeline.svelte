@@ -7,40 +7,42 @@
 		{ label: 'Delivered', done: false, date: null }
 	];
 
-	const currentStepIndex = steps.findIndex(s => !s.done) - 1;
+	const currentStepIndex = steps.findIndex((s) => !s.done) - 1;
 </script>
 
-<div class="flex flex-col gap-0 mt-8">
+<div class="mt-8 flex flex-col gap-0">
 	{#each steps as step, i}
-		<div class="flex gap-4 items-start relative pb-8 last:pb-0">
+		<div class="relative flex items-start gap-4 pb-8 last:pb-0">
 			<!-- Connecting line -->
 			{#if i < steps.length - 1}
-				<div
-					class="absolute left-[5.5px] top-4 w-[1px] h-full bg-charcoal"
-				>
+				<div class="absolute top-4 left-[5.5px] h-full w-[1px] bg-charcoal">
 					<div
 						class="w-full bg-volt transition-all duration-500"
-						style="height: {step.done && steps[i+1].done ? '100%' : '0%'}"
+						style="height: {step.done && steps[i + 1].done ? '100%' : '0%'}"
 					></div>
 				</div>
 			{/if}
 
 			<!-- Dot -->
 			<div
-				class="w-3 h-3 rounded-full mt-0.5 flex-shrink-0 z-10 transition-all duration-300
-        {step.done ? 'bg-volt' : i === currentStepIndex + 1 ? 'bg-volt ring-4 ring-volt/20 animate-pulse' : 'bg-ash/20'}"
+				class="z-10 mt-0.5 h-3 w-3 flex-shrink-0 rounded-full transition-all duration-300
+        {step.done
+					? 'bg-volt'
+					: i === currentStepIndex + 1
+						? 'animate-pulse bg-volt ring-4 ring-volt/20'
+						: 'bg-ash/20'}"
 			></div>
 
 			<!-- Label + Date -->
 			<div class="flex flex-col gap-0.5">
 				<span
-					class="font-mono text-xs uppercase tracking-widest
+					class="font-mono text-xs tracking-widest uppercase
           {step.done ? 'text-bone' : 'text-ash/40'}"
 				>
 					{step.label}
 				</span>
 				{#if step.date}
-					<span class="font-mono text-[9px] text-ash/60 uppercase tracking-widest">
+					<span class="font-mono text-[9px] tracking-widest text-ash/60 uppercase">
 						{step.date}
 					</span>
 				{/if}

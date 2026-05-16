@@ -34,17 +34,21 @@
 	}
 </script>
 
-<footer class="bg-charcoal pt-12 pb-8 md:py-16 px-5 md:px-8 lg:px-12">
-	<div class="max-w-7xl mx-auto">
+<footer class="bg-charcoal px-5 pt-12 pb-8 md:px-8 md:py-16 lg:px-12">
+	<div class="mx-auto max-w-7xl">
 		<!-- Tablet/Desktop Grid -->
-		<div class="hidden md:grid grid-cols-4 gap-8 mb-12">
+		<div class="mb-12 hidden grid-cols-4 gap-8 md:grid">
 			<!-- Col 1 -->
 			<div class="md:col-span-2 lg:col-span-1">
-				<span class="font-display text-4xl text-bone tracking-[0.2em] mb-6 block">CARO</span>
-				<p class="font-display text-4xl text-bone mb-6 leading-tight max-w-[200px]">{tagline}</p>
+				<span class="mb-6 block font-display text-4xl tracking-[0.2em] text-bone">CARO</span>
+				<p class="mb-6 max-w-[200px] font-display text-4xl leading-tight text-bone">{tagline}</p>
 				<div class="flex gap-4">
 					{#each social as item}
-						<a href={item.href} class="text-ash hover:text-volt transition-colors" aria-label={item.label}>
+						<a
+							href={item.href}
+							class="text-ash transition-colors hover:text-volt"
+							aria-label={item.label}
+						>
 							{#if item.icon === 'instagram'}
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -88,14 +92,14 @@
 			<!-- Col 2 & 3 -->
 			{#each columns as column}
 				<div>
-					<h3 class="font-mono text-[10px] uppercase tracking-[0.2em] text-ash mb-6">
+					<h3 class="mb-6 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
 						{column.heading}
 					</h3>
 					<div class="flex flex-col gap-3">
 						{#each column.links as link}
 							<a
 								href={link.href}
-								class="font-mono text-[10px] uppercase tracking-[0.15em] text-ash hover:text-bone transition-colors"
+								class="font-mono text-[10px] tracking-[0.15em] text-ash uppercase transition-colors hover:text-bone"
 							>
 								{link.label}
 							</a>
@@ -106,46 +110,43 @@
 
 			<!-- Col 4 -->
 			<div>
-				<h3 class="font-mono text-[10px] uppercase tracking-[0.2em] text-ash mb-6">Legal</h3>
+				<h3 class="mb-6 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Legal</h3>
 				<div class="flex flex-col gap-3">
 					<a
 						href="/privacy"
-						class="font-mono text-[10px] uppercase tracking-[0.15em] text-ash hover:text-bone transition-colors"
+						class="font-mono text-[10px] tracking-[0.15em] text-ash uppercase transition-colors hover:text-bone"
 					>
 						Privacy
 					</a>
 					<a
 						href="/terms"
-						class="font-mono text-[10px] uppercase tracking-[0.15em] text-ash hover:text-bone transition-colors"
+						class="font-mono text-[10px] tracking-[0.15em] text-ash uppercase transition-colors hover:text-bone"
 					>
 						Terms
 					</a>
-					<p class="font-mono text-[10px] text-ash/50 mt-4">{copyright}</p>
+					<p class="mt-4 font-mono text-[10px] text-ash/50">{copyright}</p>
 				</div>
 			</div>
 		</div>
 
 		<!-- Mobile Stacked Accordions -->
 		<div class="md:hidden">
-			<p class="font-display text-4xl text-bone mb-8 leading-tight">{tagline}</p>
+			<p class="mb-8 font-display text-4xl leading-tight text-bone">{tagline}</p>
 
 			<div class="border-t border-void/40">
 				{#each columns as column}
 					<div class="border-b border-void/40">
 						<button
-							class="w-full py-4 flex justify-between items-center font-mono text-[10px] uppercase tracking-[0.2em] text-ash"
+							class="flex w-full items-center justify-between py-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase"
 							onclick={() => toggleColumn(column.heading)}
 						>
 							{column.heading}
 							<span>{activeMobileColumn === column.heading ? '–' : '+'}</span>
 						</button>
 						{#if activeMobileColumn === column.heading}
-							<div class="pb-4 flex flex-col gap-2">
+							<div class="flex flex-col gap-2 pb-4">
 								{#each column.links as link}
-									<a
-										href={link.href}
-										class="font-mono text-xs text-ash hover:text-bone py-1 block"
-									>
+									<a href={link.href} class="block py-1 font-mono text-xs text-ash hover:text-bone">
 										{link.label}
 									</a>
 								{/each}
@@ -155,9 +156,13 @@
 				{/each}
 			</div>
 
-			<div class="flex gap-4 mt-8">
+			<div class="mt-8 flex gap-4">
 				{#each social as item}
-					<a href={item.href} class="text-ash hover:text-volt transition-colors" aria-label={item.label}>
+					<a
+						href={item.href}
+						class="text-ash transition-colors hover:text-volt"
+						aria-label={item.label}
+					>
 						{#if item.icon === 'instagram'}
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -197,7 +202,7 @@
 				{/each}
 			</div>
 
-			<p class="font-mono text-[10px] text-ash/50 mt-8">{copyright}</p>
+			<p class="mt-8 font-mono text-[10px] text-ash/50">{copyright}</p>
 		</div>
 	</div>
 </footer>

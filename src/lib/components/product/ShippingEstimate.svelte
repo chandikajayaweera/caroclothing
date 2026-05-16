@@ -8,14 +8,14 @@
 	};
 </script>
 
-<div class="bg-charcoal px-4 py-4 mt-2">
-	<span class="font-mono text-[9px] text-volt uppercase tracking-[0.15em] mb-2 block">
+<div class="mt-2 bg-charcoal px-4 py-4">
+	<span class="mb-2 block font-mono text-[9px] tracking-[0.15em] text-volt uppercase">
 		SHIPS FROM COLOMBO
 	</span>
 	<p class="font-sans text-xs text-bone/70">
 		Colombo: {info.colombo} · Other districts: {info.other}
 	</p>
-	<p class="font-mono text-[9px] text-ash mt-1 uppercase">
+	<p class="mt-1 font-mono text-[9px] text-ash uppercase">
 		Free shipping over {info.freeThresholdFormatted}
 	</p>
 </div>

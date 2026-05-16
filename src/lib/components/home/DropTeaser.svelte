@@ -24,16 +24,20 @@
 </script>
 
 {#if nextDrop}
-	<section class="bg-charcoal py-20 md:py-32 px-5 md:px-8 lg:px-12 border-t border-void">
-		<div class="max-w-7xl mx-auto flex flex-col lg:grid lg:grid-cols-2 lg:gap-20 items-center">
+	<section class="border-t border-void bg-charcoal px-5 py-20 md:px-8 md:py-32 lg:px-12">
+		<div class="mx-auto flex max-w-7xl flex-col items-center lg:grid lg:grid-cols-2 lg:gap-20">
 			<!-- Left: Info -->
-			<div class="flex flex-col gap-8 w-full">
+			<div class="flex w-full flex-col gap-8">
 				<div>
-					<span class="font-mono text-[10px] text-volt uppercase tracking-[0.3em] mb-4 block">NEXT DROP</span>
-					<h2 class="font-display text-[72px] md:text-[96px] leading-[0.85] text-bone uppercase mb-4">
+					<span class="mb-4 block font-mono text-[10px] tracking-[0.3em] text-volt uppercase"
+						>NEXT DROP</span
+					>
+					<h2
+						class="mb-4 font-display text-[72px] leading-[0.85] text-bone uppercase md:text-[96px]"
+					>
 						{nextDrop.name}
 					</h2>
-					<p class="font-sans text-sm md:text-base text-ash max-w-md">
+					<p class="max-w-md font-sans text-sm text-ash md:text-base">
 						{nextDrop.tagline}
 					</p>
 				</div>
@@ -42,26 +46,31 @@
 
 				<div class="mt-4">
 					{#if subscribed}
-						<div class="bg-volt/5 border border-volt/20 p-6 flex flex-col gap-1 max-w-md">
+						<div class="flex max-w-md flex-col gap-1 border border-volt/20 bg-volt/5 p-6">
 							<span class="font-display text-2xl text-volt uppercase">YOU'RE ON THE LIST.</span>
-							<p class="font-mono text-[10px] text-ash uppercase tracking-widest">We'll text you when it drops.</p>
+							<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
+								We'll text you when it drops.
+							</p>
 						</div>
 					{:else}
-						<form class="flex flex-col gap-3 max-w-md" onsubmit={handleNotify}>
+						<form class="flex max-w-md flex-col gap-3" onsubmit={handleNotify}>
 							<div class="flex flex-col gap-1">
-								<div class="flex border-b border-ash/30 focus-within:border-volt transition-colors">
+								<div class="flex border-b border-ash/30 transition-colors focus-within:border-volt">
 									<input
 										type="text"
 										bind:value={email}
 										placeholder="PHONE OR EMAIL"
-										class="flex-1 bg-transparent py-3 font-mono text-[10px] text-bone placeholder:text-ash/40 outline-none uppercase tracking-widest"
+										class="flex-1 bg-transparent py-3 font-mono text-[10px] tracking-widest text-bone uppercase outline-none placeholder:text-ash/40"
 										required
 									/>
-									<button type="submit" class="font-mono text-[10px] text-volt uppercase tracking-widest px-4 hover:text-bone transition-colors">
+									<button
+										type="submit"
+										class="px-4 font-mono text-[10px] tracking-widest text-volt uppercase transition-colors hover:text-bone"
+									>
 										NOTIFY ME
 									</button>
 								</div>
-								<span class="font-mono text-[9px] text-ash/40 uppercase tracking-widest mt-2">
+								<span class="mt-2 font-mono text-[9px] tracking-widest text-ash/40 uppercase">
 									No spam. First access. Unsubscribe anytime.
 								</span>
 							</div>
@@ -71,18 +80,26 @@
 			</div>
 
 			<!-- Right: Visual Teaser (Desktop only) -->
-			<div class="hidden lg:flex w-full h-[500px] bg-void relative overflow-hidden border border-charcoal">
+			<div
+				class="relative hidden h-[500px] w-full overflow-hidden border border-charcoal bg-void lg:flex"
+			>
 				<div class="absolute inset-0 flex items-center justify-center opacity-10">
-					<span class="font-display text-[300px] text-bone leading-none select-none tracking-tighter">
+					<span
+						class="font-display text-[300px] leading-none tracking-tighter text-bone select-none"
+					>
 						002
 					</span>
 				</div>
-				<div class="relative z-10 p-12 flex flex-col h-full">
+				<div class="relative z-10 flex h-full flex-col p-12">
 					<div class="mt-auto">
-						<span class="font-mono text-[9px] text-ash uppercase tracking-[0.3em] block mb-2">RESTRICTED ACCESS</span>
-						<p class="font-mono text-[10px] text-ash/60 uppercase tracking-widest max-w-[200px] leading-relaxed">
-							ARCHIVED SILHOUETTES<br/>
-							EXPERIMENTAL FABRICS<br/>
+						<span class="mb-2 block font-mono text-[9px] tracking-[0.3em] text-ash uppercase"
+							>RESTRICTED ACCESS</span
+						>
+						<p
+							class="max-w-[200px] font-mono text-[10px] leading-relaxed tracking-widest text-ash/60 uppercase"
+						>
+							ARCHIVED SILHOUETTES<br />
+							EXPERIMENTAL FABRICS<br />
 							LIMITED RELEASE
 						</p>
 					</div>
