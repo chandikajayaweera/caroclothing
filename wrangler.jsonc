@@ -14,7 +14,13 @@
 	},
 	"upload_source_maps": true,
 	"observability": {
-		"enabled": true
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": false
+		}
 	},
 	"routes": [
 		{
@@ -32,11 +38,6 @@
 		"TEXT_LK_PROMOTIONAL_SENDER_ID": "Caro Promo",
 		"PUBLIC_OTP_COOLDOWN_SECONDS": "60"
 	},
-	"send_email": [
-		{
-			"name": "EMAIL"
-		}
-	],
 	"workers_dev": true,
 	"preview_urls": true,
 	"triggers": {
@@ -103,6 +104,15 @@
 			"name": "caroclothing-staging",
 			"workers_dev": true,
 			"preview_urls": true,
+			"observability": {
+				"logs": {
+					"enabled": true,
+					"invocation_logs": true
+				},
+				"traces": {
+					"enabled": false
+				}
+			},
 			"routes": [
 				{
 					"pattern": "staging.caroclothing.lk",

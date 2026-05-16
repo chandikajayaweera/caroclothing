@@ -20,6 +20,8 @@
 		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/cli.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes",
 		"secret:staging": "wrangler secret bulk .env.staging --env staging",
 		"secret:production": "wrangler secret bulk .env.production",
+		"queue:staging": "wrangler queues create caroclothing-staging-notifications",
+		"queue:production": "wrangler queues create caroclothing-notifications",
 		"deploy:staging": "pnpm run build && wrangler deploy --env staging && pnpm run secret:staging",
 		"deploy:production": "pnpm run build && wrangler deploy && pnpm run secret:production",
 		"cf-typegen": "wrangler types ./src/worker-configuration.d.ts",
