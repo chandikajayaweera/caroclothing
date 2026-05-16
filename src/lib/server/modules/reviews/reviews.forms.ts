@@ -4,7 +4,7 @@ import {
 	ALLOWED_VIDEO_TYPES,
 	MAX_IMAGE_BYTES,
 	MAX_VIDEO_BYTES
-} from '$lib/server/modules/media/r2';
+} from '$lib/server/infrastructure/media/r2';
 import { insertReviewSchema, updateReviewSchema } from './reviews.drizzle';
 import { MAX_REVIEW_MEDIA_FILES } from './reviews.types';
 

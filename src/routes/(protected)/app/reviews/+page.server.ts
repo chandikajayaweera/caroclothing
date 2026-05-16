@@ -22,7 +22,7 @@ import {
 import {
 	formFailFromAppError,
 	throwHttpFromAppError
-} from '$lib/server/modules/errors/route-adapter';
+} from '$lib/server/infrastructure/errors/route-adapter';
 
 function getAdminContext(locals: App.Locals, event?: Pick<RequestEvent, 'platform'>) {
 	return { actor: locals.user, event };

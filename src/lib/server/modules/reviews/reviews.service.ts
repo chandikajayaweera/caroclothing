@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/modules/auth/guards';
+import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
 	getErrorMessage,
@@ -9,19 +9,19 @@ import {
 	MediaError,
 	ProductError,
 	ReviewError
-} from '$lib/server/modules/errors';
+} from '$lib/server/infrastructure/errors';
 import {
 	buildMediaKey,
 	deleteObjectSafe,
 	getMediaBucket,
 	uploadMedia
-} from '$lib/server/modules/media/r2';
-import { mediaUrl } from '$lib/server/modules/media/utils';
+} from '$lib/server/infrastructure/media/r2';
+import { mediaUrl } from '$lib/server/infrastructure/media';
 import type {
 	ServiceActor,
 	ServiceContext,
 	SystemActor
-} from '$lib/server/modules/service-context';
+} from '$lib/server/foundation/context';
 import {
 	isForeignKeyConstraintError,
 	isUniqueConstraintError,
@@ -30,7 +30,7 @@ import {
 	removeUndefinedValues,
 	resolveNow,
 	uniqueStrings
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import { user } from '../auth/auth.drizzle';
 import { order as orderTable, orderItem } from '../orders/orders.drizzle';
 import {

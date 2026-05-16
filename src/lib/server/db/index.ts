@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/libsql';
 import { createClient } from '@libsql/client';
 import * as schema from './schema';
-import { getEnv } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/infrastructure/env';
 
 type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 

@@ -12,7 +12,7 @@ Before answering:
 - Read docs/service-layer-architecture.md.
 - Read docs/codex-service-layer-workflow.md.
 - Read the relevant *.drizzle.ts file and related schemas.
-- Search existing services/types/forms for the module.
+- Search existing services, types, and forms for the module.
 - Identify schema comments that require application-layer enforcement.
 
 Output:

@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getOrder } from '$lib/server/modules/orders';
-import { throwHttpFromAppError } from '$lib/server/modules/errors/route-adapter';
+import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
 function requireProtectedContext(locals: App.Locals, url: URL) {
 	if (!locals.user) {

@@ -1,8 +1,8 @@
 import { and, asc, count, desc, eq, inArray, isNull, lte, ne, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { requireAdmin, requireOwnerOrAdmin } from '$lib/server/modules/auth/guards';
-import { getEnv } from '$lib/server/modules/env';
+import { requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
+import { getEnv } from '$lib/server/infrastructure/env';
 import {
 	DropError,
 	ErrorCode,
@@ -10,16 +10,16 @@ import {
 	isAppError,
 	MediaError,
 	ProductError
-} from '$lib/server/modules/errors';
+} from '$lib/server/infrastructure/errors';
 import {
 	buildMediaKey,
 	deleteObjectSafe,
 	getMediaBucket,
 	uploadImage
-} from '$lib/server/modules/media/r2';
-import { mediaUrl } from '$lib/server/modules/media/utils';
+} from '$lib/server/infrastructure/media/r2';
+import { mediaUrl } from '$lib/server/infrastructure/media';
 import { getProduct } from '$lib/server/modules/products';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -28,7 +28,7 @@ import {
 	normalizeOffset,
 	removeUndefinedValues,
 	uniqueStrings
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import {
 	enqueueDropLaunchEmailTx,
 	enqueueDropLaunchSmsTx,

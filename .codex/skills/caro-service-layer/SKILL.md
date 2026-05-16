@@ -1,6 +1,6 @@
 ---
 name: caro-service-layer
-description: Use when implementing or modifying CaroClothing service-layer modules, *.service.ts files, service DTOs, module form schemas, transactions, R2 media handling, AppError usage, access-control checks, or service-owned notification state helpers.
+description: Use when implementing or modifying CaroClothing service-layer modules, *.service.ts files, service DTOs, module form schemas, transactions, R2 media handling, AppError usage, access-control checks, or service-owned notification outbox state.
 ---
 
 # Caro service-layer workflow
@@ -12,89 +12,76 @@ Before editing, read:
 - `docs/service-layer-architecture.md`
 - `docs/codex-service-layer-workflow.md`
 - Relevant `*.drizzle.ts`
-- `src/lib/server/modules/errors/index.ts`
-- `src/lib/server/modules/media/r2.ts`
-- `src/lib/server/modules/media/utils.ts`
-- `src/lib/server/modules/env/index.ts`
+- Existing service/type/form files for related modules
+- Relevant routes and helper modules
+- `src/lib/server/foundation/context.ts`
+- `src/lib/server/foundation/guards.ts`
+- `src/lib/server/foundation/utils.ts`
+- `src/lib/server/infrastructure/errors/index.ts`
+- `src/lib/server/infrastructure/errors/route-adapter.ts`
+- `src/lib/server/infrastructure/media/r2.ts`
+- `src/lib/server/infrastructure/media/utils.ts`
+- `src/lib/server/infrastructure/env/index.ts`
 - `src/lib/shared/modules/access-control.ts`
 
-## Current codebase state
+If the task touches notifications, also read email/SMS modules, `src/lib/server/modules/notifications/outbox/*`, Queue, Cron, and `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts`.
 
-- Implemented services: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `orders`, `reviews`.
-- Implemented internal service helpers: `inventory` has `inventory.service.ts` transaction helpers used by cart/order-style workflows; its module index exports schema/types only.
-- Schema-only service candidates: none in the current core service rollout.
-- Implemented foundations: `service-context.ts`, `auth/guards.ts`, `service-utils.ts`.
-- Implemented notification state helper: `notifications/outbox`.
-- Implemented Cloudflare notification transport: Queue producer/consumer bindings, Cron retry/reconciliation, and DLQ operational review.
-- Implemented orchestration modules: `queue` routes Cloudflare Queue batches; `cron/scheduled-jobs.ts` routes configured Cron triggers to service APIs.
-- Existing drop notification sender: `sendDropLaunchEmail`.
-- Existing drop SMS sender: `sendDropLaunchSms`.
+## Current state
 
-If docs mention an API/helper not present in code, report the mismatch before importing or using it.
+- Services exist for `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `inventory`, `orders`, and `reviews`.
+- `inventory` exposes curated admin stock APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` still support cart/order transaction workflows and should be imported directly only by server internals already inside a transaction.
+- Foundation helpers exist in `src/lib/server/foundation`.
+- Route AppError helpers exist in `src/lib/server/infrastructure/errors/route-adapter.ts`.
+- Notification outbox, Queue, Cron recovery, DLQ config, and semantic email/SMS senders are implemented.
+- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
 
-If the task touches email/SMS notification state, waitlists, Queue/Cron notification jobs, or notification senders, also read:
+If docs mention a helper not present in code, report the mismatch before importing or using it.
 
-- `src/lib/server/modules/notifications/email/index.ts`
-- `src/lib/server/modules/notifications/email/types.ts`
-- `src/lib/server/modules/notifications/email/client.ts`
-- `src/lib/server/modules/notifications/email/senders/*`
-- `src/lib/server/modules/notifications/sms/index.ts`
-- `src/lib/server/modules/notifications/sms/types.ts`
-- `src/lib/server/modules/notifications/sms/client.ts`
-- `src/lib/server/modules/notifications/sms/senders/*`
-- `src/lib/server/modules/notifications/outbox/*` when present.
+## Rules
 
-## Architecture rules
-
-- Service layer owns business logic.
-- Routes do not import db/tables/query helpers/R2 primitives.
-- Exception: `src/routes/media/[...key]/+server.ts` may import media R2 helpers because it serves media objects.
-- Use existing `AppError`, `ErrorCode`, and domain error classes.
+- Services own business logic and business writes.
+- Routes do not import db, tables, query helpers, or R2 primitives.
+- `src/routes/media/[...key]/+server.ts` is the only media R2 route exception.
+- Use existing `AppError`, `ErrorCode`, domain errors, and server guards.
 - Use transactions for multi-table writes.
-- Use R2 compensation cleanup.
-- Use object-parameter APIs.
+- Use R2 compensation cleanup for media changes.
+- Use object-shaped service inputs unless an existing module pattern differs.
+- Return DTOs when UI needs derived fields or public media URLs.
 - Keep DTO mapping inside services.
-- Do not expose generic CRUD for audit/internal tables.
-- Curate service APIs from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, and notification needs before coding.
-- Do not import from `$lib/client/*` inside server services, server notification modules, or cron jobs.
-- Use `getEnv()` from `$lib/server/modules/env` for server-side app config and provider secrets.
+- Do not expose generic CRUD for audit/internal/junction tables.
+- Curate APIs from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, notification, and related-module needs before coding.
+- Do not import `$lib/client/*` inside server modules.
+- Use `getEnv()` from `$lib/server/infrastructure/env` for server-side app config and provider secrets.
+- Use current canonical import paths only.
 
-## Notification boundary rules
+## Notification boundary
 
-- Domain services enqueue notification_outbox intent inside the same DB transaction as the business state change, or expose idempotent list/mark helpers for legacy workflows.
-- DB notification_outbox is the source of truth for async notification state.
-- Cloudflare Queue messages carry only outboxId/idempotencyKey, never full payloads or customer PII.
-- Cloudflare Queue/Cron/job orchestration sends email/SMS and marks records sent only after successful send.
-- Cloudflare Cron recovers pending, due failed, and stale locked outbox rows.
-- Cloudflare DLQ is operational review only; DB outbox remains durable audit/retry state.
-- Do not put actual email/SMS sending inside domain services such as `drops.service.ts` unless explicitly approved.
-- Use semantic senders where available, such as `sendDropLaunchEmail`.
-- Use exported `sendDropLaunchSms` for drop launch SMS workflows.
-- Preserve typed result contracts: `EmailResult` and `SmsResult`.
-- Normal delivery failures should return typed failure results, not throw.
-- Batch notification workflows must be idempotent, limit-aware, and safe to retry.
-- Do not use Cloudflare KV as the notification outbox.
+- Domain services enqueue `notification_outbox` intent inside the same DB transaction as the business change.
+- Exception: auth welcome and Google-linked lifecycle emails use outbox rows from Better Auth database hooks; OTP SMS remains synchronous/direct where the auth flow expects thrown failures.
+- Queue messages carry only `outboxId` and/or `idempotencyKey`.
+- Queue/Cron/job orchestration sends email/SMS and marks rows sent only after successful `EmailResult` or `SmsResult`.
+- Cron recovers pending, due failed, and stale locked outbox rows.
+- DLQ is operational review only; DB outbox remains durable audit/retry state.
+- Do not send email/SMS inside domain services unless explicitly approved.
+- Prefer semantic senders.
+- SMS sender purposes: OTP auth uses `otp`, order/payment/delivery/status uses `transactional`, and drops/offers/campaigns use `promotional`.
+- Cloudflare KV is not notification outbox.
 
 ## Before coding, output
 
 1. Files inspected
-2. Business invariants found
-3. Storefront/admin/checkout/Queue/Cron/support API requirements
-4. Exact service APIs to implement and APIs not to expose
+2. Layer classification
+3. Business invariants and schema comments
+4. Required service APIs and APIs not to expose
 5. Files to edit
-6. Transaction strategy
-7. R2/media strategy
-8. Notification strategy, if any
-9. Error strategy
-10. Access-control strategy
-11. Validation commands
-12. Docs-vs-code mismatches
-13. Risks/questions
+6. Transaction, R2, notification, error, and access-control strategy
+7. Validation commands
+8. Docs-vs-code mismatches
+9. Risks/questions
 
 ## After coding, output
 
 1. Changed files
-2. Validation commands run
-3. Validation result
-4. Architecture self-review
-5. Remaining risks
+2. Validation commands and results
+3. Architecture self-review
+4. Remaining risks

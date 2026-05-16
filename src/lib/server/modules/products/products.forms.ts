@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from '$lib/server/modules/media/r2';
+import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from '$lib/server/infrastructure/media/r2';
 import {
 	insertCategorySchema,
 	insertProductImageSchema,

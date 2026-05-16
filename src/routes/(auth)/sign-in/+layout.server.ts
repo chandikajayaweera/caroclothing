@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getEnv } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/infrastructure/env';
 import type { LayoutServerLoad } from './$types';
 
 const DEFAULT_AUTH_REDIRECT = '/account';

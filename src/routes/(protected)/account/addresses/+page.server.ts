@@ -12,7 +12,7 @@ import {
 	setDefaultAddress,
 	setDefaultAddressFormSchema
 } from '$lib/server/modules/addresses';
-import { formFailFromAppError } from '$lib/server/modules/errors/route-adapter';
+import { formFailFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
 function requireAccountContext(locals: App.Locals, url: URL) {
 	if (!locals.user || locals.user.isAnonymous) {

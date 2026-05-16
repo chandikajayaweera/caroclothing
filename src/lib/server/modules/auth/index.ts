@@ -3,14 +3,14 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
 import { APIError } from 'better-auth/api';
-import { getEnv } from '$lib/server/modules/env';
+import { getEnv } from '$lib/server/infrastructure/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
 import { databaseHooks } from './database-hook';
-import { sendOtpSms } from '$lib/server/modules/notifications/sms';
+import { sendOtpSms } from '$lib/server/infrastructure/sms';
 import { reserveOtpCooldown } from './otp-cooldown';
 import { migrateAnonymousUserData } from './anonymous-migration';
-import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/modules/errors';
+import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/infrastructure/errors';
 
 import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
 

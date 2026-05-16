@@ -1,0 +1,1 @@
+export { mediaUrl } from './utils';

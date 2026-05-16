@@ -1,9 +1,9 @@
 import { type Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { AuthHook as Auth } from '$lib/server/modules/auth/handleHooks';
-import { runScheduledJobs } from '$lib/server/modules/cron';
+import { runScheduledJobs } from '$lib/server/infrastructure/cron';
 import type { NotificationQueueMessage } from '$lib/server/modules/notifications/outbox/outbox.types';
-import { processQueueBatch } from '$lib/server/modules/queue';
+import { processQueueBatch } from '$lib/server/infrastructure/queue';
 
 export const handle: Handle = sequence(Auth);
 

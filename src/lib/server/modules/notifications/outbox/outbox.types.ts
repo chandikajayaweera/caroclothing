@@ -1,5 +1,17 @@
-import type { DropLaunchEmailInput, OrderConfirmationInput, ShippingUpdateInput } from '../email';
-import type { DropLaunchSmsInput } from '../sms';
+import type {
+	DropLaunchEmailInput,
+	GoogleLinkedEmailInput,
+	OrderConfirmationInput,
+	ShippingUpdateInput,
+	WelcomeEmailInput
+} from '$lib/server/infrastructure/email';
+import type {
+	DropLaunchSmsInput,
+	OrderConfirmationSmsInput,
+	OrderStatusUpdateSmsInput,
+	PaymentUpdateSmsInput,
+	ShippingUpdateSmsInput
+} from '$lib/server/infrastructure/sms';
 import type {
 	NotificationAggregateType,
 	NotificationChannel,
@@ -15,8 +27,12 @@ export type DropLaunchOutboxEmailInput = Omit<DropLaunchEmailInput, 'to'> & {
 export type DropLaunchOutboxSmsInput = DropLaunchSmsInput;
 
 export type NotificationPayloadByType = {
-	order_confirmation: OrderConfirmationInput;
-	shipping_update: ShippingUpdateInput;
+	auth_welcome: WelcomeEmailInput;
+	auth_google_linked: GoogleLinkedEmailInput;
+	order_confirmation: OrderConfirmationInput | OrderConfirmationSmsInput;
+	shipping_update: ShippingUpdateInput | ShippingUpdateSmsInput;
+	payment_update: PaymentUpdateSmsInput;
+	order_status_update: OrderStatusUpdateSmsInput;
 	drop_launch: DropLaunchOutboxEmailInput | DropLaunchOutboxSmsInput;
 };
 
@@ -77,6 +93,25 @@ export type EnqueueNotificationInput<
 	now?: Date;
 };
 
+export type EnqueueAuthWelcomeEmailInput = {
+	userId: string;
+	payload: WelcomeEmailInput;
+	metadata?: Record<string, unknown> | null;
+	maxAttempts?: number;
+	nextAttemptAt?: Date;
+	now?: Date;
+};
+
+export type EnqueueAuthGoogleLinkedEmailInput = {
+	userId: string;
+	accountId: string;
+	payload: GoogleLinkedEmailInput;
+	metadata?: Record<string, unknown> | null;
+	maxAttempts?: number;
+	nextAttemptAt?: Date;
+	now?: Date;
+};
+
 export type EnqueueOrderConfirmationEmailInput = {
 	orderId: string;
 	recipientUserId?: string | null;
@@ -87,10 +122,51 @@ export type EnqueueOrderConfirmationEmailInput = {
 	now?: Date;
 };
 
+export type EnqueueOrderConfirmationSmsInput = {
+	orderId: string;
+	recipientUserId?: string | null;
+	payload: OrderConfirmationSmsInput;
+	metadata?: Record<string, unknown> | null;
+	maxAttempts?: number;
+	nextAttemptAt?: Date;
+	now?: Date;
+};
+
 export type EnqueueShippingUpdateEmailInput = {
 	orderId: string;
 	recipientUserId?: string | null;
 	payload: ShippingUpdateInput;
+	metadata?: Record<string, unknown> | null;
+	maxAttempts?: number;
+	nextAttemptAt?: Date;
+	now?: Date;
+};
+
+export type EnqueueShippingUpdateSmsInput = {
+	orderId: string;
+	recipientUserId?: string | null;
+	payload: ShippingUpdateSmsInput;
+	metadata?: Record<string, unknown> | null;
+	maxAttempts?: number;
+	nextAttemptAt?: Date;
+	now?: Date;
+};
+
+export type EnqueuePaymentUpdateSmsInput = {
+	orderId: string;
+	paymentId: string;
+	recipientUserId?: string | null;
+	payload: PaymentUpdateSmsInput;
+	metadata?: Record<string, unknown> | null;
+	maxAttempts?: number;
+	nextAttemptAt?: Date;
+	now?: Date;
+};
+
+export type EnqueueOrderStatusUpdateSmsInput = {
+	orderId: string;
+	recipientUserId?: string | null;
+	payload: OrderStatusUpdateSmsInput;
 	metadata?: Record<string, unknown> | null;
 	maxAttempts?: number;
 	nextAttemptAt?: Date;

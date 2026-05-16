@@ -1,22 +1,22 @@
 import { and, asc, count, desc, eq, inArray, isNull, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { requireAdmin } from '$lib/server/modules/auth/guards';
+import { requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
 	getErrorMessage,
 	isAppError,
 	MediaError,
 	ProductError
-} from '$lib/server/modules/errors';
+} from '$lib/server/infrastructure/errors';
 import {
 	buildMediaKey,
 	deleteObjectSafe,
 	getMediaBucket,
 	uploadImage
-} from '$lib/server/modules/media/r2';
-import { mediaUrl } from '$lib/server/modules/media/utils';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+} from '$lib/server/infrastructure/media/r2';
+import { mediaUrl } from '$lib/server/infrastructure/media';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -26,7 +26,7 @@ import {
 	normalizeOffset,
 	removeUndefinedValues,
 	uniqueStrings
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import {
 	category,
 	insertCategorySchema,

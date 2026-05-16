@@ -27,7 +27,9 @@
 		"PUBLIC_APP_NAME": "Caro Clothing",
 		"PUBLIC_APP_URL": "https://caroclothing.lk",
 		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
-		"TEXT_LK_SENDER_ID": "Caro OTP",
+		"TEXT_LK_OTP_SENDER_ID": "Caro OTP",
+		"TEXT_LK_TRANSACTIONAL_SENDER_ID": "Caro",
+		"TEXT_LK_PROMOTIONAL_SENDER_ID": "Caro Promo",
 		"PUBLIC_OTP_COOLDOWN_SECONDS": "60"
 	},
 	"send_email": [
@@ -114,7 +116,9 @@
 				"PUBLIC_APP_NAME": "Caro Clothing",
 				"PUBLIC_APP_URL": "https://staging.caroclothing.lk",
 				"EMAIL_FROM_ADDRESS": "noreply@staging.caroclothing.lk",
-				"TEXT_LK_SENDER_ID": "Caro OTP",
+				"TEXT_LK_OTP_SENDER_ID": "Caro OTP",
+				"TEXT_LK_TRANSACTIONAL_SENDER_ID": "Caro",
+				"TEXT_LK_PROMOTIONAL_SENDER_ID": "Caro Promo",
 				"PUBLIC_OTP_COOLDOWN_SECONDS": "60"
 			},
 			"r2_buckets": [

@@ -1,4 +1,4 @@
-import type { ErrorCode } from '$lib/server/modules/errors';
+import type { ErrorCode } from '$lib/server/infrastructure/errors';
 import type { DropStatus, InsertDrop, UpdateDrop } from './drops.drizzle';
 import type { ProductDTO } from '../products/products.types';
 

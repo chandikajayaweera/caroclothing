@@ -1,14 +1,14 @@
 import { and, asc, count, desc, eq, inArray, lte, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb } from '$lib/server/db';
-import { requireAdmin } from '$lib/server/modules/auth/guards';
+import { requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
 	NotificationError,
 	getErrorMessage,
 	isAppError
-} from '$lib/server/modules/errors';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+} from '$lib/server/infrastructure/errors';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -17,7 +17,7 @@ import {
 	normalizeOffset,
 	removeUndefinedValues,
 	resolveNow
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import {
 	NOTIFICATION_OUTBOX_STATUSES,
 	notificationOutbox,
@@ -27,16 +27,23 @@ import {
 	type NotificationOutboxStatus,
 	type NotificationOutboxType
 } from './outbox.drizzle';
+import { normalizeSmsRecipient } from '$lib/server/infrastructure/sms';
 import type {
 	CancelNotificationInput,
 	ClaimNotificationInput,
 	ClaimPendingNotificationsInput,
 	ClaimedNotificationDTO,
+	EnqueueAuthGoogleLinkedEmailInput,
+	EnqueueAuthWelcomeEmailInput,
 	EnqueueDropLaunchEmailInput,
 	EnqueueDropLaunchSmsInput,
 	EnqueueNotificationInput,
 	EnqueueOrderConfirmationEmailInput,
+	EnqueueOrderConfirmationSmsInput,
+	EnqueueOrderStatusUpdateSmsInput,
+	EnqueuePaymentUpdateSmsInput,
 	EnqueueShippingUpdateEmailInput,
+	EnqueueShippingUpdateSmsInput,
 	GetNotificationOutboxInput,
 	ListNotificationOutboxInput,
 	MarkNotificationFailedInput,
@@ -68,6 +75,20 @@ const MAX_ERROR_LENGTH = 2000;
 
 const emailSchema = z.email();
 const phoneSchema = z.e164({ error: 'Invalid phone recipient.' });
+const EMAIL_SUPPORTED_TYPES = new Set<NotificationOutboxType>([
+	'auth_welcome',
+	'auth_google_linked',
+	'order_confirmation',
+	'shipping_update',
+	'drop_launch'
+]);
+const SMS_SUPPORTED_TYPES = new Set<NotificationOutboxType>([
+	'order_confirmation',
+	'shipping_update',
+	'payment_update',
+	'order_status_update',
+	'drop_launch'
+]);
 
 export async function getNotificationOutbox(
 	ctx: ServiceContext,
@@ -402,6 +423,49 @@ export async function enqueueNotificationTx<TType extends NotificationOutboxType
 	}
 }
 
+export async function enqueueAuthWelcomeEmailTx(
+	tx: NotificationOutboxTx,
+	input: EnqueueAuthWelcomeEmailInput
+): Promise<NotificationOutboxDTO> {
+	const userId = normalizeId(input.userId, 'userId');
+	return enqueueNotificationTx(tx, {
+		idempotencyKey: `auth:user:${userId}:welcome:email`,
+		type: 'auth_welcome',
+		channel: 'email',
+		recipient: input.payload.email,
+		recipientUserId: userId,
+		aggregateType: 'auth',
+		aggregateId: userId,
+		payload: input.payload,
+		metadata: input.metadata,
+		maxAttempts: input.maxAttempts,
+		nextAttemptAt: input.nextAttemptAt,
+		now: input.now
+	});
+}
+
+export async function enqueueAuthGoogleLinkedEmailTx(
+	tx: NotificationOutboxTx,
+	input: EnqueueAuthGoogleLinkedEmailInput
+): Promise<NotificationOutboxDTO> {
+	const userId = normalizeId(input.userId, 'userId');
+	const accountId = normalizeId(input.accountId, 'accountId');
+	return enqueueNotificationTx(tx, {
+		idempotencyKey: `auth:account:${accountId}:google_linked:email`,
+		type: 'auth_google_linked',
+		channel: 'email',
+		recipient: input.payload.email,
+		recipientUserId: userId,
+		aggregateType: 'auth',
+		aggregateId: userId,
+		payload: input.payload,
+		metadata: { accountId, ...input.metadata },
+		maxAttempts: input.maxAttempts,
+		nextAttemptAt: input.nextAttemptAt,
+		now: input.now
+	});
+}
+
 export async function enqueueOrderConfirmationEmailTx(
 	tx: NotificationOutboxTx,
 	input: EnqueueOrderConfirmationEmailInput
@@ -423,6 +487,27 @@ export async function enqueueOrderConfirmationEmailTx(
 	});
 }
 
+export async function enqueueOrderConfirmationSmsTx(
+	tx: NotificationOutboxTx,
+	input: EnqueueOrderConfirmationSmsInput
+): Promise<NotificationOutboxDTO> {
+	const orderId = normalizeId(input.orderId, 'orderId');
+	return enqueueNotificationTx(tx, {
+		idempotencyKey: `order:${orderId}:confirmation:sms`,
+		type: 'order_confirmation',
+		channel: 'sms',
+		recipient: input.payload.to,
+		recipientUserId: input.recipientUserId,
+		aggregateType: 'order',
+		aggregateId: orderId,
+		payload: input.payload,
+		metadata: input.metadata,
+		maxAttempts: input.maxAttempts,
+		nextAttemptAt: input.nextAttemptAt,
+		now: input.now
+	});
+}
+
 export async function enqueueShippingUpdateEmailTx(
 	tx: NotificationOutboxTx,
 	input: EnqueueShippingUpdateEmailInput
@@ -433,6 +518,70 @@ export async function enqueueShippingUpdateEmailTx(
 		type: 'shipping_update',
 		channel: 'email',
 		recipient: input.payload.email,
+		recipientUserId: input.recipientUserId,
+		aggregateType: 'order',
+		aggregateId: orderId,
+		payload: input.payload,
+		metadata: input.metadata,
+		maxAttempts: input.maxAttempts,
+		nextAttemptAt: input.nextAttemptAt,
+		now: input.now
+	});
+}
+
+export async function enqueueShippingUpdateSmsTx(
+	tx: NotificationOutboxTx,
+	input: EnqueueShippingUpdateSmsInput
+): Promise<NotificationOutboxDTO> {
+	const orderId = normalizeId(input.orderId, 'orderId');
+	return enqueueNotificationTx(tx, {
+		idempotencyKey: `order:${orderId}:shipping_update:sms`,
+		type: 'shipping_update',
+		channel: 'sms',
+		recipient: input.payload.to,
+		recipientUserId: input.recipientUserId,
+		aggregateType: 'order',
+		aggregateId: orderId,
+		payload: input.payload,
+		metadata: input.metadata,
+		maxAttempts: input.maxAttempts,
+		nextAttemptAt: input.nextAttemptAt,
+		now: input.now
+	});
+}
+
+export async function enqueuePaymentUpdateSmsTx(
+	tx: NotificationOutboxTx,
+	input: EnqueuePaymentUpdateSmsInput
+): Promise<NotificationOutboxDTO> {
+	const orderId = normalizeId(input.orderId, 'orderId');
+	const paymentId = normalizeId(input.paymentId, 'paymentId');
+	return enqueueNotificationTx(tx, {
+		idempotencyKey: `order:${orderId}:payment:${paymentId}:${input.payload.status}:sms`,
+		type: 'payment_update',
+		channel: 'sms',
+		recipient: input.payload.to,
+		recipientUserId: input.recipientUserId,
+		aggregateType: 'order',
+		aggregateId: orderId,
+		payload: input.payload,
+		metadata: { paymentId, ...input.metadata },
+		maxAttempts: input.maxAttempts,
+		nextAttemptAt: input.nextAttemptAt,
+		now: input.now
+	});
+}
+
+export async function enqueueOrderStatusUpdateSmsTx(
+	tx: NotificationOutboxTx,
+	input: EnqueueOrderStatusUpdateSmsInput
+): Promise<NotificationOutboxDTO> {
+	const orderId = normalizeId(input.orderId, 'orderId');
+	return enqueueNotificationTx(tx, {
+		idempotencyKey: `order:${orderId}:status:${input.payload.status}:sms`,
+		type: 'order_status_update',
+		channel: 'sms',
+		recipient: input.payload.to,
 		recipientUserId: input.recipientUserId,
 		aggregateType: 'order',
 		aggregateId: orderId,
@@ -722,16 +871,34 @@ function normalizeNotificationPayload<TType extends NotificationOutboxType>(
 		);
 	}
 
+	const normalizedPayload = { ...payload };
+	if (channel === 'sms') {
+		normalizedPayload.to = normalizePhoneRecipientField(payload.to, 'payload.to');
+	}
+
+	if (type === 'auth_welcome') {
+		requireString(normalizedPayload.email, 'payload.email');
+		requireString(normalizedPayload.name, 'payload.name');
+	}
+
+	if (type === 'auth_google_linked') {
+		requireString(normalizedPayload.email, 'payload.email');
+	}
+
 	if (type === 'order_confirmation') {
-		requireString(payload.email, 'payload.email');
-		requireString(payload.customerName, 'payload.customerName');
-		requireString(payload.orderId, 'payload.orderId');
-		requireString(payload.orderDate, 'payload.orderDate');
-		requireString(payload.subtotal, 'payload.subtotal');
-		requireString(payload.shipping, 'payload.shipping');
-		requireString(payload.total, 'payload.total');
-		requireString(payload.shippingAddress, 'payload.shippingAddress');
-		if (!Array.isArray(payload.items)) {
+		requireString(normalizedPayload.customerName, 'payload.customerName');
+		requireString(normalizedPayload.orderId, 'payload.orderId');
+		requireString(normalizedPayload.total, 'payload.total');
+
+		if (channel === 'email') {
+			requireString(normalizedPayload.email, 'payload.email');
+			requireString(normalizedPayload.orderDate, 'payload.orderDate');
+			requireString(normalizedPayload.subtotal, 'payload.subtotal');
+			requireString(normalizedPayload.shipping, 'payload.shipping');
+			requireString(normalizedPayload.shippingAddress, 'payload.shippingAddress');
+		}
+
+		if (channel === 'email' && !Array.isArray(normalizedPayload.items)) {
 			throw new NotificationError(
 				'Order confirmation items are required.',
 				ErrorCode.VALIDATION_ERROR
@@ -740,23 +907,36 @@ function normalizeNotificationPayload<TType extends NotificationOutboxType>(
 	}
 
 	if (type === 'shipping_update') {
-		requireString(payload.email, 'payload.email');
-		requireString(payload.customerName, 'payload.customerName');
-		requireString(payload.orderId, 'payload.orderId');
-		requireString(payload.trackingNumber, 'payload.trackingNumber');
-	}
-
-	if (type === 'drop_launch') {
-		requireString(payload.to, 'payload.to');
-		requireString(payload.dropName, 'payload.dropName');
-		requireString(payload.dropUrl, 'payload.dropUrl');
+		requireString(normalizedPayload.orderId, 'payload.orderId');
+		requireString(normalizedPayload.trackingNumber, 'payload.trackingNumber');
 
 		if (channel === 'email') {
-			requireString(payload.dropSlug, 'payload.dropSlug');
+			requireString(normalizedPayload.email, 'payload.email');
+			requireString(normalizedPayload.customerName, 'payload.customerName');
 		}
 	}
 
-	return payload as NotificationPayloadByType[TType];
+	if (type === 'payment_update') {
+		requireString(normalizedPayload.orderId, 'payload.orderId');
+		requireString(normalizedPayload.status, 'payload.status');
+	}
+
+	if (type === 'order_status_update') {
+		requireString(normalizedPayload.orderId, 'payload.orderId');
+		requireString(normalizedPayload.status, 'payload.status');
+	}
+
+	if (type === 'drop_launch') {
+		requireString(normalizedPayload.to, 'payload.to');
+		requireString(normalizedPayload.dropName, 'payload.dropName');
+		requireString(normalizedPayload.dropUrl, 'payload.dropUrl');
+
+		if (channel === 'email') {
+			requireString(normalizedPayload.dropSlug, 'payload.dropSlug');
+		}
+	}
+
+	return normalizedPayload as NotificationPayloadByType[TType];
 }
 
 function parseMetadata(value: string | null): Record<string, unknown> | null {
@@ -860,8 +1040,8 @@ function assertSupportedTypeChannel(
 	type: NotificationOutboxType,
 	channel: NotificationChannel
 ): void {
-	if (channel === 'email') return;
-	if (type === 'drop_launch' && channel === 'sms') return;
+	if (channel === 'email' && EMAIL_SUPPORTED_TYPES.has(type)) return;
+	if (channel === 'sms' && SMS_SUPPORTED_TYPES.has(type)) return;
 
 	throw new NotificationError(
 		'Notification channel is not supported yet.',
@@ -887,11 +1067,22 @@ function normalizeRecipient(channel: NotificationChannel, recipient: string): st
 		return result.data.toLowerCase();
 	}
 
-	const result = phoneSchema.safeParse(normalized);
+	const result = phoneSchema.safeParse(normalizeSmsRecipient(normalized));
 	if (!result.success) {
 		throw new NotificationError('Invalid phone recipient.', ErrorCode.VALIDATION_ERROR, {
 			recipient
 		});
+	}
+
+	return result.data;
+}
+
+function normalizePhoneRecipientField(value: unknown, field: string): string {
+	const raw = requireString(value, field);
+	const result = phoneSchema.safeParse(normalizeSmsRecipient(raw));
+
+	if (!result.success) {
+		throw new NotificationError(`Invalid ${field}.`, ErrorCode.VALIDATION_ERROR);
 	}
 
 	return result.data;

@@ -1,8 +1,8 @@
 import { and, asc, count, desc, eq, inArray, like, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { requireAdmin } from '$lib/server/modules/auth/guards';
-import { ErrorCode, ShippingError, getErrorMessage, isAppError } from '$lib/server/modules/errors';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+import { requireAdmin } from '$lib/server/foundation/guards';
+import { ErrorCode, ShippingError, getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -10,7 +10,7 @@ import {
 	normalizeLimit,
 	normalizeOffset,
 	removeUndefinedValues
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import { SRI_LANKA_DISTRICTS, type SriLankaDistrict } from '../addresses/addresses.drizzle';
 import {
 	insertShippingMethodSchema,

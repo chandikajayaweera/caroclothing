@@ -12,7 +12,7 @@ import {
 import {
 	formFailFromAppError,
 	throwHttpFromAppError
-} from '$lib/server/modules/errors/route-adapter';
+} from '$lib/server/infrastructure/errors/route-adapter';
 
 function getAdminContext(locals: App.Locals) {
 	return { actor: locals.user };

@@ -14,7 +14,7 @@ import {
 } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { requireActor, requireAdmin } from '$lib/server/modules/auth/guards';
+import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	CartError,
 	DropError,
@@ -22,13 +22,13 @@ import {
 	ProductError,
 	getErrorMessage,
 	isAppError
-} from '$lib/server/modules/errors';
-import { mediaUrl } from '$lib/server/modules/media/utils';
+} from '$lib/server/infrastructure/errors';
+import { mediaUrl } from '$lib/server/infrastructure/media';
 import type {
 	ServiceActor,
 	ServiceContext,
 	SystemActor
-} from '$lib/server/modules/service-context';
+} from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -36,7 +36,7 @@ import {
 	normalizeLimit,
 	normalizeOffset,
 	resolveNow
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import { drop as dropTable, dropProduct as dropProductTable } from '../drops/drops.drizzle';
 import {
 	getInventoryAvailabilityByVariantIdsTx,

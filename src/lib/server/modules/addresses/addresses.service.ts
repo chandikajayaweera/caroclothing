@@ -1,8 +1,8 @@
 import { and, asc, count, desc, eq, isNotNull, isNull, like, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/modules/auth/guards';
-import { AddressError, ErrorCode, getErrorMessage, isAppError } from '$lib/server/modules/errors';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
+import { AddressError, ErrorCode, getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -10,7 +10,7 @@ import {
 	normalizeLimit,
 	normalizeOffset,
 	removeUndefinedValues
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import {
 	address,
 	insertAddressSchema,

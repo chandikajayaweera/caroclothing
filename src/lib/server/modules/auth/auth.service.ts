@@ -14,9 +14,9 @@ import {
 } from 'drizzle-orm';
 
 import { getDb } from '$lib/server/db';
-import { AuthError, ErrorCode } from '$lib/server/modules/errors';
-import { getEnv } from '$lib/server/modules/env';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+import { AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
+import { getEnv } from '$lib/server/infrastructure/env';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import type { UserRole } from '$lib/shared/modules/access-control';
 
 import {
@@ -25,7 +25,7 @@ import {
 	user as userTable
 } from './auth.drizzle';
 import { repairTempUserEmailFromLinkedGoogleAccount } from './database-hook';
-import { requireActor, requireAdmin, requireOwnerOrAdmin } from './guards';
+import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import type {
 	AccountProfileDTO,
 	AuthMethodDTO,

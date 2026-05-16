@@ -14,16 +14,17 @@ import {
 } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/modules/auth/guards';
+import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
+import { getEnv } from '$lib/server/infrastructure/env';
 import {
 	ErrorCode,
 	OrderError,
 	PaymentError,
 	getErrorMessage,
 	isAppError
-} from '$lib/server/modules/errors';
-import { mediaUrl } from '$lib/server/modules/media/utils';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+} from '$lib/server/infrastructure/errors';
+import { mediaUrl } from '$lib/server/infrastructure/media';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isForeignKeyConstraintError,
 	isUniqueConstraintError,
@@ -31,7 +32,7 @@ import {
 	normalizeOffset,
 	removeUndefinedValues,
 	resolveNow
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import { address as addressTable, type Address } from '../addresses/addresses.drizzle';
 import { createAddressSnapshot, validateCheckoutAddress } from '../addresses/addresses.service';
 import type { AddressSnapshot, CheckoutAddressDTO } from '../addresses/addresses.types';
@@ -50,7 +51,11 @@ import {
 } from '../inventory/inventory.service';
 import {
 	enqueueOrderConfirmationEmailTx,
+	enqueueOrderConfirmationSmsTx,
+	enqueueOrderStatusUpdateSmsTx,
+	enqueuePaymentUpdateSmsTx,
 	enqueueShippingUpdateEmailTx,
+	enqueueShippingUpdateSmsTx,
 	publishNotificationQueueMessages,
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
@@ -183,8 +188,7 @@ export async function placeOrderFromCart(
 	try {
 		const placedOrder = await getDb().transaction(async (tx) => {
 			const orderDto = await placeOrderFromCartTx(tx, ctx, input);
-			const notification = await enqueueOrderConfirmationNotificationTx(tx, orderDto);
-			if (notification) notificationsToPublish = [notification];
+			notificationsToPublish = await enqueueOrderConfirmationNotificationsTx(tx, orderDto);
 			return orderDto;
 		});
 		await publishNotificationQueueMessages(ctx, notificationsToPublish);
@@ -363,10 +367,7 @@ export async function transitionOrderStatus(
 	try {
 		const updatedOrder = await getDb().transaction(async (tx) => {
 			const orderDto = await transitionOrderStatusTx(tx, ctx, input);
-			if (input.toStatus === 'shipped' && orderDto.trackingNumber) {
-				const notification = await enqueueShippingUpdateNotificationTx(tx, orderDto);
-				if (notification) notificationsToPublish = [notification];
-			}
+			notificationsToPublish = await enqueueOrderStatusTransitionNotificationsTx(tx, orderDto);
 			return orderDto;
 		});
 		await publishNotificationQueueMessages(ctx, notificationsToPublish);
@@ -478,8 +479,7 @@ export async function updateOrderFulfillment(
 			});
 
 			if (shouldEnqueueShippingUpdateForFulfillment(existing, updated)) {
-				const notification = await enqueueShippingUpdateNotificationTx(tx, orderDto);
-				if (notification) notificationsToPublish = [notification];
+				notificationsToPublish = await enqueueShippingUpdateNotificationsTx(tx, orderDto);
 			}
 
 			return orderDto;
@@ -532,9 +532,17 @@ export async function recordPayment(
 	input: RecordPaymentInput
 ): Promise<PaymentDTO> {
 	requireAdmin(ctx.actor);
+	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		return await getDb().transaction(async (tx) => recordPaymentTx(tx, ctx, input));
+		const paymentDto = await getDb().transaction(async (tx) => {
+			const result = await recordPaymentTx(tx, ctx, input);
+			const notification = await enqueuePaymentUpdateNotificationTx(tx, result);
+			if (notification) notificationsToPublish = [notification];
+			return result;
+		});
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		return paymentDto;
 	} catch (error) {
 		throw mapPaymentPersistenceError(error);
 	}
@@ -545,9 +553,10 @@ export async function recordRefund(
 	input: RecordRefundInput
 ): Promise<PaymentDTO> {
 	requireAdmin(ctx.actor);
+	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		return await getDb().transaction(async (tx) => {
+		const paymentDto = await getDb().transaction(async (tx) => {
 			const paymentRow = await loadPaymentByIdTx(tx, input.paymentId);
 			const orderRow = await loadOrderByIdTx(tx, paymentRow.orderId);
 			const refundAmount = normalizeMoney(input.refundAmount, 'refundAmount');
@@ -591,8 +600,13 @@ export async function recordRefund(
 				});
 			}
 
-			return toPaymentDTO(updated);
+			const result = toPaymentDTO(updated);
+			const notification = await enqueuePaymentUpdateNotificationTx(tx, result);
+			if (notification) notificationsToPublish = [notification];
+			return result;
 		});
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		return paymentDto;
 	} catch (error) {
 		throw mapPaymentPersistenceError(error);
 	}
@@ -606,9 +620,10 @@ export async function cancelExpiredPendingOrders(
 
 	const now = resolveNow(ctx, input.now);
 	const limit = normalizeLimit(input.limit, CLEANUP_DEFAULT_LIMIT, CLEANUP_MAX_LIMIT);
+	const notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		return await getDb().transaction(async (tx) => {
+		const result = await getDb().transaction(async (tx) => {
 			const rows = await tx
 				.select()
 				.from(order)
@@ -626,6 +641,11 @@ export async function cancelExpiredPendingOrders(
 						now
 					})
 				);
+				const notification = await enqueueOrderStatusUpdateNotificationTx(
+					tx,
+					orders[orders.length - 1]
+				);
+				if (notification) notificationsToPublish.push(notification);
 			}
 
 			return {
@@ -634,6 +654,8 @@ export async function cancelExpiredPendingOrders(
 				orders
 			};
 		});
+		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		return result;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
@@ -937,67 +959,188 @@ async function hydrateOrderTx(
 	});
 }
 
-async function enqueueOrderConfirmationNotificationTx(
+async function enqueueOrderConfirmationNotificationsTx(
 	tx: OrdersTx,
 	orderDto: OrderDTO
-): Promise<NotificationOutboxDTO | null> {
-	if (!orderDto.userId || !orderDto.shippingAddressSnapshot || !orderDto.items?.length) {
-		return null;
+): Promise<NotificationOutboxDTO[]> {
+	if (!orderDto.shippingAddressSnapshot) {
+		return [];
 	}
 
-	const recipient = await loadOrderEmailRecipientTx(
-		tx,
-		orderDto.userId,
-		orderDto.shippingAddressSnapshot.recipientName
-	);
-	if (!recipient) return null;
+	const notifications: NotificationOutboxDTO[] = [];
 
-	return enqueueOrderConfirmationEmailTx(tx as NotificationOutboxTx, {
+	if (orderDto.userId && orderDto.items?.length) {
+		const recipient = await loadOrderEmailRecipientTx(
+			tx,
+			orderDto.userId,
+			orderDto.shippingAddressSnapshot.recipientName
+		);
+
+		if (recipient) {
+			notifications.push(
+				await enqueueOrderConfirmationEmailTx(tx as NotificationOutboxTx, {
+					orderId: orderDto.id,
+					recipientUserId: recipient.userId,
+					payload: {
+						email: recipient.email,
+						customerName: recipient.customerName,
+						orderId: orderDto.id,
+						orderNumber: orderDto.orderNumber,
+						orderDate: formatEmailDate(orderDto.createdAt),
+						items: orderDto.items.map(toOrderEmailItem),
+						subtotal: formatCurrency(orderDto.subtotal),
+						shipping: formatCurrency(orderDto.shippingAmount),
+						total: formatCurrency(orderDto.totalAmount),
+						shippingAddress: formatAddressSnapshot(orderDto.shippingAddressSnapshot),
+						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+					},
+					metadata: { orderNumber: orderDto.orderNumber },
+					now: orderDto.createdAt
+				})
+			);
+		}
+	}
+
+	notifications.push(
+		await enqueueOrderConfirmationSmsTx(tx as NotificationOutboxTx, {
+			orderId: orderDto.id,
+			recipientUserId: orderDto.userId,
+			payload: {
+				to: orderDto.shippingAddressSnapshot.phone,
+				customerName: orderDto.shippingAddressSnapshot.recipientName,
+				orderId: orderDto.id,
+				orderNumber: orderDto.orderNumber,
+				total: formatCurrency(orderDto.totalAmount),
+				orderUrl: buildOrderUrl(orderDto)
+			},
+			metadata: { orderNumber: orderDto.orderNumber },
+			now: orderDto.createdAt
+		})
+	);
+
+	return notifications;
+}
+
+async function enqueueShippingUpdateNotificationsTx(
+	tx: OrdersTx,
+	orderDto: OrderDTO
+): Promise<NotificationOutboxDTO[]> {
+	if (!orderDto.shippingAddressSnapshot || !orderDto.trackingNumber) return [];
+
+	const notifications: NotificationOutboxDTO[] = [];
+
+	if (orderDto.userId) {
+		const recipient = await loadOrderEmailRecipientTx(
+			tx,
+			orderDto.userId,
+			orderDto.shippingAddressSnapshot.recipientName
+		);
+
+		if (recipient) {
+			notifications.push(
+				await enqueueShippingUpdateEmailTx(tx as NotificationOutboxTx, {
+					orderId: orderDto.id,
+					recipientUserId: recipient.userId,
+					payload: {
+						email: recipient.email,
+						customerName: recipient.customerName,
+						orderId: orderDto.id,
+						orderNumber: orderDto.orderNumber,
+						trackingNumber: orderDto.trackingNumber,
+						trackingUrl: orderDto.trackingUrl ?? undefined,
+						carrier:
+							orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
+						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+					},
+					metadata: { orderNumber: orderDto.orderNumber },
+					now: orderDto.updatedAt
+				})
+			);
+		}
+	}
+
+	notifications.push(
+		await enqueueShippingUpdateSmsTx(tx as NotificationOutboxTx, {
+			orderId: orderDto.id,
+			recipientUserId: orderDto.userId,
+			payload: {
+				to: orderDto.shippingAddressSnapshot.phone,
+				orderId: orderDto.id,
+				orderNumber: orderDto.orderNumber,
+				trackingNumber: orderDto.trackingNumber,
+				trackingUrl: orderDto.trackingUrl ?? undefined,
+				carrier: orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
+				estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+			},
+			metadata: { orderNumber: orderDto.orderNumber },
+			now: orderDto.updatedAt
+		})
+	);
+
+	return notifications;
+}
+
+async function enqueueOrderStatusTransitionNotificationsTx(
+	tx: OrdersTx,
+	orderDto: OrderDTO
+): Promise<NotificationOutboxDTO[]> {
+	if (orderDto.status === 'shipped' && orderDto.trackingNumber) {
+		return enqueueShippingUpdateNotificationsTx(tx, orderDto);
+	}
+
+	const notification = await enqueueOrderStatusUpdateNotificationTx(tx, orderDto);
+	return notification ? [notification] : [];
+}
+
+async function enqueuePaymentUpdateNotificationTx(
+	tx: OrdersTx,
+	paymentDto: PaymentDTO
+): Promise<NotificationOutboxDTO | null> {
+	const orderRow = await loadOrderByIdTx(tx, paymentDto.orderId);
+	const orderDto = await hydrateOrderTx(tx, orderRow, {
+		includeItems: false,
+		includePayments: false,
+		includeStatusHistory: false
+	});
+
+	if (!orderDto.shippingAddressSnapshot) return null;
+
+	return enqueuePaymentUpdateSmsTx(tx as NotificationOutboxTx, {
 		orderId: orderDto.id,
-		recipientUserId: recipient.userId,
+		paymentId: paymentDto.id,
+		recipientUserId: orderDto.userId,
 		payload: {
-			email: recipient.email,
-			customerName: recipient.customerName,
+			to: orderDto.shippingAddressSnapshot.phone,
 			orderId: orderDto.id,
 			orderNumber: orderDto.orderNumber,
-			orderDate: formatEmailDate(orderDto.createdAt),
-			items: orderDto.items.map(toOrderEmailItem),
-			subtotal: formatCurrency(orderDto.subtotal),
-			shipping: formatCurrency(orderDto.shippingAmount),
-			total: formatCurrency(orderDto.totalAmount),
-			shippingAddress: formatAddressSnapshot(orderDto.shippingAddressSnapshot),
-			estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+			status: paymentDto.status,
+			statusLabel: formatPaymentStatus(paymentDto.status),
+			amount: formatCurrency(paymentDto.amount),
+			paymentUrl: buildOrderUrl(orderDto)
 		},
-		metadata: { orderNumber: orderDto.orderNumber },
-		now: orderDto.createdAt
+		metadata: { orderNumber: orderDto.orderNumber, paymentId: paymentDto.id },
+		now: paymentDto.updatedAt
 	});
 }
 
-async function enqueueShippingUpdateNotificationTx(
+async function enqueueOrderStatusUpdateNotificationTx(
 	tx: OrdersTx,
 	orderDto: OrderDTO
 ): Promise<NotificationOutboxDTO | null> {
-	if (!orderDto.userId || !orderDto.trackingNumber) return null;
+	if (!orderDto.shippingAddressSnapshot || !shouldEnqueueOrderStatusSms(orderDto.status)) {
+		return null;
+	}
 
-	const recipient = await loadOrderEmailRecipientTx(
-		tx,
-		orderDto.userId,
-		orderDto.shippingAddressSnapshot?.recipientName ?? 'Customer'
-	);
-	if (!recipient) return null;
-
-	return enqueueShippingUpdateEmailTx(tx as NotificationOutboxTx, {
+	return enqueueOrderStatusUpdateSmsTx(tx as NotificationOutboxTx, {
 		orderId: orderDto.id,
-		recipientUserId: recipient.userId,
+		recipientUserId: orderDto.userId,
 		payload: {
-			email: recipient.email,
-			customerName: recipient.customerName,
+			to: orderDto.shippingAddressSnapshot.phone,
 			orderId: orderDto.id,
 			orderNumber: orderDto.orderNumber,
-			trackingNumber: orderDto.trackingNumber,
-			trackingUrl: orderDto.trackingUrl ?? undefined,
-			carrier: orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
-			estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+			status: orderDto.status,
+			statusLabel: formatOrderStatus(orderDto.status),
+			orderUrl: buildOrderUrl(orderDto)
 		},
 		metadata: { orderNumber: orderDto.orderNumber },
 		now: orderDto.updatedAt
@@ -1034,6 +1177,16 @@ function shouldEnqueueShippingUpdateForFulfillment(existing: Order, updated: Ord
 	return existing.status === 'shipped' && !existing.trackingNumber;
 }
 
+function shouldEnqueueOrderStatusSms(status: OrderStatus): boolean {
+	return (
+		status === 'confirmed' ||
+		status === 'processing' ||
+		status === 'delivered' ||
+		status === 'cancelled' ||
+		status === 'refunded'
+	);
+}
+
 function toOrderEmailItem(item: OrderItemDTO): { name: string; quantity: number; price: string } {
 	const variantLabel = [item.variantSize, item.variantColor].filter(Boolean).join(' / ');
 	return {
@@ -1059,6 +1212,21 @@ function formatAddressSnapshot(snapshot: AddressSnapshot): string {
 
 function formatCurrency(value: number): string {
 	return `LKR ${value.toLocaleString('en-LK')}`;
+}
+
+function formatPaymentStatus(status: PaymentStatus): string {
+	if (status === 'captured') return 'paid';
+	if (status === 'partially_refunded') return 'partially refunded';
+	return status.replace(/_/g, ' ');
+}
+
+function formatOrderStatus(status: OrderStatus): string {
+	return status.replace(/_/g, ' ');
+}
+
+function buildOrderUrl(orderDto: OrderDTO): string {
+	const baseUrl = getEnv().PUBLIC_APP_URL.replace(/\/+$/, '');
+	return `${baseUrl}/account/orders/${orderDto.id}`;
 }
 
 function formatEmailDate(value: Date): string {

@@ -1,8 +1,8 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { requireAdmin } from '$lib/server/modules/auth/guards';
-import { ErrorCode, PromotionError, getErrorMessage, isAppError } from '$lib/server/modules/errors';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+import { requireAdmin } from '$lib/server/foundation/guards';
+import { ErrorCode, PromotionError, getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
@@ -12,7 +12,7 @@ import {
 	removeUndefinedValues,
 	resolveNow,
 	uniqueStrings
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import { order as orderTable, type Order } from '../orders/orders.drizzle';
 import {
 	insertPromoCodeSchema,

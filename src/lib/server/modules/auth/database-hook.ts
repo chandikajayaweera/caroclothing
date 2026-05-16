@@ -1,12 +1,23 @@
 import { logger } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
+import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
 import { eq, and, ne } from 'drizzle-orm';
 import { account, user as userTable } from '$lib/server/db/schema';
-import { sendWelcomeEmail, sendGoogleLinkedEmail } from '$lib/server/modules/notifications/email';
-import { AuthError, ErrorCode, isAppError, toBetterAuthApiError } from '$lib/server/modules/errors';
+import {
+	AuthError,
+	ErrorCode,
+	isAppError,
+	toBetterAuthApiError
+} from '$lib/server/infrastructure/errors';
 import { linkDropWaitlistEntriesToUser } from '$lib/server/modules/drops/drops.service';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+import {
+	enqueueAuthGoogleLinkedEmailTx,
+	enqueueAuthWelcomeEmailTx,
+	publishNotificationQueueMessages,
+	type NotificationOutboxTx
+} from '$lib/server/modules/notifications/outbox/outbox.service';
+import type { ServiceContext } from '$lib/server/foundation/context';
 
 const GOOGLE_PROVIDER_ID = 'google';
 const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
@@ -43,6 +54,74 @@ function getWaitlistContactsForUser(user: unknown): string[] {
 	return [
 		...new Set([getUserPublicEmail(user), getUserPhoneNumber(user)].filter(Boolean) as string[])
 	];
+}
+
+function getUserDisplayName(user: unknown): string {
+	const name = (user as { name?: unknown } | null)?.name;
+	return typeof name === 'string' && name.trim() ? name.trim() : 'Caro Customer';
+}
+
+function getNotificationQueue(): ServiceContext['notificationQueue'] {
+	try {
+		return getRequestEvent().platform?.env?.NOTIFICATION_QUEUE ?? null;
+	} catch {
+		return null;
+	}
+}
+
+async function enqueueAuthWelcomeEmailForUser(user: {
+	id: string;
+	email?: string | null;
+	name?: string | null;
+}): Promise<void> {
+	const email = getUserPublicEmail(user);
+	if (!email) return;
+
+	try {
+		const now = new Date();
+		const notification = await getDb().transaction((tx) =>
+			enqueueAuthWelcomeEmailTx(tx as NotificationOutboxTx, {
+				userId: user.id,
+				payload: {
+					email,
+					name: getUserDisplayName(user)
+				},
+				now
+			})
+		);
+
+		await publishNotificationQueueMessages({ notificationQueue: getNotificationQueue(), now }, [
+			notification
+		]);
+		logger.info(`[auth] Welcome email queued for ${email}`);
+	} catch (error) {
+		logger.error(`[auth] Failed to queue welcome email for ${email}`, error);
+	}
+}
+
+async function enqueueAuthGoogleLinkedEmailForAccount(input: {
+	userId: string;
+	accountId: string;
+	email: string;
+}): Promise<void> {
+	try {
+		const now = new Date();
+		const notification = await getDb().transaction((tx) =>
+			enqueueAuthGoogleLinkedEmailTx(tx as NotificationOutboxTx, {
+				userId: input.userId,
+				accountId: input.accountId,
+				payload: { email: input.email },
+				now
+			})
+		);
+
+		await publishNotificationQueueMessages({ notificationQueue: getNotificationQueue(), now }, [
+			notification
+		]);
+		logger.info(`[auth] Google-linked email queued for ${input.email}`);
+	} catch (error) {
+		logger.error(`[auth] Failed to queue Google-linked email for ${input.email}`, error);
+	}
 }
 
 async function linkDropWaitlistContactsForUser(
@@ -241,16 +320,7 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 					getWaitlistContactsForUser(user),
 					'user create'
 				);
-
-				// Sends welcome email to new users
-				if (user.email && !user.email.includes(PHONE_EMAIL_DOMAIN)) {
-					const result = await sendWelcomeEmail(user.email, user.name);
-					if (!result.ok) {
-						logger.error(`[auth] Failed to send welcome email to ${user.email}: ${result.error}`);
-					} else {
-						logger.info(`[auth] Welcome email sent to ${user.email}`);
-					}
-				}
+				await enqueueAuthWelcomeEmailForUser(user);
 			}
 		},
 		update: {
@@ -327,14 +397,11 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 
 				if (userAccounts.length <= 1) return;
 
-				const result = await sendGoogleLinkedEmail(user.email);
-				if (!result.ok) {
-					logger.error(
-						`[auth] Failed to send Google-linked email to ${user.email}: ${result.error}`
-					);
-				} else {
-					logger.info(`[auth] Google-linked email sent to ${user.email}`);
-				}
+				await enqueueAuthGoogleLinkedEmailForAccount({
+					userId: acct.userId,
+					accountId: acct.id,
+					email: user.email
+				});
 			}
 		},
 		delete: {

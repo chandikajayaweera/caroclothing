@@ -1,6 +1,6 @@
 import { getRequestEvent } from '$app/server';
-import { getEnv } from '$lib/server/modules/env';
-import { OtpRateLimitError, AuthError, ErrorCode } from '$lib/server/modules/errors';
+import { getEnv } from '$lib/server/infrastructure/env';
+import { OtpRateLimitError, AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
 
 const OTP_COOLDOWN_PREFIX = 'otp:cooldown:';
 const MIN_KV_EXPIRATION_TTL_SECONDS = 60;

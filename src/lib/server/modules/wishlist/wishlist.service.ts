@@ -1,15 +1,15 @@
 import { and, asc, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { requireActor, requireAdmin } from '$lib/server/modules/auth/guards';
+import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
 	getErrorMessage,
 	isAppError,
 	ProductError,
 	WishlistError
-} from '$lib/server/modules/errors';
-import { mediaUrl } from '$lib/server/modules/media/utils';
-import type { ServiceContext } from '$lib/server/modules/service-context';
+} from '$lib/server/infrastructure/errors';
+import { mediaUrl } from '$lib/server/infrastructure/media';
+import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isForeignKeyConstraintError,
 	isString,
@@ -17,7 +17,7 @@ import {
 	normalizeLimit,
 	normalizeOffset,
 	uniqueStrings
-} from '$lib/server/modules/service-utils';
+} from '$lib/server/foundation/utils';
 import {
 	product,
 	productImage,

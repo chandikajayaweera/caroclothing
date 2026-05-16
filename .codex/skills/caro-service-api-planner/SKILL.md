@@ -14,54 +14,46 @@ Plan only unless the user explicitly asks to implement.
 - Relevant `src/lib/server/modules/**/**.drizzle.ts`
 - Existing service/type/form files for related modules
 - Relevant storefront/admin/account/checkout routes
-- Helper modules:
-  - `src/lib/server/modules/errors/index.ts`
-  - `src/lib/server/modules/media/r2.ts`
-  - `src/lib/server/modules/media/utils.ts`
-  - `src/lib/server/modules/env/index.ts`
-  - `src/lib/shared/modules/access-control.ts`
+- Helper modules under `src/lib/server/foundation`, `src/lib/server/infrastructure`, and `src/lib/shared/modules/access-control.ts`
+- Notification outbox, email/SMS, Queue, Cron, and dispatcher files when notification work is involved
 
-For notification-related modules, also read email/SMS modules, notification outbox docs/files when present, Cloudflare Queue/Cron/DLQ docs/config, and cron scaffolding.
+## Current state
 
-## Current codebase state
-
-- Existing service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `orders`, `reviews`.
-- Existing internal service helpers: `inventory` has transaction helpers in `inventory.service.ts`; its module index exports schema/types only.
-- Schema-only modules needing service plans: none in the current core service rollout.
-- Existing foundation helpers: `service-context.ts`, `auth/guards.ts`, `service-utils.ts`.
-- Existing route helper: `errors/route-adapter.ts`.
-- Implemented notification state helper: `notifications/outbox`.
-- Existing drop sender: `sendDropLaunchEmail`.
-- Existing drop SMS sender: `sendDropLaunchSms`.
+- Existing services: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
+- Inventory exposes curated admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` remain direct-import server internals for cart/order transaction workflows.
+- Schema-only modules needing service plans: none in current core service rollout.
+- Existing foundations: `foundation/context.ts`, `foundation/guards.ts`, `foundation/utils.ts`.
+- Existing route helper: `infrastructure/errors/route-adapter.ts`.
+- Notification outbox, Queue/Cron orchestration, DLQ config, and semantic email/SMS senders are implemented.
+- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
 
 ## Planning rules
 
-- Start from schema comments, constraints, relations, and current route/admin/storefront needs.
+- Start from schema comments, constraints, relations, and current user surfaces.
 - Create business workflow APIs, not table CRUD wrappers.
 - Do not expose generic CRUD for internal/audit/junction tables.
 - Separate public-safe reads from privileged reads.
-- Include `ServiceContext` on privileged reads/writes and media changes.
-- Identify required transaction boundaries and internal Tx helpers.
-- Identify R2/media side effects and compensation flows.
-- Identify notification outbox/list/mark helpers separately from send orchestration.
-- For async notifications, plan outbox enqueue inside the business DB transaction and Queue/Cron/DLQ orchestration outside the domain service.
-- Queue messages must contain only outboxId/idempotencyKey, never full payloads or PII.
+- Include `ServiceContext` for privileged reads/writes, owner checks, media work, Queue wakeups, and cron/system work.
+- Identify transaction boundaries and internal Tx helpers.
+- Identify R2 side effects and compensation cleanup.
+- Identify notification outbox state APIs separately from provider delivery orchestration.
+- Queue messages contain only outbox identifiers, never full payloads or PII.
 - Do not invent helper imports; mark missing helpers as prerequisites.
-- Keep API inputs object-shaped unless matching an established existing module pattern.
+- Keep API inputs object-shaped unless matching an established module pattern.
 
 ## Output
 
 1. Files inspected
-2. Business goals and user surfaces served
+2. Business goals and user surfaces
 3. Schema invariants and application-layer rules
-4. Existing helper modules to use and why
+4. Existing helpers to use
 5. Public/storefront APIs
 6. Customer/account/checkout APIs
-7. Admin dashboard APIs
+7. Admin/support APIs
 8. Queue/Cron/job APIs
 9. Notification outbox/state APIs, if any
 10. DTOs and derived fields
-11. Internal Tx helpers needed
+11. Internal Tx helpers
 12. APIs/tables not to expose
 13. Missing prerequisites or docs-vs-code mismatches
 14. Validation commands

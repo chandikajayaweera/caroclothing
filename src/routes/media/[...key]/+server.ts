@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { assertSafeR2Key, getMediaBucket } from '$lib/server/modules/media/r2';
+import { assertSafeR2Key, getMediaBucket } from '$lib/server/infrastructure/media/r2';
 /*
  * ⚠️  Do NOT `import type { R2Object } from '@cloudflare/workers-types'` here.
  * An explicit import creates a module-scoped type identity that conflicts with

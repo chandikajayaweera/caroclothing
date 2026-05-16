@@ -6,8 +6,12 @@ import { z } from 'zod';
 import { user } from '../../auth/auth.drizzle';
 
 export const NOTIFICATION_OUTBOX_TYPES = [
+	'auth_welcome',
+	'auth_google_linked',
 	'order_confirmation',
 	'shipping_update',
+	'payment_update',
+	'order_status_update',
 	'drop_launch'
 ] as const;
 

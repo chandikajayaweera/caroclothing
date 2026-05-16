@@ -16,10 +16,10 @@ This file defines the foundational mandates and technical context for Caro Cloth
 - **Modular Schemas**: Database schemas live in `src/lib/server/modules/[module]/[module].drizzle.ts` and are aggregated in `src/lib/server/db/schema.ts`.
 - **Zod First**: Use `drizzle-zod` for validation. All schemas have insert, select, and update variants.
 - **ID Strategy**: Use `nanoid` for all primary keys.
-- **Media Handling**: Never store full URLs in the DB. Store R2 keys and resolve via `mediaUrl(key)` from `media/utils.ts`.
+- **Media Handling**: Never store full URLs in the DB. Store R2 keys and resolve via `mediaUrl(key)` from `$lib/server/infrastructure/media`.
 - **Svelte 5 Runes**: Strictly use `$state`, `$derived`, `$effect`, and `$props`. Never use legacy Svelte 4 syntax.
 - **Two-Tier Product Model**: All products have a `tier` — either `drop` (limited, event-based, hype ritual) or `core` (always available, restockable). This distinction drives inventory behaviour, pricing bands, marketing mechanics, and UX patterns throughout the app.
-- **Centralized Errors**: ALWAYS use the structured custom errors defined in `src/lib/server/modules/errors/index.ts` instead of throwing generic JavaScript `Error` objects. If a specific domain error class or `ErrorCode` does not exist for your use case, add it there first.
+- **Centralized Errors**: ALWAYS use the structured custom errors defined in `src/lib/server/infrastructure/errors/index.ts` instead of throwing generic JavaScript `Error` objects. If a specific domain error class or `ErrorCode` does not exist for your use case, add it there first.
 
 ## 🧠 Intelligence Guidelines
 

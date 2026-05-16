@@ -1,4 +1,5 @@
 import type { InventoryMovement, InsertInventory, UpdateInventory } from './inventory.drizzle';
+import type { ProductTier, SizeTier } from '../products/products.drizzle';
 
 export type InventoryDTO = {
 	id: string;
@@ -37,9 +38,113 @@ export type InventoryMovementDTO = {
 	createdAt: Date;
 };
 
-export type CreateInventoryInput = InsertInventory;
+export type InventoryStockStatusFilter = 'missing' | 'low' | 'out' | 'available' | 'untracked';
+
+export type InventoryProductSummaryDTO = {
+	id: string;
+	name: string;
+	slug: string;
+	tier: ProductTier;
+	isActive: boolean;
+};
+
+export type InventoryVariantSummaryDTO = {
+	id: string;
+	productId: string;
+	sku: string;
+	size: SizeTier;
+	color: string;
+	colorHex: string | null;
+	isActive: boolean;
+};
+
+export type InventoryListItemDTO = {
+	variantId: string;
+	product: InventoryProductSummaryDTO;
+	variant: InventoryVariantSummaryDTO;
+	inventory: InventoryDTO | null;
+	hasInventory: boolean;
+};
+
+export type InventoryDetailDTO = InventoryListItemDTO & {
+	movements: InventoryMovementDTO[];
+};
+
+export type InventorySummaryDTO = {
+	totalVariants: number;
+	inventoryRows: number;
+	missingInventoryCount: number;
+	trackedCount: number;
+	untrackedCount: number;
+	lowStockCount: number;
+	outOfStockCount: number;
+	backorderEnabledCount: number;
+	totalQuantity: number;
+	totalReservedQuantity: number;
+	totalAvailableQuantity: number;
+};
+
+export type InventoryListOptions = {
+	query?: string | null;
+	productId?: string;
+	variantId?: string;
+	stockStatus?: InventoryStockStatusFilter;
+	trackInventory?: boolean;
+	allowBackorder?: boolean;
+	limit?: number;
+	offset?: number;
+};
+
+export type InventoryMovementListOptions = {
+	variantId?: string;
+	type?: InventoryMovement['type'];
+	referenceId?: string | null;
+	limit?: number;
+	offset?: number;
+};
+
+export type InventoryListResult = {
+	items: InventoryListItemDTO[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type InventoryMovementListResult = {
+	items: InventoryMovementDTO[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type CreateInventoryInput = Omit<InsertInventory, 'reservedQuantity'>;
 
 export type UpdateInventoryInput = UpdateInventory;
+
+export type InitializeInventoryInput = CreateInventoryInput & {
+	note?: string | null;
+};
+
+export type UpdateInventorySettingsInput = Pick<
+	UpdateInventory,
+	'lowStockThreshold' | 'trackInventory' | 'allowBackorder'
+> & {
+	variantId: string;
+};
+
+export type RestockInventoryInput = {
+	variantId: string;
+	quantity: number;
+	note?: string | null;
+	now?: Date;
+};
+
+export type AdjustInventoryInput = {
+	variantId: string;
+	quantityDelta: number;
+	note?: string | null;
+	now?: Date;
+};
 
 export type ReserveInventoryInput = {
 	variantId: string;
