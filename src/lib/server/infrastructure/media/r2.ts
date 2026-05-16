@@ -1,19 +1,9 @@
 /**
  * R2 media helpers for Cloudflare Workers.
  *
- * Prerequisites
- * ─────────────
- * 1. `@cloudflare/workers-types` installed as a devDependency.
- * 2. tsconfig.json includes `@cloudflare/workers-types` in its `types` array.
- *    This makes R2Bucket, R2Object, etc. available as ambient globals — no
- *    import is needed or wanted in this file.
- * 3. src/app.d.ts declares App.Platform using the global R2Bucket (no import).
- *
- * ⚠️  Do NOT `import type { R2Bucket } from '@cloudflare/workers-types'` in this
- * file. An explicit import creates a module-scoped type that TypeScript treats as
- * structurally distinct from the global — the two copies diverge on `Headers.getAll`,
- * causing TS2345 at any call site that mixes them. The global (tsconfig `types` array)
- * is the single source of truth for all Cloudflare workers types across the project.
+ * Wrangler generates Cloudflare runtime types in src/worker-configuration.d.ts.
+ * tsconfig.json loads that file globally, so R2Bucket and R2Object stay ambient
+ * and should not be imported into this file.
  */
 
 import { error } from '@sveltejs/kit';

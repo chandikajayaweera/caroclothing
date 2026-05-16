@@ -2,12 +2,9 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertSafeR2Key, getMediaBucket } from '$lib/server/infrastructure/media/r2';
 /*
- * ⚠️  Do NOT `import type { R2Object } from '@cloudflare/workers-types'` here.
- * An explicit import creates a module-scoped type identity that conflicts with
- * the global R2Object merged in by tsconfig.json's `types` array. The mismatch
- * surfaces as TS2345 on `writeHttpMetadata(headers)` and `new Response(obj.body)`
- * because the imported and global versions of Headers/ReadableStream are treated
- * as distinct types. Always use the global — it's already in scope.
+ * R2Object is not imported here. Wrangler-generated runtime types are loaded
+ * globally from src/worker-configuration.d.ts, avoiding duplicate Cloudflare
+ * runtime type identities.
  */
 
 /**

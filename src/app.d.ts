@@ -5,13 +5,9 @@ import type { NotificationQueueMessage } from './lib/server/modules/notification
 // for information about these interfaces
 
 /*
- * R2Bucket is NOT imported here. It is a global type, merged into the ambient
- * scope by `@cloudflare/workers-types` via the `types` array in tsconfig.json.
- *
- * Importing it (e.g. `import type { R2Bucket } from '@cloudflare/workers-types'`)
- * creates a separate module-scoped type identity that TypeScript treats as
- * structurally incompatible with the global — causing TS2345 mismatches in
- * any .ts file that uses the global R2Bucket directly (e.g. r2.ts).
+ * R2Bucket is not imported here. Wrangler generates Cloudflare runtime types in
+ * src/worker-configuration.d.ts, and tsconfig.json loads that file globally.
+ * Keeping these types ambient avoids duplicate Cloudflare type identities.
  */
 
 declare global {
