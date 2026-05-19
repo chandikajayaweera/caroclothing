@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Caro Svelte UI Designer'
+  short_description: 'Responsive Caro route UI from skeletons.'
+  default_prompt: 'Use $caro-svelte-ui-designer to upgrade this route skeleton into a production-ready responsive Caro UI.'

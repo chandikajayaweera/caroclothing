@@ -1,3 +1,4 @@
+import type { DropStatus } from '../drops/drops.drizzle';
 import type {
 	FitTier,
 	GenderTier,
@@ -13,6 +14,17 @@ import type {
 	UpdateProductVariant,
 	UpdateTag
 } from './products.drizzle';
+
+export type ProductDropAssignmentDTO = {
+	id: string;
+	slug: string;
+	name: string;
+	status: DropStatus;
+	launchAt: Date | null;
+	endAt: Date | null;
+	isHero: boolean;
+	sortOrder: number;
+};
 
 export type CategoryDTO = {
 	id: string;
@@ -132,6 +144,7 @@ export type ProductDTO = {
 	variants: ProductVariantReadDTO[];
 	images: ProductImageReadDTO[];
 	tags: TagDTO[];
+	dropAssignment: ProductDropAssignmentDTO | null;
 	primaryImageUrl: string | null;
 };
 
@@ -157,12 +170,31 @@ export type ListProductsOptions = {
 	offset?: number;
 };
 
+export type CreateProductDraftVariantInput = Omit<InsertProductVariant, 'productId'> & {
+	clientId: string;
+};
+
+export type CreateProductImageMetadataInput = {
+	variantClientId?: string | null;
+	altText?: string | null;
+	position?: number;
+	isPrimary?: boolean;
+};
+
 export type CreateProductInput = InsertProduct & {
 	tagIds?: string[];
+	newTagNames?: string[];
+	dropId?: string | null;
+	images?: File[];
+	primaryImageIndex?: number;
+	variants?: CreateProductDraftVariantInput[];
+	imageMetadata?: CreateProductImageMetadataInput[];
 };
 
 export type UpdateProductInput = UpdateProduct & {
 	tagIds?: string[];
+	newTagNames?: string[];
+	dropId?: string | null;
 };
 
 export type CreateProductVariantInput = Omit<InsertProductVariant, 'productId'>;

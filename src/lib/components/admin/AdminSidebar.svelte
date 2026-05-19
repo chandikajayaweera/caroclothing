@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
 	import {
@@ -28,9 +29,28 @@
 		X
 	} from 'lucide-svelte';
 
+	type NavHref =
+		| '/app'
+		| '/app/addresses'
+		| '/app/bag'
+		| '/app/categories'
+		| '/app/drops'
+		| '/app/inventory'
+		| '/app/media'
+		| '/app/notifications'
+		| '/app/orders'
+		| '/app/payments'
+		| '/app/products'
+		| '/app/promotions'
+		| '/app/reviews'
+		| '/app/shipping'
+		| '/app/users'
+		| '/app/variants'
+		| '/app/wishlist';
+
 	type NavItem = {
 		label: string;
-		href: string;
+		href: NavHref;
 		icon: typeof Home;
 	};
 
@@ -63,6 +83,7 @@
 			label: 'Catalog',
 			items: [
 				{ label: 'Products', href: '/app/products', icon: Package },
+				{ label: 'Categories', href: '/app/categories', icon: Boxes },
 				{ label: 'Variants', href: '/app/variants', icon: ShoppingBag },
 				{ label: 'Media', href: '/app/media', icon: Image }
 			]
@@ -111,7 +132,7 @@
 	async function signOut() {
 		profileOpen = false;
 		await authClient.signOut();
-		await goto('/', { invalidateAll: true });
+		await goto(resolve('/'), { invalidateAll: true });
 	}
 </script>
 
@@ -131,7 +152,7 @@
 >
 	<div class="shrink-0 border-b border-charcoal p-2 lg:p-3">
 		<div class="mb-2 flex h-11 items-center justify-between gap-3 lg:hidden">
-			<a href="/app" class="flex min-w-0 items-center gap-3" onclick={onClose}>
+			<a href={resolve('/app')} class="flex min-w-0 items-center gap-3" onclick={onClose}>
 				<span class="font-display text-3xl tracking-[0.2em] text-bone">CARO</span>
 				<span class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Admin</span>
 			</a>
@@ -158,7 +179,7 @@
 			{:else}
 				<div class="grid h-11 grid-cols-[32px_1fr_32px] items-center gap-3">
 					<span></span>
-					<a href="/app" class="flex min-w-0 items-center justify-center gap-3">
+					<a href={resolve('/app')} class="flex min-w-0 items-center justify-center gap-3">
 						<span class="font-display text-3xl tracking-[0.2em] text-bone">CARO</span>
 						<span class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Admin</span>
 					</a>
@@ -175,7 +196,7 @@
 		</div>
 
 		<a
-			href="/"
+			href={resolve('/')}
 			class="mt-2 hidden h-11 place-items-center border border-charcoal text-ash transition-colors hover:border-volt hover:text-volt lg:flex lg:items-center lg:justify-center lg:gap-2 lg:px-3"
 			aria-label="View store"
 			title="View store"
@@ -191,7 +212,7 @@
 	</div>
 
 	<nav class="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5">
-		{#each navGroups as group}
+		{#each navGroups as group (group.label)}
 			<div class="mb-6">
 				{#if !collapsed}
 					<p class="mb-2 px-3 font-mono text-[8px] tracking-[0.2em] text-ash/40 uppercase">
@@ -199,10 +220,10 @@
 					</p>
 				{/if}
 				<div class="flex flex-col gap-1">
-					{#each group.items as item}
+					{#each group.items as item (item.href)}
 						{@const Icon = item.icon}
 						<a
-							href={item.href}
+							href={resolve(item.href)}
 							class="group flex h-11 items-center gap-3 border-l-2 px-3 font-mono text-[10px] tracking-widest uppercase transition-colors {isActive(
 								item.href
 							)
@@ -313,7 +334,7 @@
 					</div>
 
 					<a
-						href="/account"
+						href={resolve('/account')}
 						class="flex h-11 items-center gap-3 px-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:bg-charcoal/50 hover:text-bone"
 						onclick={() => (profileOpen = false)}
 					>

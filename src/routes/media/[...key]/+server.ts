@@ -10,17 +10,15 @@ import { assertSafeR2Key, getMediaBucket } from '$lib/server/infrastructure/medi
 /**
  * Builds shared response headers from an R2Object.
  *
- * Uses the official `obj.writeHttpMetadata(headers)` API — the idiomatic
- * Cloudflare method that applies content-type, cache-control, content-encoding,
- * content-disposition, and content-language to the Headers object in one call.
+ * Copies stored R2 HTTP metadata manually so local Miniflare does not need to
+ * serialize a Headers instance across its internal RPC boundary.
  *
  * Cloudflare recommends `obj.httpEtag` (RFC 9110 quoted) over `obj.etag` (raw hex).
  */
 function buildHeaders(obj: R2Object): Headers {
 	const headers = new Headers();
 
-	// Idiomatic R2: writes all stored HTTP metadata fields at once.
-	obj.writeHttpMetadata(headers);
+	applyR2HttpMetadata(headers, obj.httpMetadata);
 
 	// Fallbacks in case metadata wasn't stored on upload (defensive).
 	if (!headers.has('Content-Type')) {
@@ -39,8 +37,28 @@ function buildHeaders(obj: R2Object): Headers {
 	return headers;
 }
 
+function applyR2HttpMetadata(headers: Headers, metadata: R2HTTPMetadata | undefined): void {
+	if (!metadata) return;
+
+	setHeader(headers, 'Content-Type', metadata.contentType);
+	setHeader(headers, 'Content-Language', metadata.contentLanguage);
+	setHeader(headers, 'Content-Disposition', metadata.contentDisposition);
+	setHeader(headers, 'Content-Encoding', metadata.contentEncoding);
+	setHeader(headers, 'Cache-Control', metadata.cacheControl);
+
+	if (metadata.cacheExpiry) {
+		headers.set('Expires', metadata.cacheExpiry.toUTCString());
+	}
+}
+
+function setHeader(headers: Headers, name: string, value: string | undefined): void {
+	if (value) {
+		headers.set(name, value);
+	}
+}
+
 /**
- * HEAD — metadata only, no body.
+ * HEAD - metadata only, no body.
  * Uses `bucket.head()` which is cheaper than `bucket.get()` as R2 does not
  * transfer the object body.
  */
@@ -61,7 +79,7 @@ export const HEAD: RequestHandler = async (event) => {
 };
 
 /**
- * GET — streams the object body.
+ * GET - streams the object body.
  *
  * Supports conditional requests via `If-None-Match`: when the client
  * already holds a cached copy with a matching ETag, a lightweight 304 is
@@ -88,7 +106,7 @@ export const GET: RequestHandler = async (event) => {
 
 	const headers = buildHeaders(obj);
 
-	// Conditional GET — honour If-None-Match for cache revalidation (RFC 7232).
+	// Conditional GET: honour If-None-Match for cache revalidation (RFC 7232).
 	// For GET/HEAD, a matching ETag must return 304, not 412.
 	const ifNoneMatch = event.request.headers.get('If-None-Match');
 	if (ifNoneMatch && (ifNoneMatch === obj.httpEtag || ifNoneMatch === '*')) {

@@ -1,7 +1,7 @@
 # Codex Service-Layer Workflow
 
 - **Audience:** Codex agents and humans using Codex in CaroClothing
-- **Status:** current as of 2026-05-16
+- **Status:** current as of 2026-05-19
 - **Scope:** prompts, repo guidance, skills, custom agents, planning, implementation, review, and validation for service-layer work
 
 ## Source Of Truth
@@ -92,15 +92,36 @@ Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` u
 
 5. Integrate routes
    - Use `$caro-route-refactor`.
+   - Use `$caro-svelte-route-builder` when creating new service-backed SvelteKit route files and bare Superforms page skeletons.
    - Routes import service functions, form schemas, and route error adapters only.
    - Business routes must not import db, Drizzle tables, Drizzle query helpers, or R2 primitives.
    - `src/routes/media/[...key]/+server.ts` is the media R2 exception.
+   - For forms with `File` or `File[]`, use Superforms file handling, return files with validation/service errors, pass `ctx.event` to services, and keep R2 work inside services.
+   - Initialize create forms with `errors: false` when required defaults are intentionally blank so first render does not show validation errors.
    - Use Svelte MCP or Context7 before changing uncertain SvelteKit/Superforms APIs.
 
-6. Review
+6. Design route UI
+   - Use `$caro-svelte-ui-designer` when turning route-builder skeletons into polished admin/account/storefront pages.
+   - Preserve Superforms ids, actions, `use:enhance`, hidden fields, file proxies, validation messages, submitting state, and server-owned data contracts.
+   - Do not add client-only fake CRUD, top-level `fetch()`, server imports, db imports, Drizzle imports, or R2 imports in `+page.svelte`.
+   - Use Svelte MCP autofixer after Svelte component edits.
+
+7. Review
    - Use `$caro-review`.
    - Check route boundaries, transactions, R2 compensation, AppError use, access control, notification boundaries, tests, docs drift, and hallucinated imports.
    - If docs and code disagree, update docs or stop before behavior changes.
+
+## Current Product Create Contract
+
+The admin new-product workflow is a multi-entity service write owned by `src/lib/server/modules/products/products.service.ts`.
+
+- `createProduct()` accepts form-level fields for selected `tagIds`, `newTagNames`, optional `dropId`, uploaded `images`, `primaryImageIndex`, draft `variants`, and per-image `imageMetadata`.
+- Draft variants carry a client-side `clientId`; image metadata references that ID through `variantClientId` until the service maps it to the generated variant ID.
+- Product image metadata is one row per uploaded file and may set variant assignment, alt text, position, and primary state. The service enforces one primary image per product-level or variant-level scope.
+- Product create routes must not write `product_variant`, `product_image`, `product_tag`, `tag`, or `drop_product` directly. They validate through module form schemas and call `createProduct()`.
+- Drop assignment from the product form is service-owned. `dropProduct` remains a junction table with no generic CRUD route.
+- Product media uploads require `ctx.event` and compensation cleanup in the service if any later database write fails.
+- `ProductDTO.dropAssignment` is available for route/UI reads that need the current non-archived drop link.
 
 ## Notification Workflow
 
@@ -140,6 +161,7 @@ service-api-curator       plan public service APIs from product surfaces
 service-architect         turn accepted APIs into implementation plan
 service-builder           implement approved service-layer plan
 notification-orchestrator plan/review notification outbox and transport work
+svelte-route-builder      create service-backed route skeletons
 svelte-integrator         refactor routes to service/form-schema calls
 test-reviewer             review diff for architecture/test risks
 ```

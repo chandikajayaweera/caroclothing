@@ -34,6 +34,7 @@ If the task touches notifications, also read email/SMS modules, `src/lib/server/
 - Route AppError helpers exist in `src/lib/server/infrastructure/errors/route-adapter.ts`.
 - Notification outbox, Queue, Cron recovery, DLQ config, and semantic email/SMS senders are implemented.
 - Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
+- Product create service owns product rows, selected/new tags, draft variants, image uploads plus metadata, and non-archived drop assignment in one admin workflow.
 
 If docs mention a helper not present in code, report the mismatch before importing or using it.
 
@@ -49,6 +50,8 @@ If docs mention a helper not present in code, report the mismatch before importi
 - Return DTOs when UI needs derived fields or public media URLs.
 - Keep DTO mapping inside services.
 - Do not expose generic CRUD for audit/internal/junction tables.
+- Do not expose generic CRUD for product-tag or drop-product joins; product services curate those relationships through product workflows.
+- For product create media, validate image metadata against uploaded file count, map draft variant client IDs to generated variant IDs, and clean up R2 uploads if the DB transaction fails.
 - Curate APIs from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, notification, and related-module needs before coding.
 - Do not import `$lib/client/*` inside server modules.
 - Use `getEnv()` from `$lib/server/infrastructure/env` for server-side app config and provider secrets.

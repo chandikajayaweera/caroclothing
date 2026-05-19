@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-05-16
+- **Status:** current as of 2026-05-19
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 ## Current State
@@ -175,6 +175,16 @@ Service rules:
 - Public reads default to public-safe filtering.
 - Reads that expose inactive, archived, unpublished, moderation, or admin-only data must accept `ServiceContext` and enforce authorization.
 - Do not expose generic CRUD for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, product-tag joins, or drop-product joins.
+
+Product service contract:
+
+- `products.service.ts` owns product creation across product rows, selected tags, newly created tags, draft variants, product images, and non-archived drop assignment. Admin routes must call `createProduct()` instead of writing any of those tables directly.
+- Product form schemas may include UI-only create fields such as `newTagNames`, `dropId`, `images`, `primaryImageIndex`, draft `variants`, `imageMetadata`, and route `redirectTo`. Services strip and validate these fields before persistence.
+- Draft variants use client-side `clientId` values during create so image metadata can target a variant before the database ID exists. The service generates product and variant IDs, maps client IDs to variant IDs, and rejects duplicate draft client IDs or duplicate size/color combinations.
+- Product image metadata must match the uploaded file count. Each image can set `variantClientId`, `altText`, `position`, and `isPrimary`; the service enforces valid variant mapping, nonnegative positions, alt text length, and one primary image per product-level or variant-level scope.
+- Product image uploads are service-owned R2 side effects. Routes pass `ctx.event`; the service uploads with generated product/variant IDs and deletes uploaded objects if a later validation or transaction step fails.
+- Product drop assignment is managed as part of product create/update through the product service when the UI supplies `dropId`. `dropProduct` remains a junction table with no generic CRUD route; drop-tier products without a current non-archived drop assignment are kept inactive until assigned.
+- `ProductDTO` includes non-archived `dropAssignment`, variants, images, tags, and resolved `primaryImageUrl` so admin/storefront routes do not need cross-table joins.
 
 ## Errors, Auth, Env, And Media
 

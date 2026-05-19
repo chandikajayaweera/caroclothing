@@ -3,6 +3,7 @@ export * from './products.forms';
 export * from './products.types';
 
 export {
+	addProductImage,
 	addProductTag,
 	createCategory,
 	createProduct,

@@ -57,6 +57,8 @@ For notification work, also inspect:
 - Multi-table writes must use transactions.
 - Cross-module transaction helpers should remain internal unless a public export is intentionally approved.
 - Inventory module APIs may manage variant stock rows; `inventoryMovement` remains append-only audit state and is not generic CRUD.
+- Product create/update workflows may curate product tags, draft variants, product images, and non-archived drop assignment through `products.service.ts`; routes must not write product junction/media tables directly.
+- Product image uploads must pass through product services with validated image metadata, draft-variant client ID mapping where needed, and R2 compensation cleanup.
 - R2 uploads must use compensation cleanup.
 - Use existing `AppError`, `ErrorCode`, and domain error classes. Do not create a second error framework.
 - Use `$lib/shared/modules/access-control` for Better Auth role/access-control definitions and server guards in `src/lib/server/foundation/guards.ts`.
