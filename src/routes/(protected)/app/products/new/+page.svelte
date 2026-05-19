@@ -939,7 +939,7 @@
 									<img
 										src={image.url}
 										alt={metadata.altText ?? ''}
-										class="aspect-[4/5] w-full object-cover"
+										class="aspect-4/5 w-full object-cover"
 									/>
 									{#if metadata.isPrimary}
 										<span

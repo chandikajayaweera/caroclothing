@@ -139,14 +139,14 @@
 {#if mobileOpen}
 	<button
 		type="button"
-		class="fixed inset-0 z-[70] bg-void/70 backdrop-blur-sm lg:hidden"
+		class="fixed inset-0 z-70 bg-void/70 backdrop-blur-sm lg:hidden"
 		aria-label="Close admin navigation"
 		onclick={onClose}
 	></button>
 {/if}
 
 <aside
-	class="fixed inset-y-0 left-0 z-[80] flex h-screen w-[280px] -translate-x-full flex-col border-r border-charcoal bg-void transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:w-auto lg:translate-x-0 {mobileOpen
+	class="fixed inset-y-0 left-0 z-80 flex h-screen w-[280px] -translate-x-full flex-col border-r border-charcoal bg-void transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:w-auto lg:translate-x-0 {mobileOpen
 		? 'translate-x-0'
 		: ''}"
 >
@@ -281,13 +281,13 @@
 		{#if profileOpen}
 			<button
 				type="button"
-				class="fixed inset-0 z-[85] cursor-default bg-transparent"
+				class="fixed inset-0 z-85 cursor-default bg-transparent"
 				aria-label="Close profile menu"
 				onclick={() => (profileOpen = false)}
 			></button>
 
 			<div
-				class="absolute bottom-3 left-[calc(100%+12px)] z-[90] w-[min(320px,calc(100vw-88px))] border border-charcoal bg-void shadow-2xl shadow-black/50 lg:w-80"
+				class="absolute bottom-3 left-[calc(100%+12px)] z-90 w-[min(320px,calc(100vw-88px))] border border-charcoal bg-void shadow-2xl shadow-black/50 lg:w-80"
 				role="dialog"
 				aria-label="Profile menu"
 			>
