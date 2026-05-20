@@ -14,6 +14,7 @@ import {
 	buildMediaKey,
 	deleteObjectSafe,
 	getMediaBucket,
+	getMediaBucketOptional,
 	uploadImage
 } from '$lib/server/infrastructure/media/r2';
 import { mediaUrl } from '$lib/server/infrastructure/media';
@@ -603,8 +604,8 @@ export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup):
 				.where(eq(productImage.productId, existing.id));
 			const keys = imageRows.map((row) => row.r2Key);
 
-			if (keys.length > 0) {
-				bucket = requireMediaBucket(ctx);
+			if (keys.length > 0 && ctx.event) {
+				bucket = getMediaBucketOptional(ctx.event);
 			}
 
 			const [deleted] = await tx

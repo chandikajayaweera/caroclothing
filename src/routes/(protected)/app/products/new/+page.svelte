@@ -60,6 +60,7 @@
 	let pendingRedirect = $state<RedirectTarget | null>(null);
 	let activeImageIndex = $state<number | null>(null);
 	let imagePreviews = $state<ImagePreview[]>([]);
+	let selectedImageFiles = $state<File[]>([]);
 
 	const actionMessage = $derived(actionData?.form?.message);
 	const dropTierWithoutDrop = $derived(
@@ -182,6 +183,10 @@
 			$createProductForm.basePrice = 2500;
 		}
 
+		if ($createProductForm.tier === 'core') {
+			$createProductForm.dropId = null;
+		}
+
 		if ($createProductForm.tier === 'drop' && !$createProductForm.dropId) {
 			$createProductForm.isActive = false;
 		}
@@ -252,9 +257,38 @@
 		}
 	}
 
-	function handleImageChange(event: Event): void {
-		const input = event.currentTarget as HTMLInputElement;
-		syncImagePreviews(input.files);
+	function fileIdentity(file: File): string {
+		return `${file.name}:${file.size}:${file.lastModified}`;
+	}
+
+	function createFileList(files: File[]): FileList {
+		const transfer = new DataTransfer();
+		for (const file of files) transfer.items.add(file);
+		return transfer.files;
+	}
+
+	function getImageFiles(): FileList | undefined {
+		return $imageFiles;
+	}
+
+	function setImageFiles(files: FileList | null | undefined): void {
+		const incomingFiles = Array.from(files ?? []);
+		if (incomingFiles.length === 0) return;
+
+		const selectedKeys = selectedImageFiles.map(fileIdentity);
+		const mergedFiles = [...selectedImageFiles];
+
+		for (const file of incomingFiles) {
+			const key = fileIdentity(file);
+			if (selectedKeys.includes(key)) continue;
+
+			selectedKeys.push(key);
+			mergedFiles.push(file);
+		}
+
+		selectedImageFiles = mergedFiles;
+		$imageFiles = createFileList(selectedImageFiles);
+		syncImagePreviews($imageFiles);
 	}
 
 	function syncImagePreviews(files: FileList | null): void {
@@ -373,19 +407,18 @@
 	}
 
 	function removeImage(index: number): void {
-		const files = Array.from($imageFiles ?? []);
-		const transfer = new DataTransfer();
-
-		for (const [fileIndex, file] of files.entries()) {
-			if (fileIndex !== index) transfer.items.add(file);
-		}
-
-		$imageFiles = transfer.files;
+		selectedImageFiles = selectedImageFiles.filter((_, fileIndex) => fileIndex !== index);
+		$imageFiles = createFileList(selectedImageFiles);
 		$createProductForm.imageMetadata = $createProductForm.imageMetadata.filter(
 			(_, metadataIndex) => metadataIndex !== index
 		);
-		activeImageIndex = activeImageIndex === index ? null : activeImageIndex;
-		syncImagePreviews(transfer.files);
+		if (activeImageIndex === index) {
+			activeImageIndex = null;
+		} else if (activeImageIndex !== null && activeImageIndex > index) {
+			activeImageIndex -= 1;
+		}
+
+		syncImagePreviews($imageFiles);
 	}
 
 	async function saveDraftAndRedirect(): Promise<void> {
@@ -427,7 +460,7 @@
 	<p hidden>Form response received.</p>
 {/if}
 
-<section class="mx-auto max-w-7xl">
+<section class="mx-auto max-w-7xl overflow-x-hidden">
 	<div class="border-b border-charcoal pb-6 md:pb-8">
 		<button
 			type="button"
@@ -484,7 +517,9 @@
 			<section class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
 				<div class="border-b border-charcoal pb-4">
 					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Product</p>
-					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Core Data</h2>
+					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">
+						Product Basics
+					</h2>
 				</div>
 
 				<div class="mt-5 grid gap-5">
@@ -561,6 +596,38 @@
 								{/each}
 							</select>
 						</label>
+						{#if $createProductForm.tier === 'drop'}
+							<label class="grid gap-1">
+								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Drop</span>
+								<select
+									name="dropId"
+									bind:value={$createProductForm.dropId}
+									onchange={handleDropChange}
+									class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+								>
+									<option value="">No drop</option>
+									{#each data.drops as drop (drop.id)}
+										<option value={drop.id}>{drop.name} / {drop.status}</option>
+									{/each}
+								</select>
+							</label>
+							<button
+								type="button"
+								onclick={() => handleNavigate('drops')}
+								class="inline-flex min-h-11 items-center justify-center gap-2 self-end border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
+							>
+								<Layers size={14} aria-hidden="true" />
+								Create drop
+							</button>
+							{#if dropTierWithoutDrop}
+								<p
+									class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-mono text-[10px] leading-5 tracking-widest text-red-300 uppercase md:col-span-3"
+								>
+									<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
+									Add a drop or switch tier to make this product active.
+								</p>
+							{/if}
+						{/if}
 						<label class="grid gap-1">
 							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Gender</span>
 							<select
@@ -585,42 +652,6 @@
 								{/each}
 							</select>
 						</label>
-					</div>
-
-					<div class="grid gap-3 border border-charcoal bg-void/40 p-4">
-						<div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-							<label class="grid gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Drop</span>
-								<select
-									name="dropId"
-									bind:value={$createProductForm.dropId}
-									onchange={handleDropChange}
-									disabled={$createProductForm.tier !== 'drop'}
-									class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt disabled:opacity-50"
-								>
-									<option value="">No drop</option>
-									{#each data.drops as drop (drop.id)}
-										<option value={drop.id}>{drop.name} / {drop.status}</option>
-									{/each}
-								</select>
-							</label>
-							<button
-								type="button"
-								onclick={() => handleNavigate('drops')}
-								class="inline-flex min-h-11 items-center justify-center gap-2 self-end border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
-							>
-								<Layers size={14} aria-hidden="true" />
-								Create drop
-							</button>
-						</div>
-						{#if dropTierWithoutDrop}
-							<p
-								class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-mono text-[10px] leading-5 tracking-widest text-red-300 uppercase"
-							>
-								<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
-								Add a drop or switch tier to make this product active.
-							</p>
-						{/if}
 					</div>
 
 					<div class="grid gap-4 md:grid-cols-2">
@@ -905,8 +936,7 @@
 						type="file"
 						accept="image/*"
 						multiple
-						bind:files={$imageFiles}
-						onchange={handleImageChange}
+						bind:files={getImageFiles, setImageFiles}
 						class="sr-only"
 					/>
 					<span class="grid justify-items-center gap-3">
@@ -1203,22 +1233,28 @@
 
 {#if activeImage && activeImageIndex !== null}
 	{@const metadata = getImageMetadata(activeImageIndex)}
-	<div class="fixed inset-0 z-50 grid place-items-center bg-void/85 px-4 py-6">
+	<div
+		class="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain bg-void/85 px-3 py-4 sm:px-4 sm:py-6"
+	>
 		<section
-			class="grid max-h-[92vh] w-full max-w-5xl overflow-hidden border border-charcoal bg-void shadow-2xl lg:grid-cols-[minmax(0,1fr)_340px]"
+			class="mx-auto grid w-full max-w-5xl min-w-0 overflow-hidden overscroll-contain border border-charcoal bg-void shadow-2xl lg:max-h-[92vh] lg:grid-cols-[minmax(0,1fr)_340px]"
 		>
-			<div class="min-h-0 overflow-auto bg-charcoal/40">
+			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
 				<img
 					src={activeImage.url}
 					alt={metadata.altText ?? ''}
-					class="mx-auto max-h-[92vh] w-full object-contain"
+					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
 				/>
 			</div>
-			<div class="grid content-start gap-4 overflow-auto p-5">
+			<div
+				class="grid min-w-0 content-start gap-4 overflow-x-hidden overflow-y-auto overscroll-contain p-4 sm:p-5"
+			>
 				<div class="flex items-start justify-between gap-4">
 					<div class="min-w-0">
 						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
-						<h2 class="mt-2 truncate font-display text-4xl leading-none text-bone uppercase">
+						<h2
+							class="mt-2 font-display text-3xl leading-none break-words text-bone uppercase sm:text-4xl"
+						>
 							{activeImage.name}
 						</h2>
 						<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
@@ -1228,7 +1264,7 @@
 					<button
 						type="button"
 						onclick={() => (activeImageIndex = null)}
-						class="grid h-10 w-10 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
+						class="grid h-10 w-10 shrink-0 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
 						aria-label="Close image detail"
 					>
 						<X size={15} aria-hidden="true" />
@@ -1240,7 +1276,7 @@
 					<select
 						value={metadata.variantClientId ?? ''}
 						onchange={handleActiveImageVariantChange}
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 					>
 						<option value="">Product image</option>
 						{#each $createProductForm.variants as variant (variant.clientId)}
@@ -1253,7 +1289,7 @@
 					<input
 						value={metadata.altText ?? ''}
 						oninput={handleActiveImageAltInput}
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 					/>
 				</label>
 				<label class="grid gap-1">
@@ -1262,18 +1298,20 @@
 						type="number"
 						value={metadata.position}
 						oninput={handleActiveImagePositionInput}
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 					/>
 				</label>
 				<button
 					type="button"
 					onclick={markActiveImagePrimary}
-					class="inline-flex min-h-11 items-center justify-center gap-2 border px-4 font-mono text-[10px] tracking-widest uppercase {metadata.isPrimary
+					class="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 border px-4 text-center font-mono text-[10px] leading-4 tracking-widest whitespace-normal uppercase {metadata.isPrimary
 						? 'border-volt bg-volt text-void'
 						: 'border-ash/30 text-ash hover:border-volt hover:text-volt'}"
 				>
 					<Star size={14} fill={metadata.isPrimary ? 'currentColor' : 'none'} aria-hidden="true" />
-					Primary for {variantLabel(metadata.variantClientId)}
+					<span class="min-w-0 break-words"
+						>Primary for {variantLabel(metadata.variantClientId)}</span
+					>
 				</button>
 			</div>
 		</section>
@@ -1281,7 +1319,7 @@
 {/if}
 
 {#if pendingRedirect}
-	<div class="fixed inset-0 z-50 grid place-items-center bg-void/80 px-4">
+	<div class="fixed inset-0 z-50 grid place-items-center overscroll-contain bg-void/80 px-4">
 		<section class="w-full max-w-lg border border-charcoal bg-void p-5 shadow-2xl">
 			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Leave product</p>
 			<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Save inactive?</h2>

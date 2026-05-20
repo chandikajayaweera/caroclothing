@@ -7,9 +7,12 @@ import {
 	PRODUCT_TIERS,
 	deleteProduct,
 	deleteProductFormSchema,
+	getProduct,
 	listCategories,
 	listProducts,
 	listProductsFormSchema,
+	updateProduct,
+	updateProductFlagsFormSchema,
 	type GenderTier,
 	type ListProductsOptions,
 	type ProductTier
@@ -81,11 +84,14 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const productOptions = getListOptions(url);
 
 	try {
-		const [products, categories, deleteProductForm] = await Promise.all([
+		const [products, categories, deleteProductForm, updateProductFlagsForm] = await Promise.all([
 			listProducts(ctx, productOptions),
 			listCategories(ctx, { includeInactive: true, limit: 100 }),
 			superValidate(zod4(deleteProductFormSchema), {
 				id: 'deleteProduct'
+			}),
+			superValidate(zod4(updateProductFlagsFormSchema), {
+				id: 'updateProductFlags'
 			})
 		]);
 
@@ -106,7 +112,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				limit: products.limit,
 				offset: products.offset
 			},
-			deleteProductForm
+			deleteProductForm,
+			updateProductFlagsForm
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -125,6 +132,36 @@ export const actions: Actions = {
 		try {
 			await deleteProduct(ctx, { id: form.data.productId });
 			return message(form, 'Product deleted.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	updateProductFlags: async (event) => {
+		const ctx = getAdminContext(event.locals, event.platform, event);
+		const form = await superValidate(event.request, zod4(updateProductFlagsFormSchema), {
+			id: 'updateProductFlags'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			const product = await getProduct(ctx, { id: form.data.productId }, { includeInactive: true });
+
+			if (form.data.isActive && product.tier === 'drop' && !product.dropAssignment) {
+				return message(form, 'Add a drop before activating this drop product.', { status: 400 });
+			}
+
+			await updateProduct(
+				ctx,
+				{ id: product.id },
+				{
+					isActive: form.data.isActive,
+					isFeatured: form.data.isFeatured,
+					isNewArrival: form.data.isNewArrival
+				}
+			);
+			return message(form, 'Product actions saved.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

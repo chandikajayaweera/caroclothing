@@ -154,6 +154,13 @@ export const deleteProductFormSchema = z.object({
 	productId: idSchema
 });
 
+export const updateProductFlagsFormSchema = z.object({
+	productId: idSchema,
+	isActive: z.boolean().optional(),
+	isFeatured: z.boolean().optional(),
+	isNewArrival: z.boolean().optional()
+});
+
 export const createProductVariantFormSchema = insertProductVariantSchema.omit({
 	productId: true
 });

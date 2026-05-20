@@ -24,7 +24,9 @@
 	<div class="flex min-w-0 flex-col lg:h-screen lg:min-h-0">
 		<AdminMobileCommandBar onOpenSidebar={() => (mobileSidebarOpen = true)} />
 
-		<main class="min-h-0 flex-1 px-4 pt-6 pb-10 md:px-6 md:pt-8 lg:overflow-y-auto lg:px-8">
+		<main
+			class="min-h-0 flex-1 overflow-x-hidden overscroll-contain px-4 pt-6 pb-10 md:px-6 md:pt-8 lg:overflow-y-auto lg:px-8"
+		>
 			{@render children()}
 		</main>
 	</div>
