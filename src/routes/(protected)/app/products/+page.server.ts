@@ -1,4 +1,4 @@
-import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
+import { fail, type RequestEvent } from '@sveltejs/kit';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
@@ -131,7 +131,7 @@ export const actions: Actions = {
 
 		try {
 			await deleteProduct(ctx, { id: form.data.productId });
-			throw redirect(303, `${event.url.pathname}${event.url.search}`);
+			return message(form, 'Product deleted.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

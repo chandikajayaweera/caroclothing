@@ -381,7 +381,7 @@
 						>
 							<a
 								href={resolve(`/app/products/${product.slug}`)}
-								class="grid aspect-[3/4] w-full place-items-center border border-charcoal bg-charcoal/30"
+								class="grid aspect-3/4 w-full place-items-center border border-charcoal bg-charcoal/30"
 								aria-label={`View ${product.name}`}
 							>
 								{#if product.primaryImageUrl}
