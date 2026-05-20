@@ -35,7 +35,6 @@
 
 	const {
 		form: updateVariantForm,
-		errors: updateVariantErrors,
 		constraints: updateVariantConstraints,
 		message: updateVariantMessage,
 		enhance: updateVariantEnhance,
@@ -106,8 +105,17 @@
 		return value.replace(/_/g, ' ');
 	}
 
+	function isValidHex(value: string | null | undefined): value is string {
+		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
+	}
+
 	function variantLabel(variant: PageData['product']['variants'][number]): string {
-		return `${variant.sku} / ${variant.size} / ${variant.color}`;
+		return `${variant.size} / ${variant.color}`;
+	}
+
+	function variantSortOptions(includeNext = false): number[] {
+		const length = product.variants.length + (includeNext ? 1 : 0);
+		return Array.from({ length: Math.max(1, length) }, (_, index) => index + 1);
 	}
 
 	function addNewTag(): void {
@@ -630,8 +638,7 @@
 						<article class="p-4">
 							<div class="flex items-start justify-between gap-4">
 								<div>
-									<p class="font-mono text-xs tracking-widest text-bone uppercase">{variant.sku}</p>
-									<p class="mt-1 font-mono text-[10px] text-ash uppercase">
+									<p class="font-mono text-xs tracking-widest text-bone uppercase">
 										{variant.size} / {variant.color}
 									</p>
 								</div>
@@ -645,7 +652,7 @@
 							</div>
 							<div class="mt-3 grid grid-cols-2 gap-2 font-mono text-[10px] uppercase">
 								<span class="text-bone">{formatMoney(variant.effectivePrice)}</span>
-								<span class="text-ash">{variant.weight ? `${variant.weight}kg` : 'No weight'}</span>
+								<span class="text-ash">Sort {variant.sortOrder}</span>
 							</div>
 							<form
 								method="POST"
@@ -670,10 +677,10 @@
 					<table class="w-full min-w-[760px] text-left">
 						<thead class="border-b border-charcoal">
 							<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-								<th class="px-5 py-4 font-normal">SKU</th>
 								<th class="px-5 py-4 font-normal">Size</th>
 								<th class="px-5 py-4 font-normal">Color</th>
 								<th class="px-5 py-4 font-normal">Price</th>
+								<th class="px-5 py-4 font-normal">Sort</th>
 								<th class="px-5 py-4 font-normal">State</th>
 								<th class="px-5 py-4 text-right font-normal">Action</th>
 							</tr>
@@ -681,7 +688,6 @@
 						<tbody>
 							{#each product.variants as variant (variant.id)}
 								<tr class="border-b border-charcoal/70 last:border-b-0">
-									<td class="px-5 py-4 font-mono text-xs text-bone">{variant.sku}</td>
 									<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">{variant.size}</td>
 									<td class="px-5 py-4">
 										<div class="flex items-center gap-2">
@@ -698,6 +704,7 @@
 									<td class="px-5 py-4 font-mono text-xs text-bone">
 										{formatMoney(variant.effectivePrice)}
 									</td>
+									<td class="px-5 py-4 font-mono text-[10px] text-ash">{variant.sortOrder}</td>
 									<td class="px-5 py-4">
 										<span
 											class="font-mono text-[10px] tracking-widest uppercase {variant.isActive
@@ -748,26 +755,13 @@
 			>
 				<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Create variant</h3>
 				<div class="mt-5 grid gap-3">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">SKU</span>
-						<input
-							name="sku"
-							bind:value={$createVariantForm.sku}
-							aria-invalid={$createVariantErrors.sku ? 'true' : undefined}
-							class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							{...$createVariantConstraints.sku}
-						/>
-					</label>
-					{#if $createVariantErrors.sku}
-						<p class="font-mono text-[10px] text-red-300">{$createVariantErrors.sku[0]}</p>
-					{/if}
 					<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
 						<label class="grid gap-1">
 							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Size</span>
 							<select
 								name="size"
 								bind:value={$createVariantForm.size}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 							>
 								{#each data.sizeOptions as option (option.value)}
 									<option value={option.value}>{option.label}</option>
@@ -791,15 +785,30 @@
 						<label class="grid gap-1">
 							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color hex</span
 							>
-							<input
-								name="colorHex"
-								bind:value={$createVariantForm.colorHex}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createVariantConstraints.colorHex}
-							/>
+							<div class="grid grid-cols-[minmax(0,1fr)_44px]">
+								<input
+									name="colorHex"
+									bind:value={$createVariantForm.colorHex}
+									class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+									{...$createVariantConstraints.colorHex}
+								/>
+								<span
+									class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
+									aria-hidden="true"
+								>
+									{#if isValidHex($createVariantForm.colorHex)}
+										<span
+											class="h-5 w-5 border border-ash/30"
+											style:background={$createVariantForm.colorHex}
+										></span>
+									{/if}
+								</span>
+							</div>
 						</label>
 						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Override</span>
+							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+								>Price override</span
+							>
 							<input
 								name="priceOverride"
 								type="number"
@@ -809,29 +818,18 @@
 							/>
 						</label>
 					</div>
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Weight</span>
-							<input
-								name="weight"
-								type="number"
-								step="0.01"
-								bind:value={$createVariantForm.weight}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createVariantConstraints.weight}
-							/>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort</span>
-							<input
-								name="sortOrder"
-								type="number"
-								bind:value={$createVariantForm.sortOrder}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createVariantConstraints.sortOrder}
-							/>
-						</label>
-					</div>
+					<label class="grid gap-1">
+						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort</span>
+						<select
+							name="sortOrder"
+							bind:value={$createVariantForm.sortOrder}
+							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						>
+							{#each variantSortOptions(true) as sortValue (sortValue)}
+								<option value={sortValue}>{sortValue}</option>
+							{/each}
+						</select>
+					</label>
 					<label
 						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
 					>
@@ -861,32 +859,20 @@
 						<select
 							name="variantId"
 							bind:value={$updateVariantForm.variantId}
-							class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 						>
 							{#each product.variants as variant (variant.id)}
 								<option value={variant.id}>{variantLabel(variant)}</option>
 							{/each}
 						</select>
 					</label>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">SKU</span>
-						<input
-							name="sku"
-							bind:value={$updateVariantForm.sku}
-							class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							{...$updateVariantConstraints.sku}
-						/>
-					</label>
-					{#if $updateVariantErrors.sku}
-						<p class="font-mono text-[10px] text-red-300">{$updateVariantErrors.sku[0]}</p>
-					{/if}
 					<div class="grid gap-3 sm:grid-cols-2">
 						<label class="grid gap-1">
 							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Size</span>
 							<select
 								name="size"
 								bind:value={$updateVariantForm.size}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 							>
 								<option value="">Do not change</option>
 								{#each data.sizeOptions as option (option.value)}
@@ -908,15 +894,30 @@
 						<label class="grid gap-1">
 							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color hex</span
 							>
-							<input
-								name="colorHex"
-								bind:value={$updateVariantForm.colorHex}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateVariantConstraints.colorHex}
-							/>
+							<div class="grid grid-cols-[minmax(0,1fr)_44px]">
+								<input
+									name="colorHex"
+									bind:value={$updateVariantForm.colorHex}
+									class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+									{...$updateVariantConstraints.colorHex}
+								/>
+								<span
+									class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
+									aria-hidden="true"
+								>
+									{#if isValidHex($updateVariantForm.colorHex)}
+										<span
+											class="h-5 w-5 border border-ash/30"
+											style:background={$updateVariantForm.colorHex}
+										></span>
+									{/if}
+								</span>
+							</div>
 						</label>
 						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Override</span>
+							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
+								>Price override</span
+							>
 							<input
 								name="priceOverride"
 								type="number"
@@ -926,29 +927,19 @@
 							/>
 						</label>
 					</div>
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Weight</span>
-							<input
-								name="weight"
-								type="number"
-								step="0.01"
-								bind:value={$updateVariantForm.weight}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateVariantConstraints.weight}
-							/>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort</span>
-							<input
-								name="sortOrder"
-								type="number"
-								bind:value={$updateVariantForm.sortOrder}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateVariantConstraints.sortOrder}
-							/>
-						</label>
-					</div>
+					<label class="grid gap-1">
+						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort</span>
+						<select
+							name="sortOrder"
+							bind:value={$updateVariantForm.sortOrder}
+							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						>
+							<option value="">Do not change</option>
+							{#each variantSortOptions() as sortValue (sortValue)}
+								<option value={sortValue}>{sortValue}</option>
+							{/each}
+						</select>
+					</label>
 					<label
 						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
 					>
@@ -998,7 +989,7 @@
 									{image.altText ?? 'No alt text'}
 								</p>
 								<p class="font-mono text-[9px] tracking-widest text-ash/60 uppercase">
-									Position {image.position} / {image.variantId ?? 'Product'}
+									Display order {image.position} / {image.variantId ?? 'Product'}
 								</p>
 								<div class="flex flex-wrap gap-2">
 									<form method="POST" action="?/setPrimaryProductImage" use:setPrimaryImageEnhance>
@@ -1071,7 +1062,7 @@
 					<select
 						name="variantId"
 						bind:value={$addImageForm.variantId}
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 					>
 						<option value="">Product image</option>
 						{#each product.variants as variant (variant.id)}
@@ -1102,14 +1093,17 @@
 					/>
 				</label>
 				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Position</span>
-					<input
+					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Display order</span
+					>
+					<select
 						name="position"
-						type="number"
 						bind:value={$addImageForm.position}
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						{...$addImageConstraints.position}
-					/>
+						class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+					>
+						{#each Array.from({ length: product.images.length + 1 }, (_, index) => index + 1) as positionValue (positionValue)}
+							<option value={positionValue}>{positionValue}</option>
+						{/each}
+					</select>
 				</label>
 				<label
 					class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"

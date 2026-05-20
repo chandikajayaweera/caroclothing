@@ -29,7 +29,9 @@
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
 <div
-	class="relative flex min-h-screen flex-col overflow-x-hidden selection:bg-volt selection:text-void"
+	class={isAppRoute
+		? 'relative flex h-dvh min-h-0 flex-col overflow-hidden selection:bg-volt selection:text-void'
+		: 'relative flex min-h-screen flex-col overflow-x-hidden selection:bg-volt selection:text-void'}
 >
 	{#if !isAppRoute}
 		<Navbar />
@@ -41,7 +43,11 @@
 	{/if}
 	<Toast />
 
-	<main class="grow pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0">
+	<main
+		class={isAppRoute
+			? 'min-h-0 grow overflow-hidden'
+			: 'grow pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0'}
+	>
 		{#if isAppRoute}
 			{@render children()}
 		{:else}

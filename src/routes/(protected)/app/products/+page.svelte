@@ -167,9 +167,6 @@
 					<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
 						{data.products.total} products
 					</p>
-					<p class="mt-2 max-w-2xl text-sm leading-6 text-ash">
-						Filter catalog items by tier, category, gender, and publish state.
-					</p>
 				</div>
 
 				<details class="mt-4 md:hidden">

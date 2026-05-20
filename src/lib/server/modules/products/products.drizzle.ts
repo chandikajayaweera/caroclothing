@@ -3,7 +3,6 @@ import {
 	sqliteTable,
 	text,
 	integer,
-	real,
 	index,
 	check,
 	uniqueIndex,
@@ -159,7 +158,6 @@ export const productVariant = sqliteTable(
 		productId: text('product_id')
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
-		sku: text('sku').notNull().unique(), // e.g. CARO-BLK-001-L
 		size: text('size', {
 			enum: SIZE_TIERS
 		}).notNull(),
@@ -167,7 +165,6 @@ export const productVariant = sqliteTable(
 		colorHex: text('color_hex'), // "#0A0A0A" for swatch rendering
 		// null = inherit product.basePrice at query time — do NOT cache here
 		priceOverride: integer('price_override'),
-		weight: real('weight'), // grams — used by shipping calc
 		isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
 		sortOrder: integer('sort_order').default(0).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -187,7 +184,6 @@ export const productVariant = sqliteTable(
 			'variant_price_override_positive',
 			sql`${table.priceOverride} IS NULL OR ${table.priceOverride} > 0`
 		),
-		check('variant_weight_positive', sql`${table.weight} IS NULL OR ${table.weight} > 0`),
 		check('variant_sort_nonnegative', sql`${table.sortOrder} >= 0`)
 	]
 );
@@ -466,7 +462,6 @@ export const updateProductSchema = updateProductBaseSchema.superRefine(validateP
 
 export const insertProductVariantSchema = createInsertSchema(productVariant, {
 	productId: idSchema,
-	sku: z.string().min(1).max(100),
 	size: z.enum(SIZE_TIERS),
 	color: z.string().min(1).max(50),
 	colorHex: z
@@ -475,7 +470,6 @@ export const insertProductVariantSchema = createInsertSchema(productVariant, {
 		.optional()
 		.nullable(),
 	priceOverride: positiveMoneySchema.optional().nullable(),
-	weight: z.number().positive().optional().nullable(),
 	isActive: z.boolean().optional(),
 	sortOrder: sortOrderSchema.optional()
 }).omit({
@@ -488,7 +482,6 @@ export const selectProductVariantSchema = createSelectSchema(productVariant);
 
 export const updateProductVariantSchema = createUpdateSchema(productVariant, {
 	productId: idSchema.optional(),
-	sku: z.string().min(1).max(100).optional(),
 	size: z.enum(SIZE_TIERS).optional(),
 	color: z.string().min(1).max(50).optional(),
 	colorHex: z
@@ -497,7 +490,6 @@ export const updateProductVariantSchema = createUpdateSchema(productVariant, {
 		.optional()
 		.nullable(),
 	priceOverride: positiveMoneySchema.optional().nullable(),
-	weight: z.number().positive().optional().nullable(),
 	isActive: z.boolean().optional(),
 	sortOrder: sortOrderSchema.optional()
 }).omit({

@@ -481,7 +481,6 @@ function toWishlistVariantSummaryDTO(
 	return {
 		id: row.id,
 		productId: row.productId,
-		sku: row.sku,
 		size: row.size,
 		color: row.color,
 		colorHex: row.colorHex,

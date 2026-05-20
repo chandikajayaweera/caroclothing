@@ -202,7 +202,6 @@ export const orderItem = sqliteTable(
 
 		// ── Denormalized snapshots (source of truth for this order) ───────────
 		productName: text('product_name').notNull(),
-		variantSku: text('variant_sku').notNull(),
 		variantSize: text('variant_size').notNull(),
 		variantColor: text('variant_color').notNull(),
 		// Snapshot of the primary product image R2 key at order time
@@ -471,7 +470,6 @@ export const insertOrderItemBaseSchema = createInsertSchema(orderItem, {
 	variantId: idSchema.optional().nullable(),
 	productId: idSchema.optional().nullable(),
 	productName: z.string().min(1).max(255),
-	variantSku: z.string().min(1).max(100),
 	variantSize: z.string().min(1).max(10),
 	variantColor: z.string().min(1).max(50),
 	productImageR2Key: r2KeySchema.optional().nullable(),

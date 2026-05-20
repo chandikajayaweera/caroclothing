@@ -100,9 +100,21 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			superValidate(toUpdateProductFormData(product), zod4(updateProductFormSchema), {
 				id: 'updateProduct'
 			}),
-			superValidate(zod4(createProductVariantFormSchema), {
-				id: 'createProductVariant'
-			}),
+			superValidate(
+				{
+					size: SIZE_TIERS[1] ?? SIZE_TIERS[0],
+					color: '',
+					colorHex: null,
+					priceOverride: null,
+					isActive: true,
+					sortOrder: product.variants.length + 1
+				},
+				zod4(createProductVariantFormSchema),
+				{
+					id: 'createProductVariant',
+					errors: false
+				}
+			),
 			superValidate(zod4(updateProductVariantActionFormSchema), {
 				id: 'updateProductVariant'
 			}),

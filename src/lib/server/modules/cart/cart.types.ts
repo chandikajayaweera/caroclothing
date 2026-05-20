@@ -40,7 +40,6 @@ export type CartItemDTO = {
 	variantId: string;
 	productName: string | null;
 	productSlug: string | null;
-	variantSku: string | null;
 	size: SizeTier | null;
 	color: string | null;
 	colorHex: string | null;

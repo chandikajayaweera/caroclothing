@@ -209,7 +209,6 @@
 				<table class="w-full min-w-[760px] text-left">
 					<thead class="border-b border-charcoal">
 						<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-							<th class="px-5 py-4 font-normal">SKU</th>
 							<th class="px-5 py-4 font-normal">Size</th>
 							<th class="px-5 py-4 font-normal">Color</th>
 							<th class="px-5 py-4 font-normal">Price</th>
@@ -219,7 +218,6 @@
 					<tbody>
 						{#each product.variants as variant (variant.id)}
 							<tr class="border-b border-charcoal/70 last:border-b-0">
-								<td class="px-5 py-4 font-mono text-xs text-bone">{variant.sku}</td>
 								<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">{variant.size}</td>
 								<td class="px-5 py-4">
 									<div class="flex items-center gap-2">
@@ -254,8 +252,7 @@
 					<article class="p-4">
 						<div class="flex items-start justify-between gap-4">
 							<div>
-								<p class="font-mono text-xs tracking-widest text-bone uppercase">{variant.sku}</p>
-								<p class="mt-1 font-mono text-[10px] text-ash uppercase">
+								<p class="font-mono text-xs tracking-widest text-bone uppercase">
 									{variant.size} / {variant.color}
 								</p>
 							</div>

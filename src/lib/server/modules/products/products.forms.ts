@@ -110,7 +110,6 @@ export const newTagNamesFormSchema = z.preprocess(
 );
 export const createProductDraftVariantFormSchema = z.object({
 	clientId: idSchema,
-	sku: z.string().trim().min(1).max(100),
 	size: z.enum(SIZE_TIERS),
 	color: z.string().trim().min(1).max(50),
 	colorHex: z.preprocess(
@@ -122,7 +121,6 @@ export const createProductDraftVariantFormSchema = z.object({
 			.nullable()
 	),
 	priceOverride: z.number().int().positive().optional().nullable(),
-	weight: z.number().positive().optional().nullable(),
 	isActive: z.boolean().default(true),
 	sortOrder: z.number().int().min(0).default(0)
 });

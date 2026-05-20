@@ -51,7 +51,6 @@ export type InventoryProductSummaryDTO = {
 export type InventoryVariantSummaryDTO = {
 	id: string;
 	productId: string;
-	sku: string;
 	size: SizeTier;
 	color: string;
 	colorHex: string | null;

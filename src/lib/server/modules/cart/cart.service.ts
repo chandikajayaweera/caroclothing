@@ -1110,7 +1110,6 @@ function toCartItemDTO(input: {
 		variantId: input.item.variantId,
 		productName: input.product?.name ?? null,
 		productSlug: input.product?.slug ?? null,
-		variantSku: input.variant?.sku ?? null,
 		size: input.variant?.size ?? null,
 		color: input.variant?.color ?? null,
 		colorHex: input.variant?.colorHex ?? null,

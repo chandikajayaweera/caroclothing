@@ -768,7 +768,6 @@ function buildInventoryListWhere(options: InventoryListOptions): SQL | undefined
 			or(
 				like(product.name, pattern),
 				like(product.slug, pattern),
-				like(productVariant.sku, pattern),
 				like(productVariant.size, pattern),
 				like(productVariant.color, pattern)
 			) as SQL
@@ -880,7 +879,6 @@ function toInventoryListItemDTO(row: InventoryListRow): InventoryListItemDTO {
 		variant: {
 			id: row.variant.id,
 			productId: row.variant.productId,
-			sku: row.variant.sku,
 			size: row.variant.size,
 			color: row.variant.color,
 			colorHex: row.variant.colorHex,

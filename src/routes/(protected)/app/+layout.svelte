@@ -11,7 +11,7 @@
 </script>
 
 <div
-	class="min-h-screen bg-void text-bone lg:grid lg:h-screen lg:grid-cols-(--admin-sidebar-width) lg:overflow-hidden"
+	class="h-dvh min-h-0 overflow-hidden bg-void text-bone lg:grid lg:grid-cols-(--admin-sidebar-width)"
 	style="--admin-sidebar-width: {sidebarWidth};"
 >
 	<AdminSidebar
@@ -21,11 +21,11 @@
 		onToggleCollapse={() => (sidebarCollapsed = !sidebarCollapsed)}
 	/>
 
-	<div class="flex min-w-0 flex-col lg:h-screen lg:min-h-0">
+	<div class="flex h-full min-h-0 min-w-0 flex-col">
 		<AdminMobileCommandBar onOpenSidebar={() => (mobileSidebarOpen = true)} />
 
 		<main
-			class="min-h-0 flex-1 overflow-x-hidden overscroll-contain px-4 pt-6 pb-10 md:px-6 md:pt-8 lg:overflow-y-auto lg:px-8"
+			class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-6 pb-10 md:px-6 md:pt-8 lg:px-8"
 		>
 			{@render children()}
 		</main>

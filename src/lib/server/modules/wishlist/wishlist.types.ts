@@ -20,7 +20,6 @@ export type WishlistProductSummaryDTO = {
 export type WishlistVariantSummaryDTO = {
 	id: string;
 	productId: string;
-	sku: string;
 	size: SizeTier;
 	color: string;
 	colorHex: string | null;

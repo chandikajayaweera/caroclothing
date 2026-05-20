@@ -32,7 +32,6 @@ export type OrderItemDTO = {
 	variantId: string | null;
 	productId: string | null;
 	productName: string;
-	variantSku: string;
 	variantSize: string;
 	variantColor: string;
 	productImageR2Key: string | null;
@@ -113,7 +112,6 @@ export type OrderPreviewItemDTO = {
 	productId: string;
 	variantId: string;
 	productName: string;
-	variantSku: string;
 	variantSize: string;
 	variantColor: string;
 	productImageR2Key: string | null;

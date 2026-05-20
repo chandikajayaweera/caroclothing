@@ -398,12 +398,10 @@ export async function createProduct(
 						(variant): NewProductVariant => ({
 							id: variant.id,
 							productId: variant.productId,
-							sku: variant.sku,
 							size: variant.size,
 							color: variant.color,
 							colorHex: variant.colorHex,
 							priceOverride: variant.priceOverride,
-							weight: variant.weight,
 							isActive: variant.isActive,
 							sortOrder: variant.sortOrder
 						})
@@ -1129,13 +1127,11 @@ function toProductVariantDTO(row: ProductVariant, productRow: Product): ProductV
 	return {
 		id: row.id,
 		productId: row.productId,
-		sku: row.sku,
 		size: row.size,
 		color: row.color,
 		colorHex: row.colorHex,
 		priceOverride: row.priceOverride,
 		effectivePrice: row.priceOverride ?? productRow.basePrice,
-		weight: row.weight,
 		isActive: row.isActive,
 		sortOrder: row.sortOrder,
 		createdAt: row.createdAt,
@@ -1348,12 +1344,10 @@ function prepareCreateProductVariants(
 		}
 
 		const variantInput: CreateProductVariantInput = {
-			sku: variant.sku,
 			size: variant.size,
 			color: variant.color,
 			colorHex: variant.colorHex,
 			priceOverride: variant.priceOverride,
-			weight: variant.weight,
 			isActive: variant.isActive,
 			sortOrder: variant.sortOrder
 		};
@@ -2375,10 +2369,6 @@ function mapProductVariantPersistenceError(error: unknown): never {
 	const message = getErrorMessage(error);
 
 	if (isUniqueConstraintError(message)) {
-		if (message.includes('product_variant.sku')) {
-			throw new ProductError('Product variant SKU already exists.', ErrorCode.CONFLICT);
-		}
-
 		if (
 			message.includes('variant_product_size_color_idx') ||
 			message.includes('product_variant.product_id') ||

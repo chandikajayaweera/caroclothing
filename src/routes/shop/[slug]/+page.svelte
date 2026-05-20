@@ -52,7 +52,6 @@
 						<th>Size</th>
 						<th>Color</th>
 						<th>Price</th>
-						<th>SKU</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -61,7 +60,6 @@
 							<td>{variant.size}</td>
 							<td>{variant.color}</td>
 							<td>LKR {variant.effectivePrice}</td>
-							<td>{variant.sku}</td>
 						</tr>
 					{/each}
 				</tbody>

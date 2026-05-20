@@ -90,13 +90,11 @@ export type UpdateTagInput = UpdateTag;
 export type ProductVariantDTO = {
 	id: string;
 	productId: string;
-	sku: string;
 	size: SizeTier;
 	color: string;
 	colorHex: string | null;
 	priceOverride: number | null;
 	effectivePrice: number;
-	weight: number | null;
 	isActive: boolean;
 	sortOrder: number;
 	createdAt: Date;

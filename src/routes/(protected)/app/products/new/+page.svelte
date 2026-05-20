@@ -96,6 +96,10 @@
 		return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 	}
 
+	function isValidHex(value: string | null | undefined): value is string {
+		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
+	}
+
 	function targetPath(target: RedirectTarget): RedirectPath {
 		if (target === 'products') return '/app/products';
 		if (target === 'categories') return '/app/categories';
@@ -201,16 +205,14 @@
 	function createVariantDraft(): DraftVariant {
 		return {
 			clientId: `variant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-			sku: '',
 			size: (data.sizeOptions[1]?.value ??
 				data.sizeOptions[0]?.value ??
 				'M') as DraftVariant['size'],
 			color: '',
 			colorHex: null,
 			priceOverride: null,
-			weight: null,
 			isActive: true,
-			sortOrder: $createProductForm.variants.length
+			sortOrder: $createProductForm.variants.length + 1
 		};
 	}
 
@@ -225,7 +227,83 @@
 		$createProductForm.imageMetadata = $createProductForm.imageMetadata.map((metadata) =>
 			metadata.variantClientId === clientId ? { ...metadata, variantClientId: null } : metadata
 		);
+		normalizeVariantSortOrders();
 		normalizePrimaryImageScopes();
+	}
+
+	function variantSortOptions(): number[] {
+		return Array.from({ length: $createProductForm.variants.length }, (_, index) => index + 1);
+	}
+
+	function imagePositionOptions(): number[] {
+		return Array.from({ length: imagePreviews.length }, (_, index) => index + 1);
+	}
+
+	function currentImageMetadata(): ImageMetadata[] {
+		return imagePreviews.map((_, index) => ({
+			...createDefaultImageMetadata(index),
+			...($createProductForm.imageMetadata[index] ?? {})
+		}));
+	}
+
+	function normalizeImagePositions(metadata: ImageMetadata[]): ImageMetadata[] {
+		let usedPositions: number[] = [];
+		const pendingIndexes: number[] = [];
+		const positionOptions = imagePositionOptions();
+		const normalized = metadata.map((entry, index) => {
+			if (
+				Number.isInteger(entry.position) &&
+				entry.position >= 1 &&
+				entry.position <= metadata.length &&
+				!usedPositions.includes(entry.position)
+			) {
+				usedPositions = [...usedPositions, entry.position];
+				return entry;
+			}
+
+			pendingIndexes.push(index);
+			return { ...entry, position: 0 };
+		});
+
+		let optionIndex = 0;
+		for (const index of pendingIndexes) {
+			while (usedPositions.includes(positionOptions[optionIndex])) {
+				optionIndex += 1;
+			}
+
+			const position = positionOptions[optionIndex] ?? index + 1;
+			normalized[index] = { ...normalized[index], position };
+			usedPositions = [...usedPositions, position];
+		}
+
+		return normalized;
+	}
+
+	function normalizeVariantSortOrders(): void {
+		$createProductForm.variants = [...$createProductForm.variants]
+			.sort((left, right) => left.sortOrder - right.sortOrder)
+			.map((variant, index) => ({ ...variant, sortOrder: index + 1 }));
+	}
+
+	function handleVariantSortChange(index: number, event: Event): void {
+		const nextSort = Number((event.currentTarget as HTMLSelectElement).value);
+		const variants = [...$createProductForm.variants];
+		const current = variants[index];
+
+		if (!current || !Number.isInteger(nextSort)) return;
+
+		const previousSort = current.sortOrder;
+		const swapIndex = variants.findIndex(
+			(variant, variantIndex) => variantIndex !== index && variant.sortOrder === nextSort
+		);
+
+		variants[index] = { ...current, sortOrder: nextSort };
+
+		if (swapIndex >= 0) {
+			variants[swapIndex] = { ...variants[swapIndex], sortOrder: previousSort };
+		}
+
+		$createProductForm.variants = variants;
 	}
 
 	function variantLabel(clientId: string | null | undefined): string {
@@ -234,7 +312,7 @@
 		const variant = $createProductForm.variants.find((entry) => entry.clientId === clientId);
 		if (!variant) return 'Removed variant';
 
-		const summary = [variant.sku, variant.size, variant.color].filter(Boolean).join(' / ');
+		const summary = [variant.size, variant.color].filter(Boolean).join(' / ');
 		return summary || `Variant ${$createProductForm.variants.indexOf(variant) + 1}`;
 	}
 
@@ -242,7 +320,7 @@
 		return {
 			variantClientId: null,
 			altText: $createProductForm.name || null,
-			position: index,
+			position: index + 1,
 			isPrimary: index === 0
 		};
 	}
@@ -300,10 +378,12 @@
 			name: file.name,
 			size: file.size
 		}));
-		$createProductForm.imageMetadata = imagePreviews.map((_, index) => ({
-			...createDefaultImageMetadata(index),
-			...(previousMetadata[index] ?? {})
-		}));
+		$createProductForm.imageMetadata = normalizeImagePositions(
+			imagePreviews.map((_, index) => ({
+				...createDefaultImageMetadata(index),
+				...(previousMetadata[index] ?? {})
+			}))
+		);
 
 		normalizePrimaryImageScopes();
 	}
@@ -329,9 +409,26 @@
 		updateImageMetadata(index, { altText: value || null });
 	}
 
-	function handleImagePositionInput(index: number, event: Event): void {
-		const value = (event.currentTarget as HTMLInputElement).valueAsNumber;
-		updateImageMetadata(index, { position: Number.isFinite(value) ? value : index });
+	function handleImagePositionChange(index: number, event: Event): void {
+		const nextPosition = Number((event.currentTarget as HTMLSelectElement).value);
+		const metadata = normalizeImagePositions(currentImageMetadata());
+		const current = metadata[index];
+
+		if (!current || !Number.isInteger(nextPosition)) return;
+
+		const previousPosition = current.position;
+		const swapIndex = metadata.findIndex(
+			(entry, metadataIndex) => metadataIndex !== index && entry.position === nextPosition
+		);
+
+		metadata[index] = { ...current, position: nextPosition };
+
+		if (swapIndex >= 0) {
+			metadata[swapIndex] = { ...metadata[swapIndex], position: previousPosition };
+		}
+
+		$createProductForm.imageMetadata = normalizeImagePositions(metadata);
+		normalizePrimaryImageScopes(index);
 	}
 
 	function markPrimaryImage(index: number): void {
@@ -355,9 +452,9 @@
 		handleImageAltInput(activeImageIndex, event);
 	}
 
-	function handleActiveImagePositionInput(event: Event): void {
+	function handleActiveImagePositionChange(event: Event): void {
 		if (activeImageIndex === null) return;
-		handleImagePositionInput(activeImageIndex, event);
+		handleImagePositionChange(activeImageIndex, event);
 	}
 
 	function markActiveImagePrimary(): void {
@@ -366,10 +463,7 @@
 	}
 
 	function normalizePrimaryImageScopes(preferredIndex?: number): void {
-		let metadata = imagePreviews.map((_, index) => ({
-			...createDefaultImageMetadata(index),
-			...($createProductForm.imageMetadata[index] ?? {})
-		}));
+		let metadata = normalizeImagePositions(currentImageMetadata());
 
 		if (preferredIndex !== undefined && metadata[preferredIndex]?.isPrimary) {
 			const preferredScope = metadata[preferredIndex].variantClientId ?? 'product';
@@ -794,29 +888,12 @@
 									</button>
 								</div>
 
-								<div class="mt-4 grid gap-3 md:grid-cols-3">
+								<div class="mt-4 grid gap-3 md:grid-cols-2">
 									<input
 										type="hidden"
 										name={`variants[${index}].clientId`}
 										bind:value={variant.clientId}
 									/>
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">SKU</span
-										>
-										<input
-											name={`variants[${index}].sku`}
-											bind:value={variant.sku}
-											aria-invalid={$createProductErrors.variants?.[index]?.sku
-												? 'true'
-												: undefined}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										/>
-										{#if $createProductErrors.variants?.[index]?.sku}
-											<span class="font-mono text-[10px] text-red-300">
-												{$createProductErrors.variants[index]?.sku?.[0]}
-											</span>
-										{/if}
-									</label>
 									<label class="grid gap-1">
 										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 											>Size</span
@@ -824,7 +901,7 @@
 										<select
 											name={`variants[${index}].size`}
 											bind:value={variant.size}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 										>
 											{#each data.sizeOptions as option (option.value)}
 												<option value={option.value}>{option.label}</option>
@@ -851,20 +928,33 @@
 									</label>
 								</div>
 
-								<div class="mt-3 grid gap-3 md:grid-cols-4">
+								<div class="mt-3 grid gap-3 md:grid-cols-3">
 									<label class="grid gap-1">
 										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Hex</span
 										>
-										<input
-											name={`variants[${index}].colorHex`}
-											bind:value={variant.colorHex}
-											placeholder="#0A0A0A"
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										/>
+										<div class="grid grid-cols-[minmax(0,1fr)_44px]">
+											<input
+												name={`variants[${index}].colorHex`}
+												bind:value={variant.colorHex}
+												placeholder="#0A0A0A"
+												class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											/>
+											<span
+												class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
+												aria-hidden="true"
+											>
+												{#if isValidHex(variant.colorHex)}
+													<span
+														class="h-5 w-5 border border-ash/30"
+														style:background={variant.colorHex}
+													></span>
+												{/if}
+											</span>
+										</div>
 									</label>
 									<label class="grid gap-1">
 										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-											>Override</span
+											>Price override</span
 										>
 										<input
 											name={`variants[${index}].priceOverride`}
@@ -875,26 +965,18 @@
 									</label>
 									<label class="grid gap-1">
 										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-											>Weight</span
-										>
-										<input
-											name={`variants[${index}].weight`}
-											type="number"
-											step="0.01"
-											bind:value={variant.weight}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										/>
-									</label>
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 											>Sort</span
 										>
-										<input
+										<select
 											name={`variants[${index}].sortOrder`}
-											type="number"
-											bind:value={variant.sortOrder}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										/>
+											value={variant.sortOrder}
+											onchange={(event) => handleVariantSortChange(index, event)}
+											class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+										>
+											{#each variantSortOptions() as sortValue (sortValue)}
+												<option value={sortValue}>{sortValue}</option>
+											{/each}
+										</select>
 									</label>
 								</div>
 
@@ -956,7 +1038,7 @@
 				{/if}
 
 				{#if imagePreviews.length > 0}
-					<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3">
+					<div class="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3">
 						{#each imagePreviews as image, index (image.url)}
 							{@const metadata = getImageMetadata(index)}
 							<article class="border border-charcoal bg-void">
@@ -991,7 +1073,7 @@
 											name={`imageMetadata[${index}].variantClientId`}
 											value={metadata.variantClientId ?? ''}
 											onchange={(event) => handleImageVariantChange(index, event)}
-											class="min-h-9 border border-charcoal bg-charcoal/30 px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
+											class="min-h-9 border border-charcoal bg-void px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
 										>
 											<option value="">Product</option>
 											{#each $createProductForm.variants as variant (variant.clientId)}
@@ -1013,15 +1095,18 @@
 										</label>
 										<label class="grid gap-1">
 											<span class="font-mono text-[8px] tracking-[0.2em] text-ash uppercase"
-												>Pos</span
+												>Order</span
 											>
-											<input
+											<select
 												name={`imageMetadata[${index}].position`}
-												type="number"
 												value={metadata.position}
-												oninput={(event) => handleImagePositionInput(index, event)}
-												class="min-h-9 min-w-0 border border-charcoal bg-charcoal/30 px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
-											/>
+												onchange={(event) => handleImagePositionChange(index, event)}
+												class="min-h-9 min-w-0 border border-charcoal bg-void px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
+											>
+												{#each imagePositionOptions() as positionValue (positionValue)}
+													<option value={positionValue}>{positionValue}</option>
+												{/each}
+											</select>
 										</label>
 									</div>
 									<div class="grid grid-cols-2 gap-2">
@@ -1276,7 +1361,7 @@
 					<select
 						value={metadata.variantClientId ?? ''}
 						onchange={handleActiveImageVariantChange}
-						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						class="min-h-11 w-full min-w-0 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 					>
 						<option value="">Product image</option>
 						{#each $createProductForm.variants as variant (variant.clientId)}
@@ -1293,13 +1378,17 @@
 					/>
 				</label>
 				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Position</span>
-					<input
-						type="number"
+					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Display order</span
+					>
+					<select
 						value={metadata.position}
-						oninput={handleActiveImagePositionInput}
-						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-					/>
+						onchange={handleActiveImagePositionChange}
+						class="min-h-11 w-full min-w-0 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+					>
+						{#each imagePositionOptions() as positionValue (positionValue)}
+							<option value={positionValue}>{positionValue}</option>
+						{/each}
+					</select>
 				</label>
 				<button
 					type="button"
