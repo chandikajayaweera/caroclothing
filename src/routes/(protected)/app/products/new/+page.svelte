@@ -1011,7 +1011,7 @@
 				</div>
 
 				<label
-					class="mt-5 grid min-h-32 cursor-pointer place-items-center border border-dashed border-ash/30 bg-void p-5 text-center hover:border-volt"
+					class="relative mt-5 grid min-h-32 cursor-pointer place-items-center overflow-hidden border border-dashed border-ash/30 bg-void p-5 text-center focus-within:border-volt hover:border-volt"
 				>
 					<input
 						name="images"
@@ -1019,9 +1019,9 @@
 						accept="image/*"
 						multiple
 						bind:files={getImageFiles, setImageFiles}
-						class="sr-only"
+						class="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
 					/>
-					<span class="grid justify-items-center gap-3">
+					<span class="pointer-events-none grid justify-items-center gap-3">
 						<Upload size={22} class="text-volt" aria-hidden="true" />
 						<span class="font-mono text-[10px] tracking-widest text-ash uppercase">
 							Upload images
@@ -1338,7 +1338,7 @@
 					<div class="min-w-0">
 						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
 						<h2
-							class="mt-2 font-display text-3xl leading-none break-words text-bone uppercase sm:text-4xl"
+							class="mt-2 font-display text-3xl leading-none wrap-break-words text-bone uppercase sm:text-4xl"
 						>
 							{activeImage.name}
 						</h2>
@@ -1398,7 +1398,7 @@
 						: 'border-ash/30 text-ash hover:border-volt hover:text-volt'}"
 				>
 					<Star size={14} fill={metadata.isPrimary ? 'currentColor' : 'none'} aria-hidden="true" />
-					<span class="min-w-0 break-words"
+					<span class="min-w-0 wrap-break-words"
 						>Primary for {variantLabel(metadata.variantClientId)}</span
 					>
 				</button>
