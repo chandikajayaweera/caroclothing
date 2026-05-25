@@ -110,7 +110,6 @@ export const newTagNamesFormSchema = z.preprocess(
 );
 export const createProductDraftVariantFormSchema = z.object({
 	clientId: idSchema,
-	size: z.enum(SIZE_TIERS),
 	color: z.string().trim().min(1).max(50),
 	colorHex: z.preprocess(
 		emptyStringToNull,
@@ -120,14 +119,18 @@ export const createProductDraftVariantFormSchema = z.object({
 			.optional()
 			.nullable()
 	),
-	priceOverride: z.number().int().positive().optional().nullable(),
-	isActive: z.boolean().default(true),
-	sortOrder: z.number().int().min(0).default(0)
+	basePrice: z.coerce.number().int().positive(),
+	compareAtPrice: z.preprocess(
+		(v) => (v === '' || v === undefined || v === null ? null : Number(v)),
+		z.number().int().positive().optional().nullable()
+	),
+	sortOrder: z.coerce.number().int().min(0).default(0),
+	sizes: z.array(z.enum(SIZE_TIERS)).min(1, 'At least one size is required')
 });
 export const createProductImageMetadataFormSchema = z.object({
 	variantClientId: nullableIdFormSchema,
 	altText: z.preprocess(emptyStringToNull, z.string().max(255).optional().nullable()),
-	position: z.number().int().min(0).default(0),
+	position: z.coerce.number().int().min(0).default(0),
 	isPrimary: z.boolean().default(false)
 });
 
@@ -139,7 +142,36 @@ export const createProductFormSchema = insertProductSchema.safeExtend({
 	images: imageFilesFormSchema,
 	variants: z.array(createProductDraftVariantFormSchema).default([]),
 	imageMetadata: z.array(createProductImageMetadataFormSchema).default([]),
-	redirectTo: redirectToSchema
+	redirectTo: redirectToSchema,
+	syncPrices: z.boolean().default(false)
+}).superRefine((data, ctx) => {
+	const tier = data.tier ?? 'core';
+	data.variants.forEach((v, index) => {
+		if (v.compareAtPrice != null && v.compareAtPrice <= v.basePrice) {
+			ctx.addIssue({
+				code: 'custom',
+				message: 'compareAtPrice must be greater than basePrice',
+				path: ['variants', index, 'compareAtPrice']
+			});
+		}
+		if (tier === 'drop') {
+			if (v.basePrice < 3000 || v.basePrice > 4500) {
+				ctx.addIssue({
+					code: 'custom',
+					message: 'Drop variant basePrice must be between 3000 and 4500',
+					path: ['variants', index, 'basePrice']
+				});
+			}
+		} else {
+			if (v.basePrice < 2500 || v.basePrice > 3200) {
+				ctx.addIssue({
+					code: 'custom',
+					message: 'Core variant basePrice must be between 2500 and 3200',
+					path: ['variants', index, 'basePrice']
+				});
+			}
+		}
+	});
 });
 
 export const updateProductFormSchema = updateProductSchema.safeExtend({
@@ -204,3 +236,46 @@ export const updateTagActionFormSchema = updateTagFormSchema.extend({
 export const deleteTagFormSchema = z.object({
 	tagId: idSchema
 });
+
+export const createProductVariantColorActionFormSchema = z.object({
+	productId: idSchema,
+	color: z.string().trim().min(1).max(50),
+	colorHex: z.preprocess(
+		emptyStringToNull,
+		z
+			.string()
+			.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
+			.optional()
+			.nullable()
+	),
+	basePrice: z.coerce.number().int().positive(),
+	compareAtPrice: z.preprocess(
+		(v) => (v === '' || v === undefined || v === null ? null : Number(v)),
+		z.number().int().positive().optional().nullable()
+	),
+	sortOrder: z.coerce.number().int().min(0).default(0)
+});
+
+export const updateProductVariantColorActionFormSchema = z.object({
+	variantColorId: idSchema,
+	color: z.string().trim().min(1).max(50).optional(),
+	colorHex: z.preprocess(
+		emptyStringToNull,
+		z
+			.string()
+			.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
+			.optional()
+			.nullable()
+	),
+	basePrice: z.coerce.number().int().positive().optional(),
+	compareAtPrice: z.preprocess(
+		(v) => (v === '' || v === undefined || v === null ? null : Number(v)),
+		z.number().int().positive().optional().nullable()
+	),
+	sortOrder: z.coerce.number().int().min(0).default(0).optional()
+});
+
+export const deleteProductVariantColorActionFormSchema = z.object({
+	variantColorId: idSchema
+});
+

@@ -46,9 +46,11 @@ import {
 	product as productTable,
 	productImage as productImageTable,
 	productVariant as productVariantTable,
+	productVariantColor as productVariantColorTable,
 	type Product,
 	type ProductImage,
-	type ProductVariant
+	type ProductVariant,
+	type ProductVariantColor
 } from '../products/products.drizzle';
 import {
 	cart as cartTable,
@@ -819,10 +821,12 @@ async function loadPurchasableVariantTx(
 	const [row] = await tx
 		.select({
 			product: productTable,
-			variant: productVariantTable
+			variant: productVariantTable,
+			color: productVariantColorTable
 		})
 		.from(productVariantTable)
 		.innerJoin(productTable, eq(productVariantTable.productId, productTable.id))
+		.innerJoin(productVariantColorTable, eq(productVariantTable.variantColorId, productVariantColorTable.id))
 		.where(eq(productVariantTable.id, variantId))
 		.limit(1);
 
@@ -851,8 +855,15 @@ async function loadPurchasableVariantTx(
 
 	return {
 		product: row.product,
-		variant: row.variant,
-		unitPrice: row.variant.priceOverride ?? row.product.basePrice
+		variant: {
+			...row.variant,
+			color: row.color.color,
+			colorHex: row.color.colorHex,
+			priceOverride: null,
+			basePrice: row.color.basePrice,
+			compareAtPrice: row.color.compareAtPrice
+		} as any,
+		unitPrice: row.color.basePrice
 	};
 }
 
@@ -903,20 +914,33 @@ async function hydrateCheckoutOrderCartTx(
 		.where(eq(cartItemTable.cartId, row.id))
 		.orderBy(asc(cartItemTable.addedAt));
 	const productIds = uniqueStrings(itemRows.map((item) => item.productId));
-	const imageRows =
+	const variantIds = uniqueStrings(itemRows.map((item) => item.variantId));
+	const [imageRows, variantRows] = await Promise.all([
 		productIds.length > 0
-			? await tx
+			? tx
 					.select()
 					.from(productImageTable)
 					.where(inArray(productImageTable.productId, productIds))
 					.orderBy(asc(productImageTable.position), asc(productImageTable.createdAt))
-			: [];
+			: Promise.resolve([]),
+		variantIds.length > 0
+			? tx
+					.select()
+					.from(productVariantTable)
+					.where(inArray(productVariantTable.id, variantIds))
+			: Promise.resolve([])
+	]);
 	const imagesByProductId = groupByProductId(imageRows);
+	const variantsById = new Map(variantRows.map((v) => [v.id, v]));
 	const imageKeyByItemId = new Map(
-		itemRows.map((item) => [
-			item.id,
-			resolveCartImageR2Key(imagesByProductId.get(item.productId) ?? [], item.variantId)
-		])
+		itemRows.map((item) => {
+			const variant = variantsById.get(item.variantId);
+			const variantColorId = variant ? (variant as any).variantColorId : null;
+			return [
+				item.id,
+				resolveCartImageR2Key(imagesByProductId.get(item.productId) ?? [], variantColorId)
+			];
+		})
 	);
 	const items: CheckoutOrderCartItemDTO[] = cart.items.map((item) => ({
 		...item,
@@ -1019,12 +1043,20 @@ async function hydrateCartsTx(tx: QueryExecutor, rows: Cart[], now: Date): Promi
 	});
 }
 
+type HydratedCartVariant = ProductVariant & {
+	color: string;
+	colorHex: string | null;
+	priceOverride: number | null;
+	basePrice: number;
+	compareAtPrice: number | null;
+};
+
 async function loadCartHydrationRelationsTx(
 	tx: QueryExecutor,
 	productIds: string[],
 	variantIds: string[],
 	now: Date
-): Promise<[Product[], ProductVariant[], ProductImage[], InventoryAvailabilityDTO[], string[]]> {
+): Promise<[Product[], HydratedCartVariant[], ProductImage[], InventoryAvailabilityDTO[], string[]]> {
 	const productRows =
 		productIds.length > 0
 			? await tx.select().from(productTable).where(inArray(productTable.id, productIds))
@@ -1032,8 +1064,12 @@ async function loadCartHydrationRelationsTx(
 	const variantRows =
 		variantIds.length > 0
 			? await tx
-					.select()
+					.select({
+						variant: productVariantTable,
+						color: productVariantColorTable
+					})
 					.from(productVariantTable)
+					.innerJoin(productVariantColorTable, eq(productVariantTable.variantColorId, productVariantColorTable.id))
 					.where(inArray(productVariantTable.id, variantIds))
 			: [];
 	const imageRows =
@@ -1064,7 +1100,15 @@ async function loadCartHydrationRelationsTx(
 
 	return [
 		productRows,
-		variantRows,
+		variantRows.map((v) => ({
+			...v.variant,
+			color: v.color.color,
+			colorHex: v.color.colorHex,
+			priceOverride: null,
+			basePrice: v.color.basePrice,
+			compareAtPrice: v.color.compareAtPrice,
+			variantColorId: v.color.id
+		})),
 		imageRows,
 		inventoryRows,
 		liveDropRows.map((row) => row.productId)
@@ -1091,17 +1135,15 @@ async function loadReservedQuantitiesByItemId(
 function toCartItemDTO(input: {
 	item: CartItem;
 	product: Product | null;
-	variant: ProductVariant | null;
+	variant: HydratedCartVariant | null;
 	images: ProductImage[];
 	inventory: InventoryAvailabilityDTO | null;
 	reservedForItem: number;
 	liveDropProductIds: Set<string>;
 }): CartItemDTO {
-	const currentUnitPrice =
-		input.product && input.variant
-			? (input.variant.priceOverride ?? input.product.basePrice)
-			: null;
+	const currentUnitPrice = input.variant ? (input.variant as any).basePrice : null;
 	const availability = resolveCartItemAvailability(input);
+	const variantColorId = input.variant ? (input.variant as any).variantColorId : null;
 
 	return {
 		id: input.item.id,
@@ -1113,7 +1155,7 @@ function toCartItemDTO(input: {
 		size: input.variant?.size ?? null,
 		color: input.variant?.color ?? null,
 		colorHex: input.variant?.colorHex ?? null,
-		imageUrl: input.product ? resolveCartImageUrl(input.images, input.item.variantId) : null,
+		imageUrl: input.product ? resolveCartImageUrl(input.images, variantColorId) : null,
 		quantity: input.item.quantity,
 		unitPrice: input.item.unitPrice,
 		currentUnitPrice,
@@ -1131,7 +1173,7 @@ function toCartItemDTO(input: {
 function resolveCartItemAvailability(input: {
 	item: CartItem;
 	product: Product | null;
-	variant: ProductVariant | null;
+	variant: HydratedCartVariant | null;
 	inventory: InventoryAvailabilityDTO | null;
 	reservedForItem: number;
 	liveDropProductIds: Set<string>;

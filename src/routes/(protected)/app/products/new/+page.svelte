@@ -10,6 +10,7 @@
 		Plus,
 		Save,
 		Star,
+		Trash2,
 		Upload,
 		X
 	} from 'lucide-svelte';
@@ -62,6 +63,34 @@
 	let imagePreviews = $state<ImagePreview[]>([]);
 	let selectedImageFiles = $state<File[]>([]);
 
+	let categorySearch = $state('');
+	let categoryDropdownOpen = $state(false);
+
+	const filteredCategories = $derived.by(() => {
+		const q = categorySearch.toLowerCase().trim();
+		if (!q) return data.categories;
+		return data.categories.filter((c) => c.name.toLowerCase().includes(q));
+	});
+
+	$effect(() => {
+		const currentCategory = data.categories.find((c) => c.id === $createProductForm.categoryId);
+		categorySearch = currentCategory ? currentCategory.name : '';
+	});
+
+	$effect(() => {
+		if ($createProductForm.syncPrices && $createProductForm.variants.length > 0) {
+			const primaryCard = $createProductForm.variants.find((v) => v.sortOrder === 1);
+			if (primaryCard) {
+				for (const variant of $createProductForm.variants) {
+					if (variant.sortOrder !== 1) {
+						variant.basePrice = primaryCard.basePrice;
+						variant.compareAtPrice = primaryCard.compareAtPrice;
+					}
+				}
+			}
+		}
+	});
+
 	const actionMessage = $derived(actionData?.form?.message);
 	const dropTierWithoutDrop = $derived(
 		$createProductForm.tier === 'drop' && !$createProductForm.dropId
@@ -77,6 +106,9 @@
 	);
 	const activeImage = $derived(
 		activeImageIndex === null ? null : (imagePreviews[activeImageIndex] ?? null)
+	);
+	const primaryVariant = $derived(
+		$createProductForm.variants.find((v) => v.sortOrder === 1) || $createProductForm.variants[0] || null
 	);
 
 	onDestroy(() => {
@@ -173,18 +205,19 @@
 	}
 
 	function handleTierChange(): void {
-		if (
-			$createProductForm.tier === 'drop' &&
-			($createProductForm.basePrice < 3000 || $createProductForm.basePrice > 4500)
-		) {
-			$createProductForm.basePrice = 3000;
-		}
+		const tier = $createProductForm.tier;
+		const defaultPrice = tier === 'drop' ? 3000 : 2500;
 
-		if (
-			$createProductForm.tier === 'core' &&
-			($createProductForm.basePrice < 2500 || $createProductForm.basePrice > 3200)
-		) {
-			$createProductForm.basePrice = 2500;
+		for (const variant of $createProductForm.variants) {
+			if (tier === 'drop') {
+				if (variant.basePrice < 3000 || variant.basePrice > 4500) {
+					variant.basePrice = 3000;
+				}
+			} else {
+				if (variant.basePrice < 2500 || variant.basePrice > 3200) {
+					variant.basePrice = 2500;
+				}
+			}
 		}
 
 		if ($createProductForm.tier === 'core') {
@@ -205,19 +238,88 @@
 	function createVariantDraft(): DraftVariant {
 		return {
 			clientId: `variant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-			size: (data.sizeOptions[1]?.value ??
-				data.sizeOptions[0]?.value ??
-				'M') as DraftVariant['size'],
 			color: '',
-			colorHex: null,
-			priceOverride: null,
-			isActive: true,
-			sortOrder: $createProductForm.variants.length + 1
+			colorHex: '#000000',
+			basePrice: 2500,
+			compareAtPrice: null,
+			sortOrder: $createProductForm.variants.length + 1,
+			sizes: ['M']
 		};
 	}
 
 	function addVariant(): void {
 		$createProductForm.variants = [...$createProductForm.variants, createVariantDraft()];
+	}
+
+	function toggleSize(clientId: string, size: any): void {
+		const variants = [...$createProductForm.variants];
+		const variant = variants.find((v) => v.clientId === clientId);
+		if (!variant) return;
+
+		if (variant.sizes.includes(size)) {
+			if (variant.sizes.length === 1) return;
+			variant.sizes = variant.sizes.filter((s) => s !== size);
+		} else {
+			variant.sizes = [...variant.sizes, size];
+		}
+		$createProductForm.variants = variants;
+	}
+
+	function handleVariantImageUpload(variantClientId: string, event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		const incomingFiles = Array.from(input.files ?? []);
+		if (incomingFiles.length === 0) return;
+
+		const selectedKeys = selectedImageFiles.map(fileIdentity);
+		const mergedFiles = [...selectedImageFiles];
+		const newMetadataEntries: ImageMetadata[] = [];
+
+		for (const file of incomingFiles) {
+			const key = fileIdentity(file);
+			if (selectedKeys.includes(key)) continue;
+
+			selectedKeys.push(key);
+			mergedFiles.push(file);
+
+			newMetadataEntries.push({
+				variantClientId,
+				altText: $createProductForm.name || null,
+				position: mergedFiles.length,
+				isPrimary: false
+			});
+		}
+
+		selectedImageFiles = mergedFiles;
+		$imageFiles = createFileList(selectedImageFiles);
+
+		revokeImagePreviews();
+		imagePreviews = selectedImageFiles.map((file) => ({
+			url: URL.createObjectURL(file),
+			name: file.name,
+			size: file.size
+		}));
+
+		const previousMetadata = $createProductForm.imageMetadata;
+		const newMetadata = imagePreviews.map((_, index) => {
+			if (index < previousMetadata.length) {
+				return previousMetadata[index]!;
+			}
+			return newMetadataEntries[index - previousMetadata.length]!;
+		});
+
+		$createProductForm.imageMetadata = normalizeImagePositions(newMetadata);
+		normalizePrimaryImageScopes();
+
+		input.value = '';
+	}
+
+	function imagesForVariant(variantClientId: string) {
+		return imagePreviews
+			.map((preview, index) => {
+				const meta = getImageMetadata(index);
+				return { preview, meta, index };
+			})
+			.filter((item) => item.meta.variantClientId === variantClientId);
 	}
 
 	function removeVariant(clientId: string): void {
@@ -312,8 +414,7 @@
 		const variant = $createProductForm.variants.find((entry) => entry.clientId === clientId);
 		if (!variant) return 'Removed variant';
 
-		const summary = [variant.size, variant.color].filter(Boolean).join(' / ');
-		return summary || `Variant ${$createProductForm.variants.indexOf(variant) + 1}`;
+		return variant.color || `Variant ${$createProductForm.variants.indexOf(variant) + 1}`;
 	}
 
 	function createDefaultImageMetadata(index: number): ImageMetadata {
@@ -524,10 +625,7 @@
 		if (pendingRedirect === 'drops') {
 			$createProductForm.tier = 'drop';
 			$createProductForm.dropId = null;
-
-			if ($createProductForm.basePrice < 3000 || $createProductForm.basePrice > 4500) {
-				$createProductForm.basePrice = 3000;
-			}
+			handleTierChange();
 		}
 
 		await tick();
@@ -653,19 +751,53 @@
 					</div>
 
 					<div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
-						<label class="grid gap-1">
+						<div class="grid gap-1 relative">
 							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Category</span>
-							<select
-								name="categoryId"
-								bind:value={$createProductForm.categoryId}
+							<input
+								type="text"
+								placeholder="Search and select category..."
+								bind:value={categorySearch}
+								onfocus={() => (categoryDropdownOpen = true)}
+								onblur={() => {
+									setTimeout(() => (categoryDropdownOpen = false), 150);
+								}}
 								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								<option value="">No category</option>
-								{#each data.categories as category (category.id)}
-									<option value={category.id}>{category.name}</option>
-								{/each}
-							</select>
-						</label>
+							/>
+							<input type="hidden" name="categoryId" bind:value={$createProductForm.categoryId} />
+
+							{#if categoryDropdownOpen}
+								<div class="absolute top-[calc(100%+4px)] left-0 z-45 w-full max-h-60 overflow-y-auto border border-charcoal bg-void shadow-xl">
+									<button
+										type="button"
+										onclick={() => {
+											$createProductForm.categoryId = null;
+											categorySearch = '';
+											categoryDropdownOpen = false;
+										}}
+										class="w-full text-left px-3 py-2 font-mono text-[10px] tracking-widest text-ash hover:bg-charcoal/30 hover:text-volt uppercase"
+									>
+										No category
+									</button>
+									{#each filteredCategories as category (category.id)}
+										<button
+											type="button"
+											onclick={() => {
+												$createProductForm.categoryId = category.id;
+												categorySearch = category.name;
+												categoryDropdownOpen = false;
+											}}
+											class="w-full text-left px-3 py-2 font-mono text-[10px] tracking-widest text-bone hover:bg-charcoal/30 hover:text-volt uppercase"
+										>
+											{category.name}
+										</button>
+									{:else}
+										<div class="px-3 py-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+											No matching categories
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
 						<button
 							type="button"
 							onclick={() => handleNavigate('categories')}
@@ -748,45 +880,6 @@
 						</label>
 					</div>
 
-					<div class="grid gap-4 md:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Base price</span
-							>
-							<input
-								name="basePrice"
-								type="number"
-								bind:value={$createProductForm.basePrice}
-								aria-invalid={$createProductErrors.basePrice ? 'true' : undefined}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createProductConstraints.basePrice}
-							/>
-							{#if $createProductErrors.basePrice}
-								<span class="font-mono text-[10px] text-red-300">
-									{$createProductErrors.basePrice[0]}
-								</span>
-							{/if}
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Compare at</span
-							>
-							<input
-								name="compareAtPrice"
-								type="number"
-								bind:value={$createProductForm.compareAtPrice}
-								aria-invalid={$createProductErrors.compareAtPrice ? 'true' : undefined}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createProductConstraints.compareAtPrice}
-							/>
-							{#if $createProductErrors.compareAtPrice}
-								<span class="font-mono text-[10px] text-red-300">
-									{$createProductErrors.compareAtPrice[0]}
-								</span>
-							{/if}
-						</label>
-					</div>
-
 					<label class="grid gap-1">
 						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
 							>Short description</span
@@ -812,10 +905,10 @@
 						></textarea>
 					</label>
 
-					<div class="grid gap-3 border border-charcoal bg-void/40 p-4 md:grid-cols-3">
+					<div class="flex flex-wrap items-center gap-x-6 gap-y-3 border border-charcoal bg-void/40 p-3 md:p-4">
 						<label
-							class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase {dropTierWithoutDrop
-								? 'opacity-50'
+							class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone {dropTierWithoutDrop
+								? 'opacity-50 cursor-not-allowed'
 								: ''}"
 						>
 							<input
@@ -823,26 +916,29 @@
 								name="isActive"
 								bind:checked={$createProductForm.isActive}
 								disabled={dropTierWithoutDrop}
+								class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
 							/>
 							Active
 						</label>
 						<label
-							class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
+							class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
 						>
 							<input
 								type="checkbox"
 								name="isFeatured"
 								bind:checked={$createProductForm.isFeatured}
+								class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
 							/>
 							Featured
 						</label>
 						<label
-							class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
+							class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
 						>
 							<input
 								type="checkbox"
 								name="isNewArrival"
 								bind:checked={$createProductForm.isNewArrival}
+								class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
 							/>
 							New arrival
 						</label>
@@ -851,13 +947,23 @@
 			</section>
 
 			<section class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
+				<!-- Hidden images file input for Superforms binding -->
+				<input
+					id="hidden-images-input"
+					name="images"
+					type="file"
+					multiple
+					bind:files={$imageFiles}
+					class="hidden"
+				/>
+
 				<div
 					class="flex flex-col gap-3 border-b border-charcoal pb-4 sm:flex-row sm:items-center sm:justify-between"
 				>
 					<div>
 						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Variants</p>
 						<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">
-							Sizes & Colors
+							Colors & Sizes
 						</h2>
 					</div>
 					<button
@@ -871,53 +977,49 @@
 				</div>
 
 				{#if $createProductForm.variants.length > 0}
-					<div class="mt-4 grid gap-3">
+					<div class="mt-4 grid gap-4">
 						{#each $createProductForm.variants as variant, index (variant.clientId)}
+							{@const isPriceDisabled = $createProductForm.syncPrices && variant.sortOrder !== 1}
+							{@const isRemovable = $createProductForm.variants.length > 1 && variant.clientId !== 'default-color-card'}
+							
 							<article class="border border-charcoal bg-void p-4">
-								<div class="flex items-center justify-between gap-3">
-									<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-										Variant {index + 1}
-									</p>
-									<button
-										type="button"
-										onclick={() => removeVariant(variant.clientId)}
-										class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 hover:border-red-300 hover:text-red-200"
-										aria-label={`Remove variant ${index + 1}`}
-									>
-										<X size={14} aria-hidden="true" />
-									</button>
+								<div class="flex items-center justify-between gap-3 border-b border-charcoal pb-3 mb-4">
+									<h3 class="font-display text-2xl text-bone uppercase">
+										Variant Card: {variant.color || `Variant ${index + 1}`}
+									</h3>
+									{#if isRemovable}
+										<button
+											type="button"
+											onclick={() => removeVariant(variant.clientId)}
+											class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 hover:border-red-300 hover:text-red-200"
+											aria-label={`Remove variant ${index + 1}`}
+										>
+											<X size={14} aria-hidden="true" />
+										</button>
+									{/if}
 								</div>
 
-								<div class="mt-4 grid gap-3 md:grid-cols-2">
+								<div class="grid gap-4 md:grid-cols-2">
 									<input
 										type="hidden"
 										name={`variants[${index}].clientId`}
 										bind:value={variant.clientId}
 									/>
+									{#each variant.sizes as size}
+										<input
+											type="hidden"
+											name={`variants[${index}].sizes`}
+											value={size}
+										/>
+									{/each}
+
 									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-											>Size</span
-										>
-										<select
-											name={`variants[${index}].size`}
-											bind:value={variant.size}
-											class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										>
-											{#each data.sizeOptions as option (option.value)}
-												<option value={option.value}>{option.label}</option>
-											{/each}
-										</select>
-									</label>
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-											>Color</span
-										>
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Name</span>
 										<input
 											name={`variants[${index}].color`}
 											bind:value={variant.color}
-											aria-invalid={$createProductErrors.variants?.[index]?.color
-												? 'true'
-												: undefined}
+											placeholder="e.g. Carbon Black"
+											aria-invalid={$createProductErrors.variants?.[index]?.color ? 'true' : undefined}
 											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 										/>
 										{#if $createProductErrors.variants?.[index]?.color}
@@ -926,17 +1028,14 @@
 											</span>
 										{/if}
 									</label>
-								</div>
 
-								<div class="mt-3 grid gap-3 md:grid-cols-3">
 									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Hex</span
-										>
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Hex</span>
 										<div class="grid grid-cols-[minmax(0,1fr)_44px]">
 											<input
 												name={`variants[${index}].colorHex`}
 												bind:value={variant.colorHex}
-												placeholder="#0A0A0A"
+												placeholder="#000000"
 												class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 											/>
 											<span
@@ -952,192 +1051,153 @@
 											</span>
 										</div>
 									</label>
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-											>Price override</span
-										>
-										<input
-											name={`variants[${index}].priceOverride`}
-											type="number"
-											bind:value={variant.priceOverride}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										/>
-									</label>
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-											>Sort</span
-										>
-										<select
-											name={`variants[${index}].sortOrder`}
-											value={variant.sortOrder}
-											onchange={(event) => handleVariantSortChange(index, event)}
-											class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										>
-											{#each variantSortOptions() as sortValue (sortValue)}
-												<option value={sortValue}>{sortValue}</option>
-											{/each}
-										</select>
-									</label>
 								</div>
 
-								<label
-									class="mt-3 flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
-								>
-									<input
-										type="checkbox"
-										name={`variants[${index}].isActive`}
-										bind:checked={variant.isActive}
-									/>
-									Active
-								</label>
+								<div class="mt-4 grid gap-4 md:grid-cols-3">
+									<label class="grid gap-1">
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base Price</span>
+										<input
+											type="number"
+											name={`variants[${index}].basePrice`}
+											bind:value={variant.basePrice}
+											disabled={isPriceDisabled}
+											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt {isPriceDisabled ? 'opacity-40 cursor-not-allowed bg-charcoal/20' : ''}"
+										/>
+										{#if $createProductErrors.variants?.[index]?.basePrice}
+											<span class="font-mono text-[10px] text-red-300">
+												{$createProductErrors.variants[index]?.basePrice?.[0]}
+											</span>
+										{/if}
+									</label>
+
+									<label class="grid gap-1">
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Discounted Price / Compare At</span>
+										<input
+											type="number"
+											name={`variants[${index}].compareAtPrice`}
+											bind:value={variant.compareAtPrice}
+											disabled={isPriceDisabled}
+											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt {isPriceDisabled ? 'opacity-40 cursor-not-allowed bg-charcoal/20' : ''}"
+										/>
+										{#if $createProductErrors.variants?.[index]?.compareAtPrice}
+											<span class="font-mono text-[10px] text-red-300">
+												{$createProductErrors.variants[index]?.compareAtPrice?.[0]}
+											</span>
+										{/if}
+									</label>
+
+									{#if $createProductForm.variants.length > 1}
+										<label class="grid gap-1">
+											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort Order</span>
+											<select
+												name={`variants[${index}].sortOrder`}
+												value={variant.sortOrder}
+												onchange={(event) => handleVariantSortChange(index, event)}
+												class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											>
+												{#each variantSortOptions() as sortValue (sortValue)}
+													<option value={sortValue}>{sortValue}</option>
+												{/each}
+											</select>
+										</label>
+									{/if}
+								</div>
+
+								{#if variant.sortOrder === 1}
+									<div class="mt-4">
+										<label class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer font-bold">
+											<input type="checkbox" name="syncPrices" bind:checked={$createProductForm.syncPrices} />
+											Sync prices across all color variants
+										</label>
+									</div>
+								{/if}
+
+								<div class="mt-4 border-t border-charcoal/40 pt-4">
+									<div class="grid gap-1">
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Available Sizes</span>
+										<div class="flex flex-wrap gap-2 mt-1">
+											{#each data.sizeOptions as sizeOpt (sizeOpt.value)}
+												{@const isSelected = variant.sizes.includes(sizeOpt.value as any)}
+												<button
+													type="button"
+													onclick={() => toggleSize(variant.clientId, sizeOpt.value)}
+													class="min-h-9 px-3 font-mono text-[10px] tracking-wider border transition-all uppercase {isSelected
+														? 'bg-volt border-volt text-void font-bold'
+														: 'bg-void border-charcoal text-ash hover:border-volt hover:text-volt'}"
+												>
+													{sizeOpt.label}
+												</button>
+											{/each}
+										</div>
+										{#if $createProductErrors.variants?.[index]?.sizes}
+											<span class="font-mono text-[10px] text-red-300 mt-1">
+												{$createProductErrors.variants[index]?.sizes?._errors?.[0] ?? $createProductErrors.variants[index]?.sizes?.[0]}
+											</span>
+										{/if}
+									</div>
+								</div>
+
+								<div class="mt-4 border-t border-charcoal/40 pt-4">
+									<div class="grid gap-1">
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant-specific Images</span>
+										
+										<div class="flex items-center gap-3 mt-2">
+											<label
+												class="relative inline-flex min-h-11 items-center justify-center gap-2 border border-dashed border-ash/30 bg-void px-4 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:border-volt hover:text-volt"
+											>
+												<input
+													type="file"
+													accept="image/*"
+													multiple
+													onchange={(event) => handleVariantImageUpload(variant.clientId, event)}
+													class="hidden"
+												/>
+												<Upload size={14} class="text-volt" aria-hidden="true" />
+												Upload variant images
+											</label>
+										</div>
+
+										{#if imagesForVariant(variant.clientId).length > 0}
+											<div class="flex flex-wrap gap-3 mt-3">
+												{#each imagesForVariant(variant.clientId) as img}
+													<div class="relative block group border border-charcoal hover:border-volt">
+														<button
+															type="button"
+															onclick={() => (activeImageIndex = img.index)}
+															class="block"
+														>
+															<img src={img.preview.url} alt="" class="h-16 w-16 object-cover" />
+														</button>
+														{#if img.meta.isPrimary}
+															<span class="absolute top-1 left-1 bg-volt text-void px-1 py-0.5 text-[6px] font-mono leading-none uppercase">Primary</span>
+														{/if}
+														<button
+															type="button"
+															onclick={(e) => {
+																e.stopPropagation();
+																removeImage(img.index);
+															}}
+															class="absolute -top-1 -right-1 hidden group-hover:grid h-4 w-4 place-items-center bg-red-600 text-white rounded-full text-[8px]"
+														>
+															×
+														</button>
+													</div>
+												{/each}
+											</div>
+										{:else}
+											<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase mt-1">
+												No images uploaded for this variant.
+											</p>
+										{/if}
+									</div>
+								</div>
 							</article>
 						{/each}
 					</div>
 				{:else}
-					<p
-						class="mt-4 border border-charcoal bg-void/40 px-4 py-5 font-mono text-[10px] tracking-widest text-ash uppercase"
-					>
+					<p class="mt-4 border border-charcoal bg-void/40 px-4 py-5 font-mono text-[10px] tracking-widest text-ash uppercase">
 						No variants added.
 					</p>
-				{/if}
-			</section>
-
-			<section class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
-				<div class="border-b border-charcoal pb-4">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Images</p>
-					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">
-						Upload & Preview
-					</h2>
-				</div>
-
-				<label
-					class="relative mt-5 grid min-h-32 cursor-pointer place-items-center overflow-hidden border border-dashed border-ash/30 bg-void p-5 text-center focus-within:border-volt hover:border-volt"
-				>
-					<input
-						name="images"
-						type="file"
-						accept="image/*"
-						multiple
-						bind:files={getImageFiles, setImageFiles}
-						class="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
-					/>
-					<span class="pointer-events-none grid justify-items-center gap-3">
-						<Upload size={22} class="text-volt" aria-hidden="true" />
-						<span class="font-mono text-[10px] tracking-widest text-ash uppercase">
-							Upload images
-						</span>
-					</span>
-				</label>
-				{#if $createProductErrors.images}
-					<p class="mt-3 font-mono text-[10px] text-red-300">{$createProductErrors.images[0]}</p>
-				{/if}
-				{#if $createProductErrors.imageMetadata?._errors}
-					<p class="mt-3 font-mono text-[10px] text-red-300">
-						{$createProductErrors.imageMetadata._errors[0]}
-					</p>
-				{/if}
-
-				{#if imagePreviews.length > 0}
-					<div class="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3">
-						{#each imagePreviews as image, index (image.url)}
-							{@const metadata = getImageMetadata(index)}
-							<article class="border border-charcoal bg-void">
-								<button
-									type="button"
-									onclick={() => (activeImageIndex = index)}
-									class="relative block w-full text-left"
-									aria-label={`Open ${image.name}`}
-								>
-									<img
-										src={image.url}
-										alt={metadata.altText ?? ''}
-										class="aspect-4/5 w-full object-cover"
-									/>
-									{#if metadata.isPrimary}
-										<span
-											class="absolute top-2 left-2 inline-flex min-h-7 items-center gap-1 bg-volt px-2 font-mono text-[8px] tracking-widest text-void uppercase"
-										>
-											<Star size={11} fill="currentColor" aria-hidden="true" />
-											Primary
-										</span>
-									{/if}
-								</button>
-
-								<div class="grid gap-2 p-3">
-									<p class="truncate font-mono text-[9px] text-ash uppercase">{image.name}</p>
-									<label class="grid gap-1">
-										<span class="font-mono text-[8px] tracking-[0.2em] text-ash uppercase"
-											>Variant</span
-										>
-										<select
-											name={`imageMetadata[${index}].variantClientId`}
-											value={metadata.variantClientId ?? ''}
-											onchange={(event) => handleImageVariantChange(index, event)}
-											class="min-h-9 border border-charcoal bg-void px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
-										>
-											<option value="">Product</option>
-											{#each $createProductForm.variants as variant (variant.clientId)}
-												<option value={variant.clientId}>{variantLabel(variant.clientId)}</option>
-											{/each}
-										</select>
-									</label>
-									<div class="grid grid-cols-[minmax(0,1fr)_72px] gap-2">
-										<label class="grid gap-1">
-											<span class="font-mono text-[8px] tracking-[0.2em] text-ash uppercase"
-												>Alt</span
-											>
-											<input
-												name={`imageMetadata[${index}].altText`}
-												value={metadata.altText ?? ''}
-												oninput={(event) => handleImageAltInput(index, event)}
-												class="min-h-9 min-w-0 border border-charcoal bg-charcoal/30 px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
-											/>
-										</label>
-										<label class="grid gap-1">
-											<span class="font-mono text-[8px] tracking-[0.2em] text-ash uppercase"
-												>Order</span
-											>
-											<select
-												name={`imageMetadata[${index}].position`}
-												value={metadata.position}
-												onchange={(event) => handleImagePositionChange(index, event)}
-												class="min-h-9 min-w-0 border border-charcoal bg-void px-2 font-mono text-[9px] text-bone outline-none focus:border-volt"
-											>
-												{#each imagePositionOptions() as positionValue (positionValue)}
-													<option value={positionValue}>{positionValue}</option>
-												{/each}
-											</select>
-										</label>
-									</div>
-									<div class="grid grid-cols-2 gap-2">
-										<button
-											type="button"
-											onclick={() => markPrimaryImage(index)}
-											aria-pressed={metadata.isPrimary}
-											class="inline-flex min-h-9 items-center justify-center gap-1 border px-2 font-mono text-[8px] tracking-widest uppercase {metadata.isPrimary
-												? 'border-volt bg-volt text-void'
-												: 'border-ash/30 text-ash hover:border-volt hover:text-volt'}"
-										>
-											<Star
-												size={11}
-												fill={metadata.isPrimary ? 'currentColor' : 'none'}
-												aria-hidden="true"
-											/>
-											Primary
-										</button>
-										<button
-											type="button"
-											onclick={() => removeImage(index)}
-											class="inline-flex min-h-9 items-center justify-center gap-1 border border-red-400/40 px-2 font-mono text-[8px] tracking-widest text-red-300 uppercase hover:border-red-300 hover:text-red-200"
-										>
-											<X size={11} aria-hidden="true" />
-											Remove
-										</button>
-									</div>
-								</div>
-							</article>
-						{/each}
-					</div>
 				{/if}
 			</section>
 
@@ -1172,27 +1232,28 @@
 					</div>
 				{/if}
 
-				<div class="grid gap-2">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Existing tags</span
-					>
-					{#if availableTags.length > 0}
-						<div class="flex flex-wrap gap-2">
-							{#each availableTags as tag (tag.id)}
-								<button
-									type="button"
-									onclick={() => addExistingTag(tag.id)}
-									class="inline-flex min-h-9 items-center border border-ash/30 px-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
-								>
-									{tag.name}
-								</button>
-							{/each}
-						</div>
-					{:else}
-						<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
-							All existing tags selected.
-						</p>
-					{/if}
-				</div>
+				{#if data.tags.length > 0}
+					<div class="grid gap-2">
+						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Existing tags</span>
+						{#if availableTags.length > 0}
+							<div class="flex flex-wrap gap-2">
+								{#each availableTags as tag (tag.id)}
+									<button
+										type="button"
+										onclick={() => addExistingTag(tag.id)}
+										class="inline-flex min-h-9 items-center border border-ash/30 px-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
+									>
+										{tag.name}
+									</button>
+								{/each}
+							</div>
+						{:else}
+							<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
+								All existing tags selected.
+							</p>
+						{/if}
+					</div>
+				{/if}
 
 				<label class="grid gap-1">
 					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">New tags</span>
@@ -1286,7 +1347,9 @@
 				<div class="mt-4 grid gap-3 font-mono text-[10px] uppercase">
 					<div class="flex justify-between gap-4">
 						<span class="text-ash">Price</span>
-						<span class="text-right text-bone">{formatMoney($createProductForm.basePrice)}</span>
+						<span class="text-right text-bone">
+							{primaryVariant ? formatMoney(primaryVariant.basePrice) : '—'}
+						</span>
 					</div>
 					<div class="flex justify-between gap-4">
 						<span class="text-ash">Tier</span>
@@ -1319,10 +1382,10 @@
 {#if activeImage && activeImageIndex !== null}
 	{@const metadata = getImageMetadata(activeImageIndex)}
 	<div
-		class="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain bg-void/85 px-3 py-4 sm:px-4 sm:py-6"
+		class="fixed inset-0 z-50 overflow-y-auto bg-void/85 px-3 py-4 sm:px-4 sm:py-6 flex justify-center items-start"
 	>
 		<section
-			class="mx-auto grid w-full max-w-5xl min-w-0 overflow-hidden overscroll-contain border border-charcoal bg-void shadow-2xl lg:max-h-[92vh] lg:grid-cols-[minmax(0,1fr)_340px]"
+			class="my-auto mx-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-void shadow-2xl lg:max-h-[90vh] lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_340px]"
 		>
 			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
 				<img
@@ -1332,7 +1395,7 @@
 				/>
 			</div>
 			<div
-				class="grid min-w-0 content-start gap-4 overflow-x-hidden overflow-y-auto overscroll-contain p-4 sm:p-5"
+				class="grid min-w-0 content-start gap-4 overflow-x-hidden lg:overflow-y-auto p-4 sm:p-5"
 			>
 				<div class="flex items-start justify-between gap-4">
 					<div class="min-w-0">
@@ -1346,22 +1409,37 @@
 							{formatFileSize(activeImage.size)}
 						</p>
 					</div>
-					<button
-						type="button"
-						onclick={() => (activeImageIndex = null)}
-						class="grid h-10 w-10 shrink-0 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
-						aria-label="Close image detail"
-					>
-						<X size={15} aria-hidden="true" />
-					</button>
+					<div class="flex items-center gap-2 shrink-0">
+						<button
+							type="button"
+							onclick={() => {
+								if (activeImageIndex !== null) {
+									removeImage(activeImageIndex);
+									activeImageIndex = null;
+								}
+							}}
+							class="grid h-10 w-10 place-items-center border border-red-400/40 text-red-300 hover:border-red-300 hover:text-red-200"
+							aria-label="Remove image"
+						>
+							<Trash2 size={15} aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							onclick={() => (activeImageIndex = null)}
+							class="grid h-10 w-10 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
+							aria-label="Close image detail"
+						>
+							<X size={15} aria-hidden="true" />
+						</button>
+					</div>
 				</div>
 
 				<label class="grid gap-1">
 					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant</span>
 					<select
 						value={metadata.variantClientId ?? ''}
-						onchange={handleActiveImageVariantChange}
-						class="min-h-11 w-full min-w-0 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						disabled
+						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/20 px-3 py-3 font-mono text-xs text-ash outline-none opacity-80"
 					>
 						<option value="">Product image</option>
 						{#each $createProductForm.variants as variant (variant.clientId)}
@@ -1401,6 +1479,19 @@
 					<span class="min-w-0 wrap-break-words"
 						>Primary for {variantLabel(metadata.variantClientId)}</span
 					>
+				</button>
+				<button
+					type="button"
+					onclick={() => {
+						if (activeImageIndex !== null) {
+							removeImage(activeImageIndex);
+							activeImageIndex = null;
+						}
+					}}
+					class="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 border border-red-400/40 px-4 text-center font-mono text-[10px] leading-4 tracking-widest whitespace-normal uppercase text-red-300 hover:border-red-300 hover:text-red-200"
+				>
+					<Trash2 size={14} aria-hidden="true" />
+					<span class="min-w-0 wrap-break-words">Remove Image</span>
 				</button>
 			</div>
 		</section>

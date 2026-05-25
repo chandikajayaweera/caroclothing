@@ -6,12 +6,14 @@ import type {
 	InsertProduct,
 	InsertProductImage,
 	InsertProductVariant,
+	InsertProductVariantColor,
 	InsertTag,
 	ProductTier,
 	SizeTier,
 	UpdateCategory,
 	UpdateProduct,
 	UpdateProductVariant,
+	UpdateProductVariantColor,
 	UpdateTag
 } from './products.drizzle';
 
@@ -90,10 +92,13 @@ export type UpdateTagInput = UpdateTag;
 export type ProductVariantDTO = {
 	id: string;
 	productId: string;
+	variantColorId: string;
 	size: SizeTier;
 	color: string;
 	colorHex: string | null;
 	priceOverride: number | null;
+	basePrice: number;
+	compareAtPrice: number | null;
 	effectivePrice: number;
 	isActive: boolean;
 	sortOrder: number;
@@ -168,8 +173,14 @@ export type ListProductsOptions = {
 	offset?: number;
 };
 
-export type CreateProductDraftVariantInput = Omit<InsertProductVariant, 'productId'> & {
+export type CreateProductDraftVariantInput = {
 	clientId: string;
+	color: string;
+	colorHex?: string | null;
+	basePrice: number;
+	compareAtPrice?: number | null;
+	sortOrder: number;
+	sizes: SizeTier[];
 };
 
 export type CreateProductImageMetadataInput = {
@@ -208,3 +219,7 @@ export type ListProductVariantsOptions = {
 export type AddProductImageInput = Omit<InsertProductImage, 'r2Key'> & {
 	image: File;
 };
+
+export type CreateProductVariantColorInput = Omit<InsertProductVariantColor, 'productId'>;
+export type UpdateProductVariantColorInput = Omit<UpdateProductVariantColor, 'productId'>;
+

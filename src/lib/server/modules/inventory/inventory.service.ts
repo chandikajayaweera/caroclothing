@@ -19,8 +19,10 @@ import {
 import {
 	product,
 	productVariant,
+	productVariantColor,
 	type Product,
-	type ProductVariant
+	type ProductVariant,
+	type ProductVariantColor
 } from '../products/products.drizzle';
 import {
 	insertInventorySchema,
@@ -62,6 +64,7 @@ export type InventoryTx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type QueryExecutor = Db | InventoryTx;
 type InventoryListRow = {
 	variant: ProductVariant;
+	color: ProductVariantColor;
 	product: Product;
 	inventory: Inventory | null;
 };
@@ -110,11 +113,13 @@ export async function listInventory(
 	const baseQuery = getDb()
 		.select({
 			variant: productVariant,
+			color: productVariantColor,
 			product,
 			inventory
 		})
 		.from(productVariant)
 		.innerJoin(product, eq(productVariant.productId, product.id))
+		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.orderBy(asc(product.name), asc(productVariant.sortOrder), asc(productVariant.size))
 		.limit(limit)
@@ -123,6 +128,7 @@ export async function listInventory(
 		.select({ total: count() })
 		.from(productVariant)
 		.innerJoin(product, eq(productVariant.productId, product.id))
+		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id));
 	const [rows, totalRows] = await Promise.all([
 		where ? baseQuery.where(where) : baseQuery,
@@ -147,11 +153,13 @@ export async function getInventory(
 	const [row] = await getDb()
 		.select({
 			variant: productVariant,
+			color: productVariantColor,
 			product,
 			inventory
 		})
 		.from(productVariant)
 		.innerJoin(product, eq(productVariant.productId, product.id))
+		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(eq(productVariant.id, variantId))
 		.limit(1);
@@ -769,7 +777,7 @@ function buildInventoryListWhere(options: InventoryListOptions): SQL | undefined
 				like(product.name, pattern),
 				like(product.slug, pattern),
 				like(productVariant.size, pattern),
-				like(productVariant.color, pattern)
+				like(productVariantColor.color, pattern)
 			) as SQL
 		);
 	}
@@ -880,8 +888,8 @@ function toInventoryListItemDTO(row: InventoryListRow): InventoryListItemDTO {
 			id: row.variant.id,
 			productId: row.variant.productId,
 			size: row.variant.size,
-			color: row.variant.color,
-			colorHex: row.variant.colorHex,
+			color: row.color.color,
+			colorHex: row.color.colorHex,
 			isActive: row.variant.isActive
 		},
 		inventory: row.inventory ? toInventoryDTO(row.inventory) : null,

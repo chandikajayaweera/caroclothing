@@ -27,6 +27,26 @@ This file defines the foundational mandates and technical context for Caro Cloth
 
 - **Strategic Product & Architecture Decisions**: Use `caro-product-designer` whenever making decisions about what to build, what goes on a page, how to prioritize features, information architecture, conversion rate optimization, or how to balance brand identity against user needs and business goals.
 - **UX, UI & Flow Design**: Use `caro-ux-strategy` whenever designing or evaluating any customer-facing experience — component behaviour, shopping/checkout/auth flows, brand-to-UI translation, micro-copy, tier-aware experience differences (drop vs core), and trust patterns.
+- **Email & SMS Notifications**: Use `caro-notifications` when adding/modifying email/SMS helpers, semantic senders, notification outbox state, Queue/Cron/DLQ transport, or waitlist notification marking.
+- **Architecture Compliance & Reviews**: Use `caro-review` when reviewing diffs for CaroClothing architecture compliance, service-layer correctness, notification boundaries, or safety checks.
+- **Route Refactoring**: Use `caro-route-refactor` when refactoring SvelteKit routes to call service functions and Superforms schemas instead of DB/R2 primitives.
+- **Service API Planning**: Use `caro-service-api-planner` when planning service-layer public APIs before implementation by reading schemas, routes, and business goals.
+- **Service Layer Implementation**: Use `caro-service-layer` when implementing or modifying service modules, service DTOs, module form schemas, transactions, R2, or service-owned outbox state.
+- **Svelte Route Scaffolding**: Use `caro-svelte-route-builder` to create/modify SvelteKit routes (server files & bare skeletons) wiring service functions and Superforms.
+- **Svelte UI Polishing**: Use `caro-svelte-ui-designer` to design and implement production-ready responsive Caro UI from route-builder skeletons.
+
+### Custom Subagents
+
+If a task warrants delegating work to a specialized background agent, define and invoke a subagent using the `define_subagent` and `invoke_subagent` tools. Refer to `.gemini/agents/` for TOML template contexts:
+
+- **schema-cartographer**: For mapping Drizzle schemas, relations, comments, and application-layer invariants (read-only).
+- **service-api-curator**: For planning and curating service-layer API requirements from schemas, storefront/admin needs, and business goals (read-only).
+- **service-architect**: For planning service-layer changes, transactions, R2 side effects, and notification boundaries (read-heavy).
+- **service-builder**: For implementing approved service-layer plans with transactions, DTOs, errors, media compensation, and validation.
+- **notification-orchestrator**: For planning/reviewing email/SMS helpers, notification outbox state, and Queue/Cron/DLQ transport.
+- **svelte-integrator**: For updating SvelteKit routes to call services and Superforms schemas correctly.
+- **svelte-route-builder**: For creating route server files and bare page skeletons from module services.
+- **test-reviewer**: For reviewing diffs for architecture violations, missing tests, unsafe business logic, and boundary mistakes (read-only).
 
 ### Documentation & Research
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { ArrowLeft, ImageOff, Pencil, Star } from 'lucide-svelte';
+	import { ArrowLeft, ImageOff, Pencil, Star, X } from 'lucide-svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -11,6 +11,51 @@
 	);
 	const activeVariantCount = $derived(
 		product.variants.filter((variant) => variant.isActive).length
+	);
+
+	type ColorCard = {
+		variantColorId: string;
+		color: string;
+		colorHex: string | null;
+		basePrice: number;
+		compareAtPrice: number | null;
+		variants: { id: string; size: string; isActive: boolean; sortOrder: number }[];
+	};
+
+	const colorCards = $derived.by<ColorCard[]>(() => {
+		const cardsMap = new Map<string, ColorCard>();
+
+		for (const variant of product.variants) {
+			const colorId = variant.variantColorId;
+			if (!cardsMap.has(colorId)) {
+				cardsMap.set(colorId, {
+					variantColorId: colorId,
+					color: variant.color,
+					colorHex: variant.colorHex,
+					basePrice: variant.basePrice,
+					compareAtPrice: variant.compareAtPrice,
+					variants: []
+				});
+			}
+			const card = cardsMap.get(colorId)!;
+			card.variants.push({
+				id: variant.id,
+				size: variant.size,
+				isActive: variant.isActive,
+				sortOrder: variant.sortOrder
+			});
+		}
+
+		return Array.from(cardsMap.values()).sort((a, b) => {
+			const aSort = a.variants[0]?.sortOrder ?? 0;
+			const bSort = b.variants[0]?.sortOrder ?? 0;
+			return aSort - bSort;
+		});
+	});
+
+	let activeImageIndex = $state<number | null>(null);
+	const activeImage = $derived(
+		activeImageIndex === null ? null : (product.images[activeImageIndex] ?? null)
 	);
 
 	function formatMoney(value: number): string {
@@ -27,6 +72,14 @@
 			dateStyle: 'medium',
 			timeStyle: 'short'
 		}).format(new Date(value));
+	}
+
+	function isValidHex(value: string | null | undefined): value is string {
+		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
+	}
+
+	function imagesForColorCard(variantColorId: string) {
+		return product.images.filter((image) => image.variantId === variantColorId);
 	}
 </script>
 
@@ -87,7 +140,7 @@
 					</p>
 				</div>
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Price</p>
+					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Starting Price</p>
 					<p class="mt-2 font-mono text-xs text-bone">{formatMoney(product.basePrice)}</p>
 				</div>
 				<div class="bg-void p-5">
@@ -204,67 +257,70 @@
 			<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Stock Options</h2>
 		</div>
 
-		{#if product.variants.length > 0}
-			<div class="hidden overflow-x-auto md:block">
-				<table class="w-full min-w-[760px] text-left">
-					<thead class="border-b border-charcoal">
-						<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-							<th class="px-5 py-4 font-normal">Size</th>
-							<th class="px-5 py-4 font-normal">Color</th>
-							<th class="px-5 py-4 font-normal">Price</th>
-							<th class="px-5 py-4 font-normal">State</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each product.variants as variant (variant.id)}
-							<tr class="border-b border-charcoal/70 last:border-b-0">
-								<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">{variant.size}</td>
-								<td class="px-5 py-4">
-									<div class="flex items-center gap-2">
-										{#if variant.colorHex}
-											<span
-												class="h-4 w-4 border border-charcoal"
-												style:background={variant.colorHex}
-												aria-hidden="true"
-											></span>
-										{/if}
-										<span class="font-mono text-[10px] text-ash uppercase">{variant.color}</span>
-									</div>
-								</td>
-								<td class="px-5 py-4 font-mono text-xs text-bone">
-									{formatMoney(variant.effectivePrice)}
-								</td>
-								<td
-									class="px-5 py-4 font-mono text-[10px] tracking-widest uppercase {variant.isActive
-										? 'text-volt'
-										: 'text-red-300'}"
-								>
-									{variant.isActive ? 'Active' : 'Off'}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-
-			<div class="divide-y divide-charcoal md:hidden">
-				{#each product.variants as variant (variant.id)}
-					<article class="p-4">
-						<div class="flex items-start justify-between gap-4">
-							<div>
-								<p class="font-mono text-xs tracking-widest text-bone uppercase">
-									{variant.size} / {variant.color}
-								</p>
+		{#if colorCards.length > 0}
+			<div class="grid gap-4 p-5">
+				{#each colorCards as card, index (card.variantColorId)}
+					<article class="border border-charcoal bg-void p-4">
+						<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-charcoal pb-3 mb-4">
+							<div class="flex items-center gap-3">
+								{#if card.colorHex && isValidHex(card.colorHex)}
+									<span
+										class="h-6 w-6 rounded-full border border-ash/30"
+										style:background={card.colorHex}
+										aria-hidden="true"
+									></span>
+								{/if}
+								<h3 class="font-display text-2xl text-bone uppercase">
+									{card.color || `Variant ${index + 1}`}
+								</h3>
 							</div>
-							<span
-								class="font-mono text-[10px] tracking-widest uppercase {variant.isActive
-									? 'text-volt'
-									: 'text-red-300'}"
-							>
-								{variant.isActive ? 'Active' : 'Off'}
-							</span>
+							<div class="font-mono text-sm text-bone">
+								{#if card.compareAtPrice}
+									<span class="text-ash line-through mr-2">{formatMoney(card.compareAtPrice)}</span>
+								{/if}
+								<span class="text-volt font-bold">{formatMoney(card.basePrice)}</span>
+							</div>
 						</div>
-						<p class="mt-3 font-mono text-xs text-bone">{formatMoney(variant.effectivePrice)}</p>
+
+						<div class="grid gap-4 md:grid-cols-2">
+							<div>
+								<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase mb-2">Sizes Available</p>
+								<div class="flex flex-wrap gap-2">
+									{#each card.variants as v}
+										<span
+											class="min-h-9 px-3 py-2 font-mono text-[10px] tracking-wider border uppercase inline-flex items-center {v.isActive
+												? 'bg-volt border-volt text-void font-bold'
+												: 'bg-void border-charcoal text-ash/40 line-through'}"
+										>
+											{v.size}
+										</span>
+									{/each}
+								</div>
+							</div>
+
+							<div>
+								<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase mb-2">Images ({imagesForColorCard(card.variantColorId).length})</p>
+								{#if imagesForColorCard(card.variantColorId).length > 0}
+									<div class="flex flex-wrap gap-2">
+										{#each imagesForColorCard(card.variantColorId) as img}
+											{@const imgIndex = product.images.indexOf(img)}
+											<button
+												type="button"
+												onclick={() => (activeImageIndex = imgIndex)}
+												class="relative block border border-charcoal hover:border-volt transition-colors"
+											>
+												<img src={img.imageUrl} alt="" class="h-14 w-14 object-cover" />
+												{#if img.isPrimary}
+													<span class="absolute top-0.5 left-0.5 bg-volt text-void px-0.5 py-0.2 text-[5px] font-mono leading-none uppercase">Primary</span>
+												{/if}
+											</button>
+										{/each}
+									</div>
+								{:else}
+									<p class="font-mono text-[9px] tracking-wider text-ash/50 uppercase">No images for this color variant.</p>
+								{/if}
+							</div>
+						</div>
 					</article>
 				{/each}
 			</div>
@@ -286,8 +342,12 @@
 
 		{#if product.images.length > 0}
 			<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-				{#each product.images as image (image.id)}
-					<article class="border border-charcoal bg-void">
+				{#each product.images as image, idx (image.id)}
+					<button
+						type="button"
+						onclick={() => (activeImageIndex = idx)}
+						class="border border-charcoal bg-void text-left block hover:border-volt transition-colors w-full cursor-pointer"
+					>
 						<div class="relative">
 							<img
 								src={image.imageUrl}
@@ -307,8 +367,18 @@
 							<p class="truncate font-mono text-[10px] text-ash uppercase">
 								{image.altText ?? 'No alt text'}
 							</p>
+							{#if image.variantId}
+								{@const variantColor = colorCards.find(c => c.variantColorId === image.variantId)}
+								<p class="mt-1 font-mono text-[9px] text-volt uppercase">
+									Variant: {variantColor?.color ?? 'Linked color'}
+								</p>
+							{:else}
+								<p class="mt-1 font-mono text-[9px] text-ash/60 uppercase">
+									Product-wide image
+								</p>
+							{/if}
 						</div>
-					</article>
+					</button>
 				{/each}
 			</div>
 		{:else}
@@ -319,3 +389,67 @@
 		{/if}
 	</section>
 </section>
+
+{#if activeImage && activeImageIndex !== null}
+	<div
+		class="fixed inset-0 z-50 overflow-y-auto bg-void/85 px-3 py-4 sm:px-4 sm:py-6 flex justify-center items-start"
+	>
+		<section
+			class="my-auto mx-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-void shadow-2xl lg:max-h-[90vh] lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_340px]"
+		>
+			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
+				<img
+					src={activeImage.imageUrl}
+					alt={activeImage.altText ?? ''}
+					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
+				/>
+			</div>
+			<div
+				class="grid min-w-0 content-start gap-4 p-4 sm:p-5"
+			>
+				<div class="flex items-start justify-between gap-4">
+					<div class="min-w-0">
+						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
+						<h2
+							class="mt-2 font-display text-3xl leading-none wrap-break-words text-bone uppercase sm:text-4xl"
+						>
+							{activeImage.altText ?? 'Product Image'}
+						</h2>
+						{#if activeImage.variantId}
+							{@const variantColor = colorCards.find(c => c.variantColorId === activeImage.variantId)}
+							<p class="mt-2 font-mono text-[10px] tracking-widest text-volt uppercase">
+								Linked to: {variantColor?.color ?? 'Color swatch'}
+							</p>
+						{:else}
+							<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+								Product-wide image
+							</p>
+						{/if}
+					</div>
+					<button
+						type="button"
+						onclick={() => (activeImageIndex = null)}
+						class="grid h-10 w-10 shrink-0 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt cursor-pointer"
+						aria-label="Close image detail"
+					>
+						<X size={15} aria-hidden="true" />
+					</button>
+				</div>
+				<div class="border-t border-charcoal/40 pt-4 grid gap-3 font-mono text-[10px] uppercase">
+					<div class="flex justify-between gap-4">
+						<span class="text-ash">Role</span>
+						<span class="text-right text-bone">{activeImage.isPrimary ? 'Primary Image' : 'Gallery Image'}</span>
+					</div>
+					<div class="flex justify-between gap-4">
+						<span class="text-ash">Order position</span>
+						<span class="text-right text-bone">{activeImage.position}</span>
+					</div>
+					<div class="flex justify-between gap-4">
+						<span class="text-ash">Uploaded</span>
+						<span class="text-right text-bone">{formatDate(activeImage.createdAt)}</span>
+					</div>
+				</div>
+			</div>
+		</section>
+	</div>
+{/if}

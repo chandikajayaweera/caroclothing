@@ -35,33 +35,40 @@ import {
 	insertProductImageSchema,
 	insertProductSchema,
 	insertProductVariantSchema,
+	insertProductVariantColorSchema,
 	insertTagSchema,
 	product,
 	productImage,
 	productTag,
 	productVariant,
+	productVariantColor,
 	tag,
 	updateCategorySchema,
 	updateProductSchema,
 	updateProductVariantSchema,
+	updateProductVariantColorSchema,
 	updateTagSchema,
 	type Category,
 	type InsertCategory,
 	type InsertProduct,
 	type InsertProductImage,
 	type InsertProductVariant,
+	type InsertProductVariantColor,
 	type InsertTag,
 	type NewCategory,
 	type NewProduct,
 	type NewProductImage,
 	type NewProductVariant,
+	type NewProductVariantColor,
 	type Product,
 	type ProductImage,
 	type ProductVariant,
+	type ProductVariantColor,
 	type Tag,
 	type UpdateCategory,
 	type UpdateProduct,
 	type UpdateProductVariant,
+	type UpdateProductVariantColor,
 	type UpdateTag
 } from './products.drizzle';
 import type {
@@ -91,7 +98,9 @@ import type {
 	UpdateCategoryInput,
 	UpdateProductInput,
 	UpdateProductVariantInput,
-	UpdateTagInput
+	UpdateTagInput,
+	CreateProductVariantColorInput,
+	UpdateProductVariantColorInput
 } from './products.types';
 import { drop, dropProduct } from '../drops/drops.drizzle';
 
@@ -110,9 +119,9 @@ type UploadedProductImage = UploadedImage & {
 	isPrimary: boolean;
 };
 
-type PreparedProductVariant = InsertProductVariant & {
-	id: string;
-	clientId: string;
+type PreparedProductVariants = {
+	colors: (NewProductVariantColor & { clientId: string })[];
+	variants: NewProductVariant[];
 };
 
 type NormalizedProductImageMetadata = {
@@ -337,13 +346,12 @@ export async function createProduct(
 		data.isActive = false;
 	}
 
-	validateResolvedProductPricing(data);
 	const normalizedTagIds = normalizeTagIds(tagIds);
 	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
 	const productId = nanoid();
-	const preparedVariants = prepareCreateProductVariants(productId, variants);
-	const variantIdByClientId = new Map(
-		preparedVariants.map((variant) => [variant.clientId, variant.id])
+	const prepared = prepareCreateProductVariants(productId, variants, data.tier);
+	const variantIdByClientId = new Map<string, string>(
+		prepared.colors.map((c) => [c.clientId, c.id!])
 	);
 	const productImages = images ?? [];
 	const normalizedImageMetadata = normalizeCreateProductImageMetadata(
@@ -392,18 +400,32 @@ export async function createProduct(
 				);
 			}
 
-			if (preparedVariants.length > 0) {
+			if (prepared.colors.length > 0) {
+				await tx.insert(productVariantColor).values(
+					prepared.colors.map(
+						(c): NewProductVariantColor => ({
+							id: c.id,
+							productId: c.productId,
+							color: c.color,
+							colorHex: c.colorHex,
+							basePrice: c.basePrice,
+							compareAtPrice: c.compareAtPrice,
+							sortOrder: c.sortOrder
+						})
+					)
+				);
+			}
+
+			if (prepared.variants.length > 0) {
 				await tx.insert(productVariant).values(
-					preparedVariants.map(
-						(variant): NewProductVariant => ({
-							id: variant.id,
-							productId: variant.productId,
-							size: variant.size,
-							color: variant.color,
-							colorHex: variant.colorHex,
-							priceOverride: variant.priceOverride,
-							isActive: variant.isActive,
-							sortOrder: variant.sortOrder
+					prepared.variants.map(
+						(v): NewProductVariant => ({
+							id: v.id,
+							productId: v.productId,
+							variantColorId: v.variantColorId,
+							size: v.size,
+							isActive: v.isActive,
+							sortOrder: v.sortOrder
 						})
 					)
 				);
@@ -506,13 +528,6 @@ export async function updateProduct(
 	if (resolvedTier === 'drop' && normalizedDropId === null) {
 		data.isActive = false;
 	}
-
-	validateResolvedProductPricing({
-		tier: resolvedTier,
-		basePrice: data.basePrice ?? existing.basePrice,
-		compareAtPrice:
-			data.compareAtPrice === undefined ? existing.compareAtPrice : data.compareAtPrice
-	});
 
 	const normalizedTagIds = normalizeTagIds(tagIds);
 	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
@@ -643,6 +658,18 @@ export async function createProductVariant(
 		});
 	}
 
+	const [colorRow] = await getDb()
+		.select()
+		.from(productVariantColor)
+		.where(eq(productVariantColor.id, data.variantColorId))
+		.limit(1);
+
+	if (!colorRow) {
+		throw new ProductError('Product variant color not found.', ErrorCode.VALIDATION_ERROR, {
+			variantColorId: data.variantColorId
+		});
+	}
+
 	try {
 		const [created] = await getDb().insert(productVariant).values(data).returning();
 
@@ -650,7 +677,7 @@ export async function createProductVariant(
 			throw new ProductError('Product variant was not created.', ErrorCode.INTERNAL_ERROR);
 		}
 
-		return toProductVariantDTO(created, productRow);
+		return toProductVariantDTO(created, colorRow);
 	} catch (error) {
 		throw mapProductVariantPersistenceError(error);
 	}
@@ -724,6 +751,98 @@ export async function deleteProductVariant(ctx: ServiceContext, variantId: strin
 	}
 }
 
+export async function createProductVariantColor(
+	ctx: ServiceContext,
+	productId: string,
+	input: CreateProductVariantColorInput
+): Promise<ProductVariantColor> {
+	requireAdmin(ctx.actor);
+
+	const parsed = parseInsertProductVariantColor(productId, input);
+	const db = getDb();
+
+	try {
+		const [created] = await db
+			.insert(productVariantColor)
+			.values({
+				id: nanoid(),
+				productId,
+				color: parsed.color,
+				colorHex: parsed.colorHex,
+				basePrice: parsed.basePrice,
+				compareAtPrice: parsed.compareAtPrice,
+				sortOrder: parsed.sortOrder ?? 0
+			})
+			.returning();
+
+		if (!created) {
+			throw new ProductError('Product variant color was not created.', ErrorCode.INTERNAL_ERROR);
+		}
+
+		return created;
+	} catch (error) {
+		throw mapProductPersistenceError(error);
+	}
+}
+
+export async function updateProductVariantColor(
+	ctx: ServiceContext,
+	colorId: string,
+	input: UpdateProductVariantColorInput
+): Promise<ProductVariantColor> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+	const result = updateProductVariantColorSchema.safeParse(input);
+
+	if (!result.success) {
+		throw new ProductError('Invalid product variant color data.', ErrorCode.VALIDATION_ERROR, {
+			issues: result.error.issues
+		});
+	}
+
+	const updateValues = removeUndefinedValues(result.data);
+
+	try {
+		const [updated] = await db
+			.update(productVariantColor)
+			.set(updateValues)
+			.where(eq(productVariantColor.id, colorId))
+			.returning();
+
+		if (!updated) {
+			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
+				colorId
+			});
+		}
+
+		return updated;
+	} catch (error) {
+		throw mapProductPersistenceError(error);
+	}
+}
+
+export async function deleteProductVariantColor(ctx: ServiceContext, colorId: string): Promise<void> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+
+	try {
+		const [deleted] = await db
+			.delete(productVariantColor)
+			.where(eq(productVariantColor.id, colorId))
+			.returning({ id: productVariantColor.id });
+
+		if (!deleted) {
+			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
+				colorId
+			});
+		}
+	} catch (error) {
+		throw mapProductPersistenceError(error);
+	}
+}
+
 export async function listProductVariants(
 	ctx: ServiceContext | null,
 	productId: string,
@@ -745,14 +864,22 @@ export async function listProductVariants(
 	}
 
 	const rows = await getDb()
-		.select()
+		.select({
+			variant: productVariant,
+			color: productVariantColor
+		})
 		.from(productVariant)
+		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.where(and(...conditions))
-		.orderBy(asc(productVariant.sortOrder), asc(productVariant.size), asc(productVariant.color))
+		.orderBy(
+			asc(productVariant.sortOrder),
+			asc(productVariant.size),
+			asc(productVariantColor.color)
+		)
 		.limit(limit)
 		.offset(offset);
 
-	return rows.map((row) => toProductVariantDTO(row, productRow));
+	return rows.map(({ variant, color }) => toProductVariantDTO(variant, color));
 }
 
 export async function addProductImage(
@@ -1123,15 +1250,18 @@ function toTagDTO(row: Tag): TagDTO {
 	};
 }
 
-function toProductVariantDTO(row: ProductVariant, productRow: Product): ProductVariantDTO {
+function toProductVariantDTO(row: ProductVariant, colorRow: ProductVariantColor): ProductVariantDTO {
 	return {
 		id: row.id,
 		productId: row.productId,
+		variantColorId: row.variantColorId,
 		size: row.size,
-		color: row.color,
-		colorHex: row.colorHex,
-		priceOverride: row.priceOverride,
-		effectivePrice: row.priceOverride ?? productRow.basePrice,
+		color: colorRow.color,
+		colorHex: colorRow.colorHex,
+		priceOverride: null,
+		basePrice: colorRow.basePrice,
+		compareAtPrice: colorRow.compareAtPrice,
+		effectivePrice: colorRow.basePrice,
 		isActive: row.isActive,
 		sortOrder: row.sortOrder,
 		createdAt: row.createdAt,
@@ -1157,13 +1287,14 @@ function toProductDTO(
 	row: Product,
 	input: {
 		category: Category | null;
-		variants: ProductVariant[];
+		variants: ProductVariantDTO[];
 		images: ProductImage[];
 		tags: Tag[];
 		dropAssignment: ProductDropAssignmentDTO | null;
 	}
 ): ProductDTO {
 	const images = input.images.map(toProductImageDTO);
+	const primaryVariant = input.variants[0];
 
 	return {
 		id: row.id,
@@ -1174,8 +1305,8 @@ function toProductDTO(
 		categoryId: row.categoryId,
 		category: input.category ? toCategoryDTO(input.category) : null,
 		tier: row.tier,
-		basePrice: row.basePrice,
-		compareAtPrice: row.compareAtPrice,
+		basePrice: primaryVariant ? primaryVariant.basePrice : 0,
+		compareAtPrice: primaryVariant ? primaryVariant.compareAtPrice : null,
 		gender: row.gender,
 		fit: row.fit,
 		material: row.material,
@@ -1187,7 +1318,7 @@ function toProductDTO(
 		metaDescription: row.metaDescription,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
-		variants: input.variants.map((variant) => toProductVariantDTO(variant, row)),
+		variants: input.variants,
 		images,
 		tags: input.tags.map(toTagDTO),
 		dropAssignment: input.dropAssignment,
@@ -1318,15 +1449,32 @@ function normalizePrimaryImageIndex(value: number | undefined, imageCount: numbe
 	return index;
 }
 
+function parseInsertProductVariantColor(
+	productId: string,
+	input: Omit<InsertProductVariantColor, 'productId'>
+): InsertProductVariantColor {
+	const result = insertProductVariantColorSchema.safeParse({ ...input, productId });
+
+	if (!result.success) {
+		throw new ProductError('Invalid product variant color data.', ErrorCode.VALIDATION_ERROR, {
+			issues: result.error.issues
+		});
+	}
+
+	return result.data;
+}
+
 function prepareCreateProductVariants(
 	productId: string,
-	variants: CreateProductDraftVariantInput[] | undefined
-): PreparedProductVariant[] {
-	if (!variants || variants.length === 0) return [];
+	variants: CreateProductDraftVariantInput[] | undefined,
+	tier: Product['tier']
+): PreparedProductVariants {
+	if (!variants || variants.length === 0) return { colors: [], variants: [] };
 
 	const seenClientIds = new Set<string>();
-	const seenOptionKeys = new Set<string>();
-	const prepared: PreparedProductVariant[] = [];
+	const seenColors = new Set<string>();
+	const preparedColors: (NewProductVariantColor & { clientId: string })[] = [];
+	const preparedVariants: NewProductVariant[] = [];
 
 	for (const variant of variants) {
 		const clientId = variant.clientId.trim();
@@ -1343,38 +1491,90 @@ function prepareCreateProductVariants(
 			});
 		}
 
-		const variantInput: CreateProductVariantInput = {
-			size: variant.size,
-			color: variant.color,
-			colorHex: variant.colorHex,
-			priceOverride: variant.priceOverride,
-			isActive: variant.isActive,
-			sortOrder: variant.sortOrder
-		};
-		const data = parseInsertProductVariant(productId, variantInput);
-		const optionKey = `${data.size}\u0000${data.color.trim().toLowerCase()}`;
-
-		if (seenOptionKeys.has(optionKey)) {
+		const colorName = variant.color.trim();
+		const colorKey = colorName.toLowerCase();
+		if (seenColors.has(colorKey)) {
 			throw new ProductError(
-				'Product variant size and color already exist for this product.',
+				'Product variant color already exists for this product.',
 				ErrorCode.CONFLICT,
 				{
-					size: data.size,
-					color: data.color
+					color: colorName
 				}
 			);
 		}
 
-		seenClientIds.add(clientId);
-		seenOptionKeys.add(optionKey);
-		prepared.push({
-			id: nanoid(),
-			clientId,
-			...data
+		const parsedColor = parseInsertProductVariantColor(productId, {
+			color: variant.color,
+			colorHex: variant.colorHex,
+			basePrice: variant.basePrice,
+			compareAtPrice: variant.compareAtPrice,
+			sortOrder: variant.sortOrder
 		});
+
+		validateResolvedProductPricing({
+			tier,
+			basePrice: parsedColor.basePrice,
+			compareAtPrice: parsedColor.compareAtPrice
+		});
+
+		const colorId = nanoid();
+		seenClientIds.add(clientId);
+		seenColors.add(colorKey);
+
+		preparedColors.push({
+			id: colorId,
+			clientId,
+			productId,
+			color: parsedColor.color,
+			colorHex: parsedColor.colorHex ?? null,
+			basePrice: parsedColor.basePrice,
+			compareAtPrice: parsedColor.compareAtPrice ?? null,
+			sortOrder: parsedColor.sortOrder ?? 0
+		});
+
+		if (!variant.sizes || variant.sizes.length === 0) {
+			throw new ProductError(
+				'At least one size is required for each color variant.',
+				ErrorCode.VALIDATION_ERROR,
+				{
+					color: colorName
+				}
+			);
+		}
+
+		const seenSizes = new Set<string>();
+		for (const size of variant.sizes) {
+			if (seenSizes.has(size)) {
+				throw new ProductError(
+					'Duplicate sizes are not allowed within the same color variant.',
+					ErrorCode.VALIDATION_ERROR,
+					{
+						color: colorName,
+						size
+					}
+				);
+			}
+			seenSizes.add(size);
+
+			const parsedVariant = parseInsertProductVariant(productId, {
+				variantColorId: colorId,
+				size,
+				isActive: true,
+				sortOrder: variant.sortOrder
+			});
+
+			preparedVariants.push({
+				id: nanoid(),
+				productId,
+				variantColorId: colorId,
+				size: parsedVariant.size,
+				isActive: parsedVariant.isActive ?? true,
+				sortOrder: parsedVariant.sortOrder ?? 0
+			});
+		}
 	}
 
-	return prepared;
+	return { colors: preparedColors, variants: preparedVariants };
 }
 
 function normalizeCreateProductImageMetadata(
@@ -1798,11 +1998,16 @@ async function assertVariantBelongsToProduct(
 ): Promise<void> {
 	if (!variantId) return;
 
-	const existing = await findProductVariantById(variantId, { includeInactive: true });
+	const existing = await getDb()
+		.select()
+		.from(productVariantColor)
+		.where(and(eq(productVariantColor.id, variantId), eq(productVariantColor.productId, productId)))
+		.limit(1)
+		.then((rows) => rows[0] ?? null);
 
-	if (!existing || existing.productId !== productId) {
+	if (!existing) {
 		throw new ProductError(
-			'Product variant not found for this product.',
+			'Product variant color not found for this product.',
 			ErrorCode.VARIANT_NOT_FOUND,
 			{
 				productId,
@@ -1986,15 +2191,19 @@ async function hydrateProduct(
 }
 
 async function hydrateProductVariant(row: ProductVariant): Promise<ProductVariantDTO> {
-	const productRow = await findProductByLookup({ id: row.productId }, { includeInactive: true });
+	const [colorRow] = await getDb()
+		.select()
+		.from(productVariantColor)
+		.where(eq(productVariantColor.id, row.variantColorId))
+		.limit(1);
 
-	if (!productRow) {
-		throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, {
-			productId: row.productId
+	if (!colorRow) {
+		throw new ProductError('Product variant color not found.', ErrorCode.INTERNAL_ERROR, {
+			variantColorId: row.variantColorId
 		});
 	}
 
-	return toProductVariantDTO(row, productRow);
+	return toProductVariantDTO(row, colorRow);
 }
 
 async function hydrateProducts(
@@ -2019,14 +2228,22 @@ async function hydrateProducts(
 					)
 			: Promise.resolve([]);
 	const variantsPromise = db
-		.select()
+		.select({
+			variant: productVariant,
+			color: productVariantColor
+		})
 		.from(productVariant)
+		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.where(
 			options.includeInactiveRelations
 				? inArray(productVariant.productId, productIds)
 				: and(inArray(productVariant.productId, productIds), eq(productVariant.isActive, true))
 		)
-		.orderBy(asc(productVariant.sortOrder), asc(productVariant.size), asc(productVariant.color));
+		.orderBy(
+			asc(productVariant.sortOrder),
+			asc(productVariant.size),
+			asc(productVariantColor.color)
+		);
 	const imagesPromise = db
 		.select()
 		.from(productImage)
@@ -2069,7 +2286,15 @@ async function hydrateProducts(
 		tagsPromise
 	]);
 	const categoryById = new Map(categories.map((row) => [row.id, row]));
-	const variantsByProductId = groupByProductId(variants);
+
+	const variantsByProductId = new Map<string, ProductVariantDTO[]>();
+	for (const row of variants) {
+		const pid = row.variant.productId;
+		const current = variantsByProductId.get(pid) ?? [];
+		current.push(toProductVariantDTO(row.variant, row.color));
+		variantsByProductId.set(pid, current);
+	}
+
 	const imagesByProductId = groupByProductId(images);
 	const dropAssignmentByProductId = new Map<string, ProductDropAssignmentDTO>();
 	const tagsByProductId = new Map<string, Tag[]>();

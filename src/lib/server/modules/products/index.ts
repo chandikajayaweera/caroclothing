@@ -8,11 +8,13 @@ export {
 	createCategory,
 	createProduct,
 	createProductVariant,
+	createProductVariantColor,
 	createTag,
 	deleteCategory,
 	deleteProduct,
 	deleteProductImage,
 	deleteProductVariant,
+	deleteProductVariantColor,
 	deleteTag,
 	getCategory,
 	getProduct,
@@ -28,5 +30,6 @@ export {
 	updateCategory,
 	updateProduct,
 	updateProductVariant,
+	updateProductVariantColor,
 	updateTag
 } from './products.service';

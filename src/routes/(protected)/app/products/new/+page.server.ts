@@ -7,6 +7,7 @@ import {
 	GENDER_TIERS,
 	PRODUCT_TIERS,
 	SIZE_TIERS,
+	type SizeTier,
 	createProduct,
 	createProductFormSchema,
 	listCategories,
@@ -42,8 +43,6 @@ const createProductDefaults = {
 	shortDescription: null,
 	categoryId: null,
 	tier: 'core' as const,
-	basePrice: 2500,
-	compareAtPrice: null,
 	gender: 'unisex' as const,
 	fit: 'oversized' as const,
 	material: null,
@@ -58,9 +57,20 @@ const createProductDefaults = {
 	dropId: null,
 	primaryImageIndex: 0,
 	images: [] as File[],
-	variants: [],
-	imageMetadata: [],
-	redirectTo: 'view' as const
+	variants: [
+		{
+			clientId: 'default-color-card',
+			color: 'Default',
+			colorHex: '#000000',
+			basePrice: 2500,
+			compareAtPrice: null,
+			sortOrder: 1,
+			sizes: ['M'] as SizeTier[]
+		}
+	],
+	imageMetadata: [] as any[],
+	redirectTo: 'view' as const,
+	syncPrices: false
 };
 
 export const load: PageServerLoad = async ({ locals, platform }) => {

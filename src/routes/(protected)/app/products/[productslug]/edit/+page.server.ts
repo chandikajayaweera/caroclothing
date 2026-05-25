@@ -11,10 +11,14 @@ import {
 	addProductImageFormSchema,
 	createProductVariant,
 	createProductVariantFormSchema,
+	createProductVariantColor,
+	createProductVariantColorActionFormSchema,
 	deleteProductImage,
 	deleteProductImageFormSchema,
 	deleteProductVariant,
 	deleteProductVariantFormSchema,
+	deleteProductVariantColor,
+	deleteProductVariantColorActionFormSchema,
 	getProduct,
 	listCategories,
 	listTags,
@@ -26,6 +30,8 @@ import {
 	updateProductFormSchema,
 	updateProductVariant,
 	updateProductVariantActionFormSchema,
+	updateProductVariantColor,
+	updateProductVariantColorActionFormSchema,
 	type ProductDTO
 } from '$lib/server/modules/products';
 import { listDrops } from '$lib/server/modules/drops';
@@ -59,8 +65,6 @@ function toUpdateProductFormData(product: ProductDTO) {
 		shortDescription: product.shortDescription,
 		categoryId: product.categoryId,
 		tier: product.tier,
-		basePrice: product.basePrice,
-		compareAtPrice: product.compareAtPrice,
 		gender: product.gender,
 		fit: product.fit,
 		material: product.material,
@@ -95,7 +99,10 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			addImageForm,
 			setPrimaryImageForm,
 			deleteImageForm,
-			reorderImagesForm
+			reorderImagesForm,
+			createVariantColorForm,
+			updateVariantColorForm,
+			deleteVariantColorForm
 		] = await Promise.all([
 			superValidate(toUpdateProductFormData(product), zod4(updateProductFormSchema), {
 				id: 'updateProduct'
@@ -103,9 +110,7 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			superValidate(
 				{
 					size: SIZE_TIERS[1] ?? SIZE_TIERS[0],
-					color: '',
-					colorHex: null,
-					priceOverride: null,
+					variantColorId: product.variants[0]?.variantColorId ?? '',
 					isActive: true,
 					sortOrder: product.variants.length + 1
 				},
@@ -139,7 +144,16 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 				{
 					id: 'reorderProductImages'
 				}
-			)
+			),
+			superValidate(zod4(createProductVariantColorActionFormSchema), {
+				id: 'createProductVariantColor'
+			}),
+			superValidate(zod4(updateProductVariantColorActionFormSchema), {
+				id: 'updateProductVariantColor'
+			}),
+			superValidate(zod4(deleteProductVariantColorActionFormSchema), {
+				id: 'deleteProductVariantColor'
+			})
 		]);
 
 		return {
@@ -158,7 +172,10 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			addImageForm,
 			setPrimaryImageForm,
 			deleteImageForm,
-			reorderImagesForm
+			reorderImagesForm,
+			createVariantColorForm,
+			updateVariantColorForm,
+			deleteVariantColorForm
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -236,6 +253,60 @@ export const actions: Actions = {
 		try {
 			await deleteProductVariant(ctx, form.data.variantId);
 			return message(form, 'Variant deleted.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	createProductVariantColor: async ({ locals, params, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
+		const form = await superValidate(request, zod4(createProductVariantColorActionFormSchema), {
+			id: 'createProductVariantColor'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			const product = await getProduct(
+				ctx,
+				{ slug: params.productslug },
+				{ includeInactive: true }
+			);
+			await createProductVariantColor(ctx, product.id, form.data);
+			return message(form, 'Variant color created.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	updateProductVariantColor: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
+		const form = await superValidate(request, zod4(updateProductVariantColorActionFormSchema), {
+			id: 'updateProductVariantColor'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			const { variantColorId, ...data } = form.data;
+			await updateProductVariantColor(ctx, variantColorId, data);
+			return message(form, 'Variant color updated.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	deleteProductVariantColor: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
+		const form = await superValidate(request, zod4(deleteProductVariantColorActionFormSchema), {
+			id: 'deleteProductVariantColor'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			await deleteProductVariantColor(ctx, form.data.variantColorId);
+			return message(form, 'Variant color deleted.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

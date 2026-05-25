@@ -22,9 +22,11 @@ import {
 	product,
 	productImage,
 	productVariant,
+	productVariantColor,
 	type Product,
 	type ProductImage,
-	type ProductVariant
+	type ProductVariant,
+	type ProductVariantColor
 } from '../products/products.drizzle';
 import {
 	insertWishlistItemSchema,
@@ -62,6 +64,7 @@ type WishlistJoinedRow = {
 	item: WishlistItem;
 	product: Product;
 	variant: ProductVariant | null;
+	color: ProductVariantColor | null;
 };
 
 type WishlistSignalAggregateRow = {
@@ -309,11 +312,13 @@ async function listWishlistForUser(
 		.select({
 			item: wishlistItem,
 			product,
-			variant: productVariant
+			variant: productVariant,
+			color: productVariantColor
 		})
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
+		.leftJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.where(where)
 		.orderBy(desc(wishlistItem.addedAt))
 		.limit(limit)
@@ -343,12 +348,14 @@ async function getWishlistItemDTOById(id: string): Promise<WishlistItemDTO> {
 	const [row] = await getDb()
 		.select({
 			item: wishlistItem,
-			product,
-			variant: productVariant
+			product: product,
+			variant: productVariant,
+			color: productVariantColor
 		})
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
+		.leftJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.where(eq(wishlistItem.id, id))
 		.limit(1);
 
@@ -370,8 +377,30 @@ async function hydrateWishlistJoinedRows(rows: WishlistJoinedRow[]): Promise<Wis
 
 	const productIds = uniqueStrings(rows.map((row) => row.product.id));
 	const imagesByProductId = await loadProductImagesByProductId(productIds);
+	const primaryPricesByProductId = await loadPrimaryPricesByProductId(productIds);
 
-	return rows.map((row) => toWishlistItemDTO(row, imagesByProductId));
+	return rows.map((row) => toWishlistItemDTO(row, imagesByProductId, primaryPricesByProductId));
+}
+
+async function loadPrimaryPricesByProductId(productIds: string[]): Promise<Map<string, { basePrice: number; compareAtPrice: number | null }>> {
+	const priceMap = new Map<string, { basePrice: number; compareAtPrice: number | null }>();
+	if (productIds.length === 0) return priceMap;
+
+	const colors = await getDb()
+		.select()
+		.from(productVariantColor)
+		.where(inArray(productVariantColor.productId, productIds))
+		.orderBy(asc(productVariantColor.sortOrder), asc(productVariantColor.createdAt));
+
+	for (const color of colors) {
+		if (!priceMap.has(color.productId)) {
+			priceMap.set(color.productId, {
+				basePrice: color.basePrice,
+				compareAtPrice: color.compareAtPrice
+			});
+		}
+	}
+	return priceMap;
 }
 
 async function hydrateWishlistSignals(
@@ -385,34 +414,48 @@ async function hydrateWishlistSignals(
 	const productRows = await db.select().from(product).where(inArray(product.id, productIds));
 	const variantRows =
 		variantIds.length > 0
-			? await db.select().from(productVariant).where(inArray(productVariant.id, variantIds))
+			? await db
+					.select({
+						variant: productVariant,
+						color: productVariantColor
+					})
+					.from(productVariant)
+					.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+					.where(inArray(productVariant.id, variantIds))
 			: [];
 	const imagesByProductId = await loadProductImagesByProductId(productIds);
+	const primaryPricesByProductId = await loadPrimaryPricesByProductId(productIds);
 	const productsById = new Map(productRows.map((row) => [row.id, row]));
-	const variantsById = new Map(variantRows.map((row) => [row.id, row]));
+	const variantsById = new Map(variantRows.map((row) => [row.variant.id, row]));
 
 	return rows
 		.map((row) => {
 			const productRow = productsById.get(row.productId);
 			if (!productRow) return null;
 
-			const variantRow = row.variantId ? (variantsById.get(row.variantId) ?? null) : null;
+			const variantJoined = row.variantId ? (variantsById.get(row.variantId) ?? null) : null;
 			const imageUrl = resolveWishlistImageUrl(
 				imagesByProductId.get(row.productId) ?? [],
-				row.variantId
+				variantJoined ? variantJoined.variant.variantColorId : null
 			);
+			const primaryPrices = primaryPricesByProductId.get(row.productId);
 
 			return {
 				productId: row.productId,
 				variantId: row.variantId,
 				saveCount: row.saveCount,
 				lastSavedAt: new Date(row.lastSavedAtMs),
-				product: toWishlistProductSummaryDTO(productRow, imageUrl),
-				variant: variantRow ? toWishlistVariantSummaryDTO(variantRow, productRow) : null,
+				product: toWishlistProductSummaryDTO(
+					productRow,
+					imageUrl,
+					primaryPrices?.basePrice ?? 0,
+					primaryPrices?.compareAtPrice ?? null
+				),
+				variant: variantJoined ? toWishlistVariantSummaryDTO(variantJoined.variant, variantJoined.color) : null,
 				imageUrl,
-				effectivePrice: variantRow?.priceOverride ?? productRow.basePrice,
+				effectivePrice: variantJoined ? variantJoined.color.basePrice : primaryPrices?.basePrice ?? 0,
 				isAvailable:
-					productRow.isActive && (row.variantId === null || variantRow?.isActive === true)
+					productRow.isActive && (row.variantId === null || variantJoined?.variant.isActive === true)
 			};
 		})
 		.filter((row): row is WishlistSignalDTO => row !== null);
@@ -434,13 +477,15 @@ async function loadProductImagesByProductId(
 
 function toWishlistItemDTO(
 	row: WishlistJoinedRow,
-	imagesByProductId: Map<string, ProductImage[]>
+	imagesByProductId: Map<string, ProductImage[]>,
+	primaryPricesByProductId: Map<string, { basePrice: number; compareAtPrice: number | null }>
 ): WishlistItemDTO {
 	const imageUrl = resolveWishlistImageUrl(
 		imagesByProductId.get(row.product.id) ?? [],
-		row.item.variantId
+		row.variant ? row.variant.variantColorId : null
 	);
-	const variant = row.variant ? toWishlistVariantSummaryDTO(row.variant, row.product) : null;
+	const variant = row.variant && row.color ? toWishlistVariantSummaryDTO(row.variant, row.color) : null;
+	const primaryPrices = primaryPricesByProductId.get(row.product.id);
 
 	return {
 		id: row.item.id,
@@ -448,10 +493,15 @@ function toWishlistItemDTO(
 		productId: row.item.productId,
 		variantId: row.item.variantId,
 		addedAt: row.item.addedAt,
-		product: toWishlistProductSummaryDTO(row.product, imageUrl),
+		product: toWishlistProductSummaryDTO(
+			row.product,
+			imageUrl,
+			primaryPrices?.basePrice ?? 0,
+			primaryPrices?.compareAtPrice ?? null
+		),
 		variant,
 		imageUrl,
-		effectivePrice: variant?.effectivePrice ?? row.product.basePrice,
+		effectivePrice: variant?.effectivePrice ?? primaryPrices?.basePrice ?? 0,
 		isAvailable:
 			row.product.isActive && (row.item.variantId === null || row.variant?.isActive === true)
 	};
@@ -459,7 +509,9 @@ function toWishlistItemDTO(
 
 function toWishlistProductSummaryDTO(
 	row: Product,
-	imageUrl: string | null
+	imageUrl: string | null,
+	basePrice: number,
+	compareAtPrice: number | null
 ): WishlistProductSummaryDTO {
 	return {
 		id: row.id,
@@ -467,8 +519,8 @@ function toWishlistProductSummaryDTO(
 		slug: row.slug,
 		shortDescription: row.shortDescription,
 		tier: row.tier,
-		basePrice: row.basePrice,
-		compareAtPrice: row.compareAtPrice,
+		basePrice,
+		compareAtPrice,
 		isActive: row.isActive,
 		imageUrl
 	};
@@ -476,16 +528,16 @@ function toWishlistProductSummaryDTO(
 
 function toWishlistVariantSummaryDTO(
 	row: ProductVariant,
-	productRow: Product
+	colorRow: ProductVariantColor
 ): WishlistVariantSummaryDTO {
 	return {
 		id: row.id,
 		productId: row.productId,
 		size: row.size,
-		color: row.color,
-		colorHex: row.colorHex,
-		priceOverride: row.priceOverride,
-		effectivePrice: row.priceOverride ?? productRow.basePrice,
+		color: colorRow.color,
+		colorHex: colorRow.colorHex,
+		priceOverride: null,
+		effectivePrice: colorRow.basePrice,
 		isActive: row.isActive
 	};
 }

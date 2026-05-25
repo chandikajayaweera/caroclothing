@@ -101,10 +101,6 @@ export const product = sqliteTable(
 		// 'core'  → always available, minimal branding, quietly restocked
 		// See PRODUCT_TIERS and brand identity §06 for full design rules.
 		tier: text('tier', { enum: PRODUCT_TIERS }).default('core').notNull(),
-		// ── Pricing ───────────────────────────────────────────────────────────
-		// Monetary values are stored as whole LKR integer amounts. No floats.
-		basePrice: integer('base_price').notNull(),
-		compareAtPrice: integer('compare_at_price'), // "was" price for strike-through
 		// ── Attributes ────────────────────────────────────────────────────────
 		gender: text('gender', { enum: GENDER_TIERS }).default('unisex').notNull(),
 		fit: text('fit', { enum: FIT_TIERS }).default('oversized').notNull(),
@@ -132,21 +128,48 @@ export const product = sqliteTable(
 		index('product_new_arrival_idx').on(table.isNewArrival, table.isActive),
 		index('product_created_idx').on(table.createdAt),
 		// Tier-based queries: PLP "Shop Core", "Shop Drops", admin tier management
-		index('product_tier_active_idx').on(table.tier, table.isActive),
-		check('product_base_price_positive', sql`${table.basePrice} > 0`),
+		index('product_tier_active_idx').on(table.tier, table.isActive)
+	]
+);
+
+// ---------------------------------------------------------------------------
+// PRODUCT VARIANT COLORS
+// ---------------------------------------------------------------------------
+
+export const productVariantColor = sqliteTable(
+	'product_variant_color',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => nanoid()),
+		productId: text('product_id')
+			.notNull()
+			.references(() => product.id, { onDelete: 'cascade' }),
+		color: text('color').notNull(), // display name e.g. "Void Black"
+		colorHex: text('color_hex'), // "#0A0A0A" for swatch rendering
+		basePrice: integer('base_price').notNull(),
+		compareAtPrice: integer('compare_at_price'), // "was" price for strike-through
+		sortOrder: integer('sort_order').default(0).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(table) => [
+		index('color_product_idx').on(table.productId),
+		check('color_base_price_positive', sql`${table.basePrice} > 0`),
 		check(
-			'product_compare_at_gt_base',
+			'color_compare_at_gt_base',
 			sql`${table.compareAtPrice} IS NULL OR ${table.compareAtPrice} > ${table.basePrice}`
-		),
-		check(
-			'product_tier_price_band',
-			sql`(${table.tier} = 'drop' AND ${table.basePrice} BETWEEN 3000 AND 4500) OR (${table.tier} = 'core' AND ${table.basePrice} BETWEEN 2500 AND 3200)`
 		)
 	]
 );
 
 // ---------------------------------------------------------------------------
-// PRODUCT VARIANTS  (size × color combination)
+// PRODUCT VARIANTS  (size under color variant)
 // ---------------------------------------------------------------------------
 
 export const productVariant = sqliteTable(
@@ -158,13 +181,12 @@ export const productVariant = sqliteTable(
 		productId: text('product_id')
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
+		variantColorId: text('variant_color_id')
+			.notNull()
+			.references(() => productVariantColor.id, { onDelete: 'cascade' }),
 		size: text('size', {
 			enum: SIZE_TIERS
 		}).notNull(),
-		color: text('color').notNull(), // display name e.g. "Void Black"
-		colorHex: text('color_hex'), // "#0A0A0A" for swatch rendering
-		// null = inherit product.basePrice at query time — do NOT cache here
-		priceOverride: integer('price_override'),
 		isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
 		sortOrder: integer('sort_order').default(0).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
@@ -177,13 +199,9 @@ export const productVariant = sqliteTable(
 	},
 	(table) => [
 		index('variant_product_idx').on(table.productId),
-		// Prevents duplicate size+color combos per product
-		uniqueIndex('variant_product_size_color_idx').on(table.productId, table.size, table.color),
+		index('variant_color_idx').on(table.variantColorId),
+		uniqueIndex('variant_color_size_idx').on(table.variantColorId, table.size),
 		index('variant_active_idx').on(table.isActive),
-		check(
-			'variant_price_override_positive',
-			sql`${table.priceOverride} IS NULL OR ${table.priceOverride} > 0`
-		),
 		check('variant_sort_nonnegative', sql`${table.sortOrder} >= 0`)
 	]
 );
@@ -195,7 +213,7 @@ export const productVariant = sqliteTable(
 // Build via: buildMediaKey({ scope: 'products', entityId: productId, variant: 'main', contentType })
 // Resolve to URL via: mediaUrl(r2Key) from media/utils.ts
 //
-// variantId null means the image applies to all variants (e.g. a lifestyle shot).
+// variantId references productVariantColor.id.
 //
 // isPrimary uniqueness is enforced by partial unique indexes:
 //   - one primary image per product when variantId is null
@@ -211,7 +229,7 @@ export const productImage = sqliteTable(
 		productId: text('product_id')
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
-		variantId: text('variant_id').references(() => productVariant.id, {
+		variantId: text('variant_id').references(() => productVariantColor.id, {
 			onDelete: 'set null'
 		}),
 		r2Key: text('r2_key').notNull(), // R2 object key — use mediaUrl(r2Key) to serve
@@ -285,16 +303,29 @@ export const productRelations = relations(product, ({ one, many }) => ({
 		references: [category.id]
 	}),
 	variants: many(productVariant),
+	colors: many(productVariantColor),
 	images: many(productImage),
 	productTags: many(productTag)
 }));
 
-export const productVariantRelations = relations(productVariant, ({ one, many }) => ({
+export const productVariantColorRelations = relations(productVariantColor, ({ one, many }) => ({
+	product: one(product, {
+		fields: [productVariantColor.productId],
+		references: [product.id]
+	}),
+	variants: many(productVariant),
+	images: many(productImage)
+}));
+
+export const productVariantRelations = relations(productVariant, ({ one }) => ({
 	product: one(product, {
 		fields: [productVariant.productId],
 		references: [product.id]
 	}),
-	images: many(productImage)
+	color: one(productVariantColor, {
+		fields: [productVariant.variantColorId],
+		references: [productVariantColor.id]
+	})
 }));
 
 export const productImageRelations = relations(productImage, ({ one }) => ({
@@ -302,9 +333,9 @@ export const productImageRelations = relations(productImage, ({ one }) => ({
 		fields: [productImage.productId],
 		references: [product.id]
 	}),
-	variant: one(productVariant, {
+	variantColor: one(productVariantColor, {
 		fields: [productImage.variantId],
-		references: [productVariant.id]
+		references: [productVariantColor.id]
 	})
 }));
 
@@ -415,8 +446,6 @@ export const insertProductBaseSchema = createInsertSchema(product, {
 	shortDescription: z.string().max(500).optional().nullable(),
 	categoryId: idSchema.optional().nullable(),
 	tier: z.enum(PRODUCT_TIERS).optional(),
-	basePrice: positiveMoneySchema,
-	compareAtPrice: positiveMoneySchema.optional().nullable(),
 	gender: z.enum(GENDER_TIERS).optional(),
 	fit: z.enum(FIT_TIERS).optional(),
 	material: z.string().max(200).optional().nullable(),
@@ -431,7 +460,7 @@ export const insertProductBaseSchema = createInsertSchema(product, {
 	createdAt: true,
 	updatedAt: true
 });
-export const insertProductSchema = insertProductBaseSchema.superRefine(validateProductPricing);
+export const insertProductSchema = insertProductBaseSchema;
 
 export const selectProductSchema = createSelectSchema(product);
 
@@ -442,8 +471,6 @@ export const updateProductBaseSchema = createUpdateSchema(product, {
 	shortDescription: z.string().max(500).optional().nullable(),
 	categoryId: idSchema.optional().nullable(),
 	tier: z.enum(PRODUCT_TIERS).optional(),
-	basePrice: positiveMoneySchema.optional(),
-	compareAtPrice: positiveMoneySchema.optional().nullable(),
 	gender: z.enum(GENDER_TIERS).optional(),
 	fit: z.enum(FIT_TIERS).optional(),
 	material: z.string().max(200).optional().nullable(),
@@ -458,18 +485,48 @@ export const updateProductBaseSchema = createUpdateSchema(product, {
 	createdAt: true,
 	updatedAt: true
 });
-export const updateProductSchema = updateProductBaseSchema.superRefine(validateProductPricing);
+export const updateProductSchema = updateProductBaseSchema;
 
-export const insertProductVariantSchema = createInsertSchema(productVariant, {
+export const insertProductVariantColorSchema = createInsertSchema(productVariantColor, {
 	productId: idSchema,
-	size: z.enum(SIZE_TIERS),
 	color: z.string().min(1).max(50),
 	colorHex: z
 		.string()
 		.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
 		.optional()
 		.nullable(),
-	priceOverride: positiveMoneySchema.optional().nullable(),
+	basePrice: positiveMoneySchema,
+	compareAtPrice: positiveMoneySchema.optional().nullable(),
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+
+export const selectProductVariantColorSchema = createSelectSchema(productVariantColor);
+
+export const updateProductVariantColorSchema = createUpdateSchema(productVariantColor, {
+	productId: idSchema.optional(),
+	color: z.string().min(1).max(50).optional(),
+	colorHex: z
+		.string()
+		.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
+		.optional()
+		.nullable(),
+	basePrice: positiveMoneySchema.optional(),
+	compareAtPrice: positiveMoneySchema.optional().nullable(),
+	sortOrder: sortOrderSchema.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+
+export const insertProductVariantSchema = createInsertSchema(productVariant, {
+	productId: idSchema,
+	variantColorId: idSchema,
+	size: z.enum(SIZE_TIERS),
 	isActive: z.boolean().optional(),
 	sortOrder: sortOrderSchema.optional()
 }).omit({
@@ -482,14 +539,8 @@ export const selectProductVariantSchema = createSelectSchema(productVariant);
 
 export const updateProductVariantSchema = createUpdateSchema(productVariant, {
 	productId: idSchema.optional(),
+	variantColorId: idSchema.optional(),
 	size: z.enum(SIZE_TIERS).optional(),
-	color: z.string().min(1).max(50).optional(),
-	colorHex: z
-		.string()
-		.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
-		.optional()
-		.nullable(),
-	priceOverride: positiveMoneySchema.optional().nullable(),
 	isActive: z.boolean().optional(),
 	sortOrder: sortOrderSchema.optional()
 }).omit({
@@ -557,6 +608,12 @@ export type NewProduct = typeof product.$inferInsert;
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type SelectProduct = z.infer<typeof selectProductSchema>;
 export type UpdateProduct = z.infer<typeof updateProductSchema>;
+
+export type ProductVariantColor = typeof productVariantColor.$inferSelect;
+export type NewProductVariantColor = typeof productVariantColor.$inferInsert;
+export type InsertProductVariantColor = z.infer<typeof insertProductVariantColorSchema>;
+export type SelectProductVariantColor = z.infer<typeof selectProductVariantColorSchema>;
+export type UpdateProductVariantColor = z.infer<typeof updateProductVariantColorSchema>;
 
 export type ProductVariant = typeof productVariant.$inferSelect;
 export type NewProductVariant = typeof productVariant.$inferInsert;

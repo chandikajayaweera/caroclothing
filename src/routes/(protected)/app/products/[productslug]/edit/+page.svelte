@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { AlertTriangle, ArrowLeft, ImageOff, Plus, Star, Upload, X } from 'lucide-svelte';
+	import { AlertTriangle, ArrowLeft, ImageOff, Plus, Save, Star, Trash2, Upload, X } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import type { ActionData, PageData } from './$types';
 
@@ -84,7 +84,78 @@
 		}
 	);
 
+	const {
+		enhance: createVariantColorEnhance,
+		submitting: createVariantColorSubmitting
+	} = superForm(initialForm(() => data.createVariantColorForm));
+
+	const {
+		enhance: updateVariantColorEnhance,
+		submitting: updateVariantColorSubmitting
+	} = superForm(initialForm(() => data.updateVariantColorForm));
+
+	const {
+		enhance: deleteVariantColorEnhance,
+		submitting: deleteVariantColorSubmitting
+	} = superForm(initialForm(() => data.deleteVariantColorForm));
+
 	const product = $derived(data.product);
+	const uniqueColors = $derived(
+		Array.from(
+			new Map(
+				product.variants.map((v) => [
+					v.variantColorId,
+					{ id: v.variantColorId, name: v.color, hex: v.colorHex }
+				])
+			).values()
+		)
+	);
+
+	type ColorCard = {
+		variantColorId: string;
+		color: string;
+		colorHex: string | null;
+		basePrice: number;
+		compareAtPrice: number | null;
+		variants: { id: string; size: string; isActive: boolean; sortOrder: number }[];
+	};
+
+	const colorCards = $derived.by<ColorCard[]>(() => {
+		const cardsMap = new Map<string, ColorCard>();
+
+		for (const variant of product.variants) {
+			const colorId = variant.variantColorId;
+			if (!cardsMap.has(colorId)) {
+				cardsMap.set(colorId, {
+					variantColorId: colorId,
+					color: variant.color,
+					colorHex: variant.colorHex,
+					basePrice: variant.basePrice,
+					compareAtPrice: variant.compareAtPrice,
+					variants: []
+				});
+			}
+			const card = cardsMap.get(colorId)!;
+			card.variants.push({
+				id: variant.id,
+				size: variant.size,
+				isActive: variant.isActive,
+				sortOrder: variant.sortOrder
+			});
+		}
+
+		return Array.from(cardsMap.values()).sort((a, b) => {
+			const aSort = a.variants[0]?.sortOrder ?? 0;
+			const bSort = b.variants[0]?.sortOrder ?? 0;
+			return aSort - bSort;
+		});
+	});
+
+	let activeImageIndex = $state<number | null>(null);
+	const activeImage = $derived(
+		activeImageIndex === null ? null : (product.images[activeImageIndex] ?? null)
+	);
+
 	let newTagDraft = $state('');
 	const dropTierWithoutDrop = $derived(
 		$updateProductForm.tier === 'drop' && !$updateProductForm.dropId
@@ -144,6 +215,10 @@
 			$updateProductForm.isActive = false;
 		}
 	});
+
+	function imagesForColorCard(variantColorId: string) {
+		return product.images.filter((image) => image.variantId === variantColorId);
+	}
 </script>
 
 <svelte:head>
@@ -350,29 +425,7 @@
 					</div>
 				{/if}
 
-				<div class="grid gap-4 md:grid-cols-3">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base price</span>
-						<input
-							name="basePrice"
-							type="number"
-							bind:value={$updateProductForm.basePrice}
-							aria-invalid={$updateProductErrors.basePrice ? 'true' : undefined}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							{...$updateProductConstraints.basePrice}
-						/>
-					</label>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Compare at</span>
-						<input
-							name="compareAtPrice"
-							type="number"
-							bind:value={$updateProductForm.compareAtPrice}
-							aria-invalid={$updateProductErrors.compareAtPrice ? 'true' : undefined}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							{...$updateProductConstraints.compareAtPrice}
-						/>
-					</label>
+				<div class="grid gap-4">
 					<label class="grid gap-1">
 						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Fit</span>
 						<select
@@ -386,12 +439,6 @@
 						</select>
 					</label>
 				</div>
-				{#if $updateProductErrors.basePrice}
-					<p class="font-mono text-[10px] text-red-300">{$updateProductErrors.basePrice[0]}</p>
-				{/if}
-				{#if $updateProductErrors.compareAtPrice}
-					<p class="font-mono text-[10px] text-red-300">{$updateProductErrors.compareAtPrice[0]}</p>
-				{/if}
 
 				<label class="grid gap-1">
 					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
@@ -514,10 +561,10 @@
 					</div>
 				</details>
 
-				<div class="grid gap-3 border border-charcoal bg-void/40 p-4 md:grid-cols-3">
+				<div class="flex flex-wrap items-center gap-x-6 gap-y-3 border border-charcoal bg-void/40 p-3 md:p-4">
 					<label
-						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase {dropTierWithoutDrop
-							? 'opacity-50'
+						class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone {dropTierWithoutDrop
+							? 'opacity-50 cursor-not-allowed'
 							: ''}"
 					>
 						<input
@@ -525,22 +572,29 @@
 							name="isActive"
 							bind:checked={$updateProductForm.isActive}
 							disabled={dropTierWithoutDrop}
+							class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
 						/>
 						Active
 					</label>
 					<label
-						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
+						class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
 					>
-						<input type="checkbox" name="isFeatured" bind:checked={$updateProductForm.isFeatured} />
+						<input
+							type="checkbox"
+							name="isFeatured"
+							bind:checked={$updateProductForm.isFeatured}
+							class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
+						/>
 						Featured
 					</label>
 					<label
-						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
+						class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
 					>
 						<input
 							type="checkbox"
 							name="isNewArrival"
 							bind:checked={$updateProductForm.isNewArrival}
+							class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
 						/>
 						New arrival
 					</label>
@@ -626,336 +680,318 @@
 	</div>
 
 	<div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-		<section class="border border-charcoal bg-charcoal/25">
-			<div class="border-b border-charcoal p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Variants</p>
-				<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Stock Options</h2>
-			</div>
-
-			{#if product.variants.length > 0}
-				<div class="divide-y divide-charcoal md:hidden">
-					{#each product.variants as variant (variant.id)}
-						<article class="p-4">
-							<div class="flex items-start justify-between gap-4">
-								<div>
-									<p class="font-mono text-xs tracking-widest text-bone uppercase">
-										{variant.size} / {variant.color}
-									</p>
-								</div>
-								<span
-									class="font-mono text-[10px] tracking-widest uppercase {variant.isActive
-										? 'text-volt'
-										: 'text-red-300'}"
-								>
-									{variant.isActive ? 'Active' : 'Off'}
-								</span>
-							</div>
-							<div class="mt-3 grid grid-cols-2 gap-2 font-mono text-[10px] uppercase">
-								<span class="text-bone">{formatMoney(variant.effectivePrice)}</span>
-								<span class="text-ash">Sort {variant.sortOrder}</span>
-							</div>
-							<form
-								method="POST"
-								action="?/deleteProductVariant"
-								use:deleteVariantEnhance
-								class="mt-4"
-							>
-								<input type="hidden" name="variantId" value={variant.id} />
-								<button
-									type="submit"
-									disabled={$deleteVariantSubmitting}
-									class="min-h-11 border border-red-400/40 px-4 font-mono text-[10px] tracking-widest text-red-300 uppercase hover:border-red-300 hover:text-red-200 disabled:opacity-50"
-								>
-									Delete variant
-								</button>
-							</form>
-						</article>
-					{/each}
+		<section class="grid gap-4 xl:col-span-2">
+			<div class="border border-charcoal bg-charcoal/25 p-5">
+				<div class="border-b border-charcoal pb-4">
+					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Variants</p>
+					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Colors & Sizes</h2>
 				</div>
 
-				<div class="hidden overflow-x-auto md:block">
-					<table class="w-full min-w-[760px] text-left">
-						<thead class="border-b border-charcoal">
-							<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-								<th class="px-5 py-4 font-normal">Size</th>
-								<th class="px-5 py-4 font-normal">Color</th>
-								<th class="px-5 py-4 font-normal">Price</th>
-								<th class="px-5 py-4 font-normal">Sort</th>
-								<th class="px-5 py-4 font-normal">State</th>
-								<th class="px-5 py-4 text-right font-normal">Action</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each product.variants as variant (variant.id)}
-								<tr class="border-b border-charcoal/70 last:border-b-0">
-									<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">{variant.size}</td>
-									<td class="px-5 py-4">
-										<div class="flex items-center gap-2">
-											{#if variant.colorHex}
-												<span
-													class="h-4 w-4 border border-charcoal"
-													style:background={variant.colorHex}
-													aria-hidden="true"
-												></span>
-											{/if}
-											<span class="font-mono text-[10px] text-ash uppercase">{variant.color}</span>
-										</div>
-									</td>
-									<td class="px-5 py-4 font-mono text-xs text-bone">
-										{formatMoney(variant.effectivePrice)}
-									</td>
-									<td class="px-5 py-4 font-mono text-[10px] text-ash">{variant.sortOrder}</td>
-									<td class="px-5 py-4">
-										<span
-											class="font-mono text-[10px] tracking-widest uppercase {variant.isActive
-												? 'text-volt'
-												: 'text-red-300'}"
+				{#if colorCards.length > 0}
+					<div class="mt-4 grid gap-4">
+						{#each colorCards as card, index (card.variantColorId)}
+							<article class="border border-charcoal bg-void p-4">
+								<form
+									method="POST"
+									action="?/updateProductVariantColor"
+									use:updateVariantColorEnhance
+									class="grid gap-4"
+								>
+									<div class="flex items-center justify-between gap-3 border-b border-charcoal pb-3 mb-2">
+										<h3 class="font-display text-2xl text-bone uppercase">
+											Color Variant: {card.color || `Variant ${index + 1}`}
+										</h3>
+										<input type="hidden" name="variantColorId" value={card.variantColorId} />
+										<button
+											type="submit"
+											disabled={$updateVariantColorSubmitting}
+											class="inline-flex min-h-9 items-center justify-center gap-1.5 border border-ash/30 px-3 font-mono text-[9px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt cursor-pointer"
 										>
-											{variant.isActive ? 'Active' : 'Off'}
-										</span>
-									</td>
-									<td class="px-5 py-4">
+											<Save size={12} aria-hidden="true" />
+											Save Details
+										</button>
+									</div>
+
+									<div class="grid gap-4 md:grid-cols-3">
+										<label class="grid gap-1">
+											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Name</span>
+											<input
+												name="color"
+												value={card.color}
+												placeholder="e.g. Void Black"
+												required
+												class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											/>
+										</label>
+
+										<label class="grid gap-1">
+											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Hex</span>
+											<div class="grid grid-cols-[minmax(0,1fr)_44px]">
+												<input
+													name="colorHex"
+													value={card.colorHex ?? ''}
+													placeholder="#000000"
+													class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+												/>
+												<span
+													class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
+													aria-hidden="true"
+												>
+													{#if isValidHex(card.colorHex)}
+														<span
+															class="h-5 w-5 border border-ash/30"
+															style:background={card.colorHex}
+														></span>
+													{/if}
+												</span>
+											</div>
+										</label>
+
+										<label class="grid gap-1">
+											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort Order</span>
+											<select
+												name="sortOrder"
+												value={card.variants[0]?.sortOrder ?? index + 1}
+												class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											>
+												{#each Array.from({ length: colorCards.length }, (_, i) => i + 1) as sortValue}
+													<option value={sortValue}>{sortValue}</option>
+												{/each}
+											</select>
+										</label>
+									</div>
+
+									<div class="grid gap-4 md:grid-cols-2">
+										<label class="grid gap-1">
+											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base Price</span>
+											<input
+												type="number"
+												name="basePrice"
+												value={card.basePrice}
+												required
+												class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											/>
+										</label>
+
+										<label class="grid gap-1">
+											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Discounted Price / Compare At</span>
+											<input
+												type="number"
+												name="compareAtPrice"
+												value={card.compareAtPrice ?? ''}
+												class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+											/>
+										</label>
+									</div>
+								</form>
+
+								<div class="mt-4 border-t border-charcoal/40 pt-4">
+									<div class="grid gap-1">
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sizes Available (Click to Toggle)</span>
+										<div class="flex flex-wrap gap-2 mt-1">
+											{#each data.sizeOptions as sizeOpt}
+												{@const existingVar = card.variants.find((v) => v.size === sizeOpt.value)}
+												{#if existingVar}
+													<form
+														method="POST"
+														action="?/deleteProductVariant"
+														use:deleteVariantEnhance
+														class="inline"
+													>
+														<input type="hidden" name="variantId" value={existingVar.id} />
+														<button
+															type="submit"
+															disabled={$deleteVariantSubmitting}
+															class="min-h-9 px-3 font-mono text-[10px] tracking-wider border transition-all uppercase bg-volt border-volt text-void font-bold cursor-pointer hover:bg-bone hover:border-bone"
+															title="Click to remove size"
+														>
+															{sizeOpt.label}
+														</button>
+													</form>
+												{:else}
+													<form
+														method="POST"
+														action="?/createProductVariant"
+														use:createVariantEnhance
+														class="inline"
+													>
+														<input type="hidden" name="size" value={sizeOpt.value} />
+														<input type="hidden" name="variantColorId" value={card.variantColorId} />
+														<input type="hidden" name="isActive" value="true" />
+														<input type="hidden" name="sortOrder" value={card.variants.length + 1} />
+														<button
+															type="submit"
+															disabled={$createVariantSubmitting}
+															class="min-h-9 px-3 font-mono text-[10px] tracking-wider border transition-all uppercase bg-void border-charcoal text-ash hover:border-volt hover:text-volt cursor-pointer"
+															title="Click to add size"
+														>
+															{sizeOpt.label}
+														</button>
+													</form>
+												{/if}
+											{/each}
+										</div>
+									</div>
+								</div>
+
+								<div class="mt-4 border-t border-charcoal/40 pt-4">
+									<div class="grid gap-1">
+										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant-specific Images ({imagesForColorCard(card.variantColorId).length})</span>
+										
+										<div class="flex items-center gap-3 mt-2">
+											<form
+												method="POST"
+												action="?/addProductImage"
+												enctype="multipart/form-data"
+												use:addImageEnhance
+											>
+												<input type="hidden" name="productId" value={product.id} />
+												<input type="hidden" name="variantId" value={card.variantColorId} />
+												<input type="hidden" name="position" value={imagesForColorCard(card.variantColorId).length + 1} />
+												<input type="hidden" name="isPrimary" value={imagesForColorCard(card.variantColorId).length === 0 ? 'true' : 'false'} />
+												<label
+													class="relative inline-flex min-h-11 items-center justify-center gap-2 border border-dashed border-ash/30 bg-void px-4 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:border-volt hover:text-volt"
+												>
+													<input
+														type="file"
+														name="image"
+														accept="image/*"
+														onchange={(e) => e.currentTarget.form?.requestSubmit()}
+														class="hidden"
+													/>
+													<Upload size={14} class="text-volt" aria-hidden="true" />
+													Upload variant image
+												</label>
+											</form>
+										</div>
+
+										{#if imagesForColorCard(card.variantColorId).length > 0}
+											<div class="flex flex-wrap gap-3 mt-3">
+												{#each imagesForColorCard(card.variantColorId) as img}
+													{@const imgIndex = product.images.indexOf(img)}
+													<div class="relative block group border border-charcoal hover:border-volt">
+														<button
+															type="button"
+															onclick={() => (activeImageIndex = imgIndex)}
+															class="block cursor-pointer"
+														>
+															<img src={img.imageUrl} alt="" class="h-16 w-16 object-cover" />
+														</button>
+														{#if img.isPrimary}
+															<span class="absolute top-1 left-1 bg-volt text-void px-1 py-0.5 text-[6px] font-mono leading-none uppercase">Primary</span>
+														{/if}
+														<form
+															method="POST"
+															action="?/deleteProductImage"
+															use:deleteImageEnhance
+															class="absolute -top-1 -right-1 hidden group-hover:block"
+														>
+															<input type="hidden" name="imageId" value={img.id} />
+															<button
+																type="submit"
+																disabled={$deleteImageSubmitting}
+																class="grid h-4 w-4 place-items-center bg-red-600 text-white rounded-full text-[8px] cursor-pointer hover:bg-red-500"
+																title="Delete image"
+															>
+																×
+															</button>
+														</form>
+													</div>
+												{/each}
+											</div>
+										{:else}
+											<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase mt-1">
+												No images uploaded for this color variant.
+											</p>
+										{/if}
+									</div>
+								</div>
+
+								{#if colorCards.length > 1}
+									<div class="mt-4 border-t border-charcoal/40 pt-4 flex justify-end">
 										<form
 											method="POST"
-											action="?/deleteProductVariant"
-											use:deleteVariantEnhance
-											class="flex justify-end"
+											action="?/deleteProductVariantColor"
+											use:deleteVariantColorEnhance
 										>
-											<input type="hidden" name="variantId" value={variant.id} />
+											<input type="hidden" name="variantColorId" value={card.variantColorId} />
 											<button
 												type="submit"
-												disabled={$deleteVariantSubmitting}
-												class="font-mono text-[10px] tracking-widest text-red-300 uppercase hover:text-red-200 disabled:opacity-50"
+												disabled={$deleteVariantColorSubmitting}
+												class="inline-flex min-h-9 items-center justify-center gap-1.5 border border-red-400/40 px-3 font-mono text-[9px] tracking-widest text-red-300 uppercase hover:border-red-300 hover:text-red-200 cursor-pointer"
 											>
-												Delete
+												<Trash2 size={12} aria-hidden="true" />
+												Delete Color Card
 											</button>
 										</form>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{:else}
-				<div class="p-10 text-center">
-					<p class="font-display text-4xl text-bone uppercase">No variants</p>
-					<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-						Add sizes and colors before publishing.
+									</div>
+								{/if}
+							</article>
+						{/each}
+					</div>
+				{:else}
+					<p class="mt-4 border border-charcoal bg-void/40 px-4 py-5 font-mono text-[10px] tracking-widest text-ash uppercase">
+						No variants added.
 					</p>
+				{/if}
+			</div>
+
+			<form
+				method="POST"
+				action="?/createProductVariantColor"
+				use:createVariantColorEnhance
+				class="border border-charcoal bg-charcoal/25 p-5 mt-4"
+			>
+				<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Add Color Swatch</h3>
+				<div class="mt-5 grid gap-3">
+					<div class="grid gap-3 sm:grid-cols-2">
+						<label class="grid gap-1">
+							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Name</span>
+							<input
+								name="color"
+								placeholder="e.g. Void Black"
+								required
+								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							/>
+						</label>
+						<label class="grid gap-1">
+							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Hex</span>
+							<input
+								name="colorHex"
+								placeholder="e.g. #0A0A0A"
+								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							/>
+						</label>
+					</div>
+					<div class="grid gap-3 sm:grid-cols-2">
+						<label class="grid gap-1">
+							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base Price</span>
+							<input
+								type="number"
+								name="basePrice"
+								required
+								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							/>
+						</label>
+						<label class="grid gap-1">
+							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Discounted Price / Compare At</span>
+							<input
+								type="number"
+								name="compareAtPrice"
+								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							/>
+						</label>
+					</div>
+					<button
+						type="submit"
+						disabled={$createVariantColorSubmitting}
+						class="min-h-11 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-volt disabled:opacity-50 cursor-pointer"
+					>
+						{$createVariantColorSubmitting ? 'Saving...' : 'Add Color Swatch'}
+					</button>
 				</div>
-			{/if}
+			</form>
 		</section>
-
-		<aside class="grid gap-4">
-			<form
-				method="POST"
-				action="?/createProductVariant"
-				use:createVariantEnhance
-				class="border border-charcoal bg-void p-5"
-			>
-				<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Create variant</h3>
-				<div class="mt-5 grid gap-3">
-					<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Size</span>
-							<select
-								name="size"
-								bind:value={$createVariantForm.size}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								{#each data.sizeOptions as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color</span>
-							<input
-								name="color"
-								bind:value={$createVariantForm.color}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createVariantConstraints.color}
-							/>
-						</label>
-					</div>
-					{#if $createVariantErrors.color}
-						<p class="font-mono text-[10px] text-red-300">{$createVariantErrors.color[0]}</p>
-					{/if}
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color hex</span
-							>
-							<div class="grid grid-cols-[minmax(0,1fr)_44px]">
-								<input
-									name="colorHex"
-									bind:value={$createVariantForm.colorHex}
-									class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-									{...$createVariantConstraints.colorHex}
-								/>
-								<span
-									class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
-									aria-hidden="true"
-								>
-									{#if isValidHex($createVariantForm.colorHex)}
-										<span
-											class="h-5 w-5 border border-ash/30"
-											style:background={$createVariantForm.colorHex}
-										></span>
-									{/if}
-								</span>
-							</div>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Price override</span
-							>
-							<input
-								name="priceOverride"
-								type="number"
-								bind:value={$createVariantForm.priceOverride}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createVariantConstraints.priceOverride}
-							/>
-						</label>
-					</div>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort</span>
-						<select
-							name="sortOrder"
-							bind:value={$createVariantForm.sortOrder}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							{#each variantSortOptions(true) as sortValue (sortValue)}
-								<option value={sortValue}>{sortValue}</option>
-							{/each}
-						</select>
-					</label>
-					<label
-						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
-					>
-						<input type="checkbox" name="isActive" bind:checked={$createVariantForm.isActive} />
-						Active
-					</label>
-					<button
-						type="submit"
-						disabled={$createVariantSubmitting}
-						class="min-h-11 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-volt disabled:opacity-50"
-					>
-						{$createVariantSubmitting ? 'Saving...' : 'Create variant'}
-					</button>
-				</div>
-			</form>
-
-			<form
-				method="POST"
-				action="?/updateProductVariant"
-				use:updateVariantEnhance
-				class="border border-charcoal bg-void p-5"
-			>
-				<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Update variant</h3>
-				<div class="mt-5 grid gap-3">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant</span>
-						<select
-							name="variantId"
-							bind:value={$updateVariantForm.variantId}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							{#each product.variants as variant (variant.id)}
-								<option value={variant.id}>{variantLabel(variant)}</option>
-							{/each}
-						</select>
-					</label>
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Size</span>
-							<select
-								name="size"
-								bind:value={$updateVariantForm.size}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								<option value="">Do not change</option>
-								{#each data.sizeOptions as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color</span>
-							<input
-								name="color"
-								bind:value={$updateVariantForm.color}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateVariantConstraints.color}
-							/>
-						</label>
-					</div>
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color hex</span
-							>
-							<div class="grid grid-cols-[minmax(0,1fr)_44px]">
-								<input
-									name="colorHex"
-									bind:value={$updateVariantForm.colorHex}
-									class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-									{...$updateVariantConstraints.colorHex}
-								/>
-								<span
-									class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
-									aria-hidden="true"
-								>
-									{#if isValidHex($updateVariantForm.colorHex)}
-										<span
-											class="h-5 w-5 border border-ash/30"
-											style:background={$updateVariantForm.colorHex}
-										></span>
-									{/if}
-								</span>
-							</div>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Price override</span
-							>
-							<input
-								name="priceOverride"
-								type="number"
-								bind:value={$updateVariantForm.priceOverride}
-								class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateVariantConstraints.priceOverride}
-							/>
-						</label>
-					</div>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort</span>
-						<select
-							name="sortOrder"
-							bind:value={$updateVariantForm.sortOrder}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							<option value="">Do not change</option>
-							{#each variantSortOptions() as sortValue (sortValue)}
-								<option value={sortValue}>{sortValue}</option>
-							{/each}
-						</select>
-					</label>
-					<label
-						class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
-					>
-						<input type="checkbox" name="isActive" bind:checked={$updateVariantForm.isActive} />
-						Active
-					</label>
-					<button
-						type="submit"
-						disabled={$updateVariantSubmitting}
-						class="min-h-11 border border-ash/30 px-5 py-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt disabled:opacity-50"
-					>
-						{$updateVariantSubmitting ? 'Saving...' : 'Update variant'}
-					</button>
-				</div>
-			</form>
-		</aside>
 	</div>
 
 	<div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -967,8 +1003,12 @@
 
 			{#if product.images.length > 0}
 				<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-					{#each product.images as image (image.id)}
-						<article class="border border-charcoal bg-void">
+					{#each product.images as image, idx (image.id)}
+						<button
+							type="button"
+							onclick={() => (activeImageIndex = idx)}
+							class="border border-charcoal bg-void text-left block hover:border-volt transition-colors w-full cursor-pointer"
+						>
 							<div class="relative">
 								<img
 									src={image.imageUrl}
@@ -984,37 +1024,20 @@
 									</span>
 								{/if}
 							</div>
-							<div class="grid gap-3 p-4">
-								<p class="min-h-5 truncate font-mono text-[10px] text-ash uppercase">
+							<div class="p-4">
+								<p class="truncate font-mono text-[10px] text-ash uppercase">
 									{image.altText ?? 'No alt text'}
 								</p>
-								<p class="font-mono text-[9px] tracking-widest text-ash/60 uppercase">
-									Display order {image.position} / {image.variantId ?? 'Product'}
+								<p class="mt-1 font-mono text-[9px] tracking-widest text-ash/60 uppercase">
+									Position {image.position} / {#if image.variantId}
+										{@const variantColor = uniqueColors.find(c => c.id === image.variantId)}
+										<span class="text-volt">{variantColor?.name ?? 'Color Variant'}</span>
+									{:else}
+										Product-wide
+									{/if}
 								</p>
-								<div class="flex flex-wrap gap-2">
-									<form method="POST" action="?/setPrimaryProductImage" use:setPrimaryImageEnhance>
-										<input type="hidden" name="imageId" value={image.id} />
-										<button
-											type="submit"
-											disabled={$setPrimaryImageSubmitting || image.isPrimary}
-											class="min-h-10 border border-ash/30 px-3 font-mono text-[9px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt disabled:opacity-40"
-										>
-											Set primary
-										</button>
-									</form>
-									<form method="POST" action="?/deleteProductImage" use:deleteImageEnhance>
-										<input type="hidden" name="imageId" value={image.id} />
-										<button
-											type="submit"
-											disabled={$deleteImageSubmitting}
-											class="min-h-10 border border-red-400/40 px-3 font-mono text-[9px] tracking-widest text-red-300 uppercase hover:border-red-300 hover:text-red-200 disabled:opacity-50"
-										>
-											Delete
-										</button>
-									</form>
-								</div>
 							</div>
-						</article>
+						</button>
 					{/each}
 				</div>
 			{:else}
@@ -1040,7 +1063,7 @@
 				<button
 					type="submit"
 					disabled={$reorderImagesSubmitting || product.images.length === 0}
-					class="min-h-11 border border-ash/30 px-5 py-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt disabled:opacity-40"
+					class="min-h-11 border border-ash/30 px-5 py-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt disabled:opacity-40 cursor-pointer"
 				>
 					Save current order
 				</button>
@@ -1058,15 +1081,15 @@
 			<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Add image</h3>
 			<div class="mt-5 grid gap-3">
 				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant</span>
+					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant Link</span>
 					<select
 						name="variantId"
 						bind:value={$addImageForm.variantId}
 						class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 					>
 						<option value="">Product image</option>
-						{#each product.variants as variant (variant.id)}
-							<option value={variant.id}>{variantLabel(variant)}</option>
+						{#each uniqueColors as colorCard (colorCard.id)}
+							<option value={colorCard.id}>{colorCard.name}</option>
 						{/each}
 					</select>
 				</label>
@@ -1076,7 +1099,7 @@
 						name="image"
 						type="file"
 						accept="image/*"
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-ash file:mr-4 file:border-0 file:bg-bone file:px-3 file:py-2 file:font-mono file:text-[10px] file:text-void file:uppercase"
+						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-ash file:mr-4 file:border-0 file:bg-bone file:px-3 file:py-2 file:font-mono file:text-[10px] file:text-void file:uppercase cursor-pointer"
 						{...$addImageConstraints.image}
 					/>
 				</label>
@@ -1093,8 +1116,7 @@
 					/>
 				</label>
 				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Display order</span
-					>
+					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Display order</span>
 					<select
 						name="position"
 						bind:value={$addImageForm.position}
@@ -1106,7 +1128,7 @@
 					</select>
 				</label>
 				<label
-					class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase"
+					class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer"
 				>
 					<input type="checkbox" name="isPrimary" bind:checked={$addImageForm.isPrimary} />
 					Primary
@@ -1114,7 +1136,7 @@
 				<button
 					type="submit"
 					disabled={$addImageSubmitting}
-					class="inline-flex min-h-11 items-center justify-center gap-2 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-volt disabled:opacity-50"
+					class="inline-flex min-h-11 items-center justify-center gap-2 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-volt disabled:opacity-50 cursor-pointer"
 				>
 					<Upload size={14} aria-hidden="true" />
 					{$addImageSubmitting ? 'Uploading...' : 'Add image'}
@@ -1123,3 +1145,83 @@
 		</form>
 	</div>
 </section>
+
+{#if activeImage && activeImageIndex !== null}
+	<div
+		class="fixed inset-0 z-50 overflow-y-auto bg-void/85 px-3 py-4 sm:px-4 sm:py-6 flex justify-center items-start"
+	>
+		<section
+			class="my-auto mx-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-void shadow-2xl lg:max-h-[90vh] lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_340px]"
+		>
+			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
+				<img
+					src={activeImage.imageUrl}
+					alt={activeImage.altText ?? ''}
+					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
+				/>
+			</div>
+			<div
+				class="grid min-w-0 content-start gap-4 p-4 sm:p-5"
+			>
+				<div class="flex items-start justify-between gap-4">
+					<div class="min-w-0">
+						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
+						<h2
+							class="mt-2 font-display text-3xl leading-none wrap-break-words text-bone uppercase sm:text-4xl"
+						>
+							{activeImage.altText ?? 'Product Image'}
+						</h2>
+						{#if activeImage.variantId}
+							{@const variantColor = uniqueColors.find(c => c.id === activeImage.variantId)}
+							<p class="mt-2 font-mono text-[10px] tracking-widest text-volt uppercase">
+								Linked to: {variantColor?.name ?? 'Color swatch'}
+							</p>
+						{:else}
+							<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+								Product-wide image
+							</p>
+						{/if}
+					</div>
+					<button
+						type="button"
+						onclick={() => (activeImageIndex = null)}
+						class="grid h-10 w-10 shrink-0 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt cursor-pointer"
+						aria-label="Close image detail"
+					>
+						<X size={15} aria-hidden="true" />
+					</button>
+				</div>
+
+				<div class="border-t border-charcoal/40 pt-4 flex flex-wrap gap-2">
+					<form method="POST" action="?/setPrimaryProductImage" use:setPrimaryImageEnhance class="w-full">
+						<input type="hidden" name="imageId" value={activeImage.id} />
+						<button
+							type="submit"
+							onclick={() => (activeImageIndex = null)}
+							disabled={$setPrimaryImageSubmitting || activeImage.isPrimary}
+							class="inline-flex min-h-11 w-full items-center justify-center gap-2 border px-4 font-mono text-[10px] tracking-widest uppercase disabled:opacity-40 {activeImage.isPrimary
+								? 'border-volt bg-volt text-void font-bold'
+								: 'border-ash/30 text-ash hover:border-volt hover:text-volt cursor-pointer'}"
+						>
+							<Star size={14} fill={activeImage.isPrimary ? 'currentColor' : 'none'} aria-hidden="true" />
+							{activeImage.isPrimary ? 'Primary Image' : 'Set as primary'}
+						</button>
+					</form>
+
+					<form method="POST" action="?/deleteProductImage" use:deleteImageEnhance class="w-full">
+						<input type="hidden" name="imageId" value={activeImage.id} />
+						<button
+							type="submit"
+							onclick={() => (activeImageIndex = null)}
+							disabled={$deleteImageSubmitting}
+							class="inline-flex min-h-11 w-full items-center justify-center gap-2 border border-red-400/40 px-4 text-center font-mono text-[10px] leading-4 tracking-widest uppercase text-red-300 hover:border-red-300 hover:text-red-200 cursor-pointer"
+						>
+							<Trash2 size={14} aria-hidden="true" />
+							Delete Image
+						</button>
+					</form>
+				</div>
+			</div>
+		</section>
+	</div>
+{/if}
