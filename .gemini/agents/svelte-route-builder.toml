@@ -10,7 +10,7 @@ You are not responsible for final UI design. Another agent handles polished admi
 You are not alone in the codebase. Do not revert edits made by others. Work with current files.
 
 Before planning or editing:
-- Read .codex/skills/caro-svelte-route-builder/SKILL.md and follow it.
+- Read .gemini/skills/caro-svelte-route-builder/SKILL.md and follow it.
 - Read docs/service-layer-architecture.md.
 - Read docs/codex-service-layer-workflow.md.
 - Read the target module's *.drizzle.ts, *.service.ts, *.forms.ts, *.types.ts, and index.ts.

@@ -12,8 +12,8 @@ Use the codebase as source of truth before planning. Required project guidance l
 AGENTS.md
 docs/service-layer-architecture.md
 docs/codex-service-layer-workflow.md
-.codex/skills
-.codex/agents
+.gemini/skills
+.gemini/agents
 ```
 
 Do not migrate project Codex files to `.agents/skills` unless the user explicitly requests a discovery-path migration.
@@ -115,10 +115,10 @@ Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` u
 
 The admin new-product workflow is a multi-entity service write owned by `src/lib/server/modules/products/products.service.ts`.
 
-- `createProduct()` accepts form-level fields for selected `tagIds`, `newTagNames`, optional `dropId`, uploaded `images`, `primaryImageIndex`, draft `variants`, and per-image `imageMetadata`.
-- Draft variants carry a client-side `clientId`; image metadata references that ID through `variantClientId` until the service maps it to the generated variant ID.
-- Product image metadata is one row per uploaded file and may set variant assignment, alt text, position, and primary state. The service enforces one primary image per product-level or variant-level scope.
-- Product create routes must not write `product_variant`, `product_image`, `product_tag`, `tag`, or `drop_product` directly. They validate through module form schemas and call `createProduct()`.
+- `createProduct()` accepts form-level fields for selected `tagIds`, `newTagNames`, optional `dropId`, uploaded `images`, `primaryImageIndex`, draft variant colors (`variants`), and per-image `imageMetadata`.
+- Draft variant colors carry a client-side `clientId`; image metadata and size-level variants reference that ID through `variantColorClientId` until the service maps it to the generated variant color ID.
+- Product image metadata is one row per uploaded file and may set variant color assignment, alt text, position, and primary state. The service enforces one primary image per color card scope.
+- Product create routes must not write `product_variant_color`, `product_variant`, `product_image`, `product_tag`, `tag`, or `drop_product` directly. They validate through module form schemas and call `createProduct()`.
 - Drop assignment from the product form is service-owned. `dropProduct` remains a junction table with no generic CRUD route.
 - Product media uploads require `ctx.event` and compensation cleanup in the service if any later database write fails.
 - `ProductDTO.dropAssignment` is available for route/UI reads that need the current non-archived drop link.
@@ -151,7 +151,7 @@ Rules:
 
 Only spawn subagents when the user explicitly asks for subagents, delegation, or parallel agent work.
 
-Project custom agents live in `.codex/agents`. Each TOML file must keep `name`, `description`, and `developer_instructions` aligned with current code paths.
+Project custom agents live in `.gemini/agents`. Each TOML file must keep `name`, `description`, and `developer_instructions` aligned with current code paths.
 
 Recommended usage:
 
@@ -180,7 +180,7 @@ rg -n '\$lib/server/db|drizzle-orm|\.drizzle|media/r2' src/routes
 rg -n '\$lib/client' src/lib/server
 $legacyLayer = 'src/lib/server/modules/'
 $legacyTerms = @('env', 'errors', 'media', 'queue', 'cron', ('service-' + 'context'), ('service-' + 'utils'))
-$legacyTerms | ForEach-Object { rg -n ([regex]::Escape($legacyLayer + $_)) docs .codex AGENTS.md }
+$legacyTerms | ForEach-Object { rg -n ([regex]::Escape($legacyLayer + $_)) docs .gemini AGENTS.md }
 ```
 
 Expected current findings:
@@ -198,7 +198,7 @@ Current Codex guidance checked for this workflow:
 
 - `AGENTS.md` gives durable repo guidance loaded before work.
 - Skills package reusable workflows and should stay concise.
-- Custom agents live under `.codex/agents` or user agent folders and require `name`, `description`, and `developer_instructions`.
+- Custom agents live under `.gemini/agents` or user agent folders and require `name`, `description`, and `developer_instructions`.
 - Good Codex prompts include goal, context, constraints, and done-when criteria.
 
 Reference:

@@ -31,18 +31,19 @@ Catalog (Product Listing)
 
 ```
 Product Detail (tier-aware)
-├── Image gallery: swipeable mobile, grid desktop
 ├── Product name (Bebas Neue, large)
-├── Price (Space Mono, LKR) — compareAtPrice struck through if set
-│   └── Drop tier: show price only when drop.status = 'live' or 'sold_out'
 ├── Tier-specific header signal:
 │   ├── tier = 'drop', drop.status = 'live' → "DROP [name] — LIVE NOW" + Volt dot
 │   └── tier = 'core' → no drop signal; consistent availability implied
-├── Color selector → swaps images to variant-specific images
-├── Size selector (availability per variant):
-│   ├── Available → selectable
-│   ├── OOS (allowBackorder = false) → grayed, disabled
-│   └── Backorder (allowBackorder = true) → selectable, "Pre-Order" label
+└── Color Swatch Cards (Grouped Variants):
+    ├── Color Swatch Name & Hex Indicator
+    ├── Color-card Price (Space Mono, LKR) — basePrice/compareAtPrice struck through if set
+    │   └── Drop tier: show price only when drop.status = 'live' or 'sold_out'
+    ├── Color-specific image gallery (swipeable mobile, grid desktop, thumbnails + modal preview)
+    ├── Size selector pills (availability per size variant under that color):
+    │   ├── Available → selectable
+    │   ├── OOS (allowBackorder = false) → grayed, disabled
+    │   └── Backorder (allowBackorder = true) → selectable, "Pre-Order" label
 ├── Stock signal (Volt badge):
 │   ├── qty-reserved > lowStockThreshold → no badge
 │   ├── 0 < qty-reserved ≤ lowStockThreshold → "LOW STOCK"

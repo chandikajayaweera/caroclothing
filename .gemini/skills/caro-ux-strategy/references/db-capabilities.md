@@ -37,13 +37,12 @@ Read this before making any UX decision that touches real data. All fields descr
 
 ## Products
 
-**Tables**: `product`, `productVariant`, `productImage`, `category`, `tag`, `productTag`
+**Tables**: `product`, `productVariantColor`, `productVariant`, `productImage`, `category`, `tag`, `productTag`
 
 **What UX can do:**
 
 - Filter by `tier` (`'drop'` | `'core'`), `gender` (men / women / unisex), `fit` (oversized / regular / slim)
 - Surface `isNewArrival` and `isFeatured` products — the two primary editorial flags
-- Show `basePrice` (always LKR), struck-through `compareAtPrice` when set
 - Display `material` and `careInstructions` (secondary info, below fold)
 - Category hierarchy (parent/child) supports nested navigation if catalog grows
 - Tags (many-to-many) for faceted browsing at scale
@@ -54,18 +53,19 @@ Read this before making any UX decision that touches real data. All fields descr
 - `tier = 'core'`: wordmark/tonal product, always available, quiet restock, no countdown language
 - The tier value drives copy, urgency signals, and which UX patterns apply — always check it
 
-**Variants:**
+**Variants & Color Cards:**
 
-- Each product has size × color variants: `size` enum (XS/S/M/L/XL/XXL/XXXL), `color` (display name) + `colorHex` (hex for swatches)
-- `priceOverride` per variant — display variant price if set, else product `basePrice`
-- `sku` is the unique identifier — display in Space Mono as a product code
+- Each product has **Color Swatch Cards** (`productVariantColor`) storing the color name, hex code, base price (always LKR), and compare-at discounted price when set.
+- Under each color card, size-level variants (`productVariant`) represent size options: `size` enum (XS/S/M/L/XL/XXL/XXXL).
+- `priceOverride` per size variant — display variant price if set, else fall back to the color card's `basePrice`.
+- `sku` is the unique identifier for the size variant — display in Space Mono as a product code.
 
 **Images:**
 
-- `variantId = null` → applies to all variants (lifestyle/editorial shots)
-- `variantId = X` → specific to that color/size combo
-- `isPrimary = true` → hero image (at most one per product, one per variant — enforced by partial index in migration SQL)
-- Images are R2 keys — resolve via `mediaUrl(r2Key)` from `media/utils.ts`, never store raw URLs
+- `variantColorId = null` → applies generally to the product (lifestyle/editorial shots).
+- `variantColorId = X` → specific to that color swatch card (displays in that color's image gallery).
+- `isPrimary = true` → hero image (at most one per product, one per color card scope).
+- Images are R2 keys — resolve via `mediaUrl(r2Key)` from `media/utils.ts`, never store raw URLs.
 
 **UX gotchas:**
 

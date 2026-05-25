@@ -178,11 +178,11 @@ Service rules:
 
 Product service contract:
 
-- `products.service.ts` owns product creation across product rows, selected tags, newly created tags, draft variants, product images, and non-archived drop assignment. Admin routes must call `createProduct()` instead of writing any of those tables directly.
-- Product form schemas may include UI-only create fields such as `newTagNames`, `dropId`, `images`, `primaryImageIndex`, draft `variants`, `imageMetadata`, and route `redirectTo`. Services strip and validate these fields before persistence.
-- Draft variants use client-side `clientId` values during create so image metadata can target a variant before the database ID exists. The service generates product and variant IDs, maps client IDs to variant IDs, and rejects duplicate draft client IDs or duplicate size/color combinations.
-- Product image metadata must match the uploaded file count. Each image can set `variantClientId`, `altText`, `position`, and `isPrimary`; the service enforces valid variant mapping, nonnegative positions, alt text length, and one primary image per product-level or variant-level scope.
-- Product image uploads are service-owned R2 side effects. Routes pass `ctx.event`; the service uploads with generated product/variant IDs and deletes uploaded objects if a later validation or transaction step fails.
+- `products.service.ts` owns product creation across product rows, selected tags, newly created tags, draft variant colors, draft variants (sizes), product images, and non-archived drop assignment. Admin routes must call `createProduct()` instead of writing any of those tables directly.
+- Product form schemas may include UI-only create fields such as `newTagNames`, `dropId`, `images`, `primaryImageIndex`, draft variant colors (`variants`), `imageMetadata`, and route `redirectTo`. Services strip and validate these fields before persistence.
+- Draft variant colors use client-side `clientId` values during create so image metadata and size-level variants can target a specific color card before the database ID exists. The service generates product, variant color, and variant size IDs, maps client IDs to variant color IDs, and rejects duplicate draft client IDs or duplicate color names.
+- Product image metadata must match the uploaded file count. Each image can set `variantColorClientId`, `altText`, `position`, and `isPrimary`; the service enforces valid variant color mapping, nonnegative positions, alt text length, and one primary image per color card scope.
+- Product image uploads are service-owned R2 side effects associated with a `productVariantColor` (color card) row via `variantColorId`. Routes pass `ctx.event`; the service uploads with generated product/color/variant IDs and deletes uploaded objects if a later validation or transaction step fails.
 - Product drop assignment is managed as part of product create/update through the product service when the UI supplies `dropId`. `dropProduct` remains a junction table with no generic CRUD route; drop-tier products without a current non-archived drop assignment are kept inactive until assigned.
 - `ProductDTO` includes non-archived `dropAssignment`, variants, images, tags, and resolved `primaryImageUrl` so admin/storefront routes do not need cross-table joins.
 
@@ -285,7 +285,7 @@ rg -n '\$lib/server/db|drizzle-orm|\.drizzle|media/r2' src/routes
 rg -n '\$lib/client' src/lib/server
 $legacyLayer = 'src/lib/server/modules/'
 $legacyTerms = @('env', 'errors', 'media', 'queue', 'cron', ('service-' + 'context'), ('service-' + 'utils'))
-$legacyTerms | ForEach-Object { rg -n ([regex]::Escape($legacyLayer + $_)) docs .codex AGENTS.md }
+$legacyTerms | ForEach-Object { rg -n ([regex]::Escape($legacyLayer + $_)) docs .gemini AGENTS.md }
 ```
 
 Expected route R2 finding:
