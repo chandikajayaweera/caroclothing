@@ -119,12 +119,7 @@
 			</h1>
 		</div>
 
-		<AdminButton
-			href={resolve('/app/products/new')}
-			variant="volt"
-			size="md"
-			class="mt-5 md:mt-0"
-		>
+		<AdminButton href={resolve('/app/products/new')} variant="volt" size="md" class="mt-5 md:mt-0">
 			<Plus size={14} aria-hidden="true" />
 			New Product
 		</AdminButton>
@@ -171,7 +166,12 @@
 		</AdminCard>
 	</div>
 
-	<AdminCard bg="bg-charcoal" border="border border-charcoal" padding="" class="mt-4 overflow-hidden">
+	<AdminCard
+		bg="bg-charcoal"
+		border="border border-charcoal"
+		padding=""
+		class="mt-4 overflow-hidden"
+	>
 		<div class="border-b border-charcoal p-5">
 			<div class="items-start justify-between gap-4 md:flex">
 				<div>
@@ -263,7 +263,7 @@
 				<form
 					id="desktop-filter-form"
 					method="GET"
-					class="mt-4 hidden items-center flex-wrap gap-2 md:flex"
+					class="mt-4 hidden flex-wrap items-center gap-2 md:flex"
 					data-sveltekit-keepfocus
 					data-sveltekit-noscroll
 				>
@@ -321,7 +321,7 @@
 						name="includeInactive"
 						bind:checked={includeInactive}
 						onclick={autoSubmitFilter}
-						class="border border-ash/30 bg-void px-3.5 py-2.5 min-h-11 gap-3"
+						class="min-h-11 gap-3 border border-ash/30 bg-void px-3.5 py-2.5"
 					/>
 					<input type="hidden" name="includeInactive" value="false" />
 					<input type="hidden" name="limit" value={data.filters.limit} />

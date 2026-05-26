@@ -37,9 +37,9 @@
 		role="switch"
 		aria-checked={!!checked}
 		aria-label={label ?? name ?? 'Toggle switch'}
-		disabled={disabled}
+		{disabled}
 		onclick={handleToggle}
-		class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-volt bg-charcoal disabled:cursor-not-allowed disabled:opacity-40 {className}"
+		class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-charcoal transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-volt focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 {className}"
 		class:bg-volt={!!checked}
 	>
 		<span
@@ -52,10 +52,10 @@
 		{#if label || description}
 			<div class="grid min-w-0">
 				{#if label}
-					<span class="font-sans text-sm font-semibold text-bone truncate">{label}</span>
+					<span class="truncate font-sans text-sm font-semibold text-bone">{label}</span>
 				{/if}
 				{#if description}
-					<span class="font-sans text-xs text-ash/60 truncate">{description}</span>
+					<span class="truncate font-sans text-xs text-ash/60">{description}</span>
 				{/if}
 			</div>
 		{/if}
@@ -69,9 +69,9 @@
 			role="switch"
 			aria-checked={!!checked}
 			aria-label={label ?? name ?? 'Toggle switch'}
-			disabled={disabled}
+			{disabled}
 			onclick={handleToggle}
-			class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-volt bg-charcoal disabled:cursor-not-allowed disabled:opacity-40"
+			class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent bg-charcoal transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-volt focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
 			class:bg-volt={!!checked}
 		>
 			<span

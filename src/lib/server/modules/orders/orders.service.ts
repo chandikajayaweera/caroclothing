@@ -224,11 +224,11 @@ export async function placeOrderFromCartTx(
 		shippingAmount: preview.shippingAmount,
 		totalAmount: preview.totalAmount,
 		promoCodeId: preview.promoValidation?.promoCodeId ?? null,
-		promoCodeSnapshot: stringifyJson(preview.promoValidation?.snapshot ?? null),
+		promoCodeSnapshot: preview.promoValidation?.snapshot ?? null,
 		shippingMethodId: preview.shippingQuote.shippingMethodId,
 		shippingAddressId: preview.shippingAddressId,
-		shippingMethodSnapshot: stringifyJson(preview.shippingMethodSnapshot),
-		shippingAddressSnapshot: stringifyJson(preview.shippingAddressSnapshot),
+		shippingMethodSnapshot: preview.shippingMethodSnapshot,
+		shippingAddressSnapshot: preview.shippingAddressSnapshot,
 		customerNote: normalizeNullableText(input.customerNote, 'customerNote', 1000)
 	});
 
@@ -578,7 +578,7 @@ export async function recordRefund(
 						refundAmount,
 						refundedAt: resolveNow(ctx, input.now),
 						gatewayResponse:
-							'gatewayResponse' in input ? stringifyJson(input.gatewayResponse ?? null) : undefined
+							'gatewayResponse' in input ? (input.gatewayResponse ?? null) : undefined
 					})
 				)
 				.where(eq(payment.id, paymentRow.id))
@@ -759,8 +759,7 @@ async function recordPaymentTx(
 				parsePaymentUpdate({
 					status: nextStatus,
 					transactionId: input.transactionId,
-					gatewayResponse:
-						'gatewayResponse' in input ? stringifyJson(input.gatewayResponse ?? null) : undefined,
+					gatewayResponse: 'gatewayResponse' in input ? (input.gatewayResponse ?? null) : undefined,
 					paidAt: shouldSetPaidAt(nextStatus) ? (input.paidAt ?? now) : input.paidAt
 				})
 			)
@@ -788,8 +787,7 @@ async function recordPaymentTx(
 					method: input.method,
 					status: nextStatus,
 					transactionId: input.transactionId ?? null,
-					gatewayResponse:
-						'gatewayResponse' in input ? stringifyJson(input.gatewayResponse ?? null) : null,
+					gatewayResponse: 'gatewayResponse' in input ? (input.gatewayResponse ?? null) : null,
 					refundAmount: null
 				})
 			)
@@ -1278,11 +1276,11 @@ function toOrderDTO(
 		shippingAmount: row.shippingAmount,
 		totalAmount: row.totalAmount,
 		promoCodeId: row.promoCodeId,
-		promoCodeSnapshot: parseNullableJson(row.promoCodeSnapshot),
+		promoCodeSnapshot: row.promoCodeSnapshot,
 		shippingMethodId: row.shippingMethodId,
 		shippingAddressId: row.shippingAddressId,
-		shippingMethodSnapshot: parseNullableJson(row.shippingMethodSnapshot),
-		shippingAddressSnapshot: parseNullableJson(row.shippingAddressSnapshot),
+		shippingMethodSnapshot: row.shippingMethodSnapshot,
+		shippingAddressSnapshot: row.shippingAddressSnapshot,
 		trackingNumber: row.trackingNumber,
 		trackingCarrier: row.trackingCarrier,
 		trackingUrl: row.trackingUrl,
@@ -1349,7 +1347,7 @@ function toPaymentDTO(row: Payment): PaymentDTO {
 		method: row.method,
 		status: row.status,
 		transactionId: row.transactionId,
-		gatewayResponse: parseNullableJson(row.gatewayResponse),
+		gatewayResponse: row.gatewayResponse,
 		refundAmount: row.refundAmount,
 		refundedAt: row.refundedAt,
 		paidAt: row.paidAt,
@@ -1835,21 +1833,6 @@ function normalizeNullableText(
 
 function formatOrderNumberDate(now: Date): string {
 	return now.toISOString().slice(0, 10).replace(/-/g, '');
-}
-
-function stringifyJson(value: unknown): string | null {
-	if (value === null || value === undefined) return null;
-	return JSON.stringify(value);
-}
-
-function parseNullableJson(value: string | null): unknown | null {
-	if (value === null) return null;
-
-	try {
-		return JSON.parse(value);
-	} catch {
-		throw new OrderError('Stored order JSON is invalid.', ErrorCode.INTERNAL_ERROR);
-	}
 }
 
 function dateToTimestampMs(value: Date | null | undefined): number | null | undefined {

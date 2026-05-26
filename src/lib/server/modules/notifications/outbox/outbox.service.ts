@@ -781,8 +781,8 @@ function toNewNotificationOutbox<TType extends NotificationOutboxType>(
 		recipientUserId: normalizeOptionalId(input.recipientUserId, 'recipientUserId'),
 		aggregateType: input.aggregateType,
 		aggregateId: normalizeOptionalId(input.aggregateId, 'aggregateId'),
-		payloadJson: JSON.stringify(payload),
-		metadataJson: metadata ? JSON.stringify(metadata) : null,
+		payloadJson: payload,
+		metadataJson: metadata,
 		attemptCount: 0,
 		maxAttempts: normalizeMaxAttempts(input.maxAttempts),
 		nextAttemptAt: input.nextAttemptAt ?? now,
@@ -849,8 +849,7 @@ function toClaimedNotificationDTO(row: NotificationOutbox): ClaimedNotificationD
 }
 
 function parseNotificationPayload(row: NotificationOutbox): NotificationPayload {
-	const payload = parseJson(row.payloadJson, 'payloadJson');
-	return normalizeNotificationPayload(row.type, row.channel, payload);
+	return normalizeNotificationPayload(row.type, row.channel, row.payloadJson);
 }
 
 function normalizeNotificationPayload<TType extends NotificationOutboxType>(
@@ -939,18 +938,17 @@ function normalizeNotificationPayload<TType extends NotificationOutboxType>(
 	return normalizedPayload as NotificationPayloadByType[TType];
 }
 
-function parseMetadata(value: string | null): Record<string, unknown> | null {
-	if (value === null) return null;
-	const parsed = parseJson(value, 'metadataJson');
+function parseMetadata(value: unknown): Record<string, unknown> | null {
+	if (value === null || value === undefined) return null;
 
-	if (!isRecord(parsed)) {
+	if (!isRecord(value)) {
 		throw new NotificationError(
 			'Notification metadata must be an object.',
 			ErrorCode.INTERNAL_ERROR
 		);
 	}
 
-	return parsed;
+	return value;
 }
 
 function normalizeMetadata(
@@ -1142,17 +1140,6 @@ function normalizeErrorMessage(value: string): string {
 
 function truncateText(value: string, maxLength: number): string {
 	return value.length <= maxLength ? value : value.slice(0, maxLength);
-}
-
-function parseJson(value: string, field: string): unknown {
-	try {
-		return JSON.parse(value);
-	} catch {
-		throw new NotificationError(
-			`Stored notification ${field} is invalid.`,
-			ErrorCode.INTERNAL_ERROR
-		);
-	}
 }
 
 function requireString(value: unknown, field: string): string {

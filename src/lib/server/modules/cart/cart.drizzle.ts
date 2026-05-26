@@ -101,6 +101,7 @@ export const cartItem = sqliteTable(
 	(table) => [
 		index('cart_item_cart_idx').on(table.cartId),
 		index('cart_item_variant_idx').on(table.variantId),
+		index('cart_item_product_idx').on(table.productId),
 		// FIX: prevents duplicate variant rows within the same cart.
 		// Without this, concurrent add-to-cart requests for the same variant
 		// can race past application-layer deduplication and create two rows.

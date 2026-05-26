@@ -879,7 +879,8 @@
 		if (activeVariantImages.length <= 1) return;
 		const currentIndex = activeVariantImages.findIndex((img) => img.index === activeImageIndex);
 		if (currentIndex === -1) return;
-		const nextIndex = (currentIndex + direction + activeVariantImages.length) % activeVariantImages.length;
+		const nextIndex =
+			(currentIndex + direction + activeVariantImages.length) % activeVariantImages.length;
 		activeImageIndex = activeVariantImages[nextIndex].index;
 	}
 </script>
@@ -1678,7 +1679,7 @@
 		<aside class="grid gap-6 xl:sticky xl:top-8 xl:self-start">
 			<div class="border border-ash/15 bg-charcoal">
 				{#if carouselImage}
-					<div class="relative group">
+					<div class="group relative">
 						<button
 							type="button"
 							onclick={() => openSnapshotImagePreview(carouselImage.id)}
@@ -1706,7 +1707,7 @@
 									e.stopPropagation();
 									navigateSnapshotImage(-1);
 								}}
-								class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 								aria-label="Previous image"
 							>
 								&larr;
@@ -1717,7 +1718,7 @@
 									e.stopPropagation();
 									navigateSnapshotImage(1);
 								}}
-								class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 								aria-label="Next image"
 							>
 								&rarr;
@@ -1965,7 +1966,9 @@
 		<section
 			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-ash/25 bg-void shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
 		>
-			<div class="relative flex min-h-0 min-w-0 items-center overflow-hidden bg-charcoal/40 group w-full">
+			<div
+				class="group relative flex min-h-0 w-full min-w-0 items-center overflow-hidden bg-charcoal/40"
+			>
 				<img
 					src={activeImage.url}
 					alt={metadata.altText ?? ''}
@@ -1976,7 +1979,7 @@
 					<button
 						type="button"
 						onclick={() => navigateActiveImage(-1)}
-						class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 						aria-label="Previous image"
 					>
 						&larr;
@@ -1984,7 +1987,7 @@
 					<button
 						type="button"
 						onclick={() => navigateActiveImage(1)}
-						class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 						aria-label="Next image"
 					>
 						&rarr;
@@ -2079,7 +2082,9 @@
 <AdminUnsavedChangesModal
 	bind:isOpen={showUnsavedModal}
 	title="Save before leaving?"
-	description="You have unsaved changes. You can save this product as an inactive draft before opening {pendingRedirect ? formatLabel(pendingRedirect) : ''}, or discard your changes."
+	description="You have unsaved changes. You can save this product as an inactive draft before opening {pendingRedirect
+		? formatLabel(pendingRedirect)
+		: ''}, or discard your changes."
 	saveLabel="Save Draft"
 	discardLabel="Discard changes"
 	onsave={saveDraftAndRedirect}

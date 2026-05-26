@@ -56,7 +56,7 @@
 			{label}
 		</span>
 	{/if}
-	
+
 	{#if name}
 		<input type="hidden" {name} value={value ?? ''} />
 	{/if}
@@ -64,7 +64,9 @@
 	<div class="grid grid-cols-[minmax(0,1fr)_44px]">
 		<div class="relative w-full">
 			<span
-				class="absolute left-3 top-[11px] font-mono text-sm transition-colors duration-200 {hexIndicatorActive ? 'text-volt font-bold' : 'text-ash/40'}"
+				class="absolute top-[11px] left-3 font-mono text-sm transition-colors duration-200 {hexIndicatorActive
+					? 'font-bold text-volt'
+					: 'text-ash/40'}"
 			>
 				#
 			</span>
@@ -74,7 +76,7 @@
 				{disabled}
 				oninput={handleHexInput}
 				maxlength="7"
-				class="min-h-11 w-full border border-ash/30 bg-void pl-8 pr-3 py-2 font-mono text-sm text-bone placeholder-ash/45 transition-colors outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-40"
+				class="min-h-11 w-full border border-ash/30 bg-void py-2 pr-3 pl-8 font-mono text-sm text-bone placeholder-ash/45 transition-colors outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-40"
 			/>
 		</div>
 		<span
@@ -82,9 +84,7 @@
 			aria-hidden="true"
 		>
 			{#if isValidHex(value)}
-				<span
-					class="h-5 w-5 rounded-full border border-ash/30 shadow-sm"
-					style:background={value}
+				<span class="h-5 w-5 rounded-full border border-ash/30 shadow-sm" style:background={value}
 				></span>
 			{/if}
 		</span>

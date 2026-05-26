@@ -976,9 +976,7 @@ export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup):
 			}
 
 			// Delete related images first to avoid cascade UNIQUE constraint conflicts in SQLite
-			await tx
-				.delete(productImage)
-				.where(eq(productImage.productId, existing.id));
+			await tx.delete(productImage).where(eq(productImage.productId, existing.id));
 
 			const [deleted] = await tx
 				.delete(product)

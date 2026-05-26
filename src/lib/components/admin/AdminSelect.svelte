@@ -45,9 +45,11 @@
 		{name}
 		{disabled}
 		{onchange}
-		bind:value={value}
+		bind:value
 		aria-invalid={errorMessage ? 'true' : undefined}
-		class="min-h-11 border bg-void px-3.5 py-3 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:cursor-not-allowed disabled:opacity-40 {errorMessage ? 'border-red-400/50 focus:border-red-400' : 'border-ash/30'}"
+		class="min-h-11 border bg-void px-3.5 py-3 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:cursor-not-allowed disabled:opacity-40 {errorMessage
+			? 'border-red-400/50 focus:border-red-400'
+			: 'border-ash/30'}"
 		{...rest}
 	>
 		{#if children}

@@ -8,6 +8,9 @@ import { product, productVariant, r2KeySchema } from '../products/products.drizz
 import { address } from '../addresses/addresses.drizzle';
 import { promoCode } from '../promotions/promotions.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
+import type { AddressSnapshot } from '../addresses/addresses.types';
+import type { PromoCodeSnapshot } from '../promotions/promotions.types';
+import type { ShippingMethodSnapshot } from '../shipping/shipping.types';
 
 // ---------------------------------------------------------------------------
 // ORDER STATUS ENUM
@@ -115,7 +118,7 @@ export const order = sqliteTable(
 			onDelete: 'set null'
 		}),
 		// JSON snapshot: { code, discountType, discountValue } — immutable history
-		promoCodeSnapshot: text('promo_code_snapshot'),
+		promoCodeSnapshot: text('promo_code_snapshot', { mode: 'json' }).$type<PromoCodeSnapshot>(),
 
 		// ── Shipping ──────────────────────────────────────────────────────────
 		shippingMethodId: text('shipping_method_id').references(() => shippingMethod.id, {
@@ -125,9 +128,13 @@ export const order = sqliteTable(
 			onDelete: 'set null'
 		}),
 		// JSON snapshot: { name, carrier, price, estimatedDaysMin, estimatedDaysMax }
-		shippingMethodSnapshot: text('shipping_method_snapshot'),
+		shippingMethodSnapshot: text('shipping_method_snapshot', {
+			mode: 'json'
+		}).$type<ShippingMethodSnapshot>(),
 		// JSON snapshot: full address at order time — used for fulfilment, never changes
-		shippingAddressSnapshot: text('shipping_address_snapshot'),
+		shippingAddressSnapshot: text('shipping_address_snapshot', {
+			mode: 'json'
+		}).$type<AddressSnapshot>(),
 
 		// ── Tracking ──────────────────────────────────────────────────────────
 		trackingNumber: text('tracking_number'),
@@ -170,6 +177,18 @@ export const order = sqliteTable(
 		check(
 			'order_payment_expiry_positive',
 			sql`${table.paymentExpiresAt} IS NULL OR ${table.paymentExpiresAt} > 0`
+		),
+		check(
+			'order_promo_snapshot_valid',
+			sql`${table.promoCodeSnapshot} IS NULL OR json_valid(${table.promoCodeSnapshot})`
+		),
+		check(
+			'order_shipping_method_snapshot_valid',
+			sql`${table.shippingMethodSnapshot} IS NULL OR json_valid(${table.shippingMethodSnapshot})`
+		),
+		check(
+			'order_shipping_address_snapshot_valid',
+			sql`${table.shippingAddressSnapshot} IS NULL OR json_valid(${table.shippingAddressSnapshot})`
 		)
 	]
 );
@@ -243,7 +262,7 @@ export const payment = sqliteTable(
 		// Payment gateway transaction reference
 		transactionId: text('transaction_id'),
 		// Raw JSON response from gateway — useful for debugging failed payments
-		gatewayResponse: text('gateway_response'),
+		gatewayResponse: text('gateway_response', { mode: 'json' }),
 		refundAmount: integer('refund_amount'),
 		refundedAt: integer('refunded_at', { mode: 'timestamp_ms' }),
 		paidAt: integer('paid_at', { mode: 'timestamp_ms' }),
@@ -263,6 +282,10 @@ export const payment = sqliteTable(
 		check(
 			'payment_refund_valid',
 			sql`${table.refundAmount} IS NULL OR (${table.refundAmount} >= 0 AND ${table.refundAmount} <= ${table.amount})`
+		),
+		check(
+			'payment_gateway_response_valid',
+			sql`${table.gatewayResponse} IS NULL OR json_valid(${table.gatewayResponse})`
 		)
 	]
 );
@@ -367,17 +390,6 @@ export const orderStatusHistoryRelations = relations(orderStatusHistory, ({ one 
 // Validates snapshot fields are parseable JSON before they reach the DB.
 // These columns are immutable source of truth for historical orders, so
 // silently storing malformed JSON would be unrecoverable without manual SQL.
-const jsonStringSchema = z.string().refine(
-	(v) => {
-		try {
-			JSON.parse(v);
-			return true;
-		} catch {
-			return false;
-		}
-	},
-	{ message: 'Must be valid JSON' }
-);
 
 const idSchema = z.string().min(1).max(255);
 const timestampMsSchema = z.number().int().positive();
@@ -418,10 +430,9 @@ export const insertOrderBaseSchema = createInsertSchema(order, {
 	trackingCarrier: z.string().max(100).optional().nullable(),
 	trackingUrl: z.string().url().optional().nullable(),
 	paymentExpiresAt: timestampMsSchema.optional().nullable(),
-	// FIX: validate snapshot fields are parseable JSON
-	promoCodeSnapshot: jsonStringSchema.optional().nullable(),
-	shippingMethodSnapshot: jsonStringSchema.optional().nullable(),
-	shippingAddressSnapshot: jsonStringSchema.optional().nullable()
+	promoCodeSnapshot: z.any().optional().nullable(),
+	shippingMethodSnapshot: z.any().optional().nullable(),
+	shippingAddressSnapshot: z.any().optional().nullable()
 }).omit({
 	id: true,
 	confirmedAt: true,
@@ -495,7 +506,7 @@ export const insertPaymentBaseSchema = createInsertSchema(payment, {
 	method: z.enum(PAYMENT_METHODS),
 	status: z.enum(PAYMENT_STATUSES).optional(),
 	transactionId: z.string().max(255).optional().nullable(),
-	gatewayResponse: jsonStringSchema.optional().nullable(),
+	gatewayResponse: z.any().optional().nullable(),
 	refundAmount: z.number().int().min(0).optional().nullable()
 }).omit({
 	id: true,
@@ -518,7 +529,7 @@ export const selectPaymentSchema = createSelectSchema(payment);
 export const updatePaymentSchema = createUpdateSchema(payment, {
 	status: z.enum(PAYMENT_STATUSES).optional(),
 	transactionId: z.string().max(255).optional().nullable(),
-	gatewayResponse: jsonStringSchema.optional().nullable(),
+	gatewayResponse: z.any().optional().nullable(),
 	refundAmount: z.number().int().min(0).optional().nullable(),
 	refundedAt: timestampMsSchema.optional().nullable(),
 	paidAt: timestampMsSchema.optional().nullable()

@@ -26,13 +26,15 @@
 
 <div class="{bg} {border} {padding} {className}">
 	{#if title || kicker || headerActions}
-		<div class="border-b border-ash/10 pb-4 mb-5 flex items-end justify-between gap-4">
+		<div class="mb-5 flex items-end justify-between gap-4 border-b border-ash/10 pb-4">
 			<div class="min-w-0">
 				{#if kicker}
 					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">{kicker}</p>
 				{/if}
 				{#if title}
-					<h2 class="mt-1 font-display {titleSize} leading-none tracking-wide text-bone uppercase truncate">
+					<h2
+						class="mt-1 font-display {titleSize} truncate leading-none tracking-wide text-bone uppercase"
+					>
 						{title}
 					</h2>
 				{/if}

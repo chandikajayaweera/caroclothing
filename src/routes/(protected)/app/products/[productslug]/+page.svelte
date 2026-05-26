@@ -131,14 +131,13 @@
 			border="border border-ash/15"
 			class="shadow-sm"
 		>
-
 			<div class="grid gap-px bg-charcoal md:grid-cols-2">
 				<div class="bg-void p-5">
 					<p class="font-sans text-xs text-ash">State</p>
 					<p
 						class="mt-2 font-mono text-sm tracking-widest uppercase {product.isActive
-							? 'text-volt font-bold'
-							: 'text-red-400 font-bold'}"
+							? 'font-bold text-volt'
+							: 'font-bold text-red-400'}"
 					>
 						{product.isActive ? 'Active' : 'Inactive'}
 					</p>
@@ -169,10 +168,12 @@
 				</div>
 			</div>
 
-			<div class="grid gap-5 border-t border-charcoal p-5 bg-void">
+			<div class="grid gap-5 border-t border-charcoal bg-void p-5">
 				<div>
 					<p class="font-sans text-xs text-ash">Short Description</p>
-					<p class="mt-2 font-sans text-sm leading-relaxed text-bone">{product.shortDescription ?? 'None'}</p>
+					<p class="mt-2 font-sans text-sm leading-relaxed text-bone">
+						{product.shortDescription ?? 'None'}
+					</p>
 				</div>
 				<div>
 					<p class="font-sans text-xs text-ash">Description</p>
@@ -213,19 +214,19 @@
 					</div>
 				{/if}
 				<div class="p-5">
-					<p class="font-sans text-xs text-ash mb-3">Counts</p>
+					<p class="mb-3 font-sans text-xs text-ash">Counts</p>
 					<div class="grid grid-cols-3 gap-3 text-center">
-						<div class="bg-void p-3 border border-charcoal/40">
+						<div class="border border-charcoal/40 bg-void p-3">
 							<p class="font-display text-3xl text-bone uppercase">{product.images.length}</p>
-							<p class="font-sans text-[10px] tracking-wider text-ash uppercase mt-1">Images</p>
+							<p class="mt-1 font-sans text-[10px] tracking-wider text-ash uppercase">Images</p>
 						</div>
-						<div class="bg-void p-3 border border-charcoal/40">
+						<div class="border border-charcoal/40 bg-void p-3">
 							<p class="font-display text-3xl text-bone uppercase">{activeVariantCount}</p>
-							<p class="font-sans text-[10px] tracking-wider text-ash uppercase mt-1">Live Vars</p>
+							<p class="mt-1 font-sans text-[10px] tracking-wider text-ash uppercase">Live Vars</p>
 						</div>
-						<div class="bg-void p-3 border border-charcoal/40">
+						<div class="border border-charcoal/40 bg-void p-3">
 							<p class="font-display text-3xl text-bone uppercase">{product.tags.length}</p>
-							<p class="font-sans text-[10px] tracking-wider text-ash uppercase mt-1">Tags</p>
+							<p class="mt-1 font-sans text-[10px] tracking-wider text-ash uppercase">Tags</p>
 						</div>
 					</div>
 				</div>
@@ -241,17 +242,19 @@
 				<div class="grid gap-3 font-mono text-xs uppercase">
 					<div class="flex justify-between gap-4 border-b border-charcoal pb-2">
 						<span class="font-sans text-xs text-ash uppercase">Status</span>
-						<span class="text-right text-bone font-mono text-xs">{product.dropAssignment?.status ?? 'None'}</span>
+						<span class="text-right font-mono text-xs text-bone"
+							>{product.dropAssignment?.status ?? 'None'}</span
+						>
 					</div>
 					<div class="flex justify-between gap-4 border-b border-charcoal pb-2">
 						<span class="font-sans text-xs text-ash uppercase">Launch</span>
-						<span class="text-right text-bone font-mono text-xs">
+						<span class="text-right font-mono text-xs text-bone">
 							{formatDate(product.dropAssignment?.launchAt ?? null)}
 						</span>
 					</div>
 					<div class="flex justify-between gap-4">
 						<span class="font-sans text-xs text-ash uppercase">End</span>
-						<span class="text-right text-bone font-mono text-xs">
+						<span class="text-right font-mono text-xs text-bone">
 							{formatDate(product.dropAssignment?.endAt ?? null)}
 						</span>
 					</div>
@@ -266,9 +269,8 @@
 		border="border border-ash/15"
 		class="mt-4 shadow-sm"
 	>
-
 		{#if colorCards.length > 0}
-			<div class="grid gap-4 p-5 bg-charcoal">
+			<div class="grid gap-4 bg-charcoal p-5">
 				{#each colorCards as card, index (card.variantColorId)}
 					<article class="border border-charcoal bg-void p-5">
 						<div
@@ -296,9 +298,7 @@
 
 						<div class="grid gap-4 md:grid-cols-2">
 							<div>
-								<p class="mb-2 font-sans text-xs text-ash">
-									Sizes Available
-								</p>
+								<p class="mb-2 font-sans text-xs text-ash">Sizes Available</p>
 								<div class="flex flex-wrap gap-2">
 									{#each card.variants as v}
 										<span
@@ -323,12 +323,12 @@
 											<button
 												type="button"
 												onclick={() => (activeImageIndex = imgIndex)}
-												class="relative block border border-charcoal transition-colors hover:border-volt cursor-pointer"
+												class="relative block cursor-pointer border border-charcoal transition-colors hover:border-volt"
 											>
 												<img src={img.imageUrl} alt="" class="h-14 w-14 object-cover" />
 												{#if img.isPrimary}
 													<span
-														class="py-0.5 absolute top-0.5 left-0.5 bg-volt px-1 font-mono text-[6px] leading-none text-void uppercase tracking-wider font-bold"
+														class="absolute top-0.5 left-0.5 bg-volt px-1 py-0.5 font-mono text-[6px] leading-none font-bold tracking-wider text-void uppercase"
 														>Primary</span
 													>
 												{/if}
@@ -336,9 +336,7 @@
 										{/each}
 									</div>
 								{:else}
-									<p class="font-sans text-xs text-ash/50">
-										No images for this color variant.
-									</p>
+									<p class="font-sans text-xs text-ash/50">No images for this color variant.</p>
 								{/if}
 							</div>
 						</div>
@@ -355,15 +353,9 @@
 		{/if}
 	</AdminCard>
 
-	<AdminCard
-		kicker="Media"
-		title="Images"
-		border="border border-ash/15"
-		class="mt-4 shadow-sm"
-	>
-
+	<AdminCard kicker="Media" title="Images" border="border border-ash/15" class="mt-4 shadow-sm">
 		{#if product.images.length > 0}
-			<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
+			<div class="animate-fade-in grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
 				{#each product.images as image, idx (image.id)}
 					<button
 						type="button"
@@ -412,22 +404,24 @@
 
 {#if activeImage && activeImageIndex !== null}
 	<div
-		class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-void/90 px-3 py-4 sm:px-4 sm:py-6 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-void/90 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
 	>
 		<section
-			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-charcoal shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden animate-fade-in"
+			class="animate-fade-in mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-charcoal shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
 		>
-			<div class="min-h-0 min-w-0 overflow-hidden bg-void flex items-center justify-center">
+			<div class="flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-void">
 				<img
 					src={activeImage.imageUrl}
 					alt={activeImage.altText ?? ''}
 					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
 				/>
 			</div>
-			<div class="grid min-w-0 content-start gap-4 p-5 bg-charcoal border-l border-charcoal">
-				<div class="flex items-start justify-between gap-4 animate-fade-in">
+			<div class="grid min-w-0 content-start gap-4 border-l border-charcoal bg-charcoal p-5">
+				<div class="animate-fade-in flex items-start justify-between gap-4">
 					<div class="min-w-0">
-						<p class="font-sans text-xs font-bold text-volt uppercase tracking-wider">Image Detail</p>
+						<p class="font-sans text-xs font-bold tracking-wider text-volt uppercase">
+							Image Detail
+						</p>
 						<h2
 							class="wrap-break-words mt-2 font-display text-2xl leading-none text-bone uppercase sm:text-3xl"
 						>
@@ -449,7 +443,7 @@
 					<button
 						type="button"
 						onclick={() => (activeImageIndex = null)}
-						class="grid h-11 w-11 shrink-0 cursor-pointer place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt transition-colors"
+						class="grid h-11 w-11 shrink-0 cursor-pointer place-items-center border border-ash/30 text-ash transition-colors hover:border-volt hover:text-volt"
 						aria-label="Close image detail"
 					>
 						<X size={15} aria-hidden="true" />
@@ -458,7 +452,7 @@
 				<div class="grid gap-3 border-t border-charcoal pt-4 font-mono text-xs uppercase">
 					<div class="flex justify-between gap-4">
 						<span class="font-sans text-xs text-ash">Role</span>
-						<span class="text-right text-bone font-sans text-sm"
+						<span class="text-right font-sans text-sm text-bone"
 							>{activeImage.isPrimary ? 'Primary Image' : 'Gallery Image'}</span
 						>
 					</div>

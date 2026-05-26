@@ -549,11 +549,11 @@
 		if (targetIndex === -1) return;
 
 		const target = variants[targetIndex];
-		
+
 		let previousSort = target.sortOrder;
 		if (previousSort === nextSort) {
 			const N = activeLocalVariants.length;
-			const presentOrders = new Set(activeLocalVariants.map(v => v.sortOrder));
+			const presentOrders = new Set(activeLocalVariants.map((v) => v.sortOrder));
 			for (let i = 1; i <= N; i++) {
 				if (!presentOrders.has(i)) {
 					previousSort = i;
@@ -733,7 +733,8 @@
 		if (activeVariantImages.length <= 1) return;
 		const currentIndex = activeVariantImages.findIndex((img) => img.id === activeImageId);
 		if (currentIndex === -1) return;
-		const nextIndex = (currentIndex + direction + activeVariantImages.length) % activeVariantImages.length;
+		const nextIndex =
+			(currentIndex + direction + activeVariantImages.length) % activeVariantImages.length;
 		activeImageId = activeVariantImages[nextIndex].id;
 	}
 </script>
@@ -755,7 +756,7 @@
 		<button
 			type="button"
 			onclick={handleBackClick}
-			class="inline-flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-volt cursor-pointer select-none"
+			class="inline-flex min-h-11 cursor-pointer items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase select-none hover:text-volt"
 		>
 			<ArrowLeft size={14} aria-hidden="true" />
 			Back to products
@@ -930,22 +931,14 @@
 					</div>
 
 					<div class="grid gap-4 md:grid-cols-3">
-						<AdminSelect
-							label="Tier"
-							name="tier"
-							bind:value={$updateProductForm.tier}
-						>
+						<AdminSelect label="Tier" name="tier" bind:value={$updateProductForm.tier}>
 							{#each data.tierOptions as option (option.value)}
 								<option value={option.value}>{formatLabel(option.label)}</option>
 							{/each}
 						</AdminSelect>
 
 						{#if $updateProductForm.tier === 'drop'}
-							<AdminSelect
-								label="Drop"
-								name="dropId"
-								bind:value={$updateProductForm.dropId}
-							>
+							<AdminSelect label="Drop" name="dropId" bind:value={$updateProductForm.dropId}>
 								<option value="">No drop</option>
 								{#each data.drops as drop (drop.id)}
 									<option value={drop.id}>{drop.name} ({formatLabel(drop.status)})</option>
@@ -972,21 +965,13 @@
 							{/if}
 						{/if}
 
-						<AdminSelect
-							label="Gender"
-							name="gender"
-							bind:value={$updateProductForm.gender}
-						>
+						<AdminSelect label="Gender" name="gender" bind:value={$updateProductForm.gender}>
 							{#each data.genderOptions as option (option.value)}
 								<option value={option.value}>{formatLabel(option.label)}</option>
 							{/each}
 						</AdminSelect>
 
-						<AdminSelect
-							label="Fit"
-							name="fit"
-							bind:value={$updateProductForm.fit}
-						>
+						<AdminSelect label="Fit" name="fit" bind:value={$updateProductForm.fit}>
 							{#each data.fitOptions as option (option.value)}
 								<option value={option.value}>{formatLabel(option.label)}</option>
 							{/each}
@@ -1050,11 +1035,7 @@
 				</div>
 			</AdminCard>
 
-			<AdminCard
-				title="Colors & Sizes"
-				border="border border-ash/15"
-				class="shadow-sm"
-			>
+			<AdminCard title="Colors & Sizes" border="border border-ash/15" class="shadow-sm">
 				{#snippet headerActions()}
 					<div class="flex items-center gap-3">
 						<button
@@ -1072,12 +1053,7 @@
 						>
 							Expand All
 						</button>
-						<AdminButton
-							type="button"
-							onclick={addVariantColor}
-							variant="outline"
-							size="sm"
-						>
+						<AdminButton type="button" onclick={addVariantColor} variant="outline" size="sm">
 							<Plus size={14} aria-hidden="true" />
 							Add Variant
 						</AdminButton>
@@ -1137,7 +1113,7 @@
 								</div>
 
 								{#if isExpanded}
-									{@const originalIndex = localVariants.findIndex(v => v.id === card.id)}
+									{@const originalIndex = localVariants.findIndex((v) => v.id === card.id)}
 									<div class="grid gap-4 border-t border-ash/10 bg-charcoal/10 p-4">
 										<div class="grid gap-4 md:grid-cols-2">
 											<AdminInput
@@ -1299,12 +1275,7 @@
 				{/if}
 			</AdminCard>
 
-			<AdminCard
-				title="Product Tags"
-				border="border border-ash/15"
-				class="shadow-sm"
-			>
-
+			<AdminCard title="Product Tags" border="border border-ash/15" class="shadow-sm">
 				<div class="mt-4 grid gap-4">
 					{#if selectedTags.length > 0 || $updateProductForm.newTagNames.length > 0}
 						<div class="flex flex-wrap gap-2">
@@ -1367,7 +1338,7 @@
 							type="button"
 							onclick={addNewTag}
 							variant="outline"
-							class="min-h-11 w-11 shrink-0 p-0 flex items-center justify-center"
+							class="flex min-h-11 w-11 shrink-0 items-center justify-center p-0"
 							aria-label="Add tag"
 						>
 							<Plus size={15} aria-hidden="true" />
@@ -1469,12 +1440,7 @@
 			</details>
 
 			<div class="hidden items-center gap-3 lg:flex">
-				<AdminButton
-					type="button"
-					onclick={discardChanges}
-					variant="outline"
-					size="lg"
-				>
+				<AdminButton type="button" onclick={discardChanges} variant="outline" size="lg">
 					Discard changes
 				</AdminButton>
 				<AdminButton
@@ -1493,7 +1459,7 @@
 		<aside class="grid gap-6 xl:sticky xl:top-8 xl:self-start">
 			<div class="border border-ash/15 bg-charcoal">
 				{#if carouselImage}
-					<div class="relative group">
+					<div class="group relative">
 						<button
 							type="button"
 							onclick={() => openSnapshotImagePreview(carouselImage.id)}
@@ -1521,7 +1487,7 @@
 									e.stopPropagation();
 									navigateSnapshotImage(-1);
 								}}
-								class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 								aria-label="Previous image"
 							>
 								&larr;
@@ -1532,7 +1498,7 @@
 									e.stopPropagation();
 									navigateSnapshotImage(1);
 								}}
-								class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 								aria-label="Next image"
 							>
 								&rarr;
@@ -1745,12 +1711,7 @@
 <div
 	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col gap-2.5 border-t border-ash/15 bg-void/95 p-4 shadow-[0_-8px_24px_rgb(0,0,0,0.6)] backdrop-blur sm:flex-row sm:gap-3 lg:hidden"
 >
-	<AdminButton
-		type="button"
-		onclick={discardChanges}
-		variant="outline"
-		class="flex-1"
-	>
+	<AdminButton type="button" onclick={discardChanges} variant="outline" class="flex-1">
 		Discard changes
 	</AdminButton>
 	<AdminButton
@@ -1774,7 +1735,9 @@
 		<section
 			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-ash/25 bg-void shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
 		>
-			<div class="relative flex min-h-0 min-w-0 items-center overflow-hidden bg-charcoal/40 group w-full">
+			<div
+				class="group relative flex min-h-0 w-full min-w-0 items-center overflow-hidden bg-charcoal/40"
+			>
 				<img
 					src={activeImage.imageUrl}
 					alt={activeImage.altText ?? ''}
@@ -1785,7 +1748,7 @@
 					<button
 						type="button"
 						onclick={() => navigateActiveImage(-1)}
-						class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 						aria-label="Previous image"
 					>
 						&larr;
@@ -1793,7 +1756,7 @@
 					<button
 						type="button"
 						onclick={() => navigateActiveImage(1)}
-						class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
 						aria-label="Next image"
 					>
 						&rarr;

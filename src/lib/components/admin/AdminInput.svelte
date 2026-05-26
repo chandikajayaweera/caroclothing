@@ -50,9 +50,11 @@
 		{disabled}
 		{oninput}
 		{onkeydown}
-		bind:value={value}
+		bind:value
 		aria-invalid={errorMessage ? 'true' : undefined}
-		class="min-h-11 border bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:cursor-not-allowed disabled:opacity-40 {errorMessage ? 'border-red-400/50 focus:border-red-400' : 'border-ash/30'}"
+		class="min-h-11 border bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:cursor-not-allowed disabled:opacity-40 {errorMessage
+			? 'border-red-400/50 focus:border-red-400'
+			: 'border-ash/30'}"
 		{...rest}
 	/>
 	{#if errorMessage}

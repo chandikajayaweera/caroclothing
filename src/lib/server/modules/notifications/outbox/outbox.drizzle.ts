@@ -58,8 +58,8 @@ export const notificationOutbox = sqliteTable(
 		}),
 		aggregateType: text('aggregate_type', { enum: NOTIFICATION_AGGREGATE_TYPES }).notNull(),
 		aggregateId: text('aggregate_id'),
-		payloadJson: text('payload_json').notNull(),
-		metadataJson: text('metadata_json'),
+		payloadJson: text('payload_json', { mode: 'json' }).notNull(),
+		metadataJson: text('metadata_json', { mode: 'json' }),
 		attemptCount: integer('attempt_count').default(0).notNull(),
 		maxAttempts: integer('max_attempts').default(5).notNull(),
 		nextAttemptAt: integer('next_attempt_at', { mode: 'timestamp_ms' })
@@ -109,6 +109,11 @@ export const notificationOutbox = sqliteTable(
 		check(
 			'notification_outbox_cancelled_state_valid',
 			sql`${table.status} <> 'cancelled' OR ${table.cancelledAt} IS NOT NULL`
+		),
+		check('outbox_payload_valid', sql`json_valid(${table.payloadJson})`),
+		check(
+			'outbox_metadata_valid',
+			sql`${table.metadataJson} IS NULL OR json_valid(${table.metadataJson})`
 		)
 	]
 );
@@ -121,17 +126,6 @@ export const notificationOutboxRelations = relations(notificationOutbox, ({ one 
 }));
 
 const idSchema = z.string().min(1).max(255);
-const jsonStringSchema = z.string().refine(
-	(value) => {
-		try {
-			JSON.parse(value);
-			return true;
-		} catch {
-			return false;
-		}
-	},
-	{ message: 'Must be valid JSON' }
-);
 
 export const insertNotificationOutboxSchema = createInsertSchema(notificationOutbox, {
 	idempotencyKey: z.string().min(1).max(255),
@@ -142,8 +136,8 @@ export const insertNotificationOutboxSchema = createInsertSchema(notificationOut
 	recipientUserId: idSchema.optional().nullable(),
 	aggregateType: z.enum(NOTIFICATION_AGGREGATE_TYPES),
 	aggregateId: idSchema.optional().nullable(),
-	payloadJson: jsonStringSchema,
-	metadataJson: jsonStringSchema.optional().nullable(),
+	payloadJson: z.any(),
+	metadataJson: z.any().optional().nullable(),
 	attemptCount: z.number().int().min(0).optional(),
 	maxAttempts: z.number().int().positive().optional(),
 	nextAttemptAt: z.date().optional(),

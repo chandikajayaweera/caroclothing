@@ -123,12 +123,12 @@ export const product = sqliteTable(
 	},
 	(table) => [
 		index('product_category_idx').on(table.categoryId),
-		index('product_active_featured_idx').on(table.isActive, table.isFeatured),
+		index('product_active_featured_idx').on(table.isActive, table.isFeatured, table.createdAt),
 		index('product_gender_active_idx').on(table.gender, table.isActive),
-		index('product_new_arrival_idx').on(table.isNewArrival, table.isActive),
+		index('product_new_arrival_idx').on(table.isNewArrival, table.isActive, table.createdAt),
 		index('product_created_idx').on(table.createdAt),
 		// Tier-based queries: PLP "Shop Core", "Shop Drops", admin tier management
-		index('product_tier_active_idx').on(table.tier, table.isActive)
+		index('product_tier_active_idx').on(table.tier, table.isActive, table.createdAt)
 	]
 );
 
@@ -377,37 +377,6 @@ const idSchema = z.string().min(1).max(64);
 const nameSchema = z.string().min(1).max(255);
 const sortOrderSchema = z.number().int().min(0);
 const positiveMoneySchema = z.number().int().positive();
-
-function isPriceInTierBand(tier: ProductTier | undefined, price: number | undefined): boolean {
-	if (tier === undefined || price === undefined) return true;
-	if (tier === 'drop') return price >= 3000 && price <= 4500;
-	return price >= 2500 && price <= 3200;
-}
-
-function validateProductPricing(
-	data: { tier?: ProductTier; basePrice?: number; compareAtPrice?: number | null },
-	ctx: z.RefinementCtx
-) {
-	if (
-		data.compareAtPrice != null &&
-		data.basePrice != null &&
-		data.compareAtPrice <= data.basePrice
-	) {
-		ctx.addIssue({
-			code: 'custom',
-			message: 'compareAtPrice must be greater than basePrice',
-			path: ['compareAtPrice']
-		});
-	}
-
-	if (!isPriceInTierBand(data.tier, data.basePrice)) {
-		ctx.addIssue({
-			code: 'custom',
-			message: 'basePrice must match the selected product tier price band',
-			path: ['basePrice']
-		});
-	}
-}
 
 export const insertCategorySchema = createInsertSchema(category, {
 	name: z.string().min(1).max(100),
