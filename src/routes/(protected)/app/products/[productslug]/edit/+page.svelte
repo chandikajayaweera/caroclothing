@@ -1,8 +1,31 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { AlertTriangle, ArrowLeft, ImageOff, Plus, Save, Star, Trash2, Upload, X } from 'lucide-svelte';
-	import { superForm } from 'sveltekit-superforms';
+	import {
+		AlertTriangle,
+		ArrowLeft,
+		ChevronDown,
+		FolderPlus,
+		ImageOff,
+		Layers,
+		Plus,
+		Save,
+		Star,
+		Trash2,
+		Upload,
+		X
+	} from 'lucide-svelte';
+	import { onDestroy } from 'svelte';
+	import { flip } from 'svelte/animate';
+	import { superForm, filesProxy } from 'sveltekit-superforms';
 	import type { ActionData, PageData } from './$types';
+	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
+	import AdminHexInput from '$lib/components/admin/AdminHexInput.svelte';
+	import AdminUnsavedChangesModal from '$lib/components/admin/AdminUnsavedChangesModal.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -16,7 +39,8 @@
 		constraints: updateProductConstraints,
 		message: updateProductMessage,
 		enhance: updateProductEnhance,
-		submitting: updateProductSubmitting
+		submitting: updateProductSubmitting,
+		isTainted: isUpdateProductTainted
 	} = superForm(
 		initialForm(() => data.updateProductForm),
 		{
@@ -24,149 +48,347 @@
 		}
 	);
 
-	const {
-		form: createVariantForm,
-		errors: createVariantErrors,
-		constraints: createVariantConstraints,
-		message: createVariantMessage,
-		enhance: createVariantEnhance,
-		submitting: createVariantSubmitting
-	} = superForm(initialForm(() => data.createVariantForm));
+	const imageFiles = filesProxy(updateProductForm, 'newImageFiles');
 
-	const {
-		form: updateVariantForm,
-		constraints: updateVariantConstraints,
-		message: updateVariantMessage,
-		enhance: updateVariantEnhance,
-		submitting: updateVariantSubmitting
-	} = superForm(
-		initialForm(() => data.updateVariantForm),
-		{
-			resetForm: false
-		}
-	);
-
-	const {
-		message: deleteVariantMessage,
-		enhance: deleteVariantEnhance,
-		submitting: deleteVariantSubmitting
-	} = superForm(initialForm(() => data.deleteVariantForm));
-
-	const {
-		form: addImageForm,
-		errors: addImageErrors,
-		constraints: addImageConstraints,
-		message: addImageMessage,
-		enhance: addImageEnhance,
-		submitting: addImageSubmitting
-	} = superForm(initialForm(() => data.addImageForm));
-
-	const {
-		message: setPrimaryImageMessage,
-		enhance: setPrimaryImageEnhance,
-		submitting: setPrimaryImageSubmitting
-	} = superForm(initialForm(() => data.setPrimaryImageForm));
-
-	const {
-		message: deleteImageMessage,
-		enhance: deleteImageEnhance,
-		submitting: deleteImageSubmitting
-	} = superForm(initialForm(() => data.deleteImageForm));
-
-	const {
-		message: reorderImagesMessage,
-		enhance: reorderImagesEnhance,
-		submitting: reorderImagesSubmitting
-	} = superForm(
-		initialForm(() => data.reorderImagesForm),
-		{
-			resetForm: false
-		}
-	);
-
-	const {
-		enhance: createVariantColorEnhance,
-		submitting: createVariantColorSubmitting
-	} = superForm(initialForm(() => data.createVariantColorForm));
-
-	const {
-		enhance: updateVariantColorEnhance,
-		submitting: updateVariantColorSubmitting
-	} = superForm(initialForm(() => data.updateVariantColorForm));
-
-	const {
-		enhance: deleteVariantColorEnhance,
-		submitting: deleteVariantColorSubmitting
-	} = superForm(initialForm(() => data.deleteVariantColorForm));
-
-	const product = $derived(data.product);
-	const uniqueColors = $derived(
-		Array.from(
-			new Map(
-				product.variants.map((v) => [
-					v.variantColorId,
-					{ id: v.variantColorId, name: v.color, hex: v.colorHex }
-				])
-			).values()
-		)
-	);
-
-	type ColorCard = {
-		variantColorId: string;
+	// Local States
+	type LocalVariant = {
+		id: string;
 		color: string;
 		colorHex: string | null;
 		basePrice: number;
 		compareAtPrice: number | null;
-		variants: { id: string; size: string; isActive: boolean; sortOrder: number }[];
+		sortOrder: number;
+		sizes: string[];
+		isNew?: boolean;
+		isDeleted?: boolean;
 	};
 
-	const colorCards = $derived.by<ColorCard[]>(() => {
-		const cardsMap = new Map<string, ColorCard>();
+	type LocalImage = {
+		id: string;
+		variantId: string | null;
+		imageUrl: string;
+		altText: string | null;
+		position: number;
+		isPrimary: boolean;
+		isNew?: boolean;
+		isDeleted?: boolean;
+		fileIndex?: number;
+	};
 
+	function buildLocalVariants(product: PageData['product']): LocalVariant[] {
+		const cardsMap: Record<string, LocalVariant> = {};
 		for (const variant of product.variants) {
 			const colorId = variant.variantColorId;
-			if (!cardsMap.has(colorId)) {
-				cardsMap.set(colorId, {
-					variantColorId: colorId,
+			if (!cardsMap[colorId]) {
+				cardsMap[colorId] = {
+					id: colorId,
 					color: variant.color,
 					colorHex: variant.colorHex,
 					basePrice: variant.basePrice,
 					compareAtPrice: variant.compareAtPrice,
-					variants: []
-				});
+					sortOrder: variant.sortOrder,
+					sizes: []
+				};
 			}
-			const card = cardsMap.get(colorId)!;
-			card.variants.push({
-				id: variant.id,
-				size: variant.size,
-				isActive: variant.isActive,
-				sortOrder: variant.sortOrder
-			});
+			cardsMap[colorId].sizes.push(variant.size);
 		}
+		return Object.values(cardsMap).sort((a, b) => a.sortOrder - b.sortOrder);
+	}
 
-		return Array.from(cardsMap.values()).sort((a, b) => {
-			const aSort = a.variants[0]?.sortOrder ?? 0;
-			const bSort = b.variants[0]?.sortOrder ?? 0;
-			return aSort - bSort;
-		});
+	function buildLocalImages(product: PageData['product']): LocalImage[] {
+		return product.images.map((img) => ({
+			id: img.id,
+			variantId: img.variantId,
+			imageUrl: img.imageUrl,
+			altText: img.altText,
+			position: img.position,
+			isPrimary: img.isPrimary
+		}));
+	}
+
+	function categoryNameById(categoryId: string | null | undefined): string {
+		return data.categories.find((category) => category.id === categoryId)?.name ?? '';
+	}
+
+	let localVariants = $state<LocalVariant[]>([]);
+	let localImages = $state<LocalImage[]>([]);
+	let hexIndicatorActive = $state<Record<string, boolean>>({});
+
+	$effect(() => {
+		localVariants = buildLocalVariants(data.product);
+		localImages = buildLocalImages(data.product);
 	});
 
-	let activeImageIndex = $state<number | null>(null);
+	let formElement = $state<HTMLFormElement | null>(null);
+	let showUnsavedModal = $state(false);
+
+	let newImageFiles = $state<File[]>([]);
+	let imagePreviews = $state<{ url: string; name: string; size: number; fileIndex: number }[]>([]);
+
+	let activeImageId = $state<string | null>(null);
+	let isSnapshotClick = $state(false);
+
 	const activeImage = $derived(
-		activeImageIndex === null ? null : (product.images[activeImageIndex] ?? null)
+		activeImageId === null ? null : (localImages.find((img) => img.id === activeImageId) ?? null)
 	);
 
+	let carouselImageId = $state<string | null>(null);
+	let selectedSnapshotVariantId = $state<string | null>(null);
+	let selectedSnapshotSize = $state<string | null>(null);
+
+	const activeLocalVariants = $derived(
+		localVariants.filter((v) => !v.isDeleted).sort((a, b) => a.sortOrder - b.sortOrder)
+	);
+
+	const activeLocalImages = $derived(
+		localImages.filter((img) => !img.isDeleted).sort((a, b) => a.position - b.position)
+	);
+	const serializedVariants = $derived(JSON.stringify(localVariants));
+	const serializedImages = $derived(JSON.stringify(localImages));
+
+	const snapshotVariant = $derived.by(() => {
+		const selectedVariant = selectedSnapshotVariantId
+			? activeLocalVariants.find((variant) => variant.id === selectedSnapshotVariantId)
+			: null;
+		return selectedVariant ?? activeLocalVariants[0] ?? null;
+	});
+
+	const snapshotSize = $derived.by(() => {
+		if (!snapshotVariant || snapshotVariant.sizes.length === 0) return null;
+		return selectedSnapshotSize && snapshotVariant.sizes.includes(selectedSnapshotSize)
+			? selectedSnapshotSize
+			: snapshotVariant.sizes[0];
+	});
+
+	const snapshotImages = $derived.by(() => {
+		if (!snapshotVariant) return activeLocalImages;
+		const variantImages = activeLocalImages.filter(
+			(image) => image.variantId === snapshotVariant.id
+		);
+		return variantImages.length > 0 ? variantImages : activeLocalImages;
+	});
+
+	const carouselImage = $derived.by(() => {
+		const fallbackImage =
+			snapshotImages.find((image) => image.isPrimary) ?? snapshotImages[0] ?? null;
+		if (carouselImageId === null) return fallbackImage;
+		return snapshotImages.find((img) => img.id === carouselImageId) ?? fallbackImage;
+	});
+
+	const snapshotDiscountPercent = $derived.by(() => {
+		if (
+			!snapshotVariant?.compareAtPrice ||
+			snapshotVariant.compareAtPrice <= snapshotVariant.basePrice
+		) {
+			return null;
+		}
+
+		return Math.round(
+			((snapshotVariant.compareAtPrice - snapshotVariant.basePrice) /
+				snapshotVariant.compareAtPrice) *
+				100
+		);
+	});
+
 	let newTagDraft = $state('');
+	let categorySearch = $derived(categoryNameById($updateProductForm.categoryId));
+	let categoryDropdownOpen = $state(false);
+
+	const filteredCategories = $derived.by(() => {
+		const q = categorySearch.toLowerCase().trim();
+		if (!q) return data.categories;
+		return data.categories.filter((c) => c.name.toLowerCase().includes(q));
+	});
+
 	const dropTierWithoutDrop = $derived(
 		$updateProductForm.tier === 'drop' && !$updateProductForm.dropId
 	);
-	const primaryImage = $derived(
-		product.images.find((image) => image.isPrimary) ?? product.images[0] ?? null
-	);
 	const activeVariantCount = $derived(
-		product.variants.filter((variant) => variant.isActive).length
+		activeLocalVariants.reduce((sum, v) => sum + v.sizes.length, 0)
 	);
 	const actionMessage = $derived(actionData?.form?.message);
+
+	const selectedTags = $derived(
+		data.tags.filter((tag) => $updateProductForm.tagIds.includes(tag.id))
+	);
+	const availableTags = $derived(
+		data.tags.filter((tag) => !$updateProductForm.tagIds.includes(tag.id))
+	);
+	const selectedCategoryName = $derived(
+		data.categories.find((category) => category.id === $updateProductForm.categoryId)?.name ??
+			'No category'
+	);
+
+	let expandedColorCards = $state<Record<string, boolean>>({});
+
+	const carePresets = [
+		'Machine wash cold',
+		'Hand wash only',
+		'Do not tumble dry',
+		'Line dry in shade',
+		'Iron low heat'
+	];
+	const materialPresets = [
+		'100% Cotton',
+		'Heavyweight fleece',
+		'French Terry',
+		'Nylon ripstop',
+		'Cotton-poly blend'
+	];
+
+	const priceRange = $derived.by(() => {
+		const prices = activeLocalVariants.map((v) => v.basePrice);
+		if (prices.length === 0) return '—';
+		const min = Math.min(...prices);
+		const max = Math.max(...prices);
+		return min === max ? formatMoney(min) : `${formatMoney(min)} - ${formatMoney(max)}`;
+	});
+
+	const snapshotWarnings = $derived.by(() => {
+		const warnings: string[] = [];
+		if (!$updateProductForm.name) warnings.push('Product name is required');
+		if (!$updateProductForm.categoryId) warnings.push('No category assigned');
+		if (activeLocalVariants.length === 0) {
+			warnings.push('At least one color variant is required');
+		}
+		if ($updateProductForm.tier === 'drop' && !$updateProductForm.dropId) {
+			warnings.push('Drop is required for Drop Tier');
+		}
+		if (activeLocalImages.length === 0) {
+			warnings.push('No product photography uploaded');
+		}
+		return warnings;
+	});
+
+	function revokeImagePreviews() {
+		for (const preview of imagePreviews) {
+			URL.revokeObjectURL(preview.url);
+		}
+	}
+
+	function resetState() {
+		localVariants = buildLocalVariants(data.product);
+		localImages = buildLocalImages(data.product);
+
+		// Revoke object URLs and clear new uploads
+		revokeImagePreviews();
+		newImageFiles = [];
+		imagePreviews = [];
+		$imageFiles = createFileList([]);
+		activeImageId = null;
+		carouselImageId = null;
+		selectedSnapshotVariantId = null;
+		selectedSnapshotSize = null;
+		expandedColorCards = {};
+	}
+
+	function discardChanges() {
+		resetState();
+		// Re-sync form fields from data.product
+		$updateProductForm.name = data.product.name;
+		$updateProductForm.slug = data.product.slug;
+		$updateProductForm.description = data.product.description;
+		$updateProductForm.shortDescription = data.product.shortDescription;
+		$updateProductForm.categoryId = data.product.categoryId;
+		$updateProductForm.tier = data.product.tier;
+		$updateProductForm.gender = data.product.gender;
+		$updateProductForm.fit = data.product.fit;
+		$updateProductForm.material = data.product.material;
+		$updateProductForm.careInstructions = data.product.careInstructions;
+		$updateProductForm.isActive = data.product.isActive;
+		$updateProductForm.isFeatured = data.product.isFeatured;
+		$updateProductForm.isNewArrival = data.product.isNewArrival;
+		$updateProductForm.metaTitle = data.product.metaTitle;
+		$updateProductForm.metaDescription = data.product.metaDescription;
+		$updateProductForm.tagIds = data.product.tags.map((tag) => tag.id);
+		$updateProductForm.newTagNames = [];
+		$updateProductForm.dropId = data.product.dropAssignment?.id ?? null;
+		categorySearch = categoryNameById(data.product.categoryId);
+	}
+
+	onDestroy(revokeImagePreviews);
+
+	function imagesForColorCard(variantColorId: string) {
+		return activeLocalImages.filter((image) => image.variantId === variantColorId);
+	}
+
+	function imagePositionOptionsForVariant(variantId: string | null): number[] {
+		const count = activeLocalImages.filter((img) => img.variantId === variantId).length;
+		return Array.from({ length: count }, (_, index) => index + 1);
+	}
+
+	function imageDisplayOrder(imageId: string): number {
+		const image = activeLocalImages.find((img) => img.id === imageId);
+		if (!image) return 1;
+		const variantId = image.variantId;
+		const variantImages = activeLocalImages.filter((img) => img.variantId === variantId);
+		const index = variantImages.findIndex((img) => img.id === imageId);
+		return index >= 0 ? index + 1 : 1;
+	}
+
+	function updateImageAltText(imageId: string, event: Event): void {
+		const nextAltText = (event.currentTarget as HTMLInputElement).value.trim() || null;
+		localImages = localImages.map((img) =>
+			img.id === imageId ? { ...img, altText: nextAltText } : img
+		);
+	}
+
+	function handleImagePositionChange(imageId: string, event: Event): void {
+		const nextPosition = Number((event.currentTarget as HTMLSelectElement).value);
+		if (!Number.isInteger(nextPosition)) return;
+
+		const targetImage = localImages.find((img) => img.id === imageId);
+		if (!targetImage || targetImage.isDeleted) return;
+
+		const variantId = targetImage.variantId;
+		const variantImages = activeLocalImages.filter((img) => img.variantId === variantId);
+		const currentIndex = variantImages.findIndex((img) => img.id === imageId);
+		if (currentIndex < 0) return;
+
+		const targetIndex = Math.min(Math.max(nextPosition - 1, 0), variantImages.length - 1);
+		const [splicedImage] = variantImages.splice(currentIndex, 1);
+		if (!splicedImage) return;
+
+		variantImages.splice(targetIndex, 0, splicedImage);
+		const nextPositions = new Map(variantImages.map((image, index) => [image.id, index + 1]));
+
+		localImages = localImages.map((image) =>
+			image.variantId === variantId && !image.isDeleted
+				? { ...image, position: nextPositions.get(image.id) ?? image.position }
+				: image
+		);
+	}
+
+	function handleHexInput(id: string, event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		let val = input.value;
+		if (val.includes('#')) {
+			val = val.replace(/#/g, '');
+			hexIndicatorActive = { ...hexIndicatorActive, [id]: true };
+			setTimeout(() => {
+				hexIndicatorActive = { ...hexIndicatorActive, [id]: false };
+			}, 800);
+		}
+		if (val.length > 6) {
+			val = val.slice(0, 6);
+		}
+		localVariants = localVariants.map((variant) =>
+			variant.id === id ? { ...variant, colorHex: val ? `#${val}` : null } : variant
+		);
+	}
+
+	function selectSnapshotVariant(variantId: string): void {
+		const variant = activeLocalVariants.find((entry) => entry.id === variantId);
+		if (!variant) return;
+
+		selectedSnapshotVariantId = variantId;
+		selectedSnapshotSize = variant.sizes[0] ?? null;
+		carouselImageId = null;
+	}
+
+	function selectSnapshotSize(size: string): void {
+		selectedSnapshotSize = size;
+	}
 
 	function formatMoney(value: number): string {
 		return `LKR ${value.toLocaleString('en-LK')}`;
@@ -180,18 +402,29 @@
 		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
 	}
 
-	function variantLabel(variant: PageData['product']['variants'][number]): string {
-		return `${variant.size} / ${variant.color}`;
+	function addExistingTag(tagId: string): void {
+		if ($updateProductForm.tagIds.includes(tagId)) return;
+		$updateProductForm.tagIds = [...$updateProductForm.tagIds, tagId];
 	}
 
-	function variantSortOptions(includeNext = false): number[] {
-		const length = product.variants.length + (includeNext ? 1 : 0);
-		return Array.from({ length: Math.max(1, length) }, (_, index) => index + 1);
+	function removeExistingTag(tagId: string): void {
+		$updateProductForm.tagIds = $updateProductForm.tagIds.filter((id) => id !== tagId);
 	}
 
 	function addNewTag(): void {
 		const value = newTagDraft.trim();
-		if (!value || $updateProductForm.newTagNames.includes(value)) return;
+		if (!value) return;
+
+		const existingTag = data.tags.find((t) => t.name.toLowerCase() === value.toLowerCase());
+		if (existingTag) {
+			addExistingTag(existingTag.id);
+			newTagDraft = '';
+			return;
+		}
+
+		const alreadyAdded = $updateProductForm.newTagNames.includes(value);
+
+		if (alreadyAdded) return;
 
 		$updateProductForm.newTagNames = [...$updateProductForm.newTagNames, value];
 		newTagDraft = '';
@@ -210,19 +443,303 @@
 		addNewTag();
 	}
 
-	$effect(() => {
-		if (dropTierWithoutDrop) {
-			$updateProductForm.isActive = false;
+	function appendCare(preset: string) {
+		const current = $updateProductForm.careInstructions || '';
+		if (current.includes(preset)) return;
+		$updateProductForm.careInstructions = current ? `${current}, ${preset}` : preset;
+	}
+
+	function appendMaterial(preset: string) {
+		const current = $updateProductForm.material || '';
+		if (current.includes(preset)) return;
+		$updateProductForm.material = current ? `${current}, ${preset}` : preset;
+	}
+
+	function isVariantExpanded(variantColorId: string, index: number): boolean {
+		return expandedColorCards[variantColorId] ?? index === 0;
+	}
+
+	function toggleColorCardExpanded(variantColorId: string, currentlyExpanded: boolean) {
+		expandedColorCards = {
+			...expandedColorCards,
+			[variantColorId]: !currentlyExpanded
+		};
+	}
+
+	function expandAllColorCards() {
+		expandedColorCards = Object.fromEntries(activeLocalVariants.map((card) => [card.id, true]));
+	}
+
+	function addVariantColor() {
+		const newVar: LocalVariant = {
+			id: `new-color-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+			color: '',
+			colorHex: '#000000',
+			basePrice: $updateProductForm.tier === 'drop' ? 3000 : 2500,
+			compareAtPrice: null,
+			sortOrder: localVariants.length + 1,
+			sizes: ['M'],
+			isNew: true
+		};
+		localVariants = [...localVariants, newVar];
+		expandedColorCards = { ...expandedColorCards, [newVar.id]: true };
+	}
+
+	function deleteVariantColor(id: string) {
+		const targetIndex = localVariants.findIndex((v) => v.id === id);
+		if (targetIndex === -1) return;
+		const v = localVariants[targetIndex];
+
+		if (v.isNew) {
+			localVariants = localVariants.filter((entry) => entry.id !== id);
+			localImages = localImages.filter((img) => {
+				if (img.variantId === id) {
+					if (img.imageUrl.startsWith('blob:')) {
+						URL.revokeObjectURL(img.imageUrl);
+					}
+					return false;
+				}
+				return true;
+			});
+		} else {
+			localVariants = localVariants.map((entry) =>
+				entry.id === id ? { ...entry, isDeleted: true } : entry
+			);
+			localImages = localImages.map((img) =>
+				img.variantId === id ? { ...img, isDeleted: true } : img
+			);
 		}
+		normalizeVariantSortOrders();
+	}
+
+	function normalizeVariantSortOrders(): void {
+		localVariants = [...localVariants]
+			.sort((a, b) => a.sortOrder - b.sortOrder)
+			.map((v, index) => ({ ...v, sortOrder: index + 1 }));
+	}
+
+	function updateVariantTextField(id: string, field: 'color' | 'colorHex', event: Event): void {
+		const value = (event.currentTarget as HTMLInputElement).value;
+		localVariants = localVariants.map((variant) =>
+			variant.id === id
+				? { ...variant, [field]: field === 'colorHex' ? value || null : value }
+				: variant
+		);
+	}
+
+	function updateVariantNumberField(
+		id: string,
+		field: 'basePrice' | 'compareAtPrice',
+		event: Event
+	): void {
+		const input = event.currentTarget as HTMLInputElement;
+		const nextValue =
+			input.value === '' ? (field === 'compareAtPrice' ? null : 0) : Number(input.value);
+		localVariants = localVariants.map((variant) =>
+			variant.id === id ? { ...variant, [field]: nextValue } : variant
+		);
+	}
+
+	function handleVariantSortChange(id: string, event: Event): void {
+		const nextSort = Number((event.currentTarget as HTMLSelectElement).value);
+		if (!Number.isInteger(nextSort)) return;
+
+		const variants = [...localVariants];
+		const targetIndex = variants.findIndex((v) => v.id === id);
+		if (targetIndex === -1) return;
+
+		const target = variants[targetIndex];
+		
+		let previousSort = target.sortOrder;
+		if (previousSort === nextSort) {
+			const N = activeLocalVariants.length;
+			const presentOrders = new Set(activeLocalVariants.map(v => v.sortOrder));
+			for (let i = 1; i <= N; i++) {
+				if (!presentOrders.has(i)) {
+					previousSort = i;
+					break;
+				}
+			}
+		}
+
+		const duplicateIndex = variants.findIndex(
+			(v) => v.id !== id && !v.isDeleted && v.sortOrder === nextSort
+		);
+
+		variants[targetIndex] = { ...target, sortOrder: nextSort };
+		if (duplicateIndex !== -1) {
+			variants[duplicateIndex] = { ...variants[duplicateIndex], sortOrder: previousSort };
+		}
+
+		localVariants = variants;
+	}
+
+	function toggleSize(variantColorId: string, size: string): void {
+		localVariants = localVariants.map((variant) => {
+			if (variant.id !== variantColorId) return variant;
+			if (variant.sizes.includes(size)) {
+				if (variant.sizes.length === 1) return variant;
+				return { ...variant, sizes: variant.sizes.filter((s) => s !== size) };
+			}
+			return { ...variant, sizes: [...variant.sizes, size] };
+		});
+	}
+
+	function createFileList(files: File[]): FileList {
+		const transfer = new DataTransfer();
+		for (const file of files) transfer.items.add(file);
+		return transfer.files;
+	}
+
+	function handleVariantImageUpload(variantColorId: string, event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		const incomingFiles = Array.from(input.files ?? []);
+		if (incomingFiles.length === 0) return;
+
+		const currentFiles = [...newImageFiles];
+		const updatedPreviews = [...imagePreviews];
+
+		for (const file of incomingFiles) {
+			currentFiles.push(file);
+			const fileIndex = currentFiles.length - 1;
+			const objectUrl = URL.createObjectURL(file);
+
+			updatedPreviews.push({
+				url: objectUrl,
+				name: file.name,
+				size: file.size,
+				fileIndex
+			});
+
+			const variantImages = imagesForColorCard(variantColorId);
+			const position = variantImages.length + 1;
+			const isPrimary = variantImages.length === 0;
+
+			localImages = [
+				...localImages,
+				{
+					id: `new-img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+					variantId: variantColorId,
+					imageUrl: objectUrl,
+					altText: $updateProductForm.name || null,
+					position,
+					isPrimary,
+					isNew: true,
+					fileIndex
+				}
+			];
+		}
+
+		newImageFiles = currentFiles;
+		imagePreviews = updatedPreviews;
+		$imageFiles = createFileList(newImageFiles);
+		input.value = '';
+	}
+
+	function setPrimaryImage(id: string): void {
+		const target = localImages.find((img) => img.id === id);
+		if (!target) return;
+
+		localImages = localImages.map((img) => {
+			if (img.variantId === target.variantId) {
+				return { ...img, isPrimary: img.id === id };
+			}
+			return img;
+		});
+	}
+
+	function removeImage(id: string): void {
+		const target = localImages.find((img) => img.id === id);
+		if (!target) return;
+
+		const wasPrimary = target.isPrimary;
+		const scopeVariantId = target.variantId;
+
+		if (target.isNew) {
+			if (target.imageUrl.startsWith('blob:')) {
+				URL.revokeObjectURL(target.imageUrl);
+			}
+			localImages = localImages.filter((img) => img.id !== id);
+		} else {
+			localImages = localImages.map((img) => (img.id === id ? { ...img, isDeleted: true } : img));
+		}
+
+		if (wasPrimary) {
+			const remaining = localImages.filter(
+				(img) => img.variantId === scopeVariantId && !img.isDeleted
+			);
+			if (remaining.length > 0) {
+				localImages = localImages.map((img) =>
+					img.id === remaining[0].id ? { ...img, isPrimary: true } : img
+				);
+			}
+		}
+
+		if (activeImageId === id) {
+			activeImageId = null;
+		}
+	}
+
+	function openVariantImagePreview(imgId: string) {
+		activeImageId = imgId;
+		isSnapshotClick = false;
+	}
+
+	function openSnapshotImagePreview(imgId: string) {
+		activeImageId = imgId;
+		isSnapshotClick = true;
+	}
+
+	function collapseAllColorCards() {
+		expandedColorCards = Object.fromEntries(activeLocalVariants.map((card) => [card.id, false]));
+	}
+
+	function hasDirtyChanges(): boolean {
+		if (isUpdateProductTainted()) return true;
+
+		const initialVariants = buildLocalVariants(data.product);
+		if (JSON.stringify(localVariants) !== JSON.stringify(initialVariants)) return true;
+
+		const initialImages = buildLocalImages(data.product);
+		if (JSON.stringify(localImages) !== JSON.stringify(initialImages)) return true;
+
+		if (newImageFiles.length > 0) return true;
+
+		return false;
+	}
+
+	async function handleBackClick(): Promise<void> {
+		if (hasDirtyChanges()) {
+			showUnsavedModal = true;
+		} else {
+			await goto(resolve('/app/products'));
+		}
+	}
+
+	const activeVariantImages = $derived.by(() => {
+		if (activeImageId === null || !activeImage) return [];
+		return activeLocalImages.filter((img) => img.variantId === activeImage.variantId);
 	});
 
-	function imagesForColorCard(variantColorId: string) {
-		return product.images.filter((image) => image.variantId === variantColorId);
+	function navigateSnapshotImage(direction: number): void {
+		if (snapshotImages.length <= 1) return;
+		const currentIndex = snapshotImages.findIndex((img) => img.id === carouselImage?.id);
+		if (currentIndex === -1) return;
+		const nextIndex = (currentIndex + direction + snapshotImages.length) % snapshotImages.length;
+		carouselImageId = snapshotImages[nextIndex].id;
+	}
+
+	function navigateActiveImage(direction: number): void {
+		if (activeVariantImages.length <= 1) return;
+		const currentIndex = activeVariantImages.findIndex((img) => img.id === activeImageId);
+		if (currentIndex === -1) return;
+		const nextIndex = (currentIndex + direction + activeVariantImages.length) % activeVariantImages.length;
+		activeImageId = activeVariantImages[nextIndex].id;
 	}
 </script>
 
 <svelte:head>
-	<title>{product.name} | Products | Caro Admin</title>
+	<title>{$updateProductForm.name || data.product.name} | Products | Caro Admin</title>
 	<meta
 		name="description"
 		content="Edit product details, variants, images, merchandising flags, and product publishing state."
@@ -233,995 +750,1203 @@
 	<p hidden>Form response received.</p>
 {/if}
 
-<section class="mx-auto max-w-7xl">
-	<div class="border-b border-charcoal pb-6 md:pb-8">
-		<a
-			href={resolve('/app/products')}
-			class="inline-flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-volt"
+<section class="mx-auto max-w-7xl overflow-x-hidden px-2 pb-24 md:px-0 lg:pb-10">
+	<div class="border-b border-charcoal pb-4 md:pb-6">
+		<button
+			type="button"
+			onclick={handleBackClick}
+			class="inline-flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-volt cursor-pointer select-none"
 		>
 			<ArrowLeft size={14} aria-hidden="true" />
-			Products
-		</a>
+			Back to products
+		</button>
 
 		<div class="mt-4 items-end justify-between gap-6 md:flex">
 			<div class="min-w-0">
 				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Product edit</p>
 				<h1
-					class="mt-2 truncate font-display text-5xl leading-none text-bone uppercase md:text-7xl"
+					class="mt-1 truncate font-display text-4xl leading-none text-bone uppercase md:text-6xl"
 				>
-					{product.name}
+					{$updateProductForm.name || data.product.name}
 				</h1>
-				<p class="mt-2 truncate font-mono text-[10px] tracking-widest text-ash uppercase">
-					{product.slug}
+				<p class="mt-1.5 truncate font-mono text-xs tracking-wide text-ash">
+					Slug: {data.product.slug}
 				</p>
 			</div>
 
-			<div class="mt-5 grid grid-cols-2 gap-3 text-right md:mt-0 md:grid-cols-4">
-				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">State</p>
+			<div class="mt-5 grid grid-cols-2 gap-3 text-right font-sans text-xs md:mt-0 md:grid-cols-4">
+				<div
+					class="border border-ash/10 bg-charcoal/20 p-2 text-center md:border-0 md:bg-transparent md:p-0 md:text-right"
+				>
+					<p class="font-sans text-[11px] font-semibold tracking-wider text-ash uppercase">State</p>
 					<p
-						class="mt-1 font-display text-3xl uppercase {product.isActive
+						class="mt-1 font-display text-2xl uppercase {$updateProductForm.isActive
 							? 'text-volt'
-							: 'text-red-300'}"
+							: 'text-red-400'}"
 					>
-						{product.isActive ? 'Live' : 'Off'}
+						{$updateProductForm.isActive ? 'Live' : 'Draft'}
 					</p>
 				</div>
-				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Price</p>
-					<p class="mt-1 font-display text-3xl text-bone uppercase">
-						{formatMoney(product.basePrice).replace('LKR ', '')}
+				<div
+					class="border border-ash/10 bg-charcoal/20 p-2 text-center md:border-0 md:bg-transparent md:p-0 md:text-right"
+				>
+					<p class="font-sans text-[11px] font-semibold tracking-wider text-ash uppercase">
+						Price Range
+					</p>
+					<p class="mt-1 font-mono text-sm font-semibold text-bone">
+						{priceRange.replace('LKR ', '')}
 					</p>
 				</div>
-				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variants</p>
-					<p class="mt-1 font-display text-3xl text-bone uppercase">{activeVariantCount}</p>
+				<div
+					class="border border-ash/10 bg-charcoal/20 p-2 text-center md:border-0 md:bg-transparent md:p-0 md:text-right"
+				>
+					<p class="font-sans text-[11px] font-semibold tracking-wider text-ash uppercase">
+						Variants
+					</p>
+					<p class="mt-1 font-display text-2xl text-bone uppercase">{activeVariantCount}</p>
 				</div>
-				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Images</p>
-					<p class="mt-1 font-display text-3xl text-bone uppercase">{product.images.length}</p>
+				<div
+					class="border border-ash/10 bg-charcoal/20 p-2 text-center md:border-0 md:bg-transparent md:p-0 md:text-right"
+				>
+					<p class="font-sans text-[11px] font-semibold tracking-wider text-ash uppercase">
+						Images
+					</p>
+					<p class="mt-1 font-display text-2xl text-bone uppercase">{activeLocalImages.length}</p>
 				</div>
 			</div>
 		</div>
 	</div>
 
-	{#if actionMessage || $updateProductMessage || $createVariantMessage || $updateVariantMessage || $deleteVariantMessage || $addImageMessage || $setPrimaryImageMessage || $deleteImageMessage || $reorderImagesMessage}
+	{#if actionMessage || $updateProductMessage}
 		<div class="mt-6 grid gap-2">
-			{#each [actionMessage, $updateProductMessage, $createVariantMessage, $updateVariantMessage, $addImageMessage, $setPrimaryImageMessage, $reorderImagesMessage].filter(Boolean) as message (message)}
-				<p
-					class="border border-volt/30 bg-volt/10 px-4 py-3 font-mono text-[10px] tracking-widest text-volt uppercase"
-				>
-					{message}
-				</p>
-			{/each}
-			{#each [$deleteVariantMessage, $deleteImageMessage].filter(Boolean) as message (message)}
-				<p
-					class="border border-red-400/30 bg-red-950/20 px-4 py-3 font-mono text-[10px] tracking-widest text-red-300 uppercase"
-				>
-					{message}
-				</p>
-			{/each}
+			<p class="border border-volt/30 bg-volt/10 px-4 py-3 font-sans text-xs text-volt">
+				{actionMessage || $updateProductMessage}
+			</p>
 		</div>
 	{/if}
 
-	<div class="mt-8 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-		<form
-			method="POST"
-			action="?/updateProduct"
-			use:updateProductEnhance
-			class="border border-charcoal bg-charcoal/25 p-5"
-		>
-			{#each $updateProductForm.newTagNames as tagName (tagName)}
-				<input type="hidden" name="newTagNames" value={tagName} />
-			{/each}
+	<form
+		bind:this={formElement}
+		id="update-product-form"
+		method="POST"
+		action="?/updateProduct"
+		enctype="multipart/form-data"
+		use:updateProductEnhance
+		novalidate
+		class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
+	>
+		<input type="hidden" name="serializedVariants" value={serializedVariants} />
+		<input type="hidden" name="serializedImages" value={serializedImages} />
+		<input type="file" name="newImageFiles" bind:files={$imageFiles} multiple class="hidden" />
 
-			<div class="border-b border-charcoal pb-4">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Core</p>
-				<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Product Data</h2>
-			</div>
+		{#each $updateProductForm.newTagNames as tagName (tagName)}
+			<input type="hidden" name="newTagNames" value={tagName} />
+		{/each}
+		{#each $updateProductForm.tagIds as tagId (tagId)}
+			<input type="hidden" name="tagIds" value={tagId} />
+		{/each}
 
-			<div class="mt-5 grid gap-5">
-				<div class="grid gap-4 md:grid-cols-2">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Name</span>
-						<input
+		<div class="grid gap-6">
+			<AdminCard title="Product Basics" border="border border-ash/15" class="shadow-sm">
+				<div class="grid gap-5">
+					<div class="grid gap-4 md:grid-cols-2">
+						<AdminInput
+							label="Product Name"
 							name="name"
+							placeholder="e.g. Classic Volt Oversized Tee"
 							bind:value={$updateProductForm.name}
-							aria-invalid={$updateProductErrors.name ? 'true' : undefined}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							required
+							error={$updateProductErrors.name}
 							{...$updateProductConstraints.name}
 						/>
-					</label>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Slug</span>
-						<input
+						<AdminInput
+							label="Slug"
 							name="slug"
 							bind:value={$updateProductForm.slug}
-							aria-invalid={$updateProductErrors.slug ? 'true' : undefined}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							required
+							helpText="Edit to customize the product's URL slug."
+							error={$updateProductErrors.slug}
 							{...$updateProductConstraints.slug}
 						/>
-					</label>
-				</div>
-				{#if $updateProductErrors.name}
-					<p class="font-mono text-[10px] text-red-300">{$updateProductErrors.name[0]}</p>
-				{/if}
-				{#if $updateProductErrors.slug}
-					<p class="font-mono text-[10px] text-red-300">{$updateProductErrors.slug[0]}</p>
-				{/if}
-
-				<div class="grid gap-4 md:grid-cols-3">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Category</span>
-						<select
-							name="categoryId"
-							bind:value={$updateProductForm.categoryId}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							<option value="">No category</option>
-							{#each data.categories as category (category.id)}
-								<option value={category.id}>{category.name}</option>
-							{/each}
-						</select>
-					</label>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Tier</span>
-						<select
-							name="tier"
-							bind:value={$updateProductForm.tier}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							{#each data.tierOptions as option (option.value)}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Gender</span>
-						<select
-							name="gender"
-							bind:value={$updateProductForm.gender}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							{#each data.genderOptions as option (option.value)}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
-
-				{#if $updateProductForm.tier === 'drop'}
-					<div class="grid gap-3 border border-charcoal bg-void/40 p-4">
-						<div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-							<label class="grid flex-1 gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Drop</span>
-								<select
-									name="dropId"
-									bind:value={$updateProductForm.dropId}
-									class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								>
-									<option value="">No drop</option>
-									{#each data.drops as drop (drop.id)}
-										<option value={drop.id}>{drop.name} / {drop.status}</option>
-									{/each}
-								</select>
-							</label>
-							<a
-								href={resolve('/app/drops')}
-								class="inline-flex min-h-11 items-center justify-center gap-2 border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
-							>
-								<Plus size={13} aria-hidden="true" />
-								Create drop
-							</a>
-						</div>
-						{#if dropTierWithoutDrop}
-							<p
-								class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-mono text-[10px] leading-5 tracking-widest text-red-300 uppercase"
-							>
-								<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
-								Add a drop or switch tier to make this product active.
-							</p>
-						{/if}
 					</div>
-				{/if}
 
-				<div class="grid gap-4">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Fit</span>
-						<select
-							name="fit"
-							bind:value={$updateProductForm.fit}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						>
-							{#each data.fitOptions as option (option.value)}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
-				</div>
-
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-						>Short description</span
-					>
-					<textarea
-						name="shortDescription"
-						rows="3"
-						bind:value={$updateProductForm.shortDescription}
-						class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						{...$updateProductConstraints.shortDescription}
-					></textarea>
-				</label>
-
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Description</span>
-					<textarea
-						name="description"
-						rows="6"
-						bind:value={$updateProductForm.description}
-						class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						{...$updateProductConstraints.description}
-					></textarea>
-				</label>
-
-				<details class="border border-charcoal bg-void/40 p-4">
-					<summary class="cursor-pointer font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-						Secondary and SEO
-					</summary>
-					<div class="mt-4 grid gap-4">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Material</span>
-							<input
-								name="material"
-								bind:value={$updateProductForm.material}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateProductConstraints.material}
+					<div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+						<div class="relative grid gap-1">
+							<AdminInput
+								label="Category"
+								placeholder="Search and select category..."
+								bind:value={categorySearch}
+								onfocus={() => (categoryDropdownOpen = true)}
+								onblur={() => {
+									setTimeout(() => (categoryDropdownOpen = false), 200);
+								}}
+								name="categorySearchFake"
 							/>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Care instructions</span
-							>
-							<textarea
-								name="careInstructions"
-								rows="3"
-								bind:value={$updateProductForm.careInstructions}
-								class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateProductConstraints.careInstructions}
-							></textarea>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Meta title</span
-							>
-							<input
-								name="metaTitle"
-								bind:value={$updateProductForm.metaTitle}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateProductConstraints.metaTitle}
-							/>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-								>Meta description</span
-							>
-							<textarea
-								name="metaDescription"
-								rows="3"
-								bind:value={$updateProductForm.metaDescription}
-								class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$updateProductConstraints.metaDescription}
-							></textarea>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Tags</span>
-							<select
-								name="tagIds"
-								multiple
-								bind:value={$updateProductForm.tagIds}
-								class="min-h-32 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								{#each data.tags as tag (tag.id)}
-									<option value={tag.id}>{tag.name}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">New tags</span>
-							<div class="flex gap-2">
-								<input
-									bind:value={newTagDraft}
-									onkeydown={handleNewTagKeydown}
-									class="min-h-11 flex-1 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								/>
-								<button
-									type="button"
-									onclick={addNewTag}
-									class="inline-flex min-h-11 w-11 items-center justify-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
-									aria-label="Add tag"
+							<input type="hidden" name="categoryId" bind:value={$updateProductForm.categoryId} />
+
+							{#if categoryDropdownOpen}
+								<div
+									class="absolute top-[calc(100%+4px)] left-0 z-45 max-h-60 w-full overflow-y-auto border border-ash/20 bg-void shadow-xl"
 								>
-									<Plus size={15} aria-hidden="true" />
-								</button>
-							</div>
-						</label>
-						{#if $updateProductForm.newTagNames.length > 0}
-							<div class="flex flex-wrap gap-2">
-								{#each $updateProductForm.newTagNames as tagName (tagName)}
 									<button
 										type="button"
-										onclick={() => removeNewTag(tagName)}
-										class="inline-flex min-h-9 items-center gap-2 border border-charcoal px-3 font-mono text-[10px] tracking-widest text-bone uppercase hover:border-red-400 hover:text-red-300"
+										onclick={() => {
+											$updateProductForm.categoryId = null;
+											categoryDropdownOpen = false;
+										}}
+										class="w-full px-4 py-2.5 text-left font-sans text-xs font-medium tracking-wider text-ash uppercase transition-colors hover:bg-charcoal hover:text-volt"
 									>
-										{tagName}
-										<X size={12} aria-hidden="true" />
+										No category
 									</button>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				</details>
+									{#each filteredCategories as category (category.id)}
+										<button
+											type="button"
+											onclick={() => {
+												$updateProductForm.categoryId = category.id;
+												categoryDropdownOpen = false;
+											}}
+											class="w-full px-4 py-2.5 text-left font-sans text-sm text-bone transition-colors hover:bg-charcoal hover:text-volt"
+										>
+											{category.name}
+										</button>
+									{:else}
+										<div class="px-4 py-2.5 font-sans text-xs text-ash/60">
+											No matching categories
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
 
-				<div class="flex flex-wrap items-center gap-x-6 gap-y-3 border border-charcoal bg-void/40 p-3 md:p-4">
-					<label
-						class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone {dropTierWithoutDrop
-							? 'opacity-50 cursor-not-allowed'
-							: ''}"
-					>
-						<input
-							type="checkbox"
+						<AdminButton
+							href={resolve('/app/categories')}
+							variant="outline"
+							size="sm"
+							class="self-end"
+						>
+							<FolderPlus size={14} aria-hidden="true" />
+							New Category
+						</AdminButton>
+					</div>
+
+					<div class="grid gap-4 md:grid-cols-3">
+						<AdminSelect
+							label="Tier"
+							name="tier"
+							bind:value={$updateProductForm.tier}
+						>
+							{#each data.tierOptions as option (option.value)}
+								<option value={option.value}>{formatLabel(option.label)}</option>
+							{/each}
+						</AdminSelect>
+
+						{#if $updateProductForm.tier === 'drop'}
+							<AdminSelect
+								label="Drop"
+								name="dropId"
+								bind:value={$updateProductForm.dropId}
+							>
+								<option value="">No drop</option>
+								{#each data.drops as drop (drop.id)}
+									<option value={drop.id}>{drop.name} ({formatLabel(drop.status)})</option>
+								{/each}
+							</AdminSelect>
+
+							<AdminButton
+								href={resolve('/app/drops')}
+								variant="outline"
+								size="sm"
+								class="self-end"
+							>
+								<Layers size={14} aria-hidden="true" />
+								New Drop
+							</AdminButton>
+
+							{#if dropTierWithoutDrop}
+								<p
+									class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-sans text-xs text-red-300 md:col-span-3"
+								>
+									<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
+									Please assign a drop to make this drop product active.
+								</p>
+							{/if}
+						{/if}
+
+						<AdminSelect
+							label="Gender"
+							name="gender"
+							bind:value={$updateProductForm.gender}
+						>
+							{#each data.genderOptions as option (option.value)}
+								<option value={option.value}>{formatLabel(option.label)}</option>
+							{/each}
+						</AdminSelect>
+
+						<AdminSelect
+							label="Fit"
+							name="fit"
+							bind:value={$updateProductForm.fit}
+						>
+							{#each data.fitOptions as option (option.value)}
+								<option value={option.value}>{formatLabel(option.label)}</option>
+							{/each}
+						</AdminSelect>
+					</div>
+
+					<label class="grid gap-1">
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Product Summary</span
+						>
+						<textarea
+							name="shortDescription"
+							rows="2"
+							placeholder="A short card description (max 150 characters)..."
+							bind:value={$updateProductForm.shortDescription}
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
+							{...$updateProductConstraints.shortDescription}
+						></textarea>
+					</label>
+
+					<label class="grid gap-1">
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Full Description</span
+						>
+						<textarea
+							name="description"
+							rows="5"
+							placeholder="Detailed sizing, styling guidelines, and specs..."
+							bind:value={$updateProductForm.description}
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
+							{...$updateProductConstraints.description}
+						></textarea>
+					</label>
+
+					<!-- Custom Toggle Switches for States -->
+					<div class="grid gap-4 border border-ash/20 bg-void p-4 sm:grid-cols-3">
+						<AdminToggle
+							label="Active Status"
+							description="Visible to shoppers"
 							name="isActive"
 							bind:checked={$updateProductForm.isActive}
 							disabled={dropTierWithoutDrop}
-							class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
 						/>
-						Active
-					</label>
-					<label
-						class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
-					>
-						<input
-							type="checkbox"
+
+						<AdminToggle
+							label="Featured"
+							description="Feature on homepage"
 							name="isFeatured"
 							bind:checked={$updateProductForm.isFeatured}
-							class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
+							class="border-t border-ash/10 pt-3 sm:border-t-0 sm:border-l sm:border-ash/10 sm:pt-0 sm:pl-4"
 						/>
-						Featured
-					</label>
-					<label
-						class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
-					>
-						<input
-							type="checkbox"
+
+						<AdminToggle
+							label="New Arrival"
+							description="Display tag badge"
 							name="isNewArrival"
 							bind:checked={$updateProductForm.isNewArrival}
-							class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
+							class="border-t border-ash/10 pt-3 sm:border-t-0 sm:border-l sm:border-ash/10 sm:pt-0 sm:pl-4"
 						/>
-						New arrival
-					</label>
-				</div>
-
-				<button
-					type="submit"
-					disabled={$updateProductSubmitting}
-					class="min-h-11 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase transition-colors hover:bg-volt disabled:opacity-50"
-				>
-					{$updateProductSubmitting ? 'Saving...' : 'Save product'}
-				</button>
-			</div>
-		</form>
-
-		<aside class="grid gap-4 xl:sticky xl:top-8 xl:self-start">
-			<div class="border border-charcoal bg-void">
-				{#if primaryImage}
-					<img
-						src={primaryImage.imageUrl}
-						alt={primaryImage.altText ?? ''}
-						class="aspect-[4/5] w-full object-cover"
-					/>
-				{:else}
-					<div
-						class="grid aspect-[4/5] place-items-center border-b border-charcoal bg-charcoal/30 text-ash"
-					>
-						<ImageOff size={28} aria-hidden="true" />
-					</div>
-				{/if}
-				<div class="p-5">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Snapshot</p>
-					<div class="mt-4 grid gap-3 font-mono text-[10px] uppercase">
-						<div class="flex justify-between gap-4">
-							<span class="text-ash">Category</span>
-							<span class="text-right text-bone">{product.category?.name ?? 'No category'}</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="text-ash">Tier</span>
-							<span class="text-right text-bone">{formatLabel(product.tier)}</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="text-ash">Gender / Fit</span>
-							<span class="text-right text-bone">
-								{formatLabel(product.gender)} / {formatLabel(product.fit)}
-							</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="text-ash">Images</span>
-							<span class="text-right text-bone">{product.images.length}</span>
-						</div>
 					</div>
 				</div>
-			</div>
+			</AdminCard>
 
-			<div class="border border-charcoal bg-charcoal/25 p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Flags</p>
-				<div class="mt-4 flex flex-wrap gap-2">
-					<span
-						class="border border-charcoal px-3 py-2 font-mono text-[10px] tracking-widest uppercase {product.isActive
-							? 'text-volt'
-							: 'text-red-300'}"
-					>
-						{product.isActive ? 'Active' : 'Inactive'}
-					</span>
-					{#if product.isFeatured}
-						<span
-							class="border border-charcoal px-3 py-2 font-mono text-[10px] tracking-widest text-bone uppercase"
+			<AdminCard
+				title="Colors & Sizes"
+				border="border border-ash/15"
+				class="shadow-sm"
+			>
+				{#snippet headerActions()}
+					<div class="flex items-center gap-3">
+						<button
+							type="button"
+							onclick={collapseAllColorCards}
+							class="font-sans text-[11px] text-ash transition-colors hover:text-volt"
 						>
-							Featured
-						</span>
-					{/if}
-					{#if product.isNewArrival}
-						<span
-							class="border border-charcoal px-3 py-2 font-mono text-[10px] tracking-widest text-ash uppercase"
+							Collapse All
+						</button>
+						<span class="text-ash/40">|</span>
+						<button
+							type="button"
+							onclick={expandAllColorCards}
+							class="font-sans text-[11px] text-ash transition-colors hover:text-volt"
 						>
-							New arrival
-						</span>
-					{/if}
-				</div>
-			</div>
-		</aside>
-	</div>
+							Expand All
+						</button>
+						<AdminButton
+							type="button"
+							onclick={addVariantColor}
+							variant="outline"
+							size="sm"
+						>
+							<Plus size={14} aria-hidden="true" />
+							Add Variant
+						</AdminButton>
+					</div>
+				{/snippet}
 
-	<div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-		<section class="grid gap-4 xl:col-span-2">
-			<div class="border border-charcoal bg-charcoal/25 p-5">
-				<div class="border-b border-charcoal pb-4">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Variants</p>
-					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Colors & Sizes</h2>
-				</div>
+				{#if activeLocalVariants.length > 0}
+					<div class="mt-5 grid gap-4">
+						{#each activeLocalVariants as card, index (card.id)}
+							{@const isExpanded = isVariantExpanded(card.id, index)}
 
-				{#if colorCards.length > 0}
-					<div class="mt-4 grid gap-4">
-						{#each colorCards as card, index (card.variantColorId)}
-							<article class="border border-charcoal bg-void p-4">
-								<form
-									method="POST"
-									action="?/updateProductVariantColor"
-									use:updateVariantColorEnhance
-									class="grid gap-4"
+							<article
+								animate:flip={{ duration: 300 }}
+								class="border border-ash/20 bg-void transition-colors"
+							>
+								<div
+									role="button"
+									tabindex="0"
+									class="flex cursor-pointer items-center justify-between gap-3 p-4 select-none focus-visible:ring-1 focus-visible:ring-volt focus-visible:outline-none"
+									onclick={() => toggleColorCardExpanded(card.id, isExpanded)}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											toggleColorCardExpanded(card.id, isExpanded);
+										}
+									}}
 								>
-									<div class="flex items-center justify-between gap-3 border-b border-charcoal pb-3 mb-2">
-										<h3 class="font-display text-2xl text-bone uppercase">
-											Color Variant: {card.color || `Variant ${index + 1}`}
-										</h3>
-										<input type="hidden" name="variantColorId" value={card.variantColorId} />
-										<button
-											type="submit"
-											disabled={$updateVariantColorSubmitting}
-											class="inline-flex min-h-9 items-center justify-center gap-1.5 border border-ash/30 px-3 font-mono text-[9px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt cursor-pointer"
-										>
-											<Save size={12} aria-hidden="true" />
-											Save Details
-										</button>
+									<div class="flex min-w-0 items-center gap-3">
+										<span
+											class="h-5 w-5 shrink-0 rounded-full border border-ash/30"
+											style:background={isValidHex(card.colorHex) ? card.colorHex : '#333'}
+										></span>
+										<div class="min-w-0">
+											<h3 class="flex items-center gap-2 font-sans text-sm font-semibold text-bone">
+												{card.color || `Variant Color ${index + 1}`}
+												{#if card.isNew}
+													<span
+														class="border border-volt/25 bg-volt/15 px-1 font-sans text-[9px] font-bold text-volt uppercase"
+														>New</span
+													>
+												{/if}
+											</h3>
+											<p class="mt-0.5 font-sans text-xs text-ash">
+												Sizes: {card.sizes.join(', ') || 'None'} • Selling: {formatMoney(
+													card.basePrice
+												)} • Images: {imagesForColorCard(card.id).length}
+											</p>
+										</div>
 									</div>
 
-									<div class="grid gap-4 md:grid-cols-3">
-										<label class="grid gap-1">
-											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Name</span>
-											<input
+									<span
+										class="text-ash transition-transform duration-200"
+										class:rotate-180={isExpanded}
+									>
+										<ChevronDown size={16} />
+									</span>
+								</div>
+
+								{#if isExpanded}
+									{@const originalIndex = localVariants.findIndex(v => v.id === card.id)}
+									<div class="grid gap-4 border-t border-ash/10 bg-charcoal/10 p-4">
+										<div class="grid gap-4 md:grid-cols-2">
+											<AdminInput
+												label="Color Variant Name"
 												name="color"
-												value={card.color}
-												placeholder="e.g. Void Black"
+												bind:value={localVariants[originalIndex].color}
+												placeholder="e.g. Acid Volt"
 												required
-												class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
 											/>
-										</label>
 
-										<label class="grid gap-1">
-											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Hex</span>
-											<div class="grid grid-cols-[minmax(0,1fr)_44px]">
-												<input
-													name="colorHex"
-													value={card.colorHex ?? ''}
-													placeholder="#000000"
-													class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-												/>
-												<span
-													class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
-													aria-hidden="true"
-												>
-													{#if isValidHex(card.colorHex)}
-														<span
-															class="h-5 w-5 border border-ash/30"
-															style:background={card.colorHex}
-														></span>
-													{/if}
-												</span>
-											</div>
-										</label>
+											<AdminHexInput
+												label="Color Hex"
+												name="colorHex"
+												bind:value={localVariants[originalIndex].colorHex}
+												clientId={card.id}
+											/>
+										</div>
 
-										<label class="grid gap-1">
-											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort Order</span>
-											<select
-												name="sortOrder"
-												value={card.variants[0]?.sortOrder ?? index + 1}
-												class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-											>
-												{#each Array.from({ length: colorCards.length }, (_, i) => i + 1) as sortValue}
-													<option value={sortValue}>{sortValue}</option>
-												{/each}
-											</select>
-										</label>
-									</div>
-
-									<div class="grid gap-4 md:grid-cols-2">
-										<label class="grid gap-1">
-											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base Price</span>
-											<input
+										<div class="grid gap-4 md:grid-cols-3">
+											<AdminInput
+												label="Selling Price (LKR)"
 												type="number"
 												name="basePrice"
-												value={card.basePrice}
+												bind:value={localVariants[originalIndex].basePrice}
 												required
-												class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+												helpText="Price paid by customer."
 											/>
-										</label>
 
-										<label class="grid gap-1">
-											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Discounted Price / Compare At</span>
-											<input
+											<AdminInput
+												label="Original Price / Compare At"
 												type="number"
 												name="compareAtPrice"
-												value={card.compareAtPrice ?? ''}
-												class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+												bind:value={localVariants[originalIndex].compareAtPrice}
+												placeholder="Optional"
+												helpText="Pre-discount price (must be higher)."
 											/>
-										</label>
-									</div>
-								</form>
 
-								<div class="mt-4 border-t border-charcoal/40 pt-4">
-									<div class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sizes Available (Click to Toggle)</span>
-										<div class="flex flex-wrap gap-2 mt-1">
-											{#each data.sizeOptions as sizeOpt}
-												{@const existingVar = card.variants.find((v) => v.size === sizeOpt.value)}
-												{#if existingVar}
-													<form
-														method="POST"
-														action="?/deleteProductVariant"
-														use:deleteVariantEnhance
-														class="inline"
-													>
-														<input type="hidden" name="variantId" value={existingVar.id} />
-														<button
-															type="submit"
-															disabled={$deleteVariantSubmitting}
-															class="min-h-9 px-3 font-mono text-[10px] tracking-wider border transition-all uppercase bg-volt border-volt text-void font-bold cursor-pointer hover:bg-bone hover:border-bone"
-															title="Click to remove size"
-														>
-															{sizeOpt.label}
-														</button>
-													</form>
-												{:else}
-													<form
-														method="POST"
-														action="?/createProductVariant"
-														use:createVariantEnhance
-														class="inline"
-													>
-														<input type="hidden" name="size" value={sizeOpt.value} />
-														<input type="hidden" name="variantColorId" value={card.variantColorId} />
-														<input type="hidden" name="isActive" value="true" />
-														<input type="hidden" name="sortOrder" value={card.variants.length + 1} />
-														<button
-															type="submit"
-															disabled={$createVariantSubmitting}
-															class="min-h-9 px-3 font-mono text-[10px] tracking-wider border transition-all uppercase bg-void border-charcoal text-ash hover:border-volt hover:text-volt cursor-pointer"
-															title="Click to add size"
-														>
-															{sizeOpt.label}
-														</button>
-													</form>
-												{/if}
-											{/each}
-										</div>
-									</div>
-								</div>
-
-								<div class="mt-4 border-t border-charcoal/40 pt-4">
-									<div class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant-specific Images ({imagesForColorCard(card.variantColorId).length})</span>
-										
-										<div class="flex items-center gap-3 mt-2">
-											<form
-												method="POST"
-												action="?/addProductImage"
-												enctype="multipart/form-data"
-												use:addImageEnhance
-											>
-												<input type="hidden" name="productId" value={product.id} />
-												<input type="hidden" name="variantId" value={card.variantColorId} />
-												<input type="hidden" name="position" value={imagesForColorCard(card.variantColorId).length + 1} />
-												<input type="hidden" name="isPrimary" value={imagesForColorCard(card.variantColorId).length === 0 ? 'true' : 'false'} />
-												<label
-													class="relative inline-flex min-h-11 items-center justify-center gap-2 border border-dashed border-ash/30 bg-void px-4 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:border-volt hover:text-volt"
+											{#if activeLocalVariants.length > 1}
+												<AdminSelect
+													label="Sort Order"
+													name="sortOrder"
+													bind:value={localVariants[originalIndex].sortOrder}
+													onchange={(e) => handleVariantSortChange(card.id, e)}
 												>
-													<input
-														type="file"
-														name="image"
-														accept="image/*"
-														onchange={(e) => e.currentTarget.form?.requestSubmit()}
-														class="hidden"
-													/>
-													<Upload size={14} class="text-volt" aria-hidden="true" />
-													Upload variant image
-												</label>
-											</form>
+													{#each Array.from({ length: activeLocalVariants.length }, (_, i) => i + 1) as sortValue (sortValue)}
+														<option value={sortValue}>{sortValue}</option>
+													{/each}
+												</AdminSelect>
+											{/if}
 										</div>
 
-										{#if imagesForColorCard(card.variantColorId).length > 0}
-											<div class="flex flex-wrap gap-3 mt-3">
-												{#each imagesForColorCard(card.variantColorId) as img}
-													{@const imgIndex = product.images.indexOf(img)}
-													<div class="relative block group border border-charcoal hover:border-volt">
+										<div class="border-t border-ash/10 pt-3">
+											<div class="grid gap-1">
+												<span
+													class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90"
+												>
+													Available Sizes
+													<span class="ml-0.5 font-sans text-red-400">*</span>
+												</span>
+												<div class="mt-1 flex flex-wrap gap-2">
+													{#each data.sizeOptions as sizeOpt (sizeOpt.value)}
+														{@const hasSize = card.sizes.includes(sizeOpt.value)}
 														<button
 															type="button"
-															onclick={() => (activeImageIndex = imgIndex)}
-															class="block cursor-pointer"
+															onclick={() => toggleSize(card.id, sizeOpt.value)}
+															class="min-h-10 cursor-pointer border px-4 font-sans text-xs font-semibold uppercase transition-all {hasSize
+																? 'border-volt bg-volt text-void hover:border-bone hover:bg-bone'
+																: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
+															title={hasSize ? 'Click to remove size' : 'Click to add size'}
 														>
-															<img src={img.imageUrl} alt="" class="h-16 w-16 object-cover" />
+															{sizeOpt.label}
 														</button>
-														{#if img.isPrimary}
-															<span class="absolute top-1 left-1 bg-volt text-void px-1 py-0.5 text-[6px] font-mono leading-none uppercase">Primary</span>
-														{/if}
-														<form
-															method="POST"
-															action="?/deleteProductImage"
-															use:deleteImageEnhance
-															class="absolute -top-1 -right-1 hidden group-hover:block"
-														>
-															<input type="hidden" name="imageId" value={img.id} />
-															<button
-																type="submit"
-																disabled={$deleteImageSubmitting}
-																class="grid h-4 w-4 place-items-center bg-red-600 text-white rounded-full text-[8px] cursor-pointer hover:bg-red-500"
-																title="Delete image"
-															>
-																×
-															</button>
-														</form>
-													</div>
-												{/each}
+													{/each}
+												</div>
 											</div>
-										{:else}
-											<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase mt-1">
-												No images uploaded for this color variant.
-											</p>
-										{/if}
-									</div>
-								</div>
+										</div>
 
-								{#if colorCards.length > 1}
-									<div class="mt-4 border-t border-charcoal/40 pt-4 flex justify-end">
-										<form
-											method="POST"
-											action="?/deleteProductVariantColor"
-											use:deleteVariantColorEnhance
-										>
-											<input type="hidden" name="variantColorId" value={card.variantColorId} />
-											<button
-												type="submit"
-												disabled={$deleteVariantColorSubmitting}
-												class="inline-flex min-h-9 items-center justify-center gap-1.5 border border-red-400/40 px-3 font-mono text-[9px] tracking-widest text-red-300 uppercase hover:border-red-300 hover:text-red-200 cursor-pointer"
-											>
-												<Trash2 size={12} aria-hidden="true" />
-												Delete Color Card
-											</button>
-										</form>
+										<div class="border-t border-ash/10 pt-3">
+											<div class="grid gap-1">
+												<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">
+													Variant Photography
+												</span>
+
+												<div class="mt-2 flex items-center gap-3">
+													<label
+														class="relative inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 border border-dashed border-ash/30 bg-void px-4 font-sans text-xs font-semibold text-ash transition-colors hover:border-volt hover:text-volt"
+													>
+														<input
+															type="file"
+															accept="image/*"
+															multiple
+															onchange={(e) => handleVariantImageUpload(card.id, e)}
+															class="hidden"
+														/>
+														<Upload size={14} class="text-volt" aria-hidden="true" />
+														Upload Variant Image
+													</label>
+												</div>
+
+												{#if imagesForColorCard(card.id).length > 0}
+													<div class="mt-3 flex flex-wrap gap-3">
+														{#each imagesForColorCard(card.id) as img (img.id)}
+															<div
+																class="group relative block border border-ash/20 hover:border-volt"
+															>
+																<button
+																	type="button"
+																	onclick={() => openVariantImagePreview(img.id)}
+																	class="block cursor-pointer"
+																>
+																	<img src={img.imageUrl} alt="" class="h-20 w-20 object-cover" />
+																</button>
+																{#if img.isPrimary}
+																	<span
+																		class="absolute top-1 left-1 bg-volt px-1 py-0.5 font-sans text-[8px] leading-none font-bold text-void uppercase"
+																		>Primary</span
+																	>
+																{/if}
+																<button
+																	type="button"
+																	onclick={() => removeImage(img.id)}
+																	class="absolute -top-1.5 -right-1.5 hidden h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-red-600 text-[10px] text-white shadow group-hover:flex hover:bg-red-500"
+																	title="Delete image"
+																>
+																	×
+																</button>
+															</div>
+														{/each}
+													</div>
+												{:else}
+													<p class="mt-1 font-sans text-xs text-ash/50">
+														No photography uploaded for this product variant.
+													</p>
+												{/if}
+											</div>
+										</div>
+
+										{#if activeLocalVariants.length > 1}
+											<div class="mt-4 flex justify-end border-t border-ash/10 pt-4">
+												<button
+													type="button"
+													onclick={() => deleteVariantColor(card.id)}
+													class="inline-flex min-h-10 cursor-pointer items-center justify-center gap-1.5 border border-red-500/30 bg-void px-4 font-sans text-xs font-semibold text-red-400 transition-colors hover:border-red-400 hover:text-red-300"
+												>
+													<Trash2 size={13} aria-hidden="true" />
+													Delete Variant
+												</button>
+											</div>
+										{/if}
 									</div>
 								{/if}
 							</article>
 						{/each}
 					</div>
 				{:else}
-					<p class="mt-4 border border-charcoal bg-void/40 px-4 py-5 font-mono text-[10px] tracking-widest text-ash uppercase">
-						No variants added.
+					<p class="mt-4 border border-ash/15 bg-void px-4 py-5 font-sans text-xs text-ash/60">
+						No product variants configured.
 					</p>
 				{/if}
-			</div>
+			</AdminCard>
 
-			<form
-				method="POST"
-				action="?/createProductVariantColor"
-				use:createVariantColorEnhance
-				class="border border-charcoal bg-charcoal/25 p-5 mt-4"
+			<AdminCard
+				title="Product Tags"
+				border="border border-ash/15"
+				class="shadow-sm"
 			>
-				<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Add Color Swatch</h3>
-				<div class="mt-5 grid gap-3">
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Name</span>
-							<input
-								name="color"
-								placeholder="e.g. Void Black"
-								required
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							/>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Hex</span>
-							<input
-								name="colorHex"
-								placeholder="e.g. #0A0A0A"
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							/>
-						</label>
+
+				<div class="mt-4 grid gap-4">
+					{#if selectedTags.length > 0 || $updateProductForm.newTagNames.length > 0}
+						<div class="flex flex-wrap gap-2">
+							{#each selectedTags as tag (tag.id)}
+								<button
+									type="button"
+									onclick={() => removeExistingTag(tag.id)}
+									class="inline-flex min-h-9 items-center gap-2 border border-volt bg-volt/10 px-3 font-sans text-xs tracking-wider text-volt uppercase transition-colors hover:bg-volt hover:text-void"
+								>
+									{tag.name}
+									<X size={12} aria-hidden="true" />
+								</button>
+							{/each}
+							{#each $updateProductForm.newTagNames as tagName (tagName)}
+								<button
+									type="button"
+									onclick={() => removeNewTag(tagName)}
+									class="inline-flex min-h-9 items-center gap-2 border border-ash/30 px-3 font-sans text-xs text-bone uppercase transition-colors hover:border-red-400 hover:text-red-300"
+								>
+									{tagName}
+									<X size={12} aria-hidden="true" />
+								</button>
+							{/each}
+						</div>
+					{/if}
+
+					{#if data.tags.length > 0}
+						<div class="grid gap-2">
+							<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+								>Existing Tags</span
+							>
+							{#if availableTags.length > 0}
+								<div class="flex flex-wrap gap-2">
+									{#each availableTags as tag (tag.id)}
+										<button
+											type="button"
+											onclick={() => addExistingTag(tag.id)}
+											class="inline-flex min-h-8 items-center border border-ash/20 bg-void px-3 font-sans text-xs text-ash transition-colors hover:border-volt hover:text-volt"
+										>
+											{tag.name}
+										</button>
+									{/each}
+								</div>
+							{:else}
+								<p class="font-sans text-xs text-ash/50">All available database tags selected.</p>
+							{/if}
+						</div>
+					{/if}
+
+					<div class="flex items-end gap-2">
+						<AdminInput
+							label="Add Custom Tag"
+							bind:value={newTagDraft}
+							onkeydown={handleNewTagKeydown}
+							placeholder="Press Enter to add tag"
+							name="newTagDraft"
+							class="flex-1"
+						/>
+						<AdminButton
+							type="button"
+							onclick={addNewTag}
+							variant="outline"
+							class="min-h-11 w-11 shrink-0 p-0 flex items-center justify-center"
+							aria-label="Add tag"
+						>
+							<Plus size={15} aria-hidden="true" />
+						</AdminButton>
 					</div>
-					<div class="grid gap-3 sm:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base Price</span>
-							<input
-								type="number"
-								name="basePrice"
-								required
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							/>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Discounted Price / Compare At</span>
-							<input
-								type="number"
-								name="compareAtPrice"
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							/>
-						</label>
-					</div>
-					<button
-						type="submit"
-						disabled={$createVariantColorSubmitting}
-						class="min-h-11 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-volt disabled:opacity-50 cursor-pointer"
-					>
-						{$createVariantColorSubmitting ? 'Saving...' : 'Add Color Swatch'}
-					</button>
 				</div>
-			</form>
-		</section>
-	</div>
+			</AdminCard>
 
-	<div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-		<section class="border border-charcoal bg-charcoal/25">
-			<div class="border-b border-charcoal p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Media</p>
-				<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Images</h2>
+			<details class="group border border-ash/15 bg-charcoal p-5 shadow-sm md:p-6">
+				<summary
+					class="flex cursor-pointer items-center justify-between font-display text-2xl leading-none tracking-wide text-bone uppercase select-none"
+				>
+					Material & Care
+					<span class="text-ash transition-transform duration-200 group-open:rotate-180">
+						<ChevronDown size={20} />
+					</span>
+				</summary>
+				<div class="mt-5 grid gap-4 border-t border-ash/10 pt-4">
+					<div class="grid gap-1">
+						<AdminInput
+							label="Material"
+							name="material"
+							bind:value={$updateProductForm.material}
+							placeholder="e.g. 100% Organic Heavyweight Cotton"
+							{...$updateProductConstraints.material}
+						/>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each materialPresets as preset (preset)}
+								<button
+									type="button"
+									onclick={() => appendMaterial(preset)}
+									class="border border-ash/20 bg-void px-2.5 py-1 font-sans text-[11px] text-ash transition-colors hover:border-volt hover:text-volt"
+								>
+									+ {preset}
+								</button>
+							{/each}
+						</div>
+					</div>
+
+					<label class="grid gap-1">
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Care Instructions</span
+						>
+						<textarea
+							name="careInstructions"
+							rows="3"
+							placeholder="e.g. Wash inside out, line dry to preserve graphic prints..."
+							bind:value={$updateProductForm.careInstructions}
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone outline-none focus:border-volt"
+							{...$updateProductConstraints.careInstructions}
+						></textarea>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each carePresets as preset (preset)}
+								<button
+									type="button"
+									onclick={() => appendCare(preset)}
+									class="border border-ash/20 bg-void px-2.5 py-1 font-sans text-[11px] text-ash transition-colors hover:border-volt hover:text-volt"
+								>
+									+ {preset}
+								</button>
+							{/each}
+						</div>
+					</label>
+				</div>
+			</details>
+
+			<details class="group border border-ash/15 bg-charcoal p-5 shadow-sm md:p-6">
+				<summary
+					class="flex cursor-pointer items-center justify-between font-display text-2xl leading-none tracking-wide text-bone uppercase select-none"
+				>
+					SEO Configuration
+					<span class="text-ash transition-transform duration-200 group-open:rotate-180">
+						<ChevronDown size={20} />
+					</span>
+				</summary>
+				<div class="mt-5 grid gap-4 border-t border-ash/10 pt-4">
+					<AdminInput
+						label="Meta Title"
+						name="metaTitle"
+						bind:value={$updateProductForm.metaTitle}
+						placeholder="Leave empty to use product name"
+						{...$updateProductConstraints.metaTitle}
+					/>
+
+					<label class="grid gap-1">
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Meta Description</span
+						>
+						<textarea
+							name="metaDescription"
+							rows="3"
+							placeholder="Leave empty to use product summary"
+							bind:value={$updateProductForm.metaDescription}
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone outline-none focus:border-volt"
+							{...$updateProductConstraints.metaDescription}
+						></textarea>
+					</label>
+				</div>
+			</details>
+
+			<div class="hidden items-center gap-3 lg:flex">
+				<AdminButton
+					type="button"
+					onclick={discardChanges}
+					variant="outline"
+					size="lg"
+				>
+					Discard changes
+				</AdminButton>
+				<AdminButton
+					type="submit"
+					disabled={$updateProductSubmitting}
+					variant="volt"
+					size="lg"
+					class="flex-1"
+				>
+					<Save size={15} aria-hidden="true" />
+					{$updateProductSubmitting ? 'Saving...' : 'Save Product'}
+				</AdminButton>
 			</div>
+		</div>
 
-			{#if product.images.length > 0}
-				<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-					{#each product.images as image, idx (image.id)}
+		<aside class="grid gap-6 xl:sticky xl:top-8 xl:self-start">
+			<div class="border border-ash/15 bg-charcoal">
+				{#if carouselImage}
+					<div class="relative group">
 						<button
 							type="button"
-							onclick={() => (activeImageIndex = idx)}
-							class="border border-charcoal bg-void text-left block hover:border-volt transition-colors w-full cursor-pointer"
+							onclick={() => openSnapshotImagePreview(carouselImage.id)}
+							class="group block w-full cursor-zoom-in text-left"
+							aria-label="Open selected product image detail"
 						>
-							<div class="relative">
+							<div class="relative overflow-hidden bg-void">
 								<img
-									src={image.imageUrl}
-									alt={image.altText ?? ''}
-									class="aspect-[4/5] w-full object-cover"
+									src={carouselImage.imageUrl}
+									alt={carouselImage.altText ?? ''}
+									class="aspect-[4/5] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
 								/>
-								{#if image.isPrimary}
-									<span
-										class="absolute top-2 left-2 inline-flex items-center gap-1 bg-volt px-2 py-1 font-mono text-[9px] tracking-widest text-void uppercase"
-									>
-										<Star size={12} aria-hidden="true" />
-										Primary
-									</span>
-								{/if}
-							</div>
-							<div class="p-4">
-								<p class="truncate font-mono text-[10px] text-ash uppercase">
-									{image.altText ?? 'No alt text'}
-								</p>
-								<p class="mt-1 font-mono text-[9px] tracking-widest text-ash/60 uppercase">
-									Position {image.position} / {#if image.variantId}
-										{@const variantColor = uniqueColors.find(c => c.id === image.variantId)}
-										<span class="text-volt">{variantColor?.name ?? 'Color Variant'}</span>
-									{:else}
-										Product-wide
-									{/if}
-								</p>
+								<span
+									class="absolute right-2 bottom-2 border border-ash/20 bg-void/90 px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase"
+								>
+									Open image
+								</span>
 							</div>
 						</button>
-					{/each}
-				</div>
-			{:else}
-				<div class="p-10 text-center">
-					<ImageOff size={28} class="mx-auto text-ash/50" aria-hidden="true" />
-					<p class="mt-4 font-display text-4xl text-bone uppercase">No images</p>
-					<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-						Upload product photography before launch.
-					</p>
-				</div>
-			{/if}
 
-			<form
-				method="POST"
-				action="?/reorderProductImages"
-				use:reorderImagesEnhance
-				class="border-t border-charcoal p-5"
-			>
-				<input type="hidden" name="productId" value={product.id} />
-				{#each product.images as image (image.id)}
-					<input type="hidden" name="imageIdsInOrder" value={image.id} />
-				{/each}
-				<button
-					type="submit"
-					disabled={$reorderImagesSubmitting || product.images.length === 0}
-					class="min-h-11 border border-ash/30 px-5 py-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt disabled:opacity-40 cursor-pointer"
-				>
-					Save current order
-				</button>
-			</form>
-		</section>
-
-		<form
-			method="POST"
-			action="?/addProductImage"
-			enctype="multipart/form-data"
-			use:addImageEnhance
-			class="border border-charcoal bg-void p-5 xl:sticky xl:top-8 xl:self-start"
-		>
-			<input type="hidden" name="productId" value={product.id} />
-			<h3 class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Add image</h3>
-			<div class="mt-5 grid gap-3">
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant Link</span>
-					<select
-						name="variantId"
-						bind:value={$addImageForm.variantId}
-						class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+						{#if snapshotImages.length > 1}
+							<button
+								type="button"
+								onclick={(e) => {
+									e.stopPropagation();
+									navigateSnapshotImage(-1);
+								}}
+								class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								aria-label="Previous image"
+							>
+								&larr;
+							</button>
+							<button
+								type="button"
+								onclick={(e) => {
+									e.stopPropagation();
+									navigateSnapshotImage(1);
+								}}
+								class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								aria-label="Next image"
+							>
+								&rarr;
+							</button>
+						{/if}
+					</div>
+				{:else}
+					<div
+						class="grid aspect-[4/5] place-items-center border-b border-ash/15 bg-void text-ash/40"
 					>
-						<option value="">Product image</option>
-						{#each uniqueColors as colorCard (colorCard.id)}
-							<option value={colorCard.id}>{colorCard.name}</option>
-						{/each}
-					</select>
-				</label>
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Image</span>
-					<input
-						name="image"
-						type="file"
-						accept="image/*"
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-ash file:mr-4 file:border-0 file:bg-bone file:px-3 file:py-2 file:font-mono file:text-[10px] file:text-void file:uppercase cursor-pointer"
-						{...$addImageConstraints.image}
-					/>
-				</label>
-				{#if $addImageErrors.image}
-					<p class="font-mono text-[10px] text-red-300">{$addImageErrors.image[0]}</p>
+						<ImageOff size={28} aria-hidden="true" />
+					</div>
 				{/if}
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Alt text</span>
-					<input
-						name="altText"
-						bind:value={$addImageForm.altText}
-						class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-						{...$addImageConstraints.altText}
-					/>
-				</label>
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Display order</span>
-					<select
-						name="position"
-						bind:value={$addImageForm.position}
-						class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-					>
-						{#each Array.from({ length: product.images.length + 1 }, (_, index) => index + 1) as positionValue (positionValue)}
-							<option value={positionValue}>{positionValue}</option>
+
+				{#if snapshotImages.length > 0}
+					<div class="scrollbar-thin flex gap-2 overflow-x-auto border-b border-ash/15 bg-void p-3">
+						{#each snapshotImages as img (img.id)}
+							<button
+								type="button"
+								onclick={() => {
+									carouselImageId = img.id;
+								}}
+								class="relative shrink-0 cursor-pointer border transition-all {img.id ===
+								carouselImage?.id
+									? 'border-volt ring-1 ring-volt'
+									: 'border-ash/20 hover:border-volt/60'}"
+								title={img.altText ?? 'Product image'}
+								aria-label="Select product preview image"
+							>
+								<img src={img.imageUrl} alt="" class="h-12 w-12 object-cover" />
+								{#if img.isPrimary}
+									<span
+										class="absolute top-0 left-0 bg-volt px-0.5 font-sans text-[6px] leading-none font-bold text-void uppercase"
+										>Primary</span
+									>
+								{/if}
+							</button>
 						{/each}
-					</select>
-				</label>
-				<label
-					class="flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer"
-				>
-					<input type="checkbox" name="isPrimary" bind:checked={$addImageForm.isPrimary} />
-					Primary
-				</label>
-				<button
-					type="submit"
-					disabled={$addImageSubmitting}
-					class="inline-flex min-h-11 items-center justify-center gap-2 bg-bone px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-volt disabled:opacity-50 cursor-pointer"
-				>
-					<Upload size={14} aria-hidden="true" />
-					{$addImageSubmitting ? 'Uploading...' : 'Add image'}
-				</button>
+					</div>
+				{/if}
+
+				<div class="p-5">
+					<div class="flex items-start justify-between gap-4">
+						<div class="min-w-0">
+							<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Snapshot</p>
+							<h2 class="mt-1 font-sans text-base leading-snug font-semibold text-bone">
+								{$updateProductForm.name || 'Untitled product'}
+							</h2>
+						</div>
+						<span
+							class="shrink-0 border px-2 py-1 font-mono text-[9px] tracking-widest uppercase {$updateProductForm.isActive
+								? 'border-volt/30 bg-volt/10 text-volt'
+								: 'border-red-500/25 bg-red-950/20 text-red-300'}"
+						>
+							{$updateProductForm.isActive ? 'Live' : 'Draft'}
+						</span>
+					</div>
+
+					<div class="mt-4 grid gap-2">
+						<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+							{#if snapshotVariant}
+								<span class="font-mono text-base font-semibold text-bone">
+									{formatMoney(snapshotVariant.basePrice)}
+								</span>
+								{#if snapshotVariant.compareAtPrice}
+									<span class="font-mono text-xs text-ash line-through">
+										{formatMoney(snapshotVariant.compareAtPrice)}
+									</span>
+								{/if}
+								{#if snapshotDiscountPercent}
+									<span
+										class="border border-volt/25 bg-volt/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-volt uppercase"
+									>
+										{snapshotDiscountPercent}% off
+									</span>
+								{/if}
+							{:else}
+								<span class="font-mono text-sm text-bone">{priceRange}</span>
+							{/if}
+						</div>
+
+						<p class="font-sans text-xs leading-relaxed text-ash/80">
+							{$updateProductForm.shortDescription || 'Short product description will appear here.'}
+						</p>
+					</div>
+
+					{#if activeLocalVariants.length > 0}
+						<div class="mt-5 border-t border-ash/10 pt-4">
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+								Color: {snapshotVariant?.color ?? 'Select'}
+							</p>
+							<div class="mt-2 flex flex-wrap gap-2">
+								{#each activeLocalVariants as variant (variant.id)}
+									<button
+										type="button"
+										onclick={() => selectSnapshotVariant(variant.id)}
+										class="inline-flex min-h-10 cursor-pointer items-center gap-2 border px-3 font-sans text-xs font-semibold transition-colors {snapshotVariant?.id ===
+										variant.id
+											? 'border-volt bg-volt text-void'
+											: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
+										aria-pressed={snapshotVariant?.id === variant.id}
+									>
+										<span
+											class="h-3 w-3 border border-ash/30 {isValidHex(variant.colorHex)
+												? ''
+												: 'bg-ash/20'}"
+											style={isValidHex(variant.colorHex)
+												? `background-color: ${variant.colorHex}`
+												: ''}
+											aria-hidden="true"
+										></span>
+										<span>{variant.color || 'Unnamed'}</span>
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if snapshotVariant && snapshotVariant.sizes.length > 0}
+						<div class="mt-4 border-t border-ash/10 pt-4">
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+								Size: {snapshotSize ?? 'Select'}
+							</p>
+							<div class="mt-2 flex flex-wrap gap-2">
+								{#each snapshotVariant.sizes as size (size)}
+									<button
+										type="button"
+										onclick={() => selectSnapshotSize(size)}
+										class="grid h-10 min-w-11 cursor-pointer place-items-center border px-3 font-mono text-xs transition-colors {snapshotSize ===
+										size
+											? 'border-volt bg-volt text-void'
+											: 'border-ash/30 bg-void text-bone hover:border-volt'}"
+										aria-pressed={snapshotSize === size}
+									>
+										{size}
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<div class="grid gap-3 font-sans text-xs">
+						<div class="mt-5 flex justify-between gap-4 border-t border-ash/10 pt-4">
+							<span class="font-medium text-ash">Category</span>
+							<span class="text-right text-bone">{selectedCategoryName}</span>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Tier</span>
+							<span class="text-right text-bone uppercase"
+								>{formatLabel($updateProductForm.tier ?? '')}</span
+							>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Gender / Fit</span>
+							<span class="text-right text-bone uppercase">
+								{formatLabel($updateProductForm.gender ?? '')} / {formatLabel(
+									$updateProductForm.fit ?? ''
+								)}
+							</span>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Images</span>
+							<span class="text-right text-bone">{activeLocalImages.length}</span>
+						</div>
+						{#if selectedTags.length > 0 || $updateProductForm.newTagNames.length > 0}
+							<div class="flex flex-wrap gap-1.5 pt-1">
+								{#each selectedTags as tag (tag.id)}
+									<span
+										class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
+									>
+										{tag.name}
+									</span>
+								{/each}
+								{#each $updateProductForm.newTagNames as tagName (tagName)}
+									<span
+										class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
+									>
+										{tagName}
+									</span>
+								{/each}
+							</div>
+						{/if}
+					</div>
+
+					{#if snapshotWarnings.length > 0}
+						<div class="mt-4 border border-yellow-500/20 bg-yellow-950/15 p-3">
+							<p
+								class="flex items-center gap-1.5 font-sans text-[11px] font-bold tracking-wide text-yellow-400 uppercase"
+							>
+								<AlertTriangle size={13} /> Merchandising Warnings
+							</p>
+							<ul class="m-0 mt-2 grid list-none gap-1 p-0">
+								{#each snapshotWarnings as warning (warning)}
+									<li
+										class="flex items-start gap-1 font-sans text-[11px] leading-normal text-ash/85"
+									>
+										<span class="mt-0.5 text-yellow-500/60">•</span>
+										<span>{warning}</span>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
+				</div>
 			</div>
-		</form>
-	</div>
+		</aside>
+	</form>
 </section>
 
-{#if activeImage && activeImageIndex !== null}
+<div
+	class="fixed right-0 bottom-0 left-0 z-40 flex flex-col gap-2.5 border-t border-ash/15 bg-void/95 p-4 shadow-[0_-8px_24px_rgb(0,0,0,0.6)] backdrop-blur sm:flex-row sm:gap-3 lg:hidden"
+>
+	<AdminButton
+		type="button"
+		onclick={discardChanges}
+		variant="outline"
+		class="flex-1"
+	>
+		Discard changes
+	</AdminButton>
+	<AdminButton
+		type="button"
+		onclick={() => {
+			const f = document.getElementById('update-product-form') as HTMLFormElement;
+			f?.requestSubmit();
+		}}
+		disabled={$updateProductSubmitting}
+		variant="volt"
+		class="flex-1"
+	>
+		{$updateProductSubmitting ? 'Saving...' : 'Save Product'}
+	</AdminButton>
+</div>
+
+{#if activeImage && activeImageId !== null}
 	<div
-		class="fixed inset-0 z-50 overflow-y-auto bg-void/85 px-3 py-4 sm:px-4 sm:py-6 flex justify-center items-start"
+		class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-void/90 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
 	>
 		<section
-			class="my-auto mx-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-void shadow-2xl lg:max-h-[90vh] lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_340px]"
+			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-ash/25 bg-void shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
 		>
-			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
+			<div class="relative flex min-h-0 min-w-0 items-center overflow-hidden bg-charcoal/40 group w-full">
 				<img
 					src={activeImage.imageUrl}
 					alt={activeImage.altText ?? ''}
 					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
 				/>
+
+				{#if activeVariantImages.length > 1}
+					<button
+						type="button"
+						onclick={() => navigateActiveImage(-1)}
+						class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						aria-label="Previous image"
+					>
+						&larr;
+					</button>
+					<button
+						type="button"
+						onclick={() => navigateActiveImage(1)}
+						class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						aria-label="Next image"
+					>
+						&rarr;
+					</button>
+				{/if}
 			</div>
 			<div
-				class="grid min-w-0 content-start gap-4 p-4 sm:p-5"
+				class="grid min-w-0 content-start gap-4 overflow-x-hidden border-t border-ash/15 bg-charcoal p-5 lg:overflow-y-auto lg:border-t-0 lg:border-l"
 			>
 				<div class="flex items-start justify-between gap-4">
 					<div class="min-w-0">
-						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
-						<h2
-							class="mt-2 font-display text-3xl leading-none wrap-break-words text-bone uppercase sm:text-4xl"
-						>
-							{activeImage.altText ?? 'Product Image'}
+						<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Media Detail</p>
+						<h2 class="wrap-break-words mt-1 font-sans text-base font-semibold text-bone">
+							{activeImage.altText ?? 'Photography Image'}
 						</h2>
 						{#if activeImage.variantId}
-							{@const variantColor = uniqueColors.find(c => c.id === activeImage.variantId)}
-							<p class="mt-2 font-mono text-[10px] tracking-widest text-volt uppercase">
-								Linked to: {variantColor?.name ?? 'Color swatch'}
+							{@const variantColor = activeLocalVariants.find(
+								(c) => c.id === activeImage.variantId
+							)}
+							<p class="mt-1 font-sans text-xs font-semibold text-volt uppercase">
+								Linked to Variant: {variantColor?.color ?? 'Product Variant'}
 							</p>
 						{:else}
-							<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-								Product-wide image
-							</p>
+							<p class="mt-1 font-sans text-xs text-ash/60">Product-wide Image</p>
 						{/if}
 					</div>
 					<button
 						type="button"
-						onclick={() => (activeImageIndex = null)}
-						class="grid h-10 w-10 shrink-0 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt cursor-pointer"
-						aria-label="Close image detail"
+						onclick={() => (activeImageId = null)}
+						class="grid h-9 w-9 shrink-0 cursor-pointer place-items-center border border-ash/30 text-ash transition-colors hover:border-volt hover:text-volt"
+						aria-label="Close detail modal"
 					>
 						<X size={15} aria-hidden="true" />
 					</button>
 				</div>
 
-				<div class="border-t border-charcoal/40 pt-4 flex flex-wrap gap-2">
-					<form method="POST" action="?/setPrimaryProductImage" use:setPrimaryImageEnhance class="w-full">
-						<input type="hidden" name="imageId" value={activeImage.id} />
-						<button
-							type="submit"
-							onclick={() => (activeImageIndex = null)}
-							disabled={$setPrimaryImageSubmitting || activeImage.isPrimary}
-							class="inline-flex min-h-11 w-full items-center justify-center gap-2 border px-4 font-mono text-[10px] tracking-widest uppercase disabled:opacity-40 {activeImage.isPrimary
-								? 'border-volt bg-volt text-void font-bold'
-								: 'border-ash/30 text-ash hover:border-volt hover:text-volt cursor-pointer'}"
-						>
-							<Star size={14} fill={activeImage.isPrimary ? 'currentColor' : 'none'} aria-hidden="true" />
-							{activeImage.isPrimary ? 'Primary Image' : 'Set as primary'}
-						</button>
-					</form>
+				{#if isSnapshotClick}
+					<div class="grid gap-3 border-t border-ash/10 pt-4 font-sans text-xs">
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Image ID (Primary Key)</span>
+							<span class="text-right font-mono text-[10px] text-bone select-all"
+								>{activeImage.id}</span
+							>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Link Target</span>
+							<span class="text-right font-sans font-medium text-volt">
+								{#if activeImage.variantId}
+									{@const variantColor = activeLocalVariants.find(
+										(c) => c.id === activeImage.variantId
+									)}
+									{variantColor?.color ?? 'Unknown Variant'}
+								{:else}
+									Product-wide
+								{/if}
+							</span>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Role</span>
+							<span class="text-right font-sans text-bone">
+								{#if activeImage.isPrimary}
+									Primary Image
+								{:else}
+									Standard Image
+								{/if}
+							</span>
+						</div>
+						<AdminInput
+							label="Image Description (Alt Text)"
+							value={activeImage.altText ?? ''}
+							oninput={(event) => updateImageAltText(activeImage.id, event)}
+							name="imageAltText"
+							placeholder="Image description..."
+						/>
 
-					<form method="POST" action="?/deleteProductImage" use:deleteImageEnhance class="w-full">
-						<input type="hidden" name="imageId" value={activeImage.id} />
-						<button
-							type="submit"
-							onclick={() => (activeImageIndex = null)}
-							disabled={$deleteImageSubmitting}
-							class="inline-flex min-h-11 w-full items-center justify-center gap-2 border border-red-400/40 px-4 text-center font-mono text-[10px] leading-4 tracking-widest uppercase text-red-300 hover:border-red-300 hover:text-red-200 cursor-pointer"
+						<AdminSelect
+							label="Display Order"
+							name="imagePosition"
+							value={imageDisplayOrder(activeImage.id)}
+							onchange={(event) => handleImagePositionChange(activeImage.id, event)}
 						>
-							<Trash2 size={14} aria-hidden="true" />
-							Delete Image
-						</button>
-					</form>
-				</div>
+							{#each imagePositionOptionsForVariant(activeImage.variantId) as positionValue (positionValue)}
+								<option value={positionValue}>{positionValue}</option>
+							{/each}
+						</AdminSelect>
+					</div>
+				{:else}
+					<div class="flex flex-col gap-4 border-t border-ash/10 pt-4">
+						<AdminInput
+							label="Image Description (Alt Text)"
+							value={activeImage.altText ?? ''}
+							oninput={(event) => updateImageAltText(activeImage.id, event)}
+							name="imageAltText"
+							placeholder="Image description..."
+						/>
+
+						<AdminSelect
+							label="Display Order"
+							name="imagePosition"
+							value={imageDisplayOrder(activeImage.id)}
+							onchange={(event) => handleImagePositionChange(activeImage.id, event)}
+						>
+							{#each imagePositionOptionsForVariant(activeImage.variantId) as positionValue (positionValue)}
+								<option value={positionValue}>{positionValue}</option>
+							{/each}
+						</AdminSelect>
+
+						<div class="flex flex-col gap-2">
+							<AdminButton
+								type="button"
+								onclick={() => setPrimaryImage(activeImage.id)}
+								variant={activeImage.isPrimary ? 'volt' : 'outline'}
+								class="w-full"
+							>
+								<Star
+									size={14}
+									fill={activeImage.isPrimary ? 'currentColor' : 'none'}
+									aria-hidden="true"
+								/>
+								{activeImage.isPrimary ? 'Primary Image' : 'Set as primary'}
+							</AdminButton>
+
+							<AdminButton
+								type="button"
+								onclick={() => removeImage(activeImage.id)}
+								variant="danger"
+								class="w-full"
+							>
+								<Trash2 size={14} aria-hidden="true" />
+								Delete Image
+							</AdminButton>
+						</div>
+					</div>
+				{/if}
 			</div>
 		</section>
 	</div>
 {/if}
+
+<AdminUnsavedChangesModal
+	bind:isOpen={showUnsavedModal}
+	title="Save before leaving?"
+	description="You have unsaved changes. You can save your changes before leaving, or discard them."
+	saveLabel="Save Product"
+	discardLabel="Discard changes"
+	onsave={async () => {
+		showUnsavedModal = false;
+		if (formElement) {
+			formElement.requestSubmit();
+		}
+	}}
+	ondiscard={async () => {
+		showUnsavedModal = false;
+		await goto(resolve('/app/products'));
+	}}
+/>

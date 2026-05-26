@@ -5,7 +5,9 @@
 	import {
 		AlertTriangle,
 		ArrowLeft,
+		ChevronDown,
 		FolderPlus,
+		ImageOff,
 		Layers,
 		Plus,
 		Save,
@@ -15,8 +17,16 @@
 		X
 	} from 'lucide-svelte';
 	import { onDestroy, tick } from 'svelte';
+	import { flip } from 'svelte/animate';
 	import { filesProxy, superForm } from 'sveltekit-superforms';
 	import type { ActionData, PageData } from './$types';
+	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
+	import AdminHexInput from '$lib/components/admin/AdminHexInput.svelte';
+	import AdminUnsavedChangesModal from '$lib/components/admin/AdminUnsavedChangesModal.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -59,12 +69,34 @@
 	let slugManuallyEdited = $state(false);
 	let newTagDraft = $state('');
 	let pendingRedirect = $state<RedirectTarget | null>(null);
+	let showUnsavedModal = $state(false);
 	let activeImageIndex = $state<number | null>(null);
 	let imagePreviews = $state<ImagePreview[]>([]);
 	let selectedImageFiles = $state<File[]>([]);
 
 	let categorySearch = $state('');
 	let categoryDropdownOpen = $state(false);
+
+	let expandedVariants = $state<Record<string, boolean>>({});
+	let hexIndicatorActive = $state<Record<string, boolean>>({});
+	let carouselImageId = $state<string | null>(null);
+	let selectedSnapshotVariantId = $state<string | null>(null);
+	let selectedSnapshotSize = $state<string | null>(null);
+
+	const carePresets = [
+		'Machine wash cold',
+		'Hand wash only',
+		'Do not tumble dry',
+		'Line dry in shade',
+		'Iron low heat'
+	];
+	const materialPresets = [
+		'100% Cotton',
+		'Heavyweight fleece',
+		'French Terry',
+		'Nylon ripstop',
+		'Cotton-poly blend'
+	];
 
 	const filteredCategories = $derived.by(() => {
 		const q = categorySearch.toLowerCase().trim();
@@ -75,6 +107,12 @@
 	$effect(() => {
 		const currentCategory = data.categories.find((c) => c.id === $createProductForm.categoryId);
 		categorySearch = currentCategory ? currentCategory.name : '';
+	});
+
+	$effect(() => {
+		if ($createProductForm.variants.length > 0 && Object.keys(expandedVariants).length === 0) {
+			expandedVariants[$createProductForm.variants[0].clientId] = true;
+		}
 	});
 
 	$effect(() => {
@@ -108,8 +146,141 @@
 		activeImageIndex === null ? null : (imagePreviews[activeImageIndex] ?? null)
 	);
 	const primaryVariant = $derived(
-		$createProductForm.variants.find((v) => v.sortOrder === 1) || $createProductForm.variants[0] || null
+		$createProductForm.variants.find((v) => v.sortOrder === 1) ||
+			$createProductForm.variants[0] ||
+			null
 	);
+	const sortedVariants = $derived(
+		[...$createProductForm.variants].sort((a, b) => a.sortOrder - b.sortOrder)
+	);
+
+	const priceRange = $derived.by(() => {
+		const prices = $createProductForm.variants.map((v) => v.basePrice).filter((p) => p > 0);
+		if (prices.length === 0) return '—';
+		const min = Math.min(...prices);
+		const max = Math.max(...prices);
+		return min === max ? formatMoney(min) : `${formatMoney(min)} - ${formatMoney(max)}`;
+	});
+
+	const snapshotWarnings = $derived.by(() => {
+		const warnings: string[] = [];
+		if (!$createProductForm.name) warnings.push('Product name is required');
+		if (!$createProductForm.categoryId) warnings.push('No category assigned');
+		if ($createProductForm.variants.length === 0) {
+			warnings.push('At least one color variant is required');
+		} else {
+			const variantsWithNoSizes = $createProductForm.variants.filter((v) => v.sizes.length === 0);
+			if (variantsWithNoSizes.length > 0) {
+				warnings.push('Sizes are missing on some variants');
+			}
+		}
+		if ($createProductForm.tier === 'drop' && !$createProductForm.dropId) {
+			warnings.push('Drop is required for Drop Tier');
+		}
+		if (imagePreviews.length === 0) {
+			warnings.push('No product photography uploaded');
+		}
+		return warnings;
+	});
+
+	const activeLocalImages = $derived(
+		imagePreviews
+			.map((preview, index) => {
+				const meta = getImageMetadata(index);
+				return {
+					id: String(index),
+					variantId: meta.variantClientId,
+					imageUrl: preview.url,
+					altText: meta.altText,
+					position: meta.position,
+					isPrimary: meta.isPrimary
+				};
+			})
+			.sort((a, b) => a.position - b.position)
+	);
+
+	const snapshotVariant = $derived.by(() => {
+		const selectedVariant = selectedSnapshotVariantId
+			? sortedVariants.find((variant) => variant.clientId === selectedSnapshotVariantId)
+			: null;
+		return selectedVariant ?? sortedVariants[0] ?? null;
+	});
+
+	const snapshotSize = $derived.by(() => {
+		if (!snapshotVariant || snapshotVariant.sizes.length === 0) return null;
+		return selectedSnapshotSize &&
+			(snapshotVariant.sizes as string[]).includes(selectedSnapshotSize)
+			? selectedSnapshotSize
+			: snapshotVariant.sizes[0];
+	});
+
+	const snapshotImages = $derived.by(() => {
+		if (!snapshotVariant) return activeLocalImages;
+		const variantImages = activeLocalImages.filter(
+			(image) => image.variantId === snapshotVariant.clientId
+		);
+		return variantImages.length > 0 ? variantImages : activeLocalImages;
+	});
+
+	const carouselImage = $derived.by(() => {
+		const fallbackImage =
+			snapshotImages.find((image) => image.isPrimary) ?? snapshotImages[0] ?? null;
+		if (carouselImageId === null) return fallbackImage;
+		return snapshotImages.find((img) => img.id === carouselImageId) ?? fallbackImage;
+	});
+
+	const snapshotDiscountPercent = $derived.by(() => {
+		if (
+			!snapshotVariant?.compareAtPrice ||
+			snapshotVariant.compareAtPrice <= snapshotVariant.basePrice
+		) {
+			return null;
+		}
+
+		return Math.round(
+			((snapshotVariant.compareAtPrice - snapshotVariant.basePrice) /
+				snapshotVariant.compareAtPrice) *
+				100
+		);
+	});
+
+	const selectedCategoryName = $derived(
+		data.categories.find((category) => category.id === $createProductForm.categoryId)?.name ??
+			'No category'
+	);
+
+	function selectSnapshotVariant(variantClientId: string): void {
+		const variant = sortedVariants.find((entry) => entry.clientId === variantClientId);
+		if (!variant) return;
+
+		selectedSnapshotVariantId = variantClientId;
+		selectedSnapshotSize = variant.sizes[0] ?? null;
+		carouselImageId = null;
+	}
+
+	function selectSnapshotSize(size: string): void {
+		selectedSnapshotSize = size;
+	}
+
+	function openSnapshotImagePreview(imgId: string) {
+		activeImageIndex = Number(imgId);
+	}
+
+	function handleHexInput(clientId: string, index: number, event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		let val = input.value;
+		if (val.includes('#')) {
+			val = val.replace(/#/g, '');
+			hexIndicatorActive = { ...hexIndicatorActive, [clientId]: true };
+			setTimeout(() => {
+				hexIndicatorActive = { ...hexIndicatorActive, [clientId]: false };
+			}, 800);
+		}
+		if (val.length > 6) {
+			val = val.slice(0, 6);
+		}
+		$createProductForm.variants[index].colorHex = val ? `#${val}` : '';
+	}
 
 	onDestroy(() => {
 		revokeImagePreviews();
@@ -152,6 +323,7 @@
 	async function handleNavigate(target: RedirectTarget): Promise<void> {
 		if (hasDirtyDraft()) {
 			pendingRedirect = target;
+			showUnsavedModal = true;
 			return;
 		}
 
@@ -169,11 +341,21 @@
 
 	function addNewTag(): void {
 		const value = newTagDraft.trim();
+		if (!value) return;
+
+		// Check if matches an existing tag name (case-insensitive)
+		const existingTag = data.tags.find((t) => t.name.toLowerCase() === value.toLowerCase());
+		if (existingTag) {
+			addExistingTag(existingTag.id);
+			newTagDraft = '';
+			return;
+		}
+
 		const alreadyAdded = $createProductForm.newTagNames.some(
 			(tagName) => tagName.toLowerCase() === value.toLowerCase()
 		);
 
-		if (!value || alreadyAdded) return;
+		if (alreadyAdded) return;
 
 		$createProductForm.newTagNames = [...$createProductForm.newTagNames, value];
 		newTagDraft = '';
@@ -206,8 +388,6 @@
 
 	function handleTierChange(): void {
 		const tier = $createProductForm.tier;
-		const defaultPrice = tier === 'drop' ? 3000 : 2500;
-
 		for (const variant of $createProductForm.variants) {
 			if (tier === 'drop') {
 				if (variant.basePrice < 3000 || variant.basePrice > 4500) {
@@ -240,7 +420,7 @@
 			clientId: `variant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
 			color: '',
 			colorHex: '#000000',
-			basePrice: 2500,
+			basePrice: $createProductForm.tier === 'drop' ? 3000 : 2500,
 			compareAtPrice: null,
 			sortOrder: $createProductForm.variants.length + 1,
 			sizes: ['M']
@@ -248,7 +428,9 @@
 	}
 
 	function addVariant(): void {
-		$createProductForm.variants = [...$createProductForm.variants, createVariantDraft()];
+		const newVar = createVariantDraft();
+		$createProductForm.variants = [...$createProductForm.variants, newVar];
+		expandedVariants[newVar.clientId] = true;
 	}
 
 	function toggleSize(clientId: string, size: any): void {
@@ -274,6 +456,10 @@
 		const mergedFiles = [...selectedImageFiles];
 		const newMetadataEntries: ImageMetadata[] = [];
 
+		let nextPosition =
+			$createProductForm.imageMetadata.filter((meta) => meta.variantClientId === variantClientId)
+				.length + 1;
+
 		for (const file of incomingFiles) {
 			const key = fileIdentity(file);
 			if (selectedKeys.includes(key)) continue;
@@ -284,9 +470,10 @@
 			newMetadataEntries.push({
 				variantClientId,
 				altText: $createProductForm.name || null,
-				position: mergedFiles.length,
+				position: nextPosition,
 				isPrimary: false
 			});
+			nextPosition += 1;
 		}
 
 		selectedImageFiles = mergedFiles;
@@ -319,7 +506,8 @@
 				const meta = getImageMetadata(index);
 				return { preview, meta, index };
 			})
-			.filter((item) => item.meta.variantClientId === variantClientId);
+			.filter((item) => item.meta.variantClientId === variantClientId)
+			.sort((a, b) => a.meta.position - b.meta.position);
 	}
 
 	function removeVariant(clientId: string): void {
@@ -331,14 +519,19 @@
 		);
 		normalizeVariantSortOrders();
 		normalizePrimaryImageScopes();
+		delete expandedVariants[clientId];
 	}
 
 	function variantSortOptions(): number[] {
 		return Array.from({ length: $createProductForm.variants.length }, (_, index) => index + 1);
 	}
 
-	function imagePositionOptions(): number[] {
-		return Array.from({ length: imagePreviews.length }, (_, index) => index + 1);
+	function imagePositionOptionsForVariant(variantClientId: string | null | undefined): number[] {
+		const targetId = variantClientId ?? null;
+		const count = $createProductForm.imageMetadata.filter(
+			(meta) => (meta.variantClientId ?? null) === targetId
+		).length;
+		return Array.from({ length: count }, (_, index) => index + 1);
 	}
 
 	function currentImageMetadata(): ImageMetadata[] {
@@ -349,36 +542,33 @@
 	}
 
 	function normalizeImagePositions(metadata: ImageMetadata[]): ImageMetadata[] {
-		let usedPositions: number[] = [];
-		const pendingIndexes: number[] = [];
-		const positionOptions = imagePositionOptions();
-		const normalized = metadata.map((entry, index) => {
-			if (
-				Number.isInteger(entry.position) &&
-				entry.position >= 1 &&
-				entry.position <= metadata.length &&
-				!usedPositions.includes(entry.position)
-			) {
-				usedPositions = [...usedPositions, entry.position];
-				return entry;
-			}
-
-			pendingIndexes.push(index);
-			return { ...entry, position: 0 };
-		});
-
-		let optionIndex = 0;
-		for (const index of pendingIndexes) {
-			while (usedPositions.includes(positionOptions[optionIndex])) {
-				optionIndex += 1;
-			}
-
-			const position = positionOptions[optionIndex] ?? index + 1;
-			normalized[index] = { ...normalized[index], position };
-			usedPositions = [...usedPositions, position];
+		const groups: Record<string, number[]> = {};
+		for (let i = 0; i < metadata.length; i++) {
+			const key = metadata[i].variantClientId ?? 'product-wide';
+			if (!groups[key]) groups[key] = [];
+			groups[key].push(i);
 		}
 
-		return normalized;
+		const result = [...metadata];
+
+		for (const [key, indexes] of Object.entries(groups)) {
+			const sortedIndexes = [...indexes].sort((a, b) => {
+				const posA = metadata[a].position ?? 0;
+				const posB = metadata[b].position ?? 0;
+				if (posA !== posB) return posA - posB;
+				return a - b;
+			});
+
+			for (let rank = 0; rank < sortedIndexes.length; rank++) {
+				const idx = sortedIndexes[rank];
+				result[idx] = {
+					...result[idx],
+					position: rank + 1
+				};
+			}
+		}
+
+		return result;
 	}
 
 	function normalizeVariantSortOrders(): void {
@@ -387,19 +577,20 @@
 			.map((variant, index) => ({ ...variant, sortOrder: index + 1 }));
 	}
 
-	function handleVariantSortChange(index: number, event: Event): void {
+	function handleVariantSortChange(clientId: string, event: Event): void {
 		const nextSort = Number((event.currentTarget as HTMLSelectElement).value);
 		const variants = [...$createProductForm.variants];
-		const current = variants[index];
+		const originalIndex = variants.findIndex((v) => v.clientId === clientId);
+		const current = variants[originalIndex];
 
 		if (!current || !Number.isInteger(nextSort)) return;
 
 		const previousSort = current.sortOrder;
 		const swapIndex = variants.findIndex(
-			(variant, variantIndex) => variantIndex !== index && variant.sortOrder === nextSort
+			(variant) => variant.clientId !== clientId && variant.sortOrder === nextSort
 		);
 
-		variants[index] = { ...current, sortOrder: nextSort };
+		variants[originalIndex] = { ...current, sortOrder: nextSort };
 
 		if (swapIndex >= 0) {
 			variants[swapIndex] = { ...variants[swapIndex], sortOrder: previousSort };
@@ -414,7 +605,7 @@
 		const variant = $createProductForm.variants.find((entry) => entry.clientId === clientId);
 		if (!variant) return 'Removed variant';
 
-		return variant.color || `Variant ${$createProductForm.variants.indexOf(variant) + 1}`;
+		return variant.color || `Variant ${sortedVariants.indexOf(variant) + 1}`;
 	}
 
 	function createDefaultImageMetadata(index: number): ImageMetadata {
@@ -444,10 +635,6 @@
 		const transfer = new DataTransfer();
 		for (const file of files) transfer.items.add(file);
 		return transfer.files;
-	}
-
-	function getImageFiles(): FileList | undefined {
-		return $imageFiles;
 	}
 
 	function setImageFiles(files: FileList | null | undefined): void {
@@ -519,7 +706,10 @@
 
 		const previousPosition = current.position;
 		const swapIndex = metadata.findIndex(
-			(entry, metadataIndex) => metadataIndex !== index && entry.position === nextPosition
+			(entry, metadataIndex) =>
+				metadataIndex !== index &&
+				entry.variantClientId === current.variantClientId &&
+				entry.position === nextPosition
 		);
 
 		metadata[index] = { ...current, position: nextPosition };
@@ -638,6 +828,60 @@
 
 		await goto(resolve(targetPath(pendingRedirect)));
 	}
+
+	function appendCare(preset: string) {
+		const current = $createProductForm.careInstructions || '';
+		if (current.includes(preset)) return;
+		$createProductForm.careInstructions = current ? `${current}, ${preset}` : preset;
+	}
+
+	function appendMaterial(preset: string) {
+		const current = $createProductForm.material || '';
+		if (current.includes(preset)) return;
+		$createProductForm.material = current ? `${current}, ${preset}` : preset;
+	}
+
+	function toggleVariantExpanded(clientId: string) {
+		expandedVariants[clientId] = !expandedVariants[clientId];
+	}
+
+	function expandAllVariants() {
+		for (const v of $createProductForm.variants) {
+			expandedVariants[v.clientId] = true;
+		}
+	}
+
+	function collapseAllVariants() {
+		for (const v of $createProductForm.variants) {
+			expandedVariants[v.clientId] = false;
+		}
+	}
+
+	const activeVariantImages = $derived.by(() => {
+		if (activeImageIndex === null) return [];
+		const currentMeta = getImageMetadata(activeImageIndex);
+		const variantClientId = currentMeta.variantClientId;
+		return imagePreviews
+			.map((preview, index) => ({ preview, meta: getImageMetadata(index), index }))
+			.filter((item) => item.meta.variantClientId === variantClientId)
+			.sort((a, b) => a.meta.position - b.meta.position);
+	});
+
+	function navigateSnapshotImage(direction: number): void {
+		if (snapshotImages.length <= 1) return;
+		const currentIndex = snapshotImages.findIndex((img) => img.id === carouselImage?.id);
+		if (currentIndex === -1) return;
+		const nextIndex = (currentIndex + direction + snapshotImages.length) % snapshotImages.length;
+		carouselImageId = snapshotImages[nextIndex].id;
+	}
+
+	function navigateActiveImage(direction: number): void {
+		if (activeVariantImages.length <= 1) return;
+		const currentIndex = activeVariantImages.findIndex((img) => img.index === activeImageIndex);
+		if (currentIndex === -1) return;
+		const nextIndex = (currentIndex + direction + activeVariantImages.length) % activeVariantImages.length;
+		activeImageIndex = activeVariantImages[nextIndex].index;
+	}
 </script>
 
 <svelte:head>
@@ -652,20 +896,20 @@
 	<p hidden>Form response received.</p>
 {/if}
 
-<section class="mx-auto max-w-7xl overflow-x-hidden">
-	<div class="border-b border-charcoal pb-6 md:pb-8">
+<section class="mx-auto max-w-7xl overflow-x-hidden px-2 pb-24 md:px-0 lg:pb-10">
+	<div class="border-b border-charcoal pb-4 md:pb-6">
 		<button
 			type="button"
 			onclick={() => handleNavigate('products')}
 			class="inline-flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-volt"
 		>
 			<ArrowLeft size={14} aria-hidden="true" />
-			Products
+			Back to products
 		</button>
 
 		<div class="mt-4 min-w-0">
 			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Catalog</p>
-			<h1 class="mt-2 font-display text-5xl leading-none text-bone uppercase md:text-7xl">
+			<h1 class="mt-1 font-display text-4xl leading-none text-bone uppercase md:text-6xl">
 				New Product
 			</h1>
 		</div>
@@ -674,9 +918,7 @@
 	{#if actionMessage || $createProductMessage}
 		<div class="mt-6 grid gap-2">
 			{#each [actionMessage, $createProductMessage].filter(Boolean) as message (message)}
-				<p
-					class="border border-red-400/30 bg-red-950/20 px-4 py-3 font-mono text-[10px] tracking-widest text-red-300 uppercase"
-				>
+				<p class="border border-red-400/30 bg-red-950/20 px-4 py-3 font-sans text-xs text-red-300">
 					{message}
 				</p>
 			{/each}
@@ -690,7 +932,7 @@
 		enctype="multipart/form-data"
 		use:createProductEnhance
 		novalidate
-		class="mt-8 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]"
+		class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
 	>
 		<input type="hidden" name="redirectTo" bind:value={$createProductForm.redirectTo} />
 		<input
@@ -705,68 +947,52 @@
 			<input type="hidden" name="newTagNames" value={tagName} />
 		{/each}
 
-		<div class="grid gap-4">
-			<section class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
-				<div class="border-b border-charcoal pb-4">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Product</p>
-					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">
-						Product Basics
-					</h2>
-				</div>
-
-				<div class="mt-5 grid gap-5">
+		<div class="grid gap-6">
+			<!-- Product Basics Section -->
+			<AdminCard title="Product Basics" border="border border-ash/15" class="shadow-sm">
+				<div class="grid gap-5">
 					<div class="grid gap-4 md:grid-cols-2">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Name</span>
-							<input
-								name="name"
-								bind:value={$createProductForm.name}
-								oninput={handleNameInput}
-								aria-invalid={$createProductErrors.name ? 'true' : undefined}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createProductConstraints.name}
-							/>
-							{#if $createProductErrors.name}
-								<span class="font-mono text-[10px] text-red-300">
-									{$createProductErrors.name[0]}
-								</span>
-							{/if}
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Slug</span>
-							<input
-								name="slug"
-								bind:value={$createProductForm.slug}
-								oninput={() => (slugManuallyEdited = true)}
-								aria-invalid={$createProductErrors.slug ? 'true' : undefined}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								{...$createProductConstraints.slug}
-							/>
-							{#if $createProductErrors.slug}
-								<span class="font-mono text-[10px] text-red-300">
-									{$createProductErrors.slug[0]}
-								</span>
-							{/if}
-						</label>
+						<AdminInput
+							label="Product Name"
+							name="name"
+							placeholder="e.g. Classic Volt Oversized Tee"
+							bind:value={$createProductForm.name}
+							oninput={handleNameInput}
+							required
+							error={$createProductErrors.name}
+							{...$createProductConstraints.name}
+						/>
+
+						<AdminInput
+							label="Slug"
+							name="slug"
+							bind:value={$createProductForm.slug}
+							oninput={() => (slugManuallyEdited = true)}
+							required
+							error={$createProductErrors.slug}
+							helpText="Auto-generated from name. Edit to customize."
+							{...$createProductConstraints.slug}
+						/>
 					</div>
 
 					<div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
-						<div class="grid gap-1 relative">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Category</span>
-							<input
-								type="text"
+						<div class="relative grid gap-1">
+							<AdminInput
+								label="Category"
 								placeholder="Search and select category..."
 								bind:value={categorySearch}
 								onfocus={() => (categoryDropdownOpen = true)}
 								onblur={() => {
-									setTimeout(() => (categoryDropdownOpen = false), 150);
+									setTimeout(() => (categoryDropdownOpen = false), 200);
 								}}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+								name="categorySearchFake"
 							/>
 							<input type="hidden" name="categoryId" bind:value={$createProductForm.categoryId} />
 
 							{#if categoryDropdownOpen}
-								<div class="absolute top-[calc(100%+4px)] left-0 z-45 w-full max-h-60 overflow-y-auto border border-charcoal bg-void shadow-xl">
+								<div
+									class="absolute top-[calc(100%+4px)] left-0 z-45 max-h-60 w-full overflow-y-auto border border-ash/20 bg-void shadow-xl"
+								>
 									<button
 										type="button"
 										onclick={() => {
@@ -774,7 +1000,7 @@
 											categorySearch = '';
 											categoryDropdownOpen = false;
 										}}
-										class="w-full text-left px-3 py-2 font-mono text-[10px] tracking-widest text-ash hover:bg-charcoal/30 hover:text-volt uppercase"
+										class="w-full px-4 py-2.5 text-left font-sans text-xs font-medium tracking-wider text-ash uppercase transition-colors hover:bg-charcoal hover:text-volt"
 									>
 										No category
 									</button>
@@ -786,168 +1012,173 @@
 												categorySearch = category.name;
 												categoryDropdownOpen = false;
 											}}
-											class="w-full text-left px-3 py-2 font-mono text-[10px] tracking-widest text-bone hover:bg-charcoal/30 hover:text-volt uppercase"
+											class="w-full px-4 py-2.5 text-left font-sans text-sm text-bone transition-colors hover:bg-charcoal hover:text-volt"
 										>
 											{category.name}
 										</button>
 									{:else}
-										<div class="px-3 py-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+										<div class="px-4 py-2.5 font-sans text-xs text-ash/60">
 											No matching categories
 										</div>
 									{/each}
 								</div>
 							{/if}
 						</div>
-						<button
+
+						<AdminButton
 							type="button"
 							onclick={() => handleNavigate('categories')}
-							class="inline-flex min-h-11 items-center justify-center gap-2 self-end border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
+							variant="outline"
+							size="sm"
+							class="self-end"
 						>
 							<FolderPlus size={14} aria-hidden="true" />
-							Create category
-						</button>
+							New Category
+						</AdminButton>
 					</div>
 
 					<div class="grid gap-4 md:grid-cols-3">
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Tier</span>
-							<select
-								name="tier"
-								bind:value={$createProductForm.tier}
-								onchange={handleTierChange}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								{#each data.tierOptions as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
+						<AdminSelect
+							label="Tier"
+							name="tier"
+							bind:value={$createProductForm.tier}
+							onchange={handleTierChange}
+						>
+							{#each data.tierOptions as option (option.value)}
+								<option value={option.value}>{formatLabel(option.label)}</option>
+							{/each}
+						</AdminSelect>
+
 						{#if $createProductForm.tier === 'drop'}
-							<label class="grid gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Drop</span>
-								<select
-									name="dropId"
-									bind:value={$createProductForm.dropId}
-									onchange={handleDropChange}
-									class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-								>
-									<option value="">No drop</option>
-									{#each data.drops as drop (drop.id)}
-										<option value={drop.id}>{drop.name} / {drop.status}</option>
-									{/each}
-								</select>
-							</label>
-							<button
+							<AdminSelect
+								label="Drop"
+								name="dropId"
+								bind:value={$createProductForm.dropId}
+								onchange={handleDropChange}
+							>
+								<option value="">No drop</option>
+								{#each data.drops as drop (drop.id)}
+									<option value={drop.id}>{drop.name} ({formatLabel(drop.status)})</option>
+								{/each}
+							</AdminSelect>
+
+							<AdminButton
 								type="button"
 								onclick={() => handleNavigate('drops')}
-								class="inline-flex min-h-11 items-center justify-center gap-2 self-end border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
+								variant="outline"
+								size="sm"
+								class="self-end"
 							>
 								<Layers size={14} aria-hidden="true" />
-								Create drop
-							</button>
+								New Drop
+							</AdminButton>
+
 							{#if dropTierWithoutDrop}
 								<p
-									class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-mono text-[10px] leading-5 tracking-widest text-red-300 uppercase md:col-span-3"
+									class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-sans text-xs text-red-300 md:col-span-3"
 								>
 									<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
-									Add a drop or switch tier to make this product active.
+									Please assign a drop to make this drop product active.
 								</p>
 							{/if}
 						{/if}
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Gender</span>
-							<select
-								name="gender"
-								bind:value={$createProductForm.gender}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								{#each data.genderOptions as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Fit</span>
-							<select
-								name="fit"
-								bind:value={$createProductForm.fit}
-								class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								{#each data.fitOptions as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
+
+						<AdminSelect label="Gender" name="gender" bind:value={$createProductForm.gender}>
+							{#each data.genderOptions as option (option.value)}
+								<option value={option.value}>{formatLabel(option.label)}</option>
+							{/each}
+						</AdminSelect>
+
+						<AdminSelect label="Fit" name="fit" bind:value={$createProductForm.fit}>
+							{#each data.fitOptions as option (option.value)}
+								<option value={option.value}>{formatLabel(option.label)}</option>
+							{/each}
+						</AdminSelect>
 					</div>
 
 					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-							>Short description</span
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Product Summary</span
 						>
 						<textarea
 							name="shortDescription"
-							rows="3"
+							rows="2"
+							placeholder="A short card description (max 150 characters)..."
 							bind:value={$createProductForm.shortDescription}
-							class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 							{...$createProductConstraints.shortDescription}
 						></textarea>
 					</label>
 
 					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Description</span
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Full Description</span
 						>
 						<textarea
 							name="description"
-							rows="6"
+							rows="5"
+							placeholder="Detailed sizing, styling guidelines, and specs..."
 							bind:value={$createProductForm.description}
-							class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 							{...$createProductConstraints.description}
 						></textarea>
 					</label>
 
-					<div class="flex flex-wrap items-center gap-x-6 gap-y-3 border border-charcoal bg-void/40 p-3 md:p-4">
-						<label
-							class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone {dropTierWithoutDrop
-								? 'opacity-50 cursor-not-allowed'
-								: ''}"
-						>
-							<input
-								type="checkbox"
-								name="isActive"
-								bind:checked={$createProductForm.isActive}
-								disabled={dropTierWithoutDrop}
-								class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
-							/>
-							Active
-						</label>
-						<label
-							class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
-						>
-							<input
-								type="checkbox"
-								name="isFeatured"
-								bind:checked={$createProductForm.isFeatured}
-								class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
-							/>
-							Featured
-						</label>
-						<label
-							class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:text-bone"
-						>
-							<input
-								type="checkbox"
-								name="isNewArrival"
-								bind:checked={$createProductForm.isNewArrival}
-								class="h-4 w-4 border-charcoal bg-void text-volt outline-none focus:ring-0 cursor-pointer"
-							/>
-							New arrival
-						</label>
+					<!-- Custom Toggle Switches for States -->
+					<div class="grid gap-4 border border-ash/20 bg-void p-4 sm:grid-cols-3">
+						<AdminToggle
+							label="Active Status"
+							description="Visible to shoppers"
+							name="isActive"
+							bind:checked={$createProductForm.isActive}
+							disabled={dropTierWithoutDrop}
+						/>
+
+						<AdminToggle
+							label="Featured"
+							description="Feature on homepage"
+							name="isFeatured"
+							bind:checked={$createProductForm.isFeatured}
+							class="border-t border-ash/10 pt-3 sm:border-t-0 sm:border-l sm:border-ash/10 sm:pt-0 sm:pl-4"
+						/>
+
+						<AdminToggle
+							label="New Arrival"
+							description="Display tag badge"
+							name="isNewArrival"
+							bind:checked={$createProductForm.isNewArrival}
+							class="border-t border-ash/10 pt-3 sm:border-t-0 sm:border-l sm:border-ash/10 sm:pt-0 sm:pl-4"
+						/>
 					</div>
 				</div>
-			</section>
+			</AdminCard>
 
-			<section class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
-				<!-- Hidden images file input for Superforms binding -->
+			<!-- Variants Section -->
+			<AdminCard title="Colors & Sizes" border="border border-ash/15" class="shadow-sm">
+				{#snippet headerActions()}
+					<div class="flex items-center gap-3">
+						<button
+							type="button"
+							onclick={collapseAllVariants}
+							class="font-sans text-[11px] text-ash transition-colors hover:text-volt"
+						>
+							Collapse All
+						</button>
+						<span class="text-ash/40">|</span>
+						<button
+							type="button"
+							onclick={expandAllVariants}
+							class="font-sans text-[11px] text-ash transition-colors hover:text-volt"
+						>
+							Expand All
+						</button>
+						<AdminButton type="button" onclick={addVariant} variant="outline" size="sm">
+							<Plus size={14} aria-hidden="true" />
+							Add Variant
+						</AdminButton>
+					</div>
+				{/snippet}
+
 				<input
 					id="hidden-images-input"
 					name="images"
@@ -957,459 +1188,823 @@
 					class="hidden"
 				/>
 
-				<div
-					class="flex flex-col gap-3 border-b border-charcoal pb-4 sm:flex-row sm:items-center sm:justify-between"
-				>
-					<div>
-						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Variants</p>
-						<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">
-							Colors & Sizes
-						</h2>
-					</div>
-					<button
-						type="button"
-						onclick={addVariant}
-						class="inline-flex min-h-11 items-center justify-center gap-2 border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
-					>
-						<Plus size={14} aria-hidden="true" />
-						Add variant
-					</button>
-				</div>
-
 				{#if $createProductForm.variants.length > 0}
-					<div class="mt-4 grid gap-4">
-						{#each $createProductForm.variants as variant, index (variant.clientId)}
+					<div class="mt-5 grid gap-4">
+						{#each sortedVariants as variant, index (variant.clientId)}
+							{@const originalIndex = $createProductForm.variants.findIndex(
+								(v) => v.clientId === variant.clientId
+							)}
 							{@const isPriceDisabled = $createProductForm.syncPrices && variant.sortOrder !== 1}
-							{@const isRemovable = $createProductForm.variants.length > 1 && variant.clientId !== 'default-color-card'}
-							
-							<article class="border border-charcoal bg-void p-4">
-								<div class="flex items-center justify-between gap-3 border-b border-charcoal pb-3 mb-4">
-									<h3 class="font-display text-2xl text-bone uppercase">
-										Variant Card: {variant.color || `Variant ${index + 1}`}
-									</h3>
-									{#if isRemovable}
-										<button
-											type="button"
-											onclick={() => removeVariant(variant.clientId)}
-											class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 hover:border-red-300 hover:text-red-200"
-											aria-label={`Remove variant ${index + 1}`}
+							{@const isRemovable =
+								$createProductForm.variants.length > 1 && variant.clientId !== 'default-color-card'}
+							{@const isExpanded = !!expandedVariants[variant.clientId]}
+
+							<article
+								animate:flip={{ duration: 300 }}
+								class="border border-ash/20 bg-void transition-colors"
+							>
+								<!-- Collapsed Header -->
+								<div
+									role="button"
+									tabindex="0"
+									class="flex cursor-pointer items-center justify-between gap-3 p-4 select-none focus-visible:ring-1 focus-visible:ring-volt focus-visible:outline-none"
+									onclick={() => toggleVariantExpanded(variant.clientId)}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											toggleVariantExpanded(variant.clientId);
+										}
+									}}
+								>
+									<div class="flex min-w-0 items-center gap-3">
+										<span
+											class="h-5 w-5 shrink-0 rounded-full border border-ash/30"
+											style:background={isValidHex(variant.colorHex) ? variant.colorHex : '#333'}
+										></span>
+										<div class="min-w-0">
+											<h3 class="flex items-center gap-2 font-sans text-sm font-semibold text-bone">
+												{variant.color || `Variant ${index + 1}`}
+												{#if variant.sortOrder === 1}
+													<span
+														class="border border-volt/20 bg-volt/10 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-volt uppercase"
+														>Default</span
+													>
+												{/if}
+											</h3>
+											<p class="mt-0.5 font-sans text-xs text-ash">
+												Sizes: {variant.sizes.join(', ') || 'None'} • Selling: {formatMoney(
+													variant.basePrice
+												)} • Images: {imagesForVariant(variant.clientId).length}
+											</p>
+										</div>
+									</div>
+
+									<div class="flex items-center gap-3">
+										{#if isRemovable}
+											<button
+												type="button"
+												onclick={(e) => {
+													e.stopPropagation();
+													removeVariant(variant.clientId);
+												}}
+												class="grid h-8 w-8 place-items-center border border-red-500/20 text-red-400 transition-colors hover:border-red-400 hover:bg-red-500/10 hover:text-red-300"
+												aria-label={`Remove variant ${index + 1}`}
+											>
+												<X size={14} aria-hidden="true" />
+											</button>
+										{/if}
+										<span
+											class="text-ash transition-transform duration-200"
+											class:rotate-180={isExpanded}
 										>
-											<X size={14} aria-hidden="true" />
-										</button>
-									{/if}
+											<ChevronDown size={16} />
+										</span>
+									</div>
 								</div>
 
-								<div class="grid gap-4 md:grid-cols-2">
-									<input
-										type="hidden"
-										name={`variants[${index}].clientId`}
-										bind:value={variant.clientId}
-									/>
-									{#each variant.sizes as size}
+								<!-- Full Card Body -->
+								{#if isExpanded}
+									<div class="grid gap-4 border-t border-ash/10 bg-charcoal/10 p-4">
 										<input
 											type="hidden"
-											name={`variants[${index}].sizes`}
-											value={size}
+											name={`variants[${index}].clientId`}
+											bind:value={$createProductForm.variants[originalIndex].clientId}
 										/>
-									{/each}
+										{#each variant.sizes as size}
+											<input type="hidden" name={`variants[${index}].sizes`} value={size} />
+										{/each}
 
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Name</span>
-										<input
-											name={`variants[${index}].color`}
-											bind:value={variant.color}
-											placeholder="e.g. Carbon Black"
-											aria-invalid={$createProductErrors.variants?.[index]?.color ? 'true' : undefined}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-										/>
-										{#if $createProductErrors.variants?.[index]?.color}
-											<span class="font-mono text-[10px] text-red-300">
-												{$createProductErrors.variants[index]?.color?.[0]}
-											</span>
-										{/if}
-									</label>
-
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Color Hex</span>
-										<div class="grid grid-cols-[minmax(0,1fr)_44px]">
-											<input
-												name={`variants[${index}].colorHex`}
-												bind:value={variant.colorHex}
-												placeholder="#000000"
-												class="min-h-11 min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-											/>
-											<span
-												class="grid min-h-11 place-items-center border border-l-0 border-charcoal bg-charcoal/40"
-												aria-hidden="true"
-											>
-												{#if isValidHex(variant.colorHex)}
-													<span
-														class="h-5 w-5 border border-ash/30"
-														style:background={variant.colorHex}
-													></span>
+										<div class="grid gap-4 md:grid-cols-2">
+											<label class="grid gap-1">
+												<span
+													class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90"
+												>
+													Color Variant Name
+													<span class="ml-0.5 font-sans text-red-400">*</span>
+												</span>
+												<input
+													name={`variants[${index}].color`}
+													bind:value={$createProductForm.variants[originalIndex].color}
+													placeholder="e.g. Acid Volt"
+													aria-invalid={$createProductErrors.variants?.[index]?.color
+														? 'true'
+														: undefined}
+													class="min-h-11 border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none focus:border-volt"
+												/>
+												{#if $createProductErrors.variants?.[index]?.color}
+													<span class="font-sans text-xs text-red-400">
+														{$createProductErrors.variants[index]?.color?.[0]}
+													</span>
 												{/if}
-											</span>
+											</label>
+
+											<AdminHexInput
+												label="Color Hex"
+												name={`variants[${index}].colorHex`}
+												bind:value={$createProductForm.variants[originalIndex].colorHex}
+												clientId={variant.clientId}
+											/>
 										</div>
-									</label>
-								</div>
 
-								<div class="mt-4 grid gap-4 md:grid-cols-3">
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Base Price</span>
-										<input
-											type="number"
-											name={`variants[${index}].basePrice`}
-											bind:value={variant.basePrice}
-											disabled={isPriceDisabled}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt {isPriceDisabled ? 'opacity-40 cursor-not-allowed bg-charcoal/20' : ''}"
-										/>
-										{#if $createProductErrors.variants?.[index]?.basePrice}
-											<span class="font-mono text-[10px] text-red-300">
-												{$createProductErrors.variants[index]?.basePrice?.[0]}
-											</span>
+										<div class="grid gap-4 md:grid-cols-3">
+											<label class="grid gap-1">
+												<span
+													class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90"
+												>
+													Selling Price (LKR)
+													<span class="ml-0.5 font-sans text-red-400">*</span>
+												</span>
+												<input
+													type="number"
+													name={`variants[${index}].basePrice`}
+													bind:value={$createProductForm.variants[originalIndex].basePrice}
+													disabled={isPriceDisabled}
+													class="min-h-11 border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone transition-colors outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-40"
+												/>
+												<p class="font-sans text-[10px] text-ash/50">Price paid by customer.</p>
+												{#if $createProductErrors.variants?.[index]?.basePrice}
+													<span class="font-sans text-xs text-red-400">
+														{$createProductErrors.variants[index]?.basePrice?.[0]}
+													</span>
+												{/if}
+											</label>
+
+											<label class="grid gap-1">
+												<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+													>Original Price / Compare At</span
+												>
+												<input
+													type="number"
+													name={`variants[${index}].compareAtPrice`}
+													bind:value={$createProductForm.variants[originalIndex].compareAtPrice}
+													disabled={isPriceDisabled}
+													placeholder="Optional"
+													class="min-h-11 border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone transition-colors outline-none focus:border-volt disabled:cursor-not-allowed disabled:opacity-40"
+												/>
+												<p class="font-sans text-[10px] text-ash/50">
+													Pre-discount price (must be higher).
+												</p>
+												{#if $createProductErrors.variants?.[index]?.compareAtPrice}
+													<span class="font-sans text-xs text-red-400">
+														{$createProductErrors.variants[index]?.compareAtPrice?.[0]}
+													</span>
+												{/if}
+											</label>
+
+											{#if $createProductForm.variants.length > 1}
+												<label class="grid gap-1">
+													<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+														>Sort Order</span
+													>
+													<select
+														name={`variants[${index}].sortOrder`}
+														value={variant.sortOrder}
+														onchange={(event) => handleVariantSortChange(variant.clientId, event)}
+														class="min-h-11 border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone transition-colors outline-none focus:border-volt"
+													>
+														{#each variantSortOptions() as sortValue (sortValue)}
+															<option value={sortValue}>{sortValue}</option>
+														{/each}
+													</select>
+												</label>
+											{/if}
+										</div>
+
+										{#if variant.sortOrder === 1}
+											<div class="border-t border-ash/10 pt-3">
+												<label
+													class="flex cursor-pointer items-center gap-2 font-sans text-xs font-semibold text-ash"
+												>
+													<input
+														type="checkbox"
+														name="syncPrices"
+														bind:checked={$createProductForm.syncPrices}
+														class="h-4 w-4 cursor-pointer border-ash/30 bg-void text-volt outline-none focus:ring-0"
+													/>
+													Sync prices across all color variants
+												</label>
+											</div>
 										{/if}
-									</label>
 
-									<label class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Discounted Price / Compare At</span>
-										<input
-											type="number"
-											name={`variants[${index}].compareAtPrice`}
-											bind:value={variant.compareAtPrice}
-											disabled={isPriceDisabled}
-											class="min-h-11 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt {isPriceDisabled ? 'opacity-40 cursor-not-allowed bg-charcoal/20' : ''}"
-										/>
-										{#if $createProductErrors.variants?.[index]?.compareAtPrice}
-											<span class="font-mono text-[10px] text-red-300">
-												{$createProductErrors.variants[index]?.compareAtPrice?.[0]}
-											</span>
-										{/if}
-									</label>
+										<div class="border-t border-ash/10 pt-3">
+											<div class="grid gap-1">
+												<span
+													class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90"
+												>
+													Available Sizes
+													<span class="ml-0.5 font-sans text-red-400">*</span>
+												</span>
+												<div class="mt-1 flex flex-wrap gap-2">
+													{#each data.sizeOptions as sizeOpt (sizeOpt.value)}
+														{@const isSelected = variant.sizes.includes(sizeOpt.value as any)}
+														<button
+															type="button"
+															onclick={() => toggleSize(variant.clientId, sizeOpt.value)}
+															class="min-h-10 border px-4 font-sans text-xs font-medium transition-colors {isSelected
+																? 'border-volt bg-volt font-bold text-void'
+																: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
+														>
+															{sizeOpt.label}
+														</button>
+													{/each}
+												</div>
+												{#if $createProductErrors.variants?.[index]?.sizes}
+													<span class="mt-1 font-sans text-xs text-red-400">
+														{$createProductErrors.variants[index]?.sizes?._errors?.[0] ??
+															$createProductErrors.variants[index]?.sizes?.[0]}
+													</span>
+												{/if}
+											</div>
+										</div>
 
-									{#if $createProductForm.variants.length > 1}
-										<label class="grid gap-1">
-											<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Sort Order</span>
-											<select
-												name={`variants[${index}].sortOrder`}
-												value={variant.sortOrder}
-												onchange={(event) => handleVariantSortChange(index, event)}
-												class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-											>
-												{#each variantSortOptions() as sortValue (sortValue)}
-													<option value={sortValue}>{sortValue}</option>
-												{/each}
-											</select>
-										</label>
-									{/if}
-								</div>
+										<div class="border-t border-ash/10 pt-3">
+											<div class="grid gap-1">
+												<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+													>Variant Photography</span
+												>
 
-								{#if variant.sortOrder === 1}
-									<div class="mt-4">
-										<label class="flex items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer font-bold">
-											<input type="checkbox" name="syncPrices" bind:checked={$createProductForm.syncPrices} />
-											Sync prices across all color variants
-										</label>
+												<div class="mt-2 flex items-center gap-3">
+													<label
+														class="relative inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 border border-dashed border-ash/30 bg-void px-4 font-sans text-xs font-semibold text-ash transition-colors hover:border-volt hover:text-volt"
+													>
+														<input
+															type="file"
+															accept="image/*"
+															multiple
+															onchange={(event) =>
+																handleVariantImageUpload(variant.clientId, event)}
+															class="hidden"
+														/>
+														<Upload size={14} class="text-volt" aria-hidden="true" />
+														Upload Images
+													</label>
+												</div>
+
+												{#if imagesForVariant(variant.clientId).length > 0}
+													<div class="mt-3 flex flex-wrap gap-3">
+														{#each imagesForVariant(variant.clientId) as img}
+															<div
+																class="group relative block border border-ash/20 hover:border-volt"
+															>
+																<button
+																	type="button"
+																	onclick={() => (activeImageIndex = img.index)}
+																	class="block"
+																>
+																	<img
+																		src={img.preview.url}
+																		alt=""
+																		class="h-20 w-20 object-cover"
+																	/>
+																</button>
+																{#if img.meta.isPrimary}
+																	<span
+																		class="absolute top-1 left-1 bg-volt px-1 py-0.5 font-sans text-[8px] leading-none font-bold text-void uppercase"
+																		>Primary</span
+																	>
+																{/if}
+																<button
+																	type="button"
+																	onclick={(e) => {
+																		e.stopPropagation();
+																		removeImage(img.index);
+																	}}
+																	class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] text-white shadow"
+																>
+																	×
+																</button>
+															</div>
+														{/each}
+													</div>
+												{:else}
+													<p class="mt-1 font-sans text-xs text-ash/50">
+														No photography uploaded for this color swatch.
+													</p>
+												{/if}
+											</div>
+										</div>
 									</div>
 								{/if}
-
-								<div class="mt-4 border-t border-charcoal/40 pt-4">
-									<div class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Available Sizes</span>
-										<div class="flex flex-wrap gap-2 mt-1">
-											{#each data.sizeOptions as sizeOpt (sizeOpt.value)}
-												{@const isSelected = variant.sizes.includes(sizeOpt.value as any)}
-												<button
-													type="button"
-													onclick={() => toggleSize(variant.clientId, sizeOpt.value)}
-													class="min-h-9 px-3 font-mono text-[10px] tracking-wider border transition-all uppercase {isSelected
-														? 'bg-volt border-volt text-void font-bold'
-														: 'bg-void border-charcoal text-ash hover:border-volt hover:text-volt'}"
-												>
-													{sizeOpt.label}
-												</button>
-											{/each}
-										</div>
-										{#if $createProductErrors.variants?.[index]?.sizes}
-											<span class="font-mono text-[10px] text-red-300 mt-1">
-												{$createProductErrors.variants[index]?.sizes?._errors?.[0] ?? $createProductErrors.variants[index]?.sizes?.[0]}
-											</span>
-										{/if}
-									</div>
-								</div>
-
-								<div class="mt-4 border-t border-charcoal/40 pt-4">
-									<div class="grid gap-1">
-										<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant-specific Images</span>
-										
-										<div class="flex items-center gap-3 mt-2">
-											<label
-												class="relative inline-flex min-h-11 items-center justify-center gap-2 border border-dashed border-ash/30 bg-void px-4 font-mono text-[10px] tracking-widest text-ash uppercase cursor-pointer hover:border-volt hover:text-volt"
-											>
-												<input
-													type="file"
-													accept="image/*"
-													multiple
-													onchange={(event) => handleVariantImageUpload(variant.clientId, event)}
-													class="hidden"
-												/>
-												<Upload size={14} class="text-volt" aria-hidden="true" />
-												Upload variant images
-											</label>
-										</div>
-
-										{#if imagesForVariant(variant.clientId).length > 0}
-											<div class="flex flex-wrap gap-3 mt-3">
-												{#each imagesForVariant(variant.clientId) as img}
-													<div class="relative block group border border-charcoal hover:border-volt">
-														<button
-															type="button"
-															onclick={() => (activeImageIndex = img.index)}
-															class="block"
-														>
-															<img src={img.preview.url} alt="" class="h-16 w-16 object-cover" />
-														</button>
-														{#if img.meta.isPrimary}
-															<span class="absolute top-1 left-1 bg-volt text-void px-1 py-0.5 text-[6px] font-mono leading-none uppercase">Primary</span>
-														{/if}
-														<button
-															type="button"
-															onclick={(e) => {
-																e.stopPropagation();
-																removeImage(img.index);
-															}}
-															class="absolute -top-1 -right-1 hidden group-hover:grid h-4 w-4 place-items-center bg-red-600 text-white rounded-full text-[8px]"
-														>
-															×
-														</button>
-													</div>
-												{/each}
-											</div>
-										{:else}
-											<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase mt-1">
-												No images uploaded for this variant.
-											</p>
-										{/if}
-									</div>
-								</div>
 							</article>
 						{/each}
 					</div>
 				{:else}
-					<p class="mt-4 border border-charcoal bg-void/40 px-4 py-5 font-mono text-[10px] tracking-widest text-ash uppercase">
-						No variants added.
+					<p class="mt-4 border border-ash/15 bg-void px-4 py-5 font-sans text-xs text-ash/70">
+						No color swatches configured. Click Add Variant above to begin.
 					</p>
 				{/if}
-			</section>
+			</AdminCard>
 
-			<section class="grid gap-4 border border-charcoal bg-charcoal/25 p-4 sm:p-5">
-				<div class="border-b border-charcoal pb-4">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Tags</p>
-					<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Product Tags</h2>
-				</div>
+			<!-- Tags Section -->
+			<AdminCard title="Product Tags" border="border border-ash/15" class="shadow-sm">
+				<div class="mt-4 grid gap-4">
+					{#if selectedTags.length > 0 || $createProductForm.newTagNames.length > 0}
+						<div class="flex flex-wrap gap-2">
+							{#each selectedTags as tag (tag.id)}
+								<button
+									type="button"
+									onclick={() => removeExistingTag(tag.id)}
+									class="inline-flex min-h-9 items-center gap-2 border border-volt bg-volt/10 px-3 font-sans text-xs tracking-wider text-volt uppercase transition-colors hover:bg-volt hover:text-void"
+								>
+									{tag.name}
+									<X size={12} aria-hidden="true" />
+								</button>
+							{/each}
+							{#each $createProductForm.newTagNames as tagName (tagName)}
+								<button
+									type="button"
+									onclick={() => removeNewTag(tagName)}
+									class="inline-flex min-h-9 items-center gap-2 border border-ash/30 px-3 font-sans text-xs text-bone uppercase transition-colors hover:border-red-400 hover:text-red-300"
+								>
+									{tagName}
+									<X size={12} aria-hidden="true" />
+								</button>
+							{/each}
+						</div>
+					{/if}
 
-				{#if selectedTags.length > 0 || $createProductForm.newTagNames.length > 0}
-					<div class="flex flex-wrap gap-2">
-						{#each selectedTags as tag (tag.id)}
-							<button
-								type="button"
-								onclick={() => removeExistingTag(tag.id)}
-								class="inline-flex min-h-9 items-center gap-2 border border-volt bg-volt px-3 font-mono text-[10px] tracking-widest text-void uppercase"
+					{#if data.tags.length > 0}
+						<div class="grid gap-2">
+							<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+								>Existing Tags</span
 							>
-								{tag.name}
-								<X size={12} aria-hidden="true" />
-							</button>
-						{/each}
-						{#each $createProductForm.newTagNames as tagName (tagName)}
-							<button
-								type="button"
-								onclick={() => removeNewTag(tagName)}
-								class="inline-flex min-h-9 items-center gap-2 border border-charcoal px-3 font-mono text-[10px] tracking-widest text-bone uppercase hover:border-red-400 hover:text-red-300"
-							>
-								{tagName}
-								<X size={12} aria-hidden="true" />
-							</button>
-						{/each}
-					</div>
-				{/if}
+							{#if availableTags.length > 0}
+								<div class="flex flex-wrap gap-2">
+									{#each availableTags as tag (tag.id)}
+										<button
+											type="button"
+											onclick={() => addExistingTag(tag.id)}
+											class="inline-flex min-h-8 items-center border border-ash/20 bg-void px-3 font-sans text-xs text-ash transition-colors hover:border-volt hover:text-volt"
+										>
+											{tag.name}
+										</button>
+									{/each}
+								</div>
+							{:else}
+								<p class="font-sans text-xs text-ash/50">All available database tags selected.</p>
+							{/if}
+						</div>
+					{/if}
 
-				{#if data.tags.length > 0}
-					<div class="grid gap-2">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Existing tags</span>
-						{#if availableTags.length > 0}
-							<div class="flex flex-wrap gap-2">
-								{#each availableTags as tag (tag.id)}
-									<button
-										type="button"
-										onclick={() => addExistingTag(tag.id)}
-										class="inline-flex min-h-9 items-center border border-ash/30 px-3 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
-									>
-										{tag.name}
-									</button>
-								{/each}
-							</div>
-						{:else}
-							<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
-								All existing tags selected.
-							</p>
-						{/if}
-					</div>
-				{/if}
-
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">New tags</span>
-					<div class="flex gap-2">
-						<input
+					<div class="flex items-end gap-2">
+						<AdminInput
+							label="Add Custom Tag"
 							bind:value={newTagDraft}
 							onkeydown={handleNewTagKeydown}
-							class="min-h-11 min-w-0 flex-1 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							placeholder="Press Enter to add tag"
+							name="newTagDraft"
+							class="flex-1"
 						/>
-						<button
+						<AdminButton
 							type="button"
 							onclick={addNewTag}
-							class="inline-flex min-h-11 w-11 items-center justify-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
+							variant="outline"
+							class="flex min-h-11 w-11 shrink-0 items-center justify-center p-0"
 							aria-label="Add tag"
 						>
 							<Plus size={15} aria-hidden="true" />
-						</button>
+						</AdminButton>
 					</div>
-				</label>
-			</section>
+				</div>
+			</AdminCard>
 
-			<details class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
-				<summary class="cursor-pointer font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
+			<!-- Material & Care Accordion -->
+			<details class="group border border-ash/15 bg-charcoal p-5 shadow-sm md:p-6">
+				<summary
+					class="flex cursor-pointer items-center justify-between font-display text-2xl leading-none tracking-wide text-bone uppercase select-none"
+				>
 					Material & Care
+					<span class="text-ash transition-transform duration-200 group-open:rotate-180">
+						<ChevronDown size={20} />
+					</span>
 				</summary>
-				<div class="mt-4 grid gap-4">
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Material</span>
-						<input
+				<div class="mt-5 grid gap-4 border-t border-ash/10 pt-4">
+					<div class="grid gap-1">
+						<AdminInput
+							label="Material"
 							name="material"
 							bind:value={$createProductForm.material}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							placeholder="e.g. 100% Organic Heavyweight Cotton"
 							{...$createProductConstraints.material}
 						/>
-					</label>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each materialPresets as preset}
+								<button
+									type="button"
+									onclick={() => appendMaterial(preset)}
+									class="border border-ash/20 bg-void px-2.5 py-1 font-sans text-[11px] text-ash transition-colors hover:border-volt hover:text-volt"
+								>
+									+ {preset}
+								</button>
+							{/each}
+						</div>
+					</div>
+
 					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Care</span>
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Care Instructions</span
+						>
 						<textarea
 							name="careInstructions"
-							rows="4"
+							rows="3"
+							placeholder="e.g. Wash inside out, line dry to preserve graphic prints..."
 							bind:value={$createProductForm.careInstructions}
-							class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone outline-none focus:border-volt"
 							{...$createProductConstraints.careInstructions}
 						></textarea>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							{#each carePresets as preset}
+								<button
+									type="button"
+									onclick={() => appendCare(preset)}
+									class="border border-ash/20 bg-void px-2.5 py-1 font-sans text-[11px] text-ash transition-colors hover:border-volt hover:text-volt"
+								>
+									+ {preset}
+								</button>
+							{/each}
+						</div>
 					</label>
 				</div>
 			</details>
 
-			<details class="border border-charcoal bg-charcoal/25 p-4 sm:p-5">
-				<summary class="cursor-pointer font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-					SEO
+			<!-- SEO Accordion -->
+			<details class="group border border-ash/15 bg-charcoal p-5 shadow-sm md:p-6">
+				<summary
+					class="flex cursor-pointer items-center justify-between font-display text-2xl leading-none tracking-wide text-bone uppercase select-none"
+				>
+					SEO Configuration
+					<span class="text-ash transition-transform duration-200 group-open:rotate-180">
+						<ChevronDown size={20} />
+					</span>
 				</summary>
-				<div class="mt-4 grid gap-4">
+				<div class="mt-5 grid gap-4 border-t border-ash/10 pt-4">
+					<AdminInput
+						label="Meta Title"
+						name="metaTitle"
+						bind:value={$createProductForm.metaTitle}
+						placeholder="Leave empty to use product name"
+						{...$createProductConstraints.metaTitle}
+					/>
+
 					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Meta title</span>
-						<input
-							name="metaTitle"
-							bind:value={$createProductForm.metaTitle}
-							class="min-h-11 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-							{...$createProductConstraints.metaTitle}
-						/>
-					</label>
-					<label class="grid gap-1">
-						<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-							>Meta description</span
+						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
+							>Meta Description</span
 						>
 						<textarea
 							name="metaDescription"
-							rows="4"
+							rows="3"
+							placeholder="Leave empty to use product summary"
 							bind:value={$createProductForm.metaDescription}
-							class="resize-none border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
+							class="border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone outline-none focus:border-volt"
 							{...$createProductConstraints.metaDescription}
 						></textarea>
 					</label>
 				</div>
 			</details>
 
-			<button
+			<!-- Desktop Save Panel -->
+			<AdminButton
 				type="submit"
 				disabled={$createProductSubmitting}
-				class="inline-flex min-h-12 items-center justify-center gap-2 bg-volt px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase transition-colors hover:bg-bone disabled:opacity-50"
+				variant="volt"
+				class="hidden min-h-12 w-full lg:inline-flex"
 			>
-				<Save size={14} aria-hidden="true" />
-				{$createProductSubmitting ? 'Saving...' : 'Create product'}
-			</button>
+				<Save size={15} aria-hidden="true" />
+				{$createProductSubmitting ? 'Saving...' : 'Create Product'}
+			</AdminButton>
 		</div>
 
-		<aside class="grid gap-4 xl:sticky xl:top-8 xl:self-start">
-			<div class="border border-charcoal bg-void p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Snapshot</p>
-				<div class="mt-4 grid gap-3 font-mono text-[10px] uppercase">
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Price</span>
-						<span class="text-right text-bone">
-							{primaryVariant ? formatMoney(primaryVariant.basePrice) : '—'}
+		<!-- Desktop Snapshot Sidebar -->
+		<aside class="grid gap-6 xl:sticky xl:top-8 xl:self-start">
+			<div class="border border-ash/15 bg-charcoal">
+				{#if carouselImage}
+					<div class="relative group">
+						<button
+							type="button"
+							onclick={() => openSnapshotImagePreview(carouselImage.id)}
+							class="group block w-full cursor-zoom-in text-left"
+							aria-label="Open selected product image detail"
+						>
+							<div class="relative overflow-hidden bg-void">
+								<img
+									src={carouselImage.imageUrl}
+									alt={carouselImage.altText ?? ''}
+									class="aspect-[4/5] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+								/>
+								<span
+									class="absolute right-2 bottom-2 border border-ash/20 bg-void/90 px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase"
+								>
+									Open image
+								</span>
+							</div>
+						</button>
+
+						{#if snapshotImages.length > 1}
+							<button
+								type="button"
+								onclick={(e) => {
+									e.stopPropagation();
+									navigateSnapshotImage(-1);
+								}}
+								class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								aria-label="Previous image"
+							>
+								&larr;
+							</button>
+							<button
+								type="button"
+								onclick={(e) => {
+									e.stopPropagation();
+									navigateSnapshotImage(1);
+								}}
+								class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+								aria-label="Next image"
+							>
+								&rarr;
+							</button>
+						{/if}
+					</div>
+				{:else}
+					<div
+						class="grid aspect-[4/5] place-items-center border-b border-ash/15 bg-void text-ash/40"
+					>
+						<ImageOff size={28} aria-hidden="true" />
+					</div>
+				{/if}
+
+				{#if snapshotImages.length > 0}
+					<div class="scrollbar-thin flex gap-2 overflow-x-auto border-b border-ash/15 bg-void p-3">
+						{#each snapshotImages as img (img.id)}
+							<button
+								type="button"
+								onclick={() => {
+									carouselImageId = img.id;
+								}}
+								class="relative shrink-0 cursor-pointer border transition-all {img.id ===
+								carouselImage?.id
+									? 'border-volt ring-1 ring-volt'
+									: 'border-ash/20 hover:border-volt/60'}"
+								title={img.altText ?? 'Product image'}
+								aria-label="Select product preview image"
+							>
+								<img src={img.imageUrl} alt="" class="h-12 w-12 object-cover" />
+								{#if img.isPrimary}
+									<span
+										class="absolute top-0 left-0 bg-volt px-0.5 font-sans text-[6px] leading-none font-bold text-void uppercase"
+										>Primary</span
+									>
+								{/if}
+							</button>
+						{/each}
+					</div>
+				{/if}
+
+				<div class="p-5">
+					<div class="flex items-start justify-between gap-4">
+						<div class="min-w-0">
+							<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Snapshot</p>
+							<h2 class="mt-1 font-sans text-base leading-snug font-semibold text-bone">
+								{$createProductForm.name || 'Untitled product'}
+							</h2>
+						</div>
+						<span
+							class="shrink-0 border px-2 py-1 font-mono text-[9px] tracking-widest uppercase {$createProductForm.isActive
+								? 'border-volt/30 bg-volt/10 text-volt'
+								: 'border-red-500/25 bg-red-950/20 text-red-300'}"
+						>
+							{$createProductForm.isActive ? 'Live' : 'Draft'}
 						</span>
 					</div>
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Tier</span>
-						<span class="text-right text-bone">{formatLabel($createProductForm.tier)}</span>
+
+					<div class="mt-4 grid gap-2">
+						<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+							{#if snapshotVariant}
+								<span class="font-mono text-base font-semibold text-bone">
+									{formatMoney(snapshotVariant.basePrice)}
+								</span>
+								{#if snapshotVariant.compareAtPrice}
+									<span class="font-mono text-xs text-ash line-through">
+										{formatMoney(snapshotVariant.compareAtPrice)}
+									</span>
+								{/if}
+								{#if snapshotDiscountPercent}
+									<span
+										class="border border-volt/25 bg-volt/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-volt uppercase"
+									>
+										{snapshotDiscountPercent}% off
+									</span>
+								{/if}
+							{:else}
+								<span class="font-mono text-sm text-bone">{priceRange}</span>
+							{/if}
+						</div>
+
+						<p class="font-sans text-xs leading-relaxed text-ash/80">
+							{$createProductForm.shortDescription || 'Short product description will appear here.'}
+						</p>
 					</div>
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Drop</span>
-						<span class="text-right text-bone">{selectedDrop?.name ?? 'None'}</span>
+
+					{#if sortedVariants.length > 0}
+						<div class="mt-5 border-t border-ash/10 pt-4">
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+								Color: {snapshotVariant?.color ?? 'Select'}
+							</p>
+							<div class="mt-2 flex flex-wrap gap-2">
+								{#each sortedVariants as variant (variant.clientId)}
+									<button
+										type="button"
+										onclick={() => selectSnapshotVariant(variant.clientId)}
+										class="inline-flex min-h-10 cursor-pointer items-center gap-2 border px-3 font-sans text-xs font-semibold transition-colors {snapshotVariant?.clientId ===
+										variant.clientId
+											? 'border-volt bg-volt text-void'
+											: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
+										aria-pressed={snapshotVariant?.clientId === variant.clientId}
+									>
+										<span
+											class="h-3 w-3 border border-ash/30 {isValidHex(variant.colorHex)
+												? ''
+												: 'bg-ash/20'}"
+											style={isValidHex(variant.colorHex)
+												? `background-color: ${variant.colorHex}`
+												: ''}
+											aria-hidden="true"
+										></span>
+										<span>{variant.color || 'Unnamed'}</span>
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if snapshotVariant && snapshotVariant.sizes.length > 0}
+						<div class="mt-4 border-t border-ash/10 pt-4">
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+								Size: {snapshotSize ?? 'Select'}
+							</p>
+							<div class="mt-2 flex flex-wrap gap-2">
+								{#each snapshotVariant.sizes as size (size)}
+									<button
+										type="button"
+										onclick={() => selectSnapshotSize(size)}
+										class="grid h-10 min-w-11 cursor-pointer place-items-center border px-3 font-mono text-xs transition-colors {snapshotSize ===
+										size
+											? 'border-volt bg-volt text-void'
+											: 'border-ash/30 bg-void text-bone hover:border-volt'}"
+										aria-pressed={snapshotSize === size}
+									>
+										{size}
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<div class="grid gap-3 font-sans text-xs">
+						<div class="mt-5 flex justify-between gap-4 border-t border-ash/10 pt-4">
+							<span class="font-medium text-ash">Category</span>
+							<span class="text-right text-bone">{selectedCategoryName}</span>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Tier</span>
+							<span class="text-right text-bone uppercase"
+								>{formatLabel($createProductForm.tier ?? '')}</span
+							>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Gender / Fit</span>
+							<span class="text-right text-bone uppercase">
+								{formatLabel($createProductForm.gender ?? '')} / {formatLabel(
+									$createProductForm.fit ?? ''
+								)}
+							</span>
+						</div>
+						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+							<span class="font-medium text-ash">Images</span>
+							<span class="text-right text-bone">{activeLocalImages.length}</span>
+						</div>
+						{#if selectedTags.length > 0 || $createProductForm.newTagNames.length > 0}
+							<div class="flex flex-wrap gap-1.5 pt-1">
+								{#each selectedTags as tag (tag.id)}
+									<span
+										class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
+									>
+										{tag.name}
+									</span>
+								{/each}
+								{#each $createProductForm.newTagNames as tagName (tagName)}
+									<span
+										class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
+									>
+										{tagName}
+									</span>
+								{/each}
+							</div>
+						{/if}
 					</div>
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Variants</span>
-						<span class="text-right text-bone">{$createProductForm.variants.length}</span>
-					</div>
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Images</span>
-						<span class="text-right text-bone">{imagePreviews.length}</span>
-					</div>
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">State</span>
-						<span class="text-right {$createProductForm.isActive ? 'text-volt' : 'text-red-300'}">
-							{$createProductForm.isActive ? 'Active' : 'Inactive'}
-						</span>
-					</div>
+
+					{#if snapshotWarnings.length > 0}
+						<div class="mt-4 border border-yellow-500/20 bg-yellow-950/15 p-3">
+							<p
+								class="flex items-center gap-1.5 font-sans text-[11px] font-bold tracking-wide text-yellow-400 uppercase"
+							>
+								<AlertTriangle size={13} /> Merchandising Warnings
+							</p>
+							<ul class="m-0 mt-2 grid list-none gap-1 p-0">
+								{#each snapshotWarnings as warning (warning)}
+									<li
+										class="flex items-start gap-1 font-sans text-[11px] leading-normal text-ash/85"
+									>
+										<span class="mt-0.5 text-yellow-500/60">•</span>
+										<span>{warning}</span>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</aside>
 	</form>
 </section>
 
+<!-- Mobile Sticky Action Bar -->
+<div
+	class="fixed right-0 bottom-0 left-0 z-40 flex gap-3 border-t border-ash/15 bg-void/95 p-4 shadow-[0_-8px_24px_rgb(0,0,0,0.6)] backdrop-blur lg:hidden"
+>
+	<AdminButton
+		type="button"
+		onclick={() => {
+			$createProductForm.isActive = false;
+			formElement?.requestSubmit();
+		}}
+		disabled={$createProductSubmitting}
+		variant="outline"
+		class="flex-1"
+	>
+		Save Draft
+	</AdminButton>
+	<AdminButton
+		type="button"
+		onclick={() => {
+			formElement?.requestSubmit();
+		}}
+		disabled={$createProductSubmitting}
+		variant="volt"
+		class="flex-1"
+	>
+		{$createProductSubmitting ? 'Saving...' : 'Create Product'}
+	</AdminButton>
+</div>
+
+<!-- Image Preview Modal -->
 {#if activeImage && activeImageIndex !== null}
 	{@const metadata = getImageMetadata(activeImageIndex)}
 	<div
-		class="fixed inset-0 z-50 overflow-y-auto bg-void/85 px-3 py-4 sm:px-4 sm:py-6 flex justify-center items-start"
+		class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-void/90 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
 	>
 		<section
-			class="my-auto mx-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-void shadow-2xl lg:max-h-[90vh] lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_340px]"
+			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-ash/25 bg-void shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
 		>
-			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
+			<div class="relative flex min-h-0 min-w-0 items-center overflow-hidden bg-charcoal/40 group w-full">
 				<img
 					src={activeImage.url}
 					alt={metadata.altText ?? ''}
 					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
 				/>
+
+				{#if activeVariantImages.length > 1}
+					<button
+						type="button"
+						onclick={() => navigateActiveImage(-1)}
+						class="absolute left-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						aria-label="Previous image"
+					>
+						&larr;
+					</button>
+					<button
+						type="button"
+						onclick={() => navigateActiveImage(1)}
+						class="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center bg-void/80 border border-ash/20 text-bone hover:border-volt hover:text-volt transition-colors cursor-pointer select-none"
+						aria-label="Next image"
+					>
+						&rarr;
+					</button>
+				{/if}
 			</div>
 			<div
-				class="grid min-w-0 content-start gap-4 overflow-x-hidden lg:overflow-y-auto p-4 sm:p-5"
+				class="grid min-w-0 content-start gap-4 overflow-x-hidden border-t border-ash/15 bg-charcoal p-5 lg:overflow-y-auto lg:border-t-0 lg:border-l"
 			>
 				<div class="flex items-start justify-between gap-4">
 					<div class="min-w-0">
-						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
-						<h2
-							class="mt-2 font-display text-3xl leading-none wrap-break-words text-bone uppercase sm:text-4xl"
-						>
+						<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Media Info</p>
+						<h2 class="wrap-break-words mt-1 font-sans text-base font-semibold text-bone">
 							{activeImage.name}
 						</h2>
-						<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+						<p class="mt-1 font-mono text-[10px] text-ash/60">
 							{formatFileSize(activeImage.size)}
 						</p>
 					</div>
-					<div class="flex items-center gap-2 shrink-0">
+					<div class="flex shrink-0 items-center gap-2">
 						<button
 							type="button"
 							onclick={() => {
@@ -1418,16 +2013,16 @@
 									activeImageIndex = null;
 								}
 							}}
-							class="grid h-10 w-10 place-items-center border border-red-400/40 text-red-300 hover:border-red-300 hover:text-red-200"
+							class="grid h-9 w-9 place-items-center border border-red-500/25 text-red-400 transition-colors hover:border-red-400 hover:text-red-300"
 							aria-label="Remove image"
 						>
-							<Trash2 size={15} aria-hidden="true" />
+							<Trash2 size={14} aria-hidden="true" />
 						</button>
 						<button
 							type="button"
 							onclick={() => (activeImageIndex = null)}
-							class="grid h-10 w-10 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt"
-							aria-label="Close image detail"
+							class="grid h-9 w-9 place-items-center border border-ash/30 text-ash transition-colors hover:border-volt hover:text-volt"
+							aria-label="Close detail modal"
 						>
 							<X size={15} aria-hidden="true" />
 						</button>
@@ -1435,105 +2030,62 @@
 				</div>
 
 				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Variant</span>
+					<span class="font-sans text-xs font-semibold text-ash">Linked Color Variant</span>
 					<select
 						value={metadata.variantClientId ?? ''}
 						disabled
-						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/20 px-3 py-3 font-mono text-xs text-ash outline-none opacity-80"
+						class="min-h-11 w-full cursor-not-allowed border border-ash/30 bg-void/50 px-3 py-2 font-sans text-sm text-ash opacity-80 outline-none"
 					>
-						<option value="">Product image</option>
+						<option value="">Product-wide Image</option>
 						{#each $createProductForm.variants as variant (variant.clientId)}
 							<option value={variant.clientId}>{variantLabel(variant.clientId)}</option>
 						{/each}
 					</select>
 				</label>
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Alt text</span>
-					<input
-						value={metadata.altText ?? ''}
-						oninput={handleActiveImageAltInput}
-						class="min-h-11 w-full min-w-0 border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-					/>
-				</label>
-				<label class="grid gap-1">
-					<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Display order</span
-					>
-					<select
-						value={metadata.position}
-						onchange={handleActiveImagePositionChange}
-						class="min-h-11 w-full min-w-0 border border-charcoal bg-void px-3 py-3 font-mono text-xs text-bone outline-none focus:border-volt"
-					>
-						{#each imagePositionOptions() as positionValue (positionValue)}
-							<option value={positionValue}>{positionValue}</option>
-						{/each}
-					</select>
-				</label>
-				<button
+
+				<AdminInput
+					label="Alt Text"
+					value={metadata.altText ?? ''}
+					oninput={handleActiveImageAltInput}
+					name="imageAltText"
+				/>
+
+				<AdminSelect
+					label="Display Order"
+					name="imagePosition"
+					value={metadata.position}
+					onchange={handleActiveImagePositionChange}
+				>
+					{#each imagePositionOptionsForVariant(metadata.variantClientId) as positionValue (positionValue)}
+						<option value={positionValue}>{positionValue}</option>
+					{/each}
+				</AdminSelect>
+
+				<AdminButton
 					type="button"
 					onclick={markActiveImagePrimary}
-					class="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 border px-4 text-center font-mono text-[10px] leading-4 tracking-widest whitespace-normal uppercase {metadata.isPrimary
-						? 'border-volt bg-volt text-void'
-						: 'border-ash/30 text-ash hover:border-volt hover:text-volt'}"
+					variant={metadata.isPrimary ? 'volt' : 'outline'}
+					class="w-full"
 				>
 					<Star size={14} fill={metadata.isPrimary ? 'currentColor' : 'none'} aria-hidden="true" />
-					<span class="min-w-0 wrap-break-words"
-						>Primary for {variantLabel(metadata.variantClientId)}</span
-					>
-				</button>
-				<button
-					type="button"
-					onclick={() => {
-						if (activeImageIndex !== null) {
-							removeImage(activeImageIndex);
-							activeImageIndex = null;
-						}
-					}}
-					class="inline-flex min-h-11 w-full min-w-0 items-center justify-center gap-2 border border-red-400/40 px-4 text-center font-mono text-[10px] leading-4 tracking-widest whitespace-normal uppercase text-red-300 hover:border-red-300 hover:text-red-200"
-				>
-					<Trash2 size={14} aria-hidden="true" />
-					<span class="min-w-0 wrap-break-words">Remove Image</span>
-				</button>
+					<span>Primary for {variantLabel(metadata.variantClientId)}</span>
+				</AdminButton>
 			</div>
 		</section>
 	</div>
 {/if}
 
-{#if pendingRedirect}
-	<div class="fixed inset-0 z-50 grid place-items-center overscroll-contain bg-void/80 px-4">
-		<section class="w-full max-w-lg border border-charcoal bg-void p-5 shadow-2xl">
-			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Leave product</p>
-			<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Save inactive?</h2>
-			<p class="mt-4 text-sm leading-6 text-ash">
-				Create an inactive product before opening {pendingRedirect === 'products'
-					? 'products'
-					: pendingRedirect === 'drops'
-						? 'drops'
-						: 'categories'}, or leave this product unsaved.
-			</p>
-			<div class="mt-6 grid gap-3 sm:grid-cols-2">
-				<button
-					type="button"
-					onclick={saveDraftAndRedirect}
-					class="inline-flex min-h-11 items-center justify-center gap-2 bg-volt px-4 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-bone"
-				>
-					<Save size={14} aria-hidden="true" />
-					Save inactive
-				</button>
-				<button
-					type="button"
-					onclick={leaveUnsaved}
-					class="min-h-11 border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
-				>
-					Leave unsaved
-				</button>
-			</div>
-			<button
-				type="button"
-				onclick={() => (pendingRedirect = null)}
-				class="mt-3 min-h-11 w-full border border-charcoal px-4 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-bone"
-			>
-				Cancel
-			</button>
-		</section>
-	</div>
-{/if}
+<!-- Unsaved Changes Modal -->
+<AdminUnsavedChangesModal
+	bind:isOpen={showUnsavedModal}
+	title="Save before leaving?"
+	description="You have unsaved changes. You can save this product as an inactive draft before opening {pendingRedirect ? formatLabel(pendingRedirect) : ''}, or discard your changes."
+	saveLabel="Save Draft"
+	discardLabel="Discard changes"
+	onsave={saveDraftAndRedirect}
+	ondiscard={leaveUnsaved}
+	oncancel={() => {
+		pendingRedirect = null;
+		showUnsavedModal = false;
+	}}
+/>

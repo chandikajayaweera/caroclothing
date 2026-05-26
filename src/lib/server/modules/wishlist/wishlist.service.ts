@@ -382,7 +382,9 @@ async function hydrateWishlistJoinedRows(rows: WishlistJoinedRow[]): Promise<Wis
 	return rows.map((row) => toWishlistItemDTO(row, imagesByProductId, primaryPricesByProductId));
 }
 
-async function loadPrimaryPricesByProductId(productIds: string[]): Promise<Map<string, { basePrice: number; compareAtPrice: number | null }>> {
+async function loadPrimaryPricesByProductId(
+	productIds: string[]
+): Promise<Map<string, { basePrice: number; compareAtPrice: number | null }>> {
 	const priceMap = new Map<string, { basePrice: number; compareAtPrice: number | null }>();
 	if (productIds.length === 0) return priceMap;
 
@@ -451,11 +453,16 @@ async function hydrateWishlistSignals(
 					primaryPrices?.basePrice ?? 0,
 					primaryPrices?.compareAtPrice ?? null
 				),
-				variant: variantJoined ? toWishlistVariantSummaryDTO(variantJoined.variant, variantJoined.color) : null,
+				variant: variantJoined
+					? toWishlistVariantSummaryDTO(variantJoined.variant, variantJoined.color)
+					: null,
 				imageUrl,
-				effectivePrice: variantJoined ? variantJoined.color.basePrice : primaryPrices?.basePrice ?? 0,
+				effectivePrice: variantJoined
+					? variantJoined.color.basePrice
+					: (primaryPrices?.basePrice ?? 0),
 				isAvailable:
-					productRow.isActive && (row.variantId === null || variantJoined?.variant.isActive === true)
+					productRow.isActive &&
+					(row.variantId === null || variantJoined?.variant.isActive === true)
 			};
 		})
 		.filter((row): row is WishlistSignalDTO => row !== null);
@@ -484,7 +491,8 @@ function toWishlistItemDTO(
 		imagesByProductId.get(row.product.id) ?? [],
 		row.variant ? row.variant.variantColorId : null
 	);
-	const variant = row.variant && row.color ? toWishlistVariantSummaryDTO(row.variant, row.color) : null;
+	const variant =
+		row.variant && row.color ? toWishlistVariantSummaryDTO(row.variant, row.color) : null;
 	const primaryPrices = primaryPricesByProductId.get(row.product.id);
 
 	return {

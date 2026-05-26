@@ -223,3 +223,31 @@ export type AddProductImageInput = Omit<InsertProductImage, 'r2Key'> & {
 export type CreateProductVariantColorInput = Omit<InsertProductVariantColor, 'productId'>;
 export type UpdateProductVariantColorInput = Omit<UpdateProductVariantColor, 'productId'>;
 
+export type UpdateProductDraftVariantInput = {
+	id: string;
+	color: string;
+	colorHex?: string | null;
+	basePrice: number;
+	compareAtPrice?: number | null;
+	sortOrder: number;
+	sizes: SizeTier[];
+	isNew?: boolean;
+	isDeleted?: boolean;
+};
+
+export type UpdateProductDraftImageInput = {
+	id: string;
+	variantId?: string | null;
+	altText?: string | null;
+	position: number;
+	isPrimary: boolean;
+	isNew?: boolean;
+	isDeleted?: boolean;
+	fileIndex?: number;
+};
+
+export type UpdateProductFullInput = UpdateProductInput & {
+	variants?: UpdateProductDraftVariantInput[];
+	images?: UpdateProductDraftImageInput[];
+	newImageFiles?: File[];
+};

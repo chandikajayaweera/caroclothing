@@ -123,6 +123,15 @@ The admin new-product workflow is a multi-entity service write owned by `src/lib
 - Product media uploads require `ctx.event` and compensation cleanup in the service if any later database write fails.
 - `ProductDTO.dropAssignment` is available for route/UI reads that need the current non-archived drop link.
 
+## Current Product Edit Contract
+
+The admin edit-product workflow is a full-form service write owned by `updateProductFull()` in `src/lib/server/modules/products/products.service.ts`.
+
+- Product edit routes serialize variant color cards and image metadata into form fields, validate through `updateProductFormSchema`, and call `updateProductFull()`.
+- Image metadata may update variant assignment, alt text, display `position`, primary state, deletion state, and new upload file mapping.
+- Routes must not write `product_variant_color`, `product_variant`, `product_image`, `product_tag`, `tag`, or `drop_product` directly during edit flows.
+- New edit-route uploads still require `ctx.event`; uploaded objects are cleaned up by the service if later validation or persistence fails.
+
 ## Notification Workflow
 
 Use `$caro-notifications` for email/SMS senders, notification outbox, waitlist notification state, Queue/Cron/DLQ orchestration, or notification docs.

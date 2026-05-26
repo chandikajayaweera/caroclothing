@@ -29,6 +29,7 @@ export {
 	setPrimaryProductImage,
 	updateCategory,
 	updateProduct,
+	updateProductFull,
 	updateProductVariant,
 	updateProductVariantColor,
 	updateTag

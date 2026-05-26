@@ -88,10 +88,17 @@ export const createCategoryFormSchema = insertCategorySchema.omit({ imageR2Key: 
 	image: optionalImageFileSchema
 });
 
+const formBooleanSchema = z.preprocess((val) => {
+	if (val === 'true') return true;
+	if (val === 'false') return false;
+	if (typeof val === 'boolean') return val;
+	return undefined;
+}, z.boolean().optional());
+
 export const updateCategoryFormSchema = updateCategorySchema.omit({ imageR2Key: true }).extend({
 	parentId: nullableIdFormSchema,
 	image: optionalImageFileSchema,
-	removeImage: z.boolean().optional()
+	removeImage: formBooleanSchema
 });
 
 export const updateCategoryActionFormSchema = updateCategoryFormSchema.extend({
@@ -134,50 +141,58 @@ export const createProductImageMetadataFormSchema = z.object({
 	isPrimary: z.boolean().default(false)
 });
 
-export const createProductFormSchema = insertProductSchema.safeExtend({
+export const createProductFormSchema = insertProductSchema
+	.safeExtend({
+		tagIds: productTagIdsSchema,
+		newTagNames: newTagNamesFormSchema,
+		dropId: nullableIdFormSchema,
+		primaryImageIndex: primaryImageIndexFormSchema,
+		images: imageFilesFormSchema,
+		variants: z.array(createProductDraftVariantFormSchema).default([]),
+		imageMetadata: z.array(createProductImageMetadataFormSchema).default([]),
+		redirectTo: redirectToSchema,
+		syncPrices: z.boolean().default(false)
+	})
+	.superRefine((data, ctx) => {
+		const tier = data.tier ?? 'core';
+		data.variants.forEach((v, index) => {
+			if (v.compareAtPrice != null && v.compareAtPrice <= v.basePrice) {
+				ctx.addIssue({
+					code: 'custom',
+					message: 'compareAtPrice must be greater than basePrice',
+					path: ['variants', index, 'compareAtPrice']
+				});
+			}
+			if (tier === 'drop') {
+				if (v.basePrice < 3000 || v.basePrice > 4500) {
+					ctx.addIssue({
+						code: 'custom',
+						message: 'Drop variant basePrice must be between 3000 and 4500',
+						path: ['variants', index, 'basePrice']
+					});
+				}
+			} else {
+				if (v.basePrice < 2500 || v.basePrice > 3200) {
+					ctx.addIssue({
+						code: 'custom',
+						message: 'Core variant basePrice must be between 2500 and 3200',
+						path: ['variants', index, 'basePrice']
+					});
+				}
+			}
+		});
+	});
+
+export const updateProductFormSchema = updateProductSchema.extend({
+	isActive: formBooleanSchema,
+	isFeatured: formBooleanSchema,
+	isNewArrival: formBooleanSchema,
 	tagIds: productTagIdsSchema,
 	newTagNames: newTagNamesFormSchema,
 	dropId: nullableIdFormSchema,
-	primaryImageIndex: primaryImageIndexFormSchema,
-	images: imageFilesFormSchema,
-	variants: z.array(createProductDraftVariantFormSchema).default([]),
-	imageMetadata: z.array(createProductImageMetadataFormSchema).default([]),
-	redirectTo: redirectToSchema,
-	syncPrices: z.boolean().default(false)
-}).superRefine((data, ctx) => {
-	const tier = data.tier ?? 'core';
-	data.variants.forEach((v, index) => {
-		if (v.compareAtPrice != null && v.compareAtPrice <= v.basePrice) {
-			ctx.addIssue({
-				code: 'custom',
-				message: 'compareAtPrice must be greater than basePrice',
-				path: ['variants', index, 'compareAtPrice']
-			});
-		}
-		if (tier === 'drop') {
-			if (v.basePrice < 3000 || v.basePrice > 4500) {
-				ctx.addIssue({
-					code: 'custom',
-					message: 'Drop variant basePrice must be between 3000 and 4500',
-					path: ['variants', index, 'basePrice']
-				});
-			}
-		} else {
-			if (v.basePrice < 2500 || v.basePrice > 3200) {
-				ctx.addIssue({
-					code: 'custom',
-					message: 'Core variant basePrice must be between 2500 and 3200',
-					path: ['variants', index, 'basePrice']
-				});
-			}
-		}
-	});
-});
-
-export const updateProductFormSchema = updateProductSchema.safeExtend({
-	tagIds: productTagIdsSchema,
-	newTagNames: newTagNamesFormSchema,
-	dropId: nullableIdFormSchema
+	serializedVariants: z.string().default('[]'),
+	serializedImages: z.string().default('[]'),
+	newImageFiles: imageFilesFormSchema
 });
 
 export const deleteProductFormSchema = z.object({
@@ -186,9 +201,9 @@ export const deleteProductFormSchema = z.object({
 
 export const updateProductFlagsFormSchema = z.object({
 	productId: idSchema,
-	isActive: z.boolean().optional(),
-	isFeatured: z.boolean().optional(),
-	isNewArrival: z.boolean().optional()
+	isActive: formBooleanSchema,
+	isFeatured: formBooleanSchema,
+	isNewArrival: formBooleanSchema
 });
 
 export const createProductVariantFormSchema = insertProductVariantSchema.omit({
@@ -278,4 +293,3 @@ export const updateProductVariantColorActionFormSchema = z.object({
 export const deleteProductVariantColorActionFormSchema = z.object({
 	variantColorId: idSchema
 });
-

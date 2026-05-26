@@ -42,6 +42,7 @@ import {
 	productTag,
 	productVariant,
 	productVariantColor,
+	SIZE_TIERS,
 	tag,
 	updateCategorySchema,
 	updateProductSchema,
@@ -62,13 +63,13 @@ import {
 	type NewProductVariantColor,
 	type Product,
 	type ProductImage,
+	type SizeTier,
 	type ProductVariant,
 	type ProductVariantColor,
 	type Tag,
 	type UpdateCategory,
 	type UpdateProduct,
 	type UpdateProductVariant,
-	type UpdateProductVariantColor,
 	type UpdateTag
 } from './products.drizzle';
 import type {
@@ -100,7 +101,8 @@ import type {
 	UpdateProductVariantInput,
 	UpdateTagInput,
 	CreateProductVariantColorInput,
-	UpdateProductVariantColorInput
+	UpdateProductVariantColorInput,
+	UpdateProductFullInput
 } from './products.types';
 import { drop, dropProduct } from '../drops/drops.drizzle';
 
@@ -130,6 +132,29 @@ type NormalizedProductImageMetadata = {
 	altText: string | null;
 	position: number;
 	isPrimary: boolean;
+};
+
+type NormalizedUpdateProductVariant = {
+	id: string;
+	color: string;
+	colorHex: string | null;
+	basePrice: number;
+	compareAtPrice: number | null;
+	sortOrder: number;
+	sizes: SizeTier[];
+	isNew: boolean;
+	isDeleted: boolean;
+};
+
+type NormalizedUpdateProductImage = {
+	id: string;
+	variantId: string | null;
+	altText: string | null;
+	position: number;
+	isPrimary: boolean;
+	isNew: boolean;
+	isDeleted: boolean;
+	fileIndex?: number;
 };
 
 export async function createCategory(
@@ -598,6 +623,335 @@ export async function updateProduct(
 	}
 }
 
+export async function updateProductFull(
+	ctx: ServiceContext,
+	lookup: ProductLookup,
+	input: UpdateProductFullInput
+): Promise<ProductDTO> {
+	requireAdmin(ctx.actor);
+
+	const existing = await findProductByLookup(lookup, { includeInactive: true });
+
+	if (!existing) {
+		throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
+	}
+
+	const {
+		tagIds,
+		newTagNames,
+		dropId,
+		variants: rawVariants = [],
+		images: rawImages = [],
+		newImageFiles = [],
+		...rawData
+	} = input;
+
+	const data = parseUpdateProduct(rawData);
+	const resolvedTier = data.tier ?? existing.tier;
+	const normalizedDropId = dropId === undefined ? undefined : normalizeNullableId(dropId);
+
+	if (resolvedTier === 'drop' && normalizedDropId === null) {
+		data.isActive = false;
+	}
+
+	const normalizedTagIds = normalizeTagIds(tagIds);
+	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
+	const updateValues = removeUndefinedValues(data);
+	const variants = normalizeUpdateProductDraftVariants(rawVariants, resolvedTier);
+	const images = normalizeUpdateProductDraftImages(rawImages);
+
+	await assertUpdateProductFullOwnership(existing.id, variants, images);
+
+	// Generate and map client-side UUIDs to new DB IDs
+	const clientToDbColorId = new Map<string, string>();
+	for (const variant of variants) {
+		if (variant.isNew) {
+			clientToDbColorId.set(variant.id, nanoid());
+		} else {
+			clientToDbColorId.set(variant.id, variant.id);
+		}
+	}
+
+	const uploadedR2Images: UploadedImage[] = [];
+	const newImageInsertData: {
+		id: string;
+		variantId: string | null;
+		r2Key: string;
+		altText: string | null;
+		position: number;
+		isPrimary: boolean;
+	}[] = [];
+	const deleteMediaBucket = images.some((image) => image.isDeleted && !image.isNew)
+		? requireMediaBucket(ctx)
+		: null;
+
+	try {
+		for (const img of images) {
+			if (img.isNew && !img.isDeleted) {
+				if (
+					img.fileIndex === undefined ||
+					img.fileIndex < 0 ||
+					img.fileIndex >= newImageFiles.length
+				) {
+					throw new ProductError('New image is missing matching file.', ErrorCode.VALIDATION_ERROR);
+				}
+				const file = newImageFiles[img.fileIndex];
+				const resolvedVariantId = img.variantId
+					? clientToDbColorId.get(img.variantId) || null
+					: null;
+
+				const uploadResult = await uploadProductImage(ctx, existing.id, resolvedVariantId, file);
+
+				uploadedR2Images.push({
+					bucket: uploadResult.bucket,
+					key: uploadResult.key
+				});
+
+				newImageInsertData.push({
+					id: img.id,
+					variantId: resolvedVariantId,
+					r2Key: uploadResult.key,
+					altText: img.altText ?? null,
+					position: img.position,
+					isPrimary: img.isPrimary
+				});
+			}
+		}
+	} catch (error) {
+		await cleanupUploadedImages(uploadedR2Images);
+		throw error;
+	}
+
+	const deletedImageKeys: string[] = [];
+
+	try {
+		const updated = await getDb().transaction(async (tx) => {
+			if (data.categoryId) {
+				await assertCategoryExistsTx(tx, data.categoryId, 'Product category not found.');
+			}
+
+			const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
+			const resolvedTagIds = shouldUpdateTags
+				? await resolveProductTagIdsTx(tx, normalizedTagIds, normalizedNewTagNames)
+				: [];
+
+			const [productRow] =
+				Object.keys(updateValues).length > 0
+					? await tx
+							.update(product)
+							.set(updateValues)
+							.where(eq(product.id, existing.id))
+							.returning()
+					: [existing];
+
+			if (!productRow) {
+				throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
+			}
+
+			if (shouldUpdateTags) {
+				await tx.delete(productTag).where(eq(productTag.productId, existing.id));
+
+				if (resolvedTagIds.length > 0) {
+					await tx.insert(productTag).values(
+						resolvedTagIds.map((tagId) => ({
+							productId: existing.id,
+							tagId
+						}))
+					);
+				}
+			}
+
+			if (resolvedTier === 'core') {
+				await removeNonArchivedDropAssignmentsTx(tx, existing.id);
+			} else if (normalizedDropId !== undefined) {
+				if (normalizedDropId) {
+					await setProductDropAssignmentTx(tx, existing.id, normalizedDropId);
+				} else {
+					await removeNonArchivedDropAssignmentsTx(tx, existing.id);
+				}
+			}
+
+			// Sync variants (variant colors & size variants)
+			for (const v of variants) {
+				const dbColorId = clientToDbColorId.get(v.id)!;
+
+				if (v.isDeleted) {
+					await tx.delete(productVariantColor).where(eq(productVariantColor.id, dbColorId));
+				} else if (v.isNew) {
+					await tx.insert(productVariantColor).values({
+						id: dbColorId,
+						productId: existing.id,
+						color: v.color,
+						colorHex: v.colorHex ?? null,
+						basePrice: v.basePrice,
+						compareAtPrice: v.compareAtPrice ?? null,
+						sortOrder: v.sortOrder
+					});
+
+					if (v.sizes && v.sizes.length > 0) {
+						await tx.insert(productVariant).values(
+							v.sizes.map((size) => ({
+								id: nanoid(),
+								productId: existing.id,
+								variantColorId: dbColorId,
+								size,
+								isActive: true,
+								sortOrder: 1
+							}))
+						);
+					}
+				} else {
+					await tx
+						.update(productVariantColor)
+						.set({
+							color: v.color,
+							colorHex: v.colorHex ?? null,
+							basePrice: v.basePrice,
+							compareAtPrice: v.compareAtPrice ?? null,
+							sortOrder: v.sortOrder
+						})
+						.where(eq(productVariantColor.id, dbColorId));
+
+					const dbSizes = await tx
+						.select()
+						.from(productVariant)
+						.where(eq(productVariant.variantColorId, dbColorId));
+
+					const dbSizeTiers = dbSizes.map((ds) => ds.size);
+					const sizesToInsert = v.sizes.filter((sz) => !dbSizeTiers.includes(sz));
+					const sizesToDelete = dbSizes.filter((ds) => !v.sizes.includes(ds.size));
+
+					if (sizesToInsert.length > 0) {
+						await tx.insert(productVariant).values(
+							sizesToInsert.map((size) => ({
+								id: nanoid(),
+								productId: existing.id,
+								variantColorId: dbColorId,
+								size,
+								isActive: true,
+								sortOrder: 1
+							}))
+						);
+					}
+
+					if (sizesToDelete.length > 0) {
+						await tx.delete(productVariant).where(
+							inArray(
+								productVariant.id,
+								sizesToDelete.map((d) => d.id)
+							)
+						);
+					}
+				}
+			}
+
+			// Sync images
+			if (images.length > 0) {
+				await tx
+					.update(productImage)
+					.set({ isPrimary: false })
+					.where(eq(productImage.productId, existing.id));
+			}
+
+			for (const img of images) {
+				const resolvedVariantId = img.variantId
+					? clientToDbColorId.get(img.variantId) || null
+					: null;
+
+				if (img.isDeleted) {
+					const [dbImg] = await tx
+						.select({ r2Key: productImage.r2Key })
+						.from(productImage)
+						.where(eq(productImage.id, img.id));
+					if (dbImg) {
+						deletedImageKeys.push(dbImg.r2Key);
+					}
+					await tx.delete(productImage).where(eq(productImage.id, img.id));
+				} else if (img.isNew) {
+					const insertData = newImageInsertData.find((d) => d.id === img.id);
+					if (insertData) {
+						await tx.insert(productImage).values({
+							id: insertData.id,
+							productId: existing.id,
+							variantId: resolvedVariantId,
+							r2Key: insertData.r2Key,
+							altText: img.altText ?? null,
+							position: img.position,
+							isPrimary: img.isPrimary
+						});
+					}
+				} else {
+					await tx
+						.update(productImage)
+						.set({
+							variantId: resolvedVariantId,
+							altText: img.altText ?? null,
+							position: img.position,
+							isPrimary: img.isPrimary
+						})
+						.where(eq(productImage.id, img.id));
+				}
+			}
+
+			// Normalize primary states (ensuring exactly one primary per product-wide and per variant)
+			const remainingImages = await tx
+				.select()
+				.from(productImage)
+				.where(eq(productImage.productId, existing.id));
+
+			if (remainingImages.length > 0) {
+				const globalImages = remainingImages.filter((ri) => !ri.variantId);
+				const globalPrimary = globalImages.filter((ri) => ri.isPrimary);
+				if (globalImages.length > 0 && globalPrimary.length !== 1) {
+					await tx
+						.update(productImage)
+						.set({ isPrimary: false })
+						.where(and(eq(productImage.productId, existing.id), isNull(productImage.variantId)));
+					await tx
+						.update(productImage)
+						.set({ isPrimary: true })
+						.where(eq(productImage.id, globalImages[0].id));
+				}
+
+				const variantGroups = new Map<string, typeof remainingImages>();
+				for (const img of remainingImages) {
+					if (img.variantId) {
+						if (!variantGroups.has(img.variantId)) {
+							variantGroups.set(img.variantId, []);
+						}
+						variantGroups.get(img.variantId)!.push(img);
+					}
+				}
+
+				for (const [vId, vImgs] of variantGroups.entries()) {
+					const primary = vImgs.filter((ri) => ri.isPrimary);
+					if (primary.length !== 1) {
+						await tx
+							.update(productImage)
+							.set({ isPrimary: false })
+							.where(eq(productImage.variantId, vId));
+						await tx
+							.update(productImage)
+							.set({ isPrimary: true })
+							.where(eq(productImage.id, vImgs[0].id));
+					}
+				}
+			}
+
+			return productRow;
+		});
+
+		if (deleteMediaBucket && deletedImageKeys.length > 0) {
+			await Promise.all(deletedImageKeys.map((key) => deleteObjectSafe(deleteMediaBucket, key)));
+		}
+
+		return hydrateProduct(updated, { includeInactiveRelations: true });
+	} catch (error) {
+		await cleanupUploadedImages(uploadedR2Images);
+		throw mapProductPersistenceError(error);
+	}
+}
+
 export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup): Promise<void> {
 	requireAdmin(ctx.actor);
 
@@ -620,6 +974,11 @@ export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup):
 			if (keys.length > 0 && ctx.event) {
 				bucket = getMediaBucketOptional(ctx.event);
 			}
+
+			// Delete related images first to avoid cascade UNIQUE constraint conflicts in SQLite
+			await tx
+				.delete(productImage)
+				.where(eq(productImage.productId, existing.id));
 
 			const [deleted] = await tx
 				.delete(product)
@@ -822,7 +1181,10 @@ export async function updateProductVariantColor(
 	}
 }
 
-export async function deleteProductVariantColor(ctx: ServiceContext, colorId: string): Promise<void> {
+export async function deleteProductVariantColor(
+	ctx: ServiceContext,
+	colorId: string
+): Promise<void> {
 	requireAdmin(ctx.actor);
 
 	const db = getDb();
@@ -1250,7 +1612,10 @@ function toTagDTO(row: Tag): TagDTO {
 	};
 }
 
-function toProductVariantDTO(row: ProductVariant, colorRow: ProductVariantColor): ProductVariantDTO {
+function toProductVariantDTO(
+	row: ProductVariant,
+	colorRow: ProductVariantColor
+): ProductVariantDTO {
 	return {
 		id: row.id,
 		productId: row.productId,
@@ -1387,6 +1752,364 @@ function parseUpdateProduct(
 	}
 
 	return result.data;
+}
+
+function normalizeUpdateProductDraftVariants(
+	input: unknown,
+	tier: Product['tier']
+): NormalizedUpdateProductVariant[] {
+	const rows = readRecordArray(input, 'variants');
+	const seenIds = new Set<string>();
+	const seenColors = new Set<string>();
+
+	return rows.map((row, index) => {
+		const id = readRequiredString(row.id, `variants[${index}].id`, 64);
+		const isNew = row.isNew === true;
+		const isDeleted = row.isDeleted === true;
+
+		if (seenIds.has(id)) {
+			throw new ProductError('Product variant IDs must be unique.', ErrorCode.VALIDATION_ERROR, {
+				id
+			});
+		}
+		seenIds.add(id);
+
+		if (isDeleted) {
+			return {
+				id,
+				color: '',
+				colorHex: null,
+				basePrice: tier === 'drop' ? 3000 : 2500,
+				compareAtPrice: null,
+				sortOrder: 0,
+				sizes: [],
+				isNew,
+				isDeleted
+			};
+		}
+
+		const color = readRequiredString(row.color, `variants[${index}].color`, 50);
+		const colorKey = color.toLowerCase();
+
+		if (seenColors.has(colorKey)) {
+			throw new ProductError(
+				'Product variant color already exists for this product.',
+				ErrorCode.CONFLICT,
+				{ color }
+			);
+		}
+		seenColors.add(colorKey);
+
+		const colorHex = readNullableString(row.colorHex, `variants[${index}].colorHex`, 7);
+		if (colorHex && !/^#[0-9A-Fa-f]{6}$/.test(colorHex)) {
+			throw new ProductError('Product variant color hex is invalid.', ErrorCode.VALIDATION_ERROR, {
+				colorHex
+			});
+		}
+
+		const basePrice = readInteger(row.basePrice, `variants[${index}].basePrice`, {
+			min: 1
+		});
+		const compareAtPrice = readNullablePositiveInteger(
+			row.compareAtPrice,
+			`variants[${index}].compareAtPrice`
+		);
+		const sortOrder = readInteger(row.sortOrder, `variants[${index}].sortOrder`, {
+			min: 0
+		});
+		const sizes = normalizeUpdateProductSizes(row.sizes, index);
+
+		validateResolvedProductPricing({ tier, basePrice, compareAtPrice });
+
+		return {
+			id,
+			color,
+			colorHex,
+			basePrice,
+			compareAtPrice,
+			sortOrder,
+			sizes,
+			isNew,
+			isDeleted
+		};
+	});
+}
+
+function normalizeUpdateProductDraftImages(input: unknown): NormalizedUpdateProductImage[] {
+	const rows = readRecordArray(input, 'images');
+	const seenIds = new Set<string>();
+
+	const images = rows.map((row, index): NormalizedUpdateProductImage => {
+		const id = readRequiredString(row.id, `images[${index}].id`, 64);
+		const variantId = readNullableString(row.variantId, `images[${index}].variantId`, 64);
+		const altText = readNullableString(row.altText, `images[${index}].altText`, 255);
+		const position = readInteger(row.position, `images[${index}].position`, { min: 0 });
+		const isNew = row.isNew === true;
+		const isDeleted = row.isDeleted === true;
+		const fileIndex =
+			row.fileIndex === undefined || row.fileIndex === null
+				? undefined
+				: readInteger(row.fileIndex, `images[${index}].fileIndex`, { min: 0 });
+
+		if (seenIds.has(id)) {
+			throw new ProductError('Product image IDs must be unique.', ErrorCode.VALIDATION_ERROR, {
+				id
+			});
+		}
+		seenIds.add(id);
+
+		if (isNew && !isDeleted && fileIndex === undefined) {
+			throw new ProductError('New image is missing matching file.', ErrorCode.VALIDATION_ERROR, {
+				imageId: id
+			});
+		}
+
+		return {
+			id,
+			variantId,
+			altText,
+			position,
+			isPrimary: row.isPrimary === true,
+			isNew,
+			isDeleted,
+			fileIndex
+		};
+	});
+
+	normalizeUpdateProductImagePrimaries(images);
+	return images;
+}
+
+function normalizeUpdateProductImagePrimaries(images: NormalizedUpdateProductImage[]): void {
+	const scopedImages = new Map<string, NormalizedUpdateProductImage[]>();
+
+	for (const image of images) {
+		if (image.isDeleted) continue;
+
+		const scope = image.variantId ?? 'product';
+		const current = scopedImages.get(scope) ?? [];
+		current.push(image);
+		scopedImages.set(scope, current);
+	}
+
+	for (const entries of scopedImages.values()) {
+		const primaryIndex = entries.findIndex((entry) => entry.isPrimary);
+		const keepIndex = primaryIndex >= 0 ? primaryIndex : 0;
+
+		for (const [index, entry] of entries.entries()) {
+			entry.isPrimary = index === keepIndex;
+		}
+	}
+}
+
+async function assertUpdateProductFullOwnership(
+	productId: string,
+	variants: NormalizedUpdateProductVariant[],
+	images: NormalizedUpdateProductImage[]
+): Promise<void> {
+	const db = getDb();
+	const existingVariantIds = uniqueStrings(
+		variants.filter((variant) => !variant.isNew).map((variant) => variant.id)
+	);
+
+	if (existingVariantIds.length > 0) {
+		const rows = await db
+			.select({ id: productVariantColor.id })
+			.from(productVariantColor)
+			.where(
+				and(
+					eq(productVariantColor.productId, productId),
+					inArray(productVariantColor.id, existingVariantIds)
+				)
+			);
+		const foundIds = new Set(rows.map((row) => row.id));
+		const missingIds = existingVariantIds.filter((id) => !foundIds.has(id));
+
+		if (missingIds.length > 0) {
+			throw new ProductError(
+				'One or more product variants were not found.',
+				ErrorCode.VARIANT_NOT_FOUND,
+				{
+					productId,
+					variantIds: missingIds
+				}
+			);
+		}
+	}
+
+	const existingImageIds = uniqueStrings(
+		images.filter((image) => !image.isNew).map((image) => image.id)
+	);
+
+	if (existingImageIds.length > 0) {
+		const rows = await db
+			.select({ id: productImage.id })
+			.from(productImage)
+			.where(
+				and(eq(productImage.productId, productId), inArray(productImage.id, existingImageIds))
+			);
+		const foundIds = new Set(rows.map((row) => row.id));
+		const missingIds = existingImageIds.filter((id) => !foundIds.has(id));
+
+		if (missingIds.length > 0) {
+			throw new ProductError(
+				'One or more product images were not found.',
+				ErrorCode.MEDIA_NOT_FOUND,
+				{
+					productId,
+					imageIds: missingIds
+				}
+			);
+		}
+	}
+
+	const activeVariantIds = new Set(
+		variants.filter((variant) => !variant.isDeleted).map((variant) => variant.id)
+	);
+	const invalidImage = images.find(
+		(image) => !image.isDeleted && image.variantId && !activeVariantIds.has(image.variantId)
+	);
+
+	if (invalidImage) {
+		throw new ProductError(
+			'Product image is linked to an unknown or deleted product variant.',
+			ErrorCode.VARIANT_NOT_FOUND,
+			{
+				productId,
+				imageId: invalidImage.id,
+				variantId: invalidImage.variantId
+			}
+		);
+	}
+}
+
+function normalizeUpdateProductSizes(value: unknown, variantIndex: number): SizeTier[] {
+	if (!Array.isArray(value)) {
+		throw new ProductError(
+			'At least one size is required for each product variant.',
+			ErrorCode.VALIDATION_ERROR,
+			{
+				variantIndex
+			}
+		);
+	}
+
+	const seenSizes = new Set<string>();
+	const sizes: SizeTier[] = [];
+
+	for (const [sizeIndex, rawSize] of value.entries()) {
+		if (typeof rawSize !== 'string' || !(SIZE_TIERS as readonly string[]).includes(rawSize)) {
+			throw new ProductError('Invalid product size.', ErrorCode.INVALID_SIZE, {
+				variantIndex,
+				sizeIndex,
+				size: rawSize
+			});
+		}
+
+		if (seenSizes.has(rawSize)) {
+			throw new ProductError(
+				'Duplicate sizes are not allowed within the same product variant.',
+				ErrorCode.VALIDATION_ERROR,
+				{ variantIndex, size: rawSize }
+			);
+		}
+
+		seenSizes.add(rawSize);
+		sizes.push(rawSize as SizeTier);
+	}
+
+	if (sizes.length === 0) {
+		throw new ProductError(
+			'At least one size is required for each product variant.',
+			ErrorCode.VALIDATION_ERROR,
+			{
+				variantIndex
+			}
+		);
+	}
+
+	return sizes;
+}
+
+function readRecordArray(value: unknown, fieldName: string): Record<string, unknown>[] {
+	if (!Array.isArray(value)) {
+		throw new ProductError(`${fieldName} must be an array.`, ErrorCode.VALIDATION_ERROR, {
+			fieldName
+		});
+	}
+
+	return value.map((entry, index) => {
+		if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+			throw new ProductError(
+				`${fieldName} contains an invalid entry.`,
+				ErrorCode.VALIDATION_ERROR,
+				{
+					fieldName,
+					index
+				}
+			);
+		}
+
+		return entry as Record<string, unknown>;
+	});
+}
+
+function readRequiredString(value: unknown, path: string, maxLength: number): string {
+	if (typeof value !== 'string') {
+		throw new ProductError(`${path} must be a string.`, ErrorCode.VALIDATION_ERROR, { path });
+	}
+
+	const normalized = value.trim();
+	if (!normalized || normalized.length > maxLength) {
+		throw new ProductError(`${path} is invalid.`, ErrorCode.VALIDATION_ERROR, { path });
+	}
+
+	return normalized;
+}
+
+function readNullableString(value: unknown, path: string, maxLength: number): string | null {
+	if (value === undefined || value === null || value === '') return null;
+	if (typeof value !== 'string') {
+		throw new ProductError(`${path} must be a string.`, ErrorCode.VALIDATION_ERROR, { path });
+	}
+
+	const normalized = value.trim();
+	if (!normalized) return null;
+	if (normalized.length > maxLength) {
+		throw new ProductError(`${path} is too long.`, ErrorCode.VALIDATION_ERROR, { path });
+	}
+
+	return normalized;
+}
+
+function readInteger(
+	value: unknown,
+	path: string,
+	options: { min?: number; positive?: boolean } = {}
+): number {
+	const resolved = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+
+	if (typeof resolved !== 'number' || !Number.isInteger(resolved)) {
+		throw new ProductError(`${path} must be an integer.`, ErrorCode.VALIDATION_ERROR, { path });
+	}
+
+	if (options.positive && resolved <= 0) {
+		throw new ProductError(`${path} must be positive.`, ErrorCode.VALIDATION_ERROR, { path });
+	}
+
+	if (options.min !== undefined && resolved < options.min) {
+		throw new ProductError(`${path} is below the allowed minimum.`, ErrorCode.VALIDATION_ERROR, {
+			path,
+			min: options.min
+		});
+	}
+
+	return resolved;
+}
+
+function readNullablePositiveInteger(value: unknown, path: string): number | null {
+	if (value === undefined || value === null || value === '') return null;
+	return readInteger(value, path, { positive: true });
 }
 
 function parseInsertProductVariant(

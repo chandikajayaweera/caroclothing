@@ -2,6 +2,8 @@
 	import { resolve } from '$app/paths';
 	import { ArrowLeft, ImageOff, Pencil, Star, X } from 'lucide-svelte';
 	import type { PageData } from './$types';
+	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -102,101 +104,103 @@
 			<div class="min-w-0">
 				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Product view</p>
 				<h1
-					class="mt-2 truncate font-display text-5xl leading-none text-bone uppercase md:text-7xl"
+					class="mt-2 truncate font-display text-4xl leading-none text-bone uppercase md:text-6xl"
 				>
 					{product.name}
 				</h1>
-				<p class="mt-2 truncate font-mono text-[10px] tracking-widest text-ash uppercase">
+				<p class="mt-2 truncate font-mono text-xs tracking-widest text-ash uppercase">
 					{product.slug}
 				</p>
 			</div>
 
-			<a
+			<AdminButton
 				href={resolve(`/app/products/${product.slug}/edit`)}
-				class="mt-5 inline-flex min-h-11 items-center justify-center gap-2 bg-volt px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase hover:bg-bone md:mt-0"
+				variant="volt"
+				class="mt-5 md:mt-0"
 			>
 				<Pencil size={14} aria-hidden="true" />
 				Edit product
-			</a>
+			</AdminButton>
 		</div>
 	</div>
 
 	<div class="mt-8 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-		<section class="border border-charcoal bg-charcoal/25">
-			<div class="border-b border-charcoal p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Details</p>
-				<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Catalog Data</h2>
-			</div>
+		<AdminCard
+			kicker="Details"
+			title="Catalog Data"
+			border="border border-ash/15"
+			class="shadow-sm"
+		>
 
 			<div class="grid gap-px bg-charcoal md:grid-cols-2">
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">State</p>
+					<p class="font-sans text-xs text-ash">State</p>
 					<p
-						class="mt-2 font-mono text-xs tracking-widest uppercase {product.isActive
-							? 'text-volt'
-							: 'text-red-300'}"
+						class="mt-2 font-mono text-sm tracking-widest uppercase {product.isActive
+							? 'text-volt font-bold'
+							: 'text-red-400 font-bold'}"
 					>
 						{product.isActive ? 'Active' : 'Inactive'}
 					</p>
 				</div>
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Starting Price</p>
-					<p class="mt-2 font-mono text-xs text-bone">{formatMoney(product.basePrice)}</p>
+					<p class="font-sans text-xs text-ash">Starting Price</p>
+					<p class="mt-2 font-mono text-sm text-bone">{formatMoney(product.basePrice)}</p>
 				</div>
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Category</p>
-					<p class="mt-2 font-mono text-xs text-bone">{product.category?.name ?? 'No category'}</p>
+					<p class="font-sans text-xs text-ash">Category</p>
+					<p class="mt-2 font-sans text-sm text-bone">{product.category?.name ?? 'No category'}</p>
 				</div>
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Tier</p>
-					<p class="mt-2 font-mono text-xs text-bone">{formatLabel(product.tier)}</p>
+					<p class="font-sans text-xs text-ash">Tier</p>
+					<p class="mt-2 font-sans text-sm text-bone">{formatLabel(product.tier)}</p>
 				</div>
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Gender / Fit</p>
-					<p class="mt-2 font-mono text-xs text-bone">
+					<p class="font-sans text-xs text-ash">Gender / Fit</p>
+					<p class="mt-2 font-sans text-sm text-bone">
 						{formatLabel(product.gender)} / {formatLabel(product.fit)}
 					</p>
 				</div>
 				<div class="bg-void p-5">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Drop</p>
-					<p class="mt-2 font-mono text-xs text-bone">
+					<p class="font-sans text-xs text-ash">Drop</p>
+					<p class="mt-2 font-sans text-sm text-bone">
 						{product.dropAssignment?.name ?? 'No drop'}
 					</p>
 				</div>
 			</div>
 
-			<div class="grid gap-5 border-t border-charcoal p-5">
+			<div class="grid gap-5 border-t border-charcoal p-5 bg-void">
 				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Short description</p>
-					<p class="mt-2 text-sm leading-6 text-bone">{product.shortDescription ?? 'None'}</p>
+					<p class="font-sans text-xs text-ash">Short Description</p>
+					<p class="mt-2 font-sans text-sm leading-relaxed text-bone">{product.shortDescription ?? 'None'}</p>
 				</div>
 				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Description</p>
-					<p class="mt-2 text-sm leading-6 whitespace-pre-wrap text-ash">
+					<p class="font-sans text-xs text-ash">Description</p>
+					<p class="mt-2 font-sans text-sm leading-relaxed whitespace-pre-wrap text-ash">
 						{product.description ?? 'None'}
 					</p>
 				</div>
 				<div>
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Tags</p>
+					<p class="font-sans text-xs text-ash">Tags</p>
 					{#if product.tags.length > 0}
 						<div class="mt-3 flex flex-wrap gap-2">
 							{#each product.tags as tag (tag.id)}
 								<span
-									class="border border-charcoal px-3 py-2 font-mono text-[10px] tracking-widest text-bone uppercase"
+									class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] tracking-widest text-bone uppercase"
 								>
 									{tag.name}
 								</span>
 							{/each}
 						</div>
 					{:else}
-						<p class="mt-2 font-mono text-[10px] text-ash uppercase">No tags</p>
+						<p class="mt-2 font-sans text-xs text-ash">No tags</p>
 					{/if}
 				</div>
 			</div>
-		</section>
+		</AdminCard>
 
 		<aside class="grid gap-4 xl:sticky xl:top-8 xl:self-start">
-			<div class="border border-charcoal bg-void">
+			<div class="border border-charcoal bg-charcoal">
 				{#if primaryImage}
 					<img
 						src={primaryImage.imageUrl}
@@ -204,68 +208,76 @@
 						class="aspect-[4/5] w-full object-cover"
 					/>
 				{:else}
-					<div class="grid aspect-[4/5] place-items-center bg-charcoal/30 text-ash">
+					<div class="grid aspect-[4/5] place-items-center bg-void text-ash">
 						<ImageOff size={28} aria-hidden="true" />
 					</div>
 				{/if}
 				<div class="p-5">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Counts</p>
-					<div class="mt-4 grid grid-cols-3 gap-3 text-center">
-						<div>
+					<p class="font-sans text-xs text-ash mb-3">Counts</p>
+					<div class="grid grid-cols-3 gap-3 text-center">
+						<div class="bg-void p-3 border border-charcoal/40">
 							<p class="font-display text-3xl text-bone uppercase">{product.images.length}</p>
-							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">Images</p>
+							<p class="font-sans text-[10px] tracking-wider text-ash uppercase mt-1">Images</p>
 						</div>
-						<div>
+						<div class="bg-void p-3 border border-charcoal/40">
 							<p class="font-display text-3xl text-bone uppercase">{activeVariantCount}</p>
-							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">Live vars</p>
+							<p class="font-sans text-[10px] tracking-wider text-ash uppercase mt-1">Live Vars</p>
 						</div>
-						<div>
+						<div class="bg-void p-3 border border-charcoal/40">
 							<p class="font-display text-3xl text-bone uppercase">{product.tags.length}</p>
-							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">Tags</p>
+							<p class="font-sans text-[10px] tracking-wider text-ash uppercase mt-1">Tags</p>
 						</div>
 					</div>
 				</div>
 			</div>
 
-			<div class="border border-charcoal bg-charcoal/25 p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Drop window</p>
-				<div class="mt-4 grid gap-3 font-mono text-[10px] uppercase">
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Status</span>
-						<span class="text-right text-bone">{product.dropAssignment?.status ?? 'None'}</span>
+			<AdminCard
+				kicker="Drop Assignment"
+				title="Drop Window"
+				titleSize="text-lg"
+				border="border border-charcoal/40"
+				class="shadow-sm"
+			>
+				<div class="grid gap-3 font-mono text-xs uppercase">
+					<div class="flex justify-between gap-4 border-b border-charcoal pb-2">
+						<span class="font-sans text-xs text-ash uppercase">Status</span>
+						<span class="text-right text-bone font-mono text-xs">{product.dropAssignment?.status ?? 'None'}</span>
 					</div>
-					<div class="flex justify-between gap-4">
-						<span class="text-ash">Launch</span>
-						<span class="text-right text-bone">
+					<div class="flex justify-between gap-4 border-b border-charcoal pb-2">
+						<span class="font-sans text-xs text-ash uppercase">Launch</span>
+						<span class="text-right text-bone font-mono text-xs">
 							{formatDate(product.dropAssignment?.launchAt ?? null)}
 						</span>
 					</div>
 					<div class="flex justify-between gap-4">
-						<span class="text-ash">End</span>
-						<span class="text-right text-bone">
+						<span class="font-sans text-xs text-ash uppercase">End</span>
+						<span class="text-right text-bone font-mono text-xs">
 							{formatDate(product.dropAssignment?.endAt ?? null)}
 						</span>
 					</div>
 				</div>
-			</div>
+			</AdminCard>
 		</aside>
 	</div>
 
-	<section class="mt-4 border border-charcoal bg-charcoal/25">
-		<div class="border-b border-charcoal p-5">
-			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Variants</p>
-			<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Stock Options</h2>
-		</div>
+	<AdminCard
+		kicker="Variants"
+		title="Stock Options"
+		border="border border-ash/15"
+		class="mt-4 shadow-sm"
+	>
 
 		{#if colorCards.length > 0}
-			<div class="grid gap-4 p-5">
+			<div class="grid gap-4 p-5 bg-charcoal">
 				{#each colorCards as card, index (card.variantColorId)}
-					<article class="border border-charcoal bg-void p-4">
-						<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-charcoal pb-3 mb-4">
+					<article class="border border-charcoal bg-void p-5">
+						<div
+							class="mb-4 flex flex-col gap-4 border-b border-charcoal pb-3 md:flex-row md:items-center md:justify-between"
+						>
 							<div class="flex items-center gap-3">
 								{#if card.colorHex && isValidHex(card.colorHex)}
 									<span
-										class="h-6 w-6 rounded-full border border-ash/30"
+										class="h-6 w-6 rounded-full border border-ash/30 shadow-sm"
 										style:background={card.colorHex}
 										aria-hidden="true"
 									></span>
@@ -276,21 +288,23 @@
 							</div>
 							<div class="font-mono text-sm text-bone">
 								{#if card.compareAtPrice}
-									<span class="text-ash line-through mr-2">{formatMoney(card.compareAtPrice)}</span>
+									<span class="mr-2 text-ash line-through">{formatMoney(card.compareAtPrice)}</span>
 								{/if}
-								<span class="text-volt font-bold">{formatMoney(card.basePrice)}</span>
+								<span class="font-bold text-volt">{formatMoney(card.basePrice)}</span>
 							</div>
 						</div>
 
 						<div class="grid gap-4 md:grid-cols-2">
 							<div>
-								<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase mb-2">Sizes Available</p>
+								<p class="mb-2 font-sans text-xs text-ash">
+									Sizes Available
+								</p>
 								<div class="flex flex-wrap gap-2">
 									{#each card.variants as v}
 										<span
-											class="min-h-9 px-3 py-2 font-mono text-[10px] tracking-wider border uppercase inline-flex items-center {v.isActive
-												? 'bg-volt border-volt text-void font-bold'
-												: 'bg-void border-charcoal text-ash/40 line-through'}"
+											class="inline-flex min-h-9 items-center border px-3 py-2 font-mono text-[10px] tracking-wider uppercase {v.isActive
+												? 'border-volt bg-volt font-bold text-void'
+												: 'border-charcoal bg-void text-ash/45 line-through'}"
 										>
 											{v.size}
 										</span>
@@ -299,7 +313,9 @@
 							</div>
 
 							<div>
-								<p class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase mb-2">Images ({imagesForColorCard(card.variantColorId).length})</p>
+								<p class="mb-2 font-sans text-xs text-ash">
+									Images ({imagesForColorCard(card.variantColorId).length})
+								</p>
 								{#if imagesForColorCard(card.variantColorId).length > 0}
 									<div class="flex flex-wrap gap-2">
 										{#each imagesForColorCard(card.variantColorId) as img}
@@ -307,17 +323,22 @@
 											<button
 												type="button"
 												onclick={() => (activeImageIndex = imgIndex)}
-												class="relative block border border-charcoal hover:border-volt transition-colors"
+												class="relative block border border-charcoal transition-colors hover:border-volt cursor-pointer"
 											>
 												<img src={img.imageUrl} alt="" class="h-14 w-14 object-cover" />
 												{#if img.isPrimary}
-													<span class="absolute top-0.5 left-0.5 bg-volt text-void px-0.5 py-0.2 text-[5px] font-mono leading-none uppercase">Primary</span>
+													<span
+														class="py-0.5 absolute top-0.5 left-0.5 bg-volt px-1 font-mono text-[6px] leading-none text-void uppercase tracking-wider font-bold"
+														>Primary</span
+													>
 												{/if}
 											</button>
 										{/each}
 									</div>
 								{:else}
-									<p class="font-mono text-[9px] tracking-wider text-ash/50 uppercase">No images for this color variant.</p>
+									<p class="font-sans text-xs text-ash/50">
+										No images for this color variant.
+									</p>
 								{/if}
 							</div>
 						</div>
@@ -326,27 +347,28 @@
 			</div>
 		{:else}
 			<div class="p-10 text-center">
-				<p class="font-display text-4xl text-bone uppercase">No variants</p>
+				<p class="font-display text-3xl text-bone uppercase">No variants</p>
 				<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
 					Add variants from edit.
 				</p>
 			</div>
 		{/if}
-	</section>
+	</AdminCard>
 
-	<section class="mt-4 border border-charcoal bg-charcoal/25">
-		<div class="border-b border-charcoal p-5">
-			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Media</p>
-			<h2 class="mt-2 font-display text-4xl leading-none text-bone uppercase">Images</h2>
-		</div>
+	<AdminCard
+		kicker="Media"
+		title="Images"
+		border="border border-ash/15"
+		class="mt-4 shadow-sm"
+	>
 
 		{#if product.images.length > 0}
-			<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+			<div class="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in">
 				{#each product.images as image, idx (image.id)}
 					<button
 						type="button"
 						onclick={() => (activeImageIndex = idx)}
-						class="border border-charcoal bg-void text-left block hover:border-volt transition-colors w-full cursor-pointer"
+						class="block w-full cursor-pointer border border-charcoal bg-void text-left transition-colors hover:border-volt"
 					>
 						<div class="relative">
 							<img
@@ -364,18 +386,16 @@
 							{/if}
 						</div>
 						<div class="p-4">
-							<p class="truncate font-mono text-[10px] text-ash uppercase">
-								{image.altText ?? 'No alt text'}
+							<p class="truncate font-sans text-xs text-ash">
+								{image.altText ?? 'No Alt Text'}
 							</p>
 							{#if image.variantId}
-								{@const variantColor = colorCards.find(c => c.variantColorId === image.variantId)}
-								<p class="mt-1 font-mono text-[9px] text-volt uppercase">
+								{@const variantColor = colorCards.find((c) => c.variantColorId === image.variantId)}
+								<p class="mt-1 font-mono text-[10px] text-volt uppercase">
 									Variant: {variantColor?.color ?? 'Linked color'}
 								</p>
 							{:else}
-								<p class="mt-1 font-mono text-[9px] text-ash/60 uppercase">
-									Product-wide image
-								</p>
+								<p class="mt-1 font-sans text-[10px] text-ash/60 uppercase">Product-wide image</p>
 							{/if}
 						</div>
 					</button>
@@ -384,44 +404,44 @@
 		{:else}
 			<div class="p-10 text-center">
 				<ImageOff size={28} class="mx-auto text-ash/50" aria-hidden="true" />
-				<p class="mt-4 font-display text-4xl text-bone uppercase">No images</p>
+				<p class="mt-4 font-display text-3xl text-bone uppercase">No images</p>
 			</div>
 		{/if}
-	</section>
+	</AdminCard>
 </section>
 
 {#if activeImage && activeImageIndex !== null}
 	<div
-		class="fixed inset-0 z-50 overflow-y-auto bg-void/85 px-3 py-4 sm:px-4 sm:py-6 flex justify-center items-start"
+		class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-void/90 px-3 py-4 sm:px-4 sm:py-6 backdrop-blur-sm"
 	>
 		<section
-			class="my-auto mx-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-void shadow-2xl lg:max-h-[90vh] lg:overflow-hidden lg:grid-cols-[minmax(0,1fr)_340px]"
+			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-charcoal bg-charcoal shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden animate-fade-in"
 		>
-			<div class="min-h-0 min-w-0 overflow-hidden bg-charcoal/40">
+			<div class="min-h-0 min-w-0 overflow-hidden bg-void flex items-center justify-center">
 				<img
 					src={activeImage.imageUrl}
 					alt={activeImage.altText ?? ''}
 					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
 				/>
 			</div>
-			<div
-				class="grid min-w-0 content-start gap-4 p-4 sm:p-5"
-			>
-				<div class="flex items-start justify-between gap-4">
+			<div class="grid min-w-0 content-start gap-4 p-5 bg-charcoal border-l border-charcoal">
+				<div class="flex items-start justify-between gap-4 animate-fade-in">
 					<div class="min-w-0">
-						<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Image detail</p>
+						<p class="font-sans text-xs font-bold text-volt uppercase tracking-wider">Image Detail</p>
 						<h2
-							class="mt-2 font-display text-3xl leading-none wrap-break-words text-bone uppercase sm:text-4xl"
+							class="wrap-break-words mt-2 font-display text-2xl leading-none text-bone uppercase sm:text-3xl"
 						>
 							{activeImage.altText ?? 'Product Image'}
 						</h2>
 						{#if activeImage.variantId}
-							{@const variantColor = colorCards.find(c => c.variantColorId === activeImage.variantId)}
-							<p class="mt-2 font-mono text-[10px] tracking-widest text-volt uppercase">
+							{@const variantColor = colorCards.find(
+								(c) => c.variantColorId === activeImage.variantId
+							)}
+							<p class="mt-2 font-mono text-xs tracking-widest text-volt uppercase">
 								Linked to: {variantColor?.color ?? 'Color swatch'}
 							</p>
 						{:else}
-							<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+							<p class="mt-2 font-sans text-xs tracking-widest text-ash uppercase">
 								Product-wide image
 							</p>
 						{/if}
@@ -429,23 +449,25 @@
 					<button
 						type="button"
 						onclick={() => (activeImageIndex = null)}
-						class="grid h-10 w-10 shrink-0 place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt cursor-pointer"
+						class="grid h-11 w-11 shrink-0 cursor-pointer place-items-center border border-ash/30 text-ash hover:border-volt hover:text-volt transition-colors"
 						aria-label="Close image detail"
 					>
 						<X size={15} aria-hidden="true" />
 					</button>
 				</div>
-				<div class="border-t border-charcoal/40 pt-4 grid gap-3 font-mono text-[10px] uppercase">
+				<div class="grid gap-3 border-t border-charcoal pt-4 font-mono text-xs uppercase">
 					<div class="flex justify-between gap-4">
-						<span class="text-ash">Role</span>
-						<span class="text-right text-bone">{activeImage.isPrimary ? 'Primary Image' : 'Gallery Image'}</span>
+						<span class="font-sans text-xs text-ash">Role</span>
+						<span class="text-right text-bone font-sans text-sm"
+							>{activeImage.isPrimary ? 'Primary Image' : 'Gallery Image'}</span
+						>
 					</div>
 					<div class="flex justify-between gap-4">
-						<span class="text-ash">Order position</span>
+						<span class="font-sans text-xs text-ash">Order Position</span>
 						<span class="text-right text-bone">{activeImage.position}</span>
 					</div>
 					<div class="flex justify-between gap-4">
-						<span class="text-ash">Uploaded</span>
+						<span class="font-sans text-xs text-ash">Uploaded</span>
 						<span class="text-right text-bone">{formatDate(activeImage.createdAt)}</span>
 					</div>
 				</div>

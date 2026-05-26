@@ -14,9 +14,18 @@
 	} from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import type { ActionData, PageData } from './$types';
+	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 	type ProductItem = PageData['products']['items'][number];
+
+	let includeInactive = $state(false);
+	$effect(() => {
+		includeInactive = data.filters.includeInactive;
+	});
 
 	function initialForm<T>(getValue: () => T): T {
 		return getValue();
@@ -110,13 +119,15 @@
 			</h1>
 		</div>
 
-		<a
+		<AdminButton
 			href={resolve('/app/products/new')}
-			class="mt-5 inline-flex min-h-11 items-center gap-2 bg-volt px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase transition-colors hover:bg-bone md:mt-0"
+			variant="volt"
+			size="md"
+			class="mt-5 md:mt-0"
 		>
 			<Plus size={14} aria-hidden="true" />
 			New Product
-		</a>
+		</AdminButton>
 	</div>
 
 	{#if productActionMessage}
@@ -128,7 +139,7 @@
 	{/if}
 
 	<div class="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
-		<div class="min-w-0 border border-charcoal bg-charcoal/25 p-3 sm:p-5">
+		<AdminCard class="min-w-0" padding="p-3 sm:p-5">
 			<p
 				class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
 			>
@@ -137,8 +148,8 @@
 			<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
 				{data.products.total}
 			</p>
-		</div>
-		<div class="min-w-0 border border-charcoal bg-charcoal/25 p-3 sm:p-5">
+		</AdminCard>
+		<AdminCard class="min-w-0" padding="p-3 sm:p-5">
 			<p
 				class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
 			>
@@ -147,8 +158,8 @@
 			<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
 				{activeCount}
 			</p>
-		</div>
-		<div class="min-w-0 border border-charcoal bg-charcoal/25 p-3 sm:p-5">
+		</AdminCard>
+		<AdminCard class="min-w-0" padding="p-3 sm:p-5">
 			<p
 				class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
 			>
@@ -157,10 +168,10 @@
 			<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
 				{draftCount}
 			</p>
-		</div>
+		</AdminCard>
 	</div>
 
-	<section class="mt-4 overflow-hidden border border-charcoal bg-charcoal/25">
+	<AdminCard bg="bg-charcoal" border="border border-charcoal" padding="" class="mt-4 overflow-hidden">
 		<div class="border-b border-charcoal p-5">
 			<div class="items-start justify-between gap-4 md:flex">
 				<div>
@@ -182,101 +193,66 @@
 						data-sveltekit-keepfocus
 						data-sveltekit-noscroll
 					>
-						<label class="grid gap-1">
-							<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Category</span>
-							<select
-								name="categoryId"
-								onchange={autoSubmitFilter}
-								class="min-h-11 border border-charcoal bg-void px-3 py-2 font-mono text-xs text-bone outline-none focus:border-volt"
-							>
-								<option value="" selected={data.filters.categoryId === ''}>All categories</option>
-								{#each data.categories as category (category.id)}
-									<option value={category.id} selected={data.filters.categoryId === category.id}>
-										{category.name}
-									</option>
-								{/each}
-							</select>
-						</label>
-						<div class="grid gap-3 sm:grid-cols-2">
-							<label class="grid gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Tier</span>
-								<select
-									name="tier"
-									onchange={autoSubmitFilter}
-									class="min-h-11 border border-charcoal bg-void px-3 py-2 font-mono text-xs text-bone outline-none focus:border-volt"
-								>
-									<option value="" selected={data.filters.tier === ''}>All tiers</option>
-									{#each data.tierOptions as option (option.value)}
-										<option value={option.value} selected={data.filters.tier === option.value}>
-											{option.label}
-										</option>
-									{/each}
-								</select>
-							</label>
-							<label class="grid gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Gender</span>
-								<select
-									name="gender"
-									onchange={autoSubmitFilter}
-									class="min-h-11 border border-charcoal bg-void px-3 py-2 font-mono text-xs text-bone outline-none focus:border-volt"
-								>
-									<option value="" selected={data.filters.gender === ''}>All genders</option>
-									{#each data.genderOptions as option (option.value)}
-										<option value={option.value} selected={data.filters.gender === option.value}>
-											{option.label}
-										</option>
-									{/each}
-								</select>
-							</label>
-						</div>
-						<div class="grid gap-3 sm:grid-cols-2">
-							<label class="grid gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-									>Featured</span
-								>
-								<select
-									name="isFeatured"
-									onchange={autoSubmitFilter}
-									class="min-h-11 border border-charcoal bg-void px-3 py-2 font-mono text-xs text-bone outline-none focus:border-volt"
-								>
-									<option value="" selected={data.filters.isFeatured === ''}>Any</option>
-									<option value="true" selected={data.filters.isFeatured === 'true'}
-										>Featured</option
-									>
-									<option value="false" selected={data.filters.isFeatured === 'false'}
-										>Not featured</option
-									>
-								</select>
-							</label>
-							<label class="grid gap-1">
-								<span class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase"
-									>New arrival</span
-								>
-								<select
-									name="isNewArrival"
-									onchange={autoSubmitFilter}
-									class="min-h-11 border border-charcoal bg-void px-3 py-2 font-mono text-xs text-bone outline-none focus:border-volt"
-								>
-									<option value="" selected={data.filters.isNewArrival === ''}>Any</option>
-									<option value="true" selected={data.filters.isNewArrival === 'true'}>New</option>
-									<option value="false" selected={data.filters.isNewArrival === 'false'}
-										>Not new</option
-									>
-								</select>
-							</label>
-						</div>
-						<label
-							class="flex min-h-11 items-center gap-2 border border-charcoal bg-void px-3 font-mono text-[10px] tracking-widest text-ash uppercase"
+						<AdminSelect
+							label="Category"
+							name="categoryId"
+							value={data.filters.categoryId}
+							onchange={autoSubmitFilter}
 						>
-							<input
-								type="checkbox"
-								name="includeInactive"
-								value="true"
-								checked={data.filters.includeInactive}
+							<option value="">All categories</option>
+							{#each data.categories as category (category.id)}
+								<option value={category.id}>
+									{category.name}
+								</option>
+							{/each}
+						</AdminSelect>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<AdminSelect
+								label="Tier"
+								name="tier"
+								value={data.filters.tier}
 								onchange={autoSubmitFilter}
+								options={[{ value: '', label: 'All tiers' }, ...data.tierOptions]}
 							/>
-							Include inactive
-						</label>
+							<AdminSelect
+								label="Gender"
+								name="gender"
+								value={data.filters.gender}
+								onchange={autoSubmitFilter}
+								options={[{ value: '', label: 'All genders' }, ...data.genderOptions]}
+							/>
+						</div>
+						<div class="grid gap-3 sm:grid-cols-2">
+							<AdminSelect
+								label="Featured"
+								name="isFeatured"
+								value={data.filters.isFeatured}
+								onchange={autoSubmitFilter}
+								options={[
+									{ value: '', label: 'Any' },
+									{ value: 'true', label: 'Featured' },
+									{ value: 'false', label: 'Not featured' }
+								]}
+							/>
+							<AdminSelect
+								label="New arrival"
+								name="isNewArrival"
+								value={data.filters.isNewArrival}
+								onchange={autoSubmitFilter}
+								options={[
+									{ value: '', label: 'Any' },
+									{ value: 'true', label: 'New' },
+									{ value: 'false', label: 'Not new' }
+								]}
+							/>
+						</div>
+						<AdminToggle
+							label="Include inactive"
+							name="includeInactive"
+							bind:checked={includeInactive}
+							onclick={autoSubmitFilter}
+							class="border border-ash/30 bg-void px-3.5 py-2.5"
+						/>
 						<input type="hidden" name="includeInactive" value="false" />
 						<input type="hidden" name="limit" value={data.filters.limit} />
 						<input type="hidden" name="offset" value="0" />
@@ -285,85 +261,68 @@
 				</details>
 
 				<form
+					id="desktop-filter-form"
 					method="GET"
-					class="mt-4 hidden flex-wrap gap-2 md:flex"
+					class="mt-4 hidden items-center flex-wrap gap-2 md:flex"
 					data-sveltekit-keepfocus
 					data-sveltekit-noscroll
 				>
-					<select
+					<AdminSelect
 						name="categoryId"
 						aria-label="Category"
+						value={data.filters.categoryId}
 						onchange={autoSubmitFilter}
-						class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
 					>
-						<option value="" selected={data.filters.categoryId === ''}>All categories</option>
+						<option value="">All categories</option>
 						{#each data.categories as category (category.id)}
-							<option value={category.id} selected={data.filters.categoryId === category.id}>
+							<option value={category.id}>
 								{category.name}
 							</option>
 						{/each}
-					</select>
-					<select
+					</AdminSelect>
+					<AdminSelect
 						name="tier"
 						aria-label="Tier"
+						value={data.filters.tier}
 						onchange={autoSubmitFilter}
-						class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
-					>
-						<option value="" selected={data.filters.tier === ''}>All tiers</option>
-						{#each data.tierOptions as option (option.value)}
-							<option value={option.value} selected={data.filters.tier === option.value}>
-								{option.label}
-							</option>
-						{/each}
-					</select>
-					<select
+						options={[{ value: '', label: 'All tiers' }, ...data.tierOptions]}
+					/>
+					<AdminSelect
 						name="gender"
 						aria-label="Gender"
+						value={data.filters.gender}
 						onchange={autoSubmitFilter}
-						class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
-					>
-						<option value="" selected={data.filters.gender === ''}>All genders</option>
-						{#each data.genderOptions as option (option.value)}
-							<option value={option.value} selected={data.filters.gender === option.value}>
-								{option.label}
-							</option>
-						{/each}
-					</select>
-					<select
+						options={[{ value: '', label: 'All genders' }, ...data.genderOptions]}
+					/>
+					<AdminSelect
 						name="isFeatured"
 						aria-label="Featured"
+						value={data.filters.isFeatured}
 						onchange={autoSubmitFilter}
-						class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
-					>
-						<option value="" selected={data.filters.isFeatured === ''}>Any featured</option>
-						<option value="true" selected={data.filters.isFeatured === 'true'}>Featured</option>
-						<option value="false" selected={data.filters.isFeatured === 'false'}
-							>Not featured</option
-						>
-					</select>
-					<select
+						options={[
+							{ value: '', label: 'Any featured' },
+							{ value: 'true', label: 'Featured' },
+							{ value: 'false', label: 'Not featured' }
+						]}
+					/>
+					<AdminSelect
 						name="isNewArrival"
 						aria-label="New arrival"
+						value={data.filters.isNewArrival}
 						onchange={autoSubmitFilter}
-						class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
-					>
-						<option value="" selected={data.filters.isNewArrival === ''}>Any arrival</option>
-						<option value="true" selected={data.filters.isNewArrival === 'true'}>New arrival</option
-						>
-						<option value="false" selected={data.filters.isNewArrival === 'false'}>Not new</option>
-					</select>
-					<label
-						class="flex items-center gap-2 border border-charcoal bg-void px-3 py-2 font-mono text-[10px] tracking-widest text-ash uppercase"
-					>
-						<input
-							type="checkbox"
-							name="includeInactive"
-							value="true"
-							checked={data.filters.includeInactive}
-							onchange={autoSubmitFilter}
-						/>
-						Inactive
-					</label>
+						options={[
+							{ value: '', label: 'Any arrival' },
+							{ value: 'true', label: 'New arrival' },
+							{ value: 'false', label: 'Not new' }
+						]}
+					/>
+					<AdminToggle
+						label="Inactive"
+						name="includeInactive"
+						bind:checked={includeInactive}
+						onclick={autoSubmitFilter}
+						class="border border-ash/30 bg-void px-3.5 py-2.5 min-h-11 gap-3"
+					/>
 					<input type="hidden" name="includeInactive" value="false" />
 					<input type="hidden" name="limit" value={data.filters.limit} />
 					<input type="hidden" name="offset" value="0" />
@@ -839,5 +798,5 @@
 				</a>
 			</div>
 		{/if}
-	</section>
+	</AdminCard>
 </section>

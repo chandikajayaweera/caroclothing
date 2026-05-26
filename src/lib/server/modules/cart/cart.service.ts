@@ -826,7 +826,10 @@ async function loadPurchasableVariantTx(
 		})
 		.from(productVariantTable)
 		.innerJoin(productTable, eq(productVariantTable.productId, productTable.id))
-		.innerJoin(productVariantColorTable, eq(productVariantTable.variantColorId, productVariantColorTable.id))
+		.innerJoin(
+			productVariantColorTable,
+			eq(productVariantTable.variantColorId, productVariantColorTable.id)
+		)
 		.where(eq(productVariantTable.id, variantId))
 		.limit(1);
 
@@ -924,10 +927,7 @@ async function hydrateCheckoutOrderCartTx(
 					.orderBy(asc(productImageTable.position), asc(productImageTable.createdAt))
 			: Promise.resolve([]),
 		variantIds.length > 0
-			? tx
-					.select()
-					.from(productVariantTable)
-					.where(inArray(productVariantTable.id, variantIds))
+			? tx.select().from(productVariantTable).where(inArray(productVariantTable.id, variantIds))
 			: Promise.resolve([])
 	]);
 	const imagesByProductId = groupByProductId(imageRows);
@@ -1056,7 +1056,9 @@ async function loadCartHydrationRelationsTx(
 	productIds: string[],
 	variantIds: string[],
 	now: Date
-): Promise<[Product[], HydratedCartVariant[], ProductImage[], InventoryAvailabilityDTO[], string[]]> {
+): Promise<
+	[Product[], HydratedCartVariant[], ProductImage[], InventoryAvailabilityDTO[], string[]]
+> {
 	const productRows =
 		productIds.length > 0
 			? await tx.select().from(productTable).where(inArray(productTable.id, productIds))
@@ -1069,7 +1071,10 @@ async function loadCartHydrationRelationsTx(
 						color: productVariantColorTable
 					})
 					.from(productVariantTable)
-					.innerJoin(productVariantColorTable, eq(productVariantTable.variantColorId, productVariantColorTable.id))
+					.innerJoin(
+						productVariantColorTable,
+						eq(productVariantTable.variantColorId, productVariantColorTable.id)
+					)
 					.where(inArray(productVariantTable.id, variantIds))
 			: [];
 	const imageRows =
