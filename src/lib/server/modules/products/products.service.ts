@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, ne, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/foundation/guards';
@@ -31,7 +31,9 @@ import {
 } from '$lib/server/foundation/utils';
 import {
 	category,
+	color,
 	insertCategorySchema,
+	insertColorSchema,
 	insertProductImageSchema,
 	insertProductSchema,
 	insertProductVariantSchema,
@@ -50,7 +52,9 @@ import {
 	updateProductVariantColorSchema,
 	updateTagSchema,
 	type Category,
+	type Color,
 	type InsertCategory,
+	type InsertColor,
 	type InsertProduct,
 	type InsertProductImage,
 	type InsertProductVariant,
@@ -102,7 +106,8 @@ import type {
 	UpdateTagInput,
 	CreateProductVariantColorInput,
 	UpdateProductVariantColorInput,
-	UpdateProductFullInput
+	UpdateProductFullInput,
+	ProductStatsDTO
 } from './products.types';
 import { drop, dropProduct } from '../drops/drops.drizzle';
 
@@ -136,6 +141,7 @@ type NormalizedProductImageMetadata = {
 
 type NormalizedUpdateProductVariant = {
 	id: string;
+	colorId: string | null;
 	color: string;
 	colorHex: string | null;
 	basePrice: number;
@@ -431,6 +437,7 @@ export async function createProduct(
 						(c): NewProductVariantColor => ({
 							id: c.id,
 							productId: c.productId,
+							colorId: c.colorId ?? null,
 							color: c.color,
 							colorHex: c.colorHex,
 							basePrice: c.basePrice,
@@ -781,6 +788,7 @@ export async function updateProductFull(
 					await tx.insert(productVariantColor).values({
 						id: dbColorId,
 						productId: existing.id,
+						colorId: v.colorId ?? null,
 						color: v.color,
 						colorHex: v.colorHex ?? null,
 						basePrice: v.basePrice,
@@ -804,6 +812,7 @@ export async function updateProductFull(
 					await tx
 						.update(productVariantColor)
 						.set({
+							colorId: v.colorId ?? null,
 							color: v.color,
 							colorHex: v.colorHex ?? null,
 							basePrice: v.basePrice,
@@ -1440,6 +1449,136 @@ export async function listTags(options: ListTagsOptions = {}): Promise<TagDTO[]>
 	return rows.map(toTagDTO);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function listColors(_ctx: ServiceContext): Promise<Color[]> {
+	const db = getDb();
+	let rows = await db.select().from(color).orderBy(asc(color.name));
+	if (rows.length === 0) {
+		const blackId = nanoid();
+		const whiteId = nanoid();
+		await db
+			.insert(color)
+			.values([
+				{ id: blackId, name: 'Black', hex: '#000000' },
+				{ id: whiteId, name: 'White', hex: '#ffffff' }
+			])
+			.onConflictDoNothing();
+		rows = await db.select().from(color).orderBy(asc(color.name));
+	}
+	return rows;
+}
+
+function formatColorName(val: string): string {
+	return val
+		.split(' ')
+		.map((word) => {
+			if (!word) return '';
+			return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+		})
+		.join(' ')
+		.trim();
+}
+
+export async function createColor(ctx: ServiceContext, input: InsertColor): Promise<Color> {
+	requireAdmin(ctx.actor);
+
+	const parsed = insertColorSchema.parse(input);
+	const db = getDb();
+
+	const formattedName = formatColorName(parsed.name);
+	const hexValue = parsed.hex.toUpperCase();
+
+	// Check if name or hex already exists case-insensitively / normalized
+	const existing = await db
+		.select()
+		.from(color)
+		.where(
+			or(
+				sql`lower(${color.name}) = ${formattedName.toLowerCase()}`,
+				sql`upper(${color.hex}) = ${hexValue}`
+			)
+		)
+		.limit(1);
+
+	if (existing.length > 0) {
+		const match = existing[0];
+		if (match.name.toLowerCase() === formattedName.toLowerCase()) {
+			throw new ProductError(
+				`Color name "${formattedName}" already exists.`,
+				ErrorCode.CONFLICT
+			);
+		} else {
+			throw new ProductError(
+				`Color hex "${hexValue}" is already used by color "${match.name}".`,
+				ErrorCode.CONFLICT
+			);
+		}
+	}
+
+	try {
+		const [created] = await db
+			.insert(color)
+			.values({
+				id: nanoid(),
+				name: formattedName,
+				hex: hexValue
+			})
+			.returning();
+
+		if (!created) {
+			throw new ProductError('Color was not created.', ErrorCode.INTERNAL_ERROR);
+		}
+		return created;
+	} catch (error) {
+		throw mapColorPersistenceError(error);
+	}
+}
+
+export async function deleteColor(ctx: ServiceContext, colorId: string): Promise<void> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+
+	// Check if this color is used by any product variant
+	const used = await db
+		.select({ count: count() })
+		.from(productVariantColor)
+		.where(eq(productVariantColor.colorId, colorId))
+		.limit(1);
+
+	if (used.length > 0 && used[0].count > 0) {
+		throw new ProductError(
+			'This color is currently used by one or more products and cannot be deleted.',
+			ErrorCode.CONFLICT
+		);
+	}
+
+	try {
+		const [deleted] = await db
+			.delete(color)
+			.where(eq(color.id, colorId))
+			.returning({ id: color.id });
+
+		if (!deleted) {
+			throw new ProductError('Color not found.', ErrorCode.NOT_FOUND);
+		}
+	} catch (error) {
+		throw mapColorPersistenceError(error);
+	}
+}
+
+function mapColorPersistenceError(error: unknown): never {
+	if (isAppError(error)) throw error;
+
+	const message = getErrorMessage(error);
+
+	if (isUniqueConstraintError(message)) {
+		throw new ProductError('Color name already exists.', ErrorCode.CONFLICT);
+	}
+
+	throw error;
+}
+
 export async function updateTag(
 	ctx: ServiceContext,
 	lookup: TagLookup,
@@ -1618,6 +1757,7 @@ function toProductVariantDTO(
 		id: row.id,
 		productId: row.productId,
 		variantColorId: row.variantColorId,
+		colorId: colorRow.colorId,
 		size: row.size,
 		color: colorRow.color,
 		colorHex: colorRow.colorHex,
@@ -1775,6 +1915,7 @@ function normalizeUpdateProductDraftVariants(
 		if (isDeleted) {
 			return {
 				id,
+				colorId: null,
 				color: '',
 				colorHex: null,
 				basePrice: tier === 'drop' ? 3000 : 2500,
@@ -1819,8 +1960,11 @@ function normalizeUpdateProductDraftVariants(
 
 		validateResolvedProductPricing({ tier, basePrice, compareAtPrice });
 
+		const colorId = readNullableString(row.colorId, `variants[${index}].colorId`, 64);
+
 		return {
 			id,
+			colorId,
 			color,
 			colorHex,
 			basePrice,
@@ -2225,6 +2369,7 @@ function prepareCreateProductVariants(
 		}
 
 		const parsedColor = parseInsertProductVariantColor(productId, {
+			colorId: variant.colorId ?? null,
 			color: variant.color,
 			colorHex: variant.colorHex,
 			basePrice: variant.basePrice,
@@ -2246,6 +2391,7 @@ function prepareCreateProductVariants(
 			id: colorId,
 			clientId,
 			productId,
+			colorId: parsedColor.colorId ?? null,
 			color: parsedColor.color,
 			colorHex: parsedColor.colorHex ?? null,
 			basePrice: parsedColor.basePrice,
@@ -2661,6 +2807,12 @@ function productListConditions(options: ListProductsOptions, includeInactive: bo
 	if (options.isFeatured !== undefined) conditions.push(eq(product.isFeatured, options.isFeatured));
 	if (options.isNewArrival !== undefined)
 		conditions.push(eq(product.isNewArrival, options.isNewArrival));
+
+	if (options.query) {
+		conditions.push(
+			or(like(product.name, `%${options.query}%`), like(product.slug, `%${options.query}%`))!
+		);
+	}
 
 	return conditions;
 }
@@ -3396,4 +3548,24 @@ function groupByProductId<T extends { productId: string }>(rows: T[]): Map<strin
 	}
 
 	return groups;
+}
+
+export async function getProductStats(ctx: ServiceContext): Promise<ProductStatsDTO> {
+	requireAdmin(ctx.actor);
+	const db = getDb();
+
+	const [totalRows, activeRows] = await Promise.all([
+		db.select({ count: count() }).from(product),
+		db.select({ count: count() }).from(product).where(eq(product.isActive, true))
+	]);
+
+	const total = Number(totalRows[0]?.count ?? 0);
+	const active = Number(activeRows[0]?.count ?? 0);
+	const inactive = Math.max(0, total - active);
+
+	return {
+		total,
+		active,
+		inactive
+	};
 }

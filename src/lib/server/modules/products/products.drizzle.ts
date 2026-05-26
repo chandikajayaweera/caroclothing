@@ -133,6 +133,25 @@ export const product = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// COLORS (Global reusable library of color swatches)
+// ---------------------------------------------------------------------------
+
+export const color = sqliteTable('color', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => nanoid()),
+	name: text('name').notNull().unique(), // display name e.g. "Void Black"
+	hex: text('hex').notNull(), // "#0A0A0A" for swatch rendering
+	createdAt: integer('created_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+		.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+		.$onUpdate(() => new Date())
+		.notNull()
+});
+
+// ---------------------------------------------------------------------------
 // PRODUCT VARIANT COLORS
 // ---------------------------------------------------------------------------
 
@@ -145,6 +164,7 @@ export const productVariantColor = sqliteTable(
 		productId: text('product_id')
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
+		colorId: text('color_id').references(() => color.id, { onDelete: 'set null' }),
 		color: text('color').notNull(), // display name e.g. "Void Black"
 		colorHex: text('color_hex'), // "#0A0A0A" for swatch rendering
 		basePrice: integer('base_price').notNull(),
@@ -160,6 +180,7 @@ export const productVariantColor = sqliteTable(
 	},
 	(table) => [
 		index('color_product_idx').on(table.productId),
+		index('color_global_idx').on(table.colorId),
 		check('color_base_price_positive', sql`${table.basePrice} > 0`),
 		check(
 			'color_compare_at_gt_base',
@@ -308,10 +329,18 @@ export const productRelations = relations(product, ({ one, many }) => ({
 	productTags: many(productTag)
 }));
 
+export const colorRelations = relations(color, ({ many }) => ({
+	variantColors: many(productVariantColor)
+}));
+
 export const productVariantColorRelations = relations(productVariantColor, ({ one, many }) => ({
 	product: one(product, {
 		fields: [productVariantColor.productId],
 		references: [product.id]
+	}),
+	globalColor: one(color, {
+		fields: [productVariantColor.colorId],
+		references: [color.id]
 	}),
 	variants: many(productVariant),
 	images: many(productImage)
@@ -458,6 +487,7 @@ export const updateProductSchema = updateProductBaseSchema;
 
 export const insertProductVariantColorSchema = createInsertSchema(productVariantColor, {
 	productId: idSchema,
+	colorId: idSchema.optional().nullable(),
 	color: z.string().min(1).max(50),
 	colorHex: z
 		.string()
@@ -477,6 +507,7 @@ export const selectProductVariantColorSchema = createSelectSchema(productVariant
 
 export const updateProductVariantColorSchema = createUpdateSchema(productVariantColor, {
 	productId: idSchema.optional(),
+	colorId: idSchema.optional().nullable(),
 	color: z.string().min(1).max(50).optional(),
 	colorHex: z
 		.string()
@@ -606,3 +637,36 @@ export type ProductTag = typeof productTag.$inferSelect;
 export type NewProductTag = typeof productTag.$inferInsert;
 export type InsertProductTag = z.infer<typeof insertProductTagSchema>;
 export type SelectProductTag = z.infer<typeof selectProductTagSchema>;
+
+// ---------------------------------------------------------------------------
+// COLOR SCHEMAS & TYPES
+// ---------------------------------------------------------------------------
+
+export const insertColorSchema = createInsertSchema(color, {
+	name: z.string().min(1).max(50),
+	hex: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+
+export const selectColorSchema = createSelectSchema(color);
+
+export const updateColorSchema = createUpdateSchema(color, {
+	name: z.string().min(1).max(50).optional(),
+	hex: z
+		.string()
+		.regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex colour')
+		.optional()
+}).omit({
+	id: true,
+	createdAt: true,
+	updatedAt: true
+});
+
+export type Color = typeof color.$inferSelect;
+export type NewColor = typeof color.$inferInsert;
+export type InsertColor = z.infer<typeof insertColorSchema>;
+export type SelectColor = z.infer<typeof selectColorSchema>;
+export type UpdateColor = z.infer<typeof updateColorSchema>;

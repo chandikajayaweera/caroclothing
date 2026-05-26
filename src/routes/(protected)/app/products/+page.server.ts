@@ -8,6 +8,7 @@ import {
 	deleteProduct,
 	deleteProductFormSchema,
 	getProduct,
+	getProductStats,
 	listCategories,
 	listProducts,
 	listProductsFormSchema,
@@ -44,7 +45,8 @@ function getListOptions(url: URL): ListProductsOptions {
 		isNewArrival: getBooleanParam(url.searchParams.get('isNewArrival')),
 		includeInactive: getBooleanParam(url.searchParams.get('includeInactive')) ?? true,
 		limit: getIntegerParam(url.searchParams.get('limit')),
-		offset: getIntegerParam(url.searchParams.get('offset'))
+		offset: getIntegerParam(url.searchParams.get('offset')),
+		query: getTrimmedParam(url.searchParams.get('query'))
 	});
 
 	return result.success ? result.data : { includeInactive: true };
@@ -84,19 +86,22 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const productOptions = getListOptions(url);
 
 	try {
-		const [products, categories, deleteProductForm, updateProductFlagsForm] = await Promise.all([
-			listProducts(ctx, productOptions),
-			listCategories(ctx, { includeInactive: true, limit: 100 }),
-			superValidate(zod4(deleteProductFormSchema), {
-				id: 'deleteProduct'
-			}),
-			superValidate(zod4(updateProductFlagsFormSchema), {
-				id: 'updateProductFlags'
-			})
-		]);
+		const [products, stats, categories, deleteProductForm, updateProductFlagsForm] =
+			await Promise.all([
+				listProducts(ctx, productOptions),
+				getProductStats(ctx),
+				listCategories(ctx, { includeInactive: true, limit: 100 }),
+				superValidate(zod4(deleteProductFormSchema), {
+					id: 'deleteProduct'
+				}),
+				superValidate(zod4(updateProductFlagsFormSchema), {
+					id: 'updateProductFlags'
+				})
+			]);
 
 		return {
 			products,
+			stats,
 			categories,
 			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
@@ -110,7 +115,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 					productOptions.isNewArrival === undefined ? '' : String(productOptions.isNewArrival),
 				includeInactive: productOptions.includeInactive ?? true,
 				limit: products.limit,
-				offset: products.offset
+				offset: products.offset,
+				query: productOptions.query ?? ''
 			},
 			deleteProductForm,
 			updateProductFlagsForm

@@ -24,8 +24,8 @@
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
-	import AdminHexInput from '$lib/components/admin/AdminHexInput.svelte';
 	import AdminUnsavedChangesModal from '$lib/components/admin/AdminUnsavedChangesModal.svelte';
+	import AdminColorManagerModal from '$lib/components/admin/AdminColorManagerModal.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -53,6 +53,7 @@
 	// Local States
 	type LocalVariant = {
 		id: string;
+		colorId?: string | null;
 		color: string;
 		colorHex: string | null;
 		basePrice: number;
@@ -82,6 +83,7 @@
 			if (!cardsMap[colorId]) {
 				cardsMap[colorId] = {
 					id: colorId,
+					colorId: variant.colorId,
 					color: variant.color,
 					colorHex: variant.colorHex,
 					basePrice: variant.basePrice,
@@ -112,11 +114,47 @@
 
 	let localVariants = $state<LocalVariant[]>([]);
 	let localImages = $state<LocalImage[]>([]);
-	let hexIndicatorActive = $state<Record<string, boolean>>({});
+
+	let activeColorDropdownClientId = $state<string | null>(null);
+	let showColorModal = $state(false);
+	let colors = $state<typeof data.colors>([]);
+
+	$effect.pre(() => {
+		colors = data.colors;
+	});
+
+	function toggleColorDropdown(clientId: string) {
+		if (activeColorDropdownClientId === clientId) {
+			activeColorDropdownClientId = null;
+		} else {
+			activeColorDropdownClientId = clientId;
+		}
+	}
+
+	function selectColor(
+		originalIndex: number,
+		selectedColor: { id: string; name: string; hex: string }
+	) {
+		localVariants[originalIndex].colorId = selectedColor.id;
+		localVariants[originalIndex].color = selectedColor.name;
+		localVariants[originalIndex].colorHex = selectedColor.hex;
+		activeColorDropdownClientId = null;
+	}
 
 	$effect(() => {
 		localVariants = buildLocalVariants(data.product);
 		localImages = buildLocalImages(data.product);
+	});
+
+	$effect(() => {
+		if (localVariants.length > 0) {
+			const activeColorIds = new Set(colors.map((c) => c.id));
+			for (const variant of localVariants) {
+				if (variant.colorId && !activeColorIds.has(variant.colorId)) {
+					variant.colorId = null;
+				}
+			}
+		}
 	});
 
 	let formElement = $state<HTMLFormElement | null>(null);
@@ -153,11 +191,20 @@
 		return selectedVariant ?? activeLocalVariants[0] ?? null;
 	});
 
+	const sortedSnapshotSizes = $derived(
+		snapshotVariant
+			? [...snapshotVariant.sizes].sort((a, b) => {
+					const order = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+					return order.indexOf(a) - order.indexOf(b);
+				})
+			: []
+	);
+
 	const snapshotSize = $derived.by(() => {
 		if (!snapshotVariant || snapshotVariant.sizes.length === 0) return null;
 		return selectedSnapshotSize && snapshotVariant.sizes.includes(selectedSnapshotSize)
 			? selectedSnapshotSize
-			: snapshotVariant.sizes[0];
+			: sortedSnapshotSizes[0];
 	});
 
 	const snapshotImages = $derived.by(() => {
@@ -359,24 +406,6 @@
 		);
 	}
 
-	function handleHexInput(id: string, event: Event): void {
-		const input = event.currentTarget as HTMLInputElement;
-		let val = input.value;
-		if (val.includes('#')) {
-			val = val.replace(/#/g, '');
-			hexIndicatorActive = { ...hexIndicatorActive, [id]: true };
-			setTimeout(() => {
-				hexIndicatorActive = { ...hexIndicatorActive, [id]: false };
-			}, 800);
-		}
-		if (val.length > 6) {
-			val = val.slice(0, 6);
-		}
-		localVariants = localVariants.map((variant) =>
-			variant.id === id ? { ...variant, colorHex: val ? `#${val}` : null } : variant
-		);
-	}
-
 	function selectSnapshotVariant(variantId: string): void {
 		const variant = activeLocalVariants.find((entry) => entry.id === variantId);
 		if (!variant) return;
@@ -471,10 +500,30 @@
 	}
 
 	function addVariantColor() {
+		// Find the next unused color
+		const usedColorIds = new Set(
+			localVariants
+				.filter((v) => !v.isDeleted)
+				.map((v) => v.colorId)
+				.filter(Boolean)
+		);
+		const usedColorNames = new Set(
+			localVariants.filter((v) => !v.isDeleted).map((v) => v.color.toLowerCase())
+		);
+
+		const nextColor = colors.find(
+			(c) => !usedColorIds.has(c.id) && !usedColorNames.has(c.name.toLowerCase())
+		);
+
+		const assignedColor = nextColor ||
+			colors.find((c) => c.name.toLowerCase() === 'black') ||
+			colors[0] || { id: null, name: 'Default', hex: '#000000' };
+
 		const newVar: LocalVariant = {
 			id: `new-color-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-			color: '',
-			colorHex: '#000000',
+			colorId: assignedColor.id,
+			color: assignedColor.name,
+			colorHex: assignedColor.hex,
 			basePrice: $updateProductForm.tier === 'drop' ? 3000 : 2500,
 			compareAtPrice: null,
 			sortOrder: localVariants.length + 1,
@@ -516,28 +565,6 @@
 		localVariants = [...localVariants]
 			.sort((a, b) => a.sortOrder - b.sortOrder)
 			.map((v, index) => ({ ...v, sortOrder: index + 1 }));
-	}
-
-	function updateVariantTextField(id: string, field: 'color' | 'colorHex', event: Event): void {
-		const value = (event.currentTarget as HTMLInputElement).value;
-		localVariants = localVariants.map((variant) =>
-			variant.id === id
-				? { ...variant, [field]: field === 'colorHex' ? value || null : value }
-				: variant
-		);
-	}
-
-	function updateVariantNumberField(
-		id: string,
-		field: 'basePrice' | 'compareAtPrice',
-		event: Event
-	): void {
-		const input = event.currentTarget as HTMLInputElement;
-		const nextValue =
-			input.value === '' ? (field === 'compareAtPrice' ? null : 0) : Number(input.value);
-		localVariants = localVariants.map((variant) =>
-			variant.id === id ? { ...variant, [field]: nextValue } : variant
-		);
 	}
 
 	function handleVariantSortChange(id: string, event: Event): void {
@@ -1115,21 +1142,76 @@
 								{#if isExpanded}
 									{@const originalIndex = localVariants.findIndex((v) => v.id === card.id)}
 									<div class="grid gap-4 border-t border-ash/10 bg-charcoal/10 p-4">
-										<div class="grid gap-4 md:grid-cols-2">
-											<AdminInput
-												label="Color Variant Name"
-												name="color"
-												bind:value={localVariants[originalIndex].color}
-												placeholder="e.g. Acid Volt"
-												required
-											/>
+										<div class="grid gap-4">
+											<div class="relative grid gap-1">
+												<span
+													class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90"
+												>
+													Color Variant
+													<span class="ml-0.5 font-sans text-red-400">*</span>
+												</span>
+												<div class="relative flex items-center">
+													{#if isValidHex(localVariants[originalIndex].colorHex)}
+														<span
+															class="absolute left-3 h-5 w-5 rounded-full border border-ash/30 shadow-sm"
+															style:background={localVariants[originalIndex].colorHex}
+														></span>
+													{/if}
+													<input
+														type="text"
+														readonly
+														placeholder="Select Color"
+														value={localVariants[originalIndex].color}
+														onclick={() => toggleColorDropdown(card.id)}
+														class="min-h-11 w-full cursor-pointer border border-ash/30 bg-void py-2 pr-10 font-sans text-sm text-bone transition-colors outline-none focus:border-volt"
+														class:pl-10={isValidHex(localVariants[originalIndex].colorHex)}
+													/>
+													<span class="pointer-events-none absolute right-3 text-ash/60">
+														<ChevronDown size={16} />
+													</span>
+												</div>
 
-											<AdminHexInput
-												label="Color Hex"
-												name="colorHex"
-												bind:value={localVariants[originalIndex].colorHex}
-												clientId={card.id}
-											/>
+												{#if activeColorDropdownClientId === card.id}
+													<div
+														class="fixed inset-0 z-10"
+														onclick={() => (activeColorDropdownClientId = null)}
+														role="presentation"
+													></div>
+													<div
+														class="absolute top-full right-0 left-0 z-20 mt-1 max-h-60 overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl"
+													>
+														{#each colors as c (c.id)}
+															{@const isColorUsed = localVariants.some((v) => !v.isDeleted && v.id !== card.id && v.colorId === c.id)}
+															<button
+																type="button"
+																disabled={isColorUsed}
+																onclick={() => selectColor(originalIndex, c)}
+																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed ? 'opacity-30 cursor-not-allowed text-ash' : 'text-bone hover:bg-void/50'}"
+															>
+																<span
+																	class="h-4 w-4 rounded-full border border-ash/30"
+																	style:background={c.hex}
+																></span>
+																<span>{c.name}</span>
+																<span class="ml-auto font-mono text-xs text-ash/40">{c.hex}</span>
+															</button>
+														{/each}
+														<div class="mt-1 border-t border-ash/10 px-2 pt-1 pb-1">
+															<button
+																type="button"
+																onclick={() => {
+																	activeColorDropdownClientId = null;
+																	showColorModal = true;
+																}}
+																class="flex w-full items-center justify-center gap-1.5 bg-ash/10 px-3 py-2 font-sans text-xs font-bold tracking-wider text-bone uppercase transition-all hover:bg-ash/25"
+															>
+																<Plus size={14} />
+																Add New Color
+															</button>
+														</div>
+													</div>
+												{/if}
+											</div>
 										</div>
 
 										<div class="grid gap-4 md:grid-cols-3">
@@ -1623,7 +1705,7 @@
 								Size: {snapshotSize ?? 'Select'}
 							</p>
 							<div class="mt-2 flex flex-wrap gap-2">
-								{#each snapshotVariant.sizes as size (size)}
+								{#each sortedSnapshotSizes as size (size)}
 									<button
 										type="button"
 										onclick={() => selectSnapshotSize(size)}
@@ -1913,3 +1995,6 @@
 		await goto(resolve('/app/products'));
 	}}
 />
+
+<!-- Color Manager Modal -->
+<AdminColorManagerModal bind:open={showColorModal} bind:colors={colors} />

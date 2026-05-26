@@ -8,6 +8,7 @@
 		Pencil,
 		Plus,
 		Power,
+		Search,
 		Sparkles,
 		Star,
 		Trash2
@@ -22,9 +23,20 @@
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 	type ProductItem = PageData['products']['items'][number];
 
-	let includeInactive = $state(false);
+	let includeInactive = $derived(data.filters.includeInactive);
+
+	const hasActiveFilters = $derived(
+		data.filters.categoryId !== '' ||
+			data.filters.tier !== '' ||
+			data.filters.gender !== '' ||
+			data.filters.isFeatured !== '' ||
+			data.filters.isNewArrival !== ''
+	);
+	let showFilters = $state(false);
 	$effect(() => {
-		includeInactive = data.filters.includeInactive;
+		if (hasActiveFilters) {
+			showFilters = true;
+		}
 	});
 
 	function initialForm<T>(getValue: () => T): T {
@@ -49,8 +61,8 @@
 	);
 
 	const products = $derived(data.products.items);
-	const activeCount = $derived(products.filter((product) => product.isActive).length);
-	const draftCount = $derived(products.filter((product) => !product.isActive).length);
+	const activeCount = $derived(data.stats.active);
+	const draftCount = $derived(data.stats.inactive);
 	const hasNextPage = $derived(data.products.offset + data.products.limit < data.products.total);
 	const hasPreviousPage = $derived(data.products.offset > 0);
 	const productActionMessage = $derived(
@@ -141,7 +153,7 @@
 				Total
 			</p>
 			<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
-				{data.products.total}
+				{data.stats.total}
 			</p>
 		</AdminCard>
 		<AdminCard class="min-w-0" padding="p-3 sm:p-5">
@@ -173,40 +185,78 @@
 		class="mt-4 overflow-hidden"
 	>
 		<div class="border-b border-charcoal p-5">
-			<div class="items-start justify-between gap-4 md:flex">
-				<div>
-					<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-						{data.products.total} products
-					</p>
-				</div>
+			<div class="flex flex-col gap-4">
+				<form method="GET" class="w-full" data-sveltekit-keepfocus data-sveltekit-noscroll>
+					<div class="flex flex-col gap-3 md:flex-row md:items-center">
+						<div class="flex flex-1 items-center gap-2">
+							<div class="relative flex-1">
+								<div
+									class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-ash/50"
+								>
+									<Search size={14} aria-hidden="true" />
+								</div>
+								<input
+									type="text"
+									name="query"
+									placeholder="Search products by name or slug..."
+									value={data.filters.query}
+									onchange={autoSubmitFilter}
+									class="min-h-11 w-full border border-ash/30 bg-void py-2.5 pr-4 pl-10 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+								/>
+							</div>
+							<button
+								type="submit"
+								class="flex min-h-11 items-center justify-center border border-ash/30 bg-void px-5 font-mono text-[10px] tracking-widest text-bone uppercase transition-colors hover:border-volt hover:text-volt"
+							>
+								Search
+							</button>
+						</div>
 
-				<details class="mt-4 md:hidden">
-					<summary
-						class="flex h-11 cursor-pointer items-center gap-2 border border-ash/30 px-4 font-mono text-[10px] tracking-widest text-ash uppercase"
-					>
-						<Filter size={14} aria-hidden="true" />
-						Filters
-					</summary>
-					<form
-						method="GET"
-						class="mt-3 grid gap-3"
-						data-sveltekit-keepfocus
-						data-sveltekit-noscroll
-					>
-						<AdminSelect
-							label="Category"
-							name="categoryId"
-							value={data.filters.categoryId}
-							onchange={autoSubmitFilter}
+						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								onclick={() => (showFilters = !showFilters)}
+								class="flex min-h-11 items-center gap-2 border px-4 font-mono text-[10px] tracking-widest uppercase transition-colors {showFilters ||
+								hasActiveFilters
+									? 'border-volt bg-volt/10 text-volt'
+									: 'border-ash/30 text-ash hover:border-ash/60'}"
+							>
+								<Filter size={14} aria-hidden="true" />
+								<span>Filters</span>
+								{#if hasActiveFilters}
+									<span class="ml-1 h-1.5 w-1.5 rounded-full bg-volt"></span>
+								{/if}
+							</button>
+
+							<AdminToggle
+								label="Inactive"
+								name="includeInactive"
+								bind:checked={includeInactive}
+								onclick={autoSubmitFilter}
+								class="min-h-11 gap-3 border border-ash/30 bg-void px-3.5 py-2.5"
+							/>
+							<input type="hidden" name="includeInactive" value="false" />
+						</div>
+					</div>
+
+					{#if showFilters}
+						<div
+							class="mt-4 grid gap-4 border-t border-charcoal pt-4 sm:grid-cols-2 lg:grid-cols-5"
 						>
-							<option value="">All categories</option>
-							{#each data.categories as category (category.id)}
-								<option value={category.id}>
-									{category.name}
-								</option>
-							{/each}
-						</AdminSelect>
-						<div class="grid gap-3 sm:grid-cols-2">
+							<AdminSelect
+								label="Category"
+								name="categoryId"
+								value={data.filters.categoryId}
+								onchange={autoSubmitFilter}
+							>
+								<option value="">All categories</option>
+								{#each data.categories as category (category.id)}
+									<option value={category.id}>
+										{category.name}
+									</option>
+								{/each}
+							</AdminSelect>
+
 							<AdminSelect
 								label="Tier"
 								name="tier"
@@ -214,6 +264,7 @@
 								onchange={autoSubmitFilter}
 								options={[{ value: '', label: 'All tiers' }, ...data.tierOptions]}
 							/>
+
 							<AdminSelect
 								label="Gender"
 								name="gender"
@@ -221,8 +272,7 @@
 								onchange={autoSubmitFilter}
 								options={[{ value: '', label: 'All genders' }, ...data.genderOptions]}
 							/>
-						</div>
-						<div class="grid gap-3 sm:grid-cols-2">
+
 							<AdminSelect
 								label="Featured"
 								name="isFeatured"
@@ -234,6 +284,7 @@
 									{ value: 'false', label: 'Not featured' }
 								]}
 							/>
+
 							<AdminSelect
 								label="New arrival"
 								name="isNewArrival"
@@ -246,84 +297,8 @@
 								]}
 							/>
 						</div>
-						<AdminToggle
-							label="Include inactive"
-							name="includeInactive"
-							bind:checked={includeInactive}
-							onclick={autoSubmitFilter}
-							class="border border-ash/30 bg-void px-3.5 py-2.5"
-						/>
-						<input type="hidden" name="includeInactive" value="false" />
-						<input type="hidden" name="limit" value={data.filters.limit} />
-						<input type="hidden" name="offset" value="0" />
-						<button type="submit" class="sr-only">Apply filters</button>
-					</form>
-				</details>
+					{/if}
 
-				<form
-					id="desktop-filter-form"
-					method="GET"
-					class="mt-4 hidden flex-wrap items-center gap-2 md:flex"
-					data-sveltekit-keepfocus
-					data-sveltekit-noscroll
-				>
-					<AdminSelect
-						name="categoryId"
-						aria-label="Category"
-						value={data.filters.categoryId}
-						onchange={autoSubmitFilter}
-					>
-						<option value="">All categories</option>
-						{#each data.categories as category (category.id)}
-							<option value={category.id}>
-								{category.name}
-							</option>
-						{/each}
-					</AdminSelect>
-					<AdminSelect
-						name="tier"
-						aria-label="Tier"
-						value={data.filters.tier}
-						onchange={autoSubmitFilter}
-						options={[{ value: '', label: 'All tiers' }, ...data.tierOptions]}
-					/>
-					<AdminSelect
-						name="gender"
-						aria-label="Gender"
-						value={data.filters.gender}
-						onchange={autoSubmitFilter}
-						options={[{ value: '', label: 'All genders' }, ...data.genderOptions]}
-					/>
-					<AdminSelect
-						name="isFeatured"
-						aria-label="Featured"
-						value={data.filters.isFeatured}
-						onchange={autoSubmitFilter}
-						options={[
-							{ value: '', label: 'Any featured' },
-							{ value: 'true', label: 'Featured' },
-							{ value: 'false', label: 'Not featured' }
-						]}
-					/>
-					<AdminSelect
-						name="isNewArrival"
-						aria-label="New arrival"
-						value={data.filters.isNewArrival}
-						onchange={autoSubmitFilter}
-						options={[
-							{ value: '', label: 'Any arrival' },
-							{ value: 'true', label: 'New arrival' },
-							{ value: 'false', label: 'Not new' }
-						]}
-					/>
-					<AdminToggle
-						label="Inactive"
-						name="includeInactive"
-						bind:checked={includeInactive}
-						onclick={autoSubmitFilter}
-						class="min-h-11 gap-3 border border-ash/30 bg-void px-3.5 py-2.5"
-					/>
-					<input type="hidden" name="includeInactive" value="false" />
 					<input type="hidden" name="limit" value={data.filters.limit} />
 					<input type="hidden" name="offset" value="0" />
 					<button type="submit" class="sr-only">Apply filters</button>
@@ -735,6 +710,9 @@
 							{#if data.filters.isNewArrival}
 								<input type="hidden" name="isNewArrival" value={data.filters.isNewArrival} />
 							{/if}
+							{#if data.filters.query}
+								<input type="hidden" name="query" value={data.filters.query} />
+							{/if}
 							<input
 								type="hidden"
 								name="includeInactive"
@@ -766,6 +744,9 @@
 							{/if}
 							{#if data.filters.isNewArrival}
 								<input type="hidden" name="isNewArrival" value={data.filters.isNewArrival} />
+							{/if}
+							{#if data.filters.query}
+								<input type="hidden" name="query" value={data.filters.query} />
 							{/if}
 							<input
 								type="hidden"

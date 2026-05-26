@@ -93,6 +93,7 @@ export type ProductVariantDTO = {
 	id: string;
 	productId: string;
 	variantColorId: string;
+	colorId: string | null;
 	size: SizeTier;
 	color: string;
 	colorHex: string | null;
@@ -171,10 +172,12 @@ export type ListProductsOptions = {
 	isNewArrival?: boolean;
 	limit?: number;
 	offset?: number;
+	query?: string;
 };
 
 export type CreateProductDraftVariantInput = {
 	clientId: string;
+	colorId?: string | null;
 	color: string;
 	colorHex?: string | null;
 	basePrice: number;
@@ -225,6 +228,7 @@ export type UpdateProductVariantColorInput = Omit<UpdateProductVariantColor, 'pr
 
 export type UpdateProductDraftVariantInput = {
 	id: string;
+	colorId?: string | null;
 	color: string;
 	colorHex?: string | null;
 	basePrice: number;
@@ -250,4 +254,10 @@ export type UpdateProductFullInput = UpdateProductInput & {
 	variants?: UpdateProductDraftVariantInput[];
 	images?: UpdateProductDraftImageInput[];
 	newImageFiles?: File[];
+};
+
+export type ProductStatsDTO = {
+	total: number;
+	active: number;
+	inactive: number;
 };

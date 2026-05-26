@@ -25,13 +25,14 @@
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
-	import AdminHexInput from '$lib/components/admin/AdminHexInput.svelte';
 	import AdminUnsavedChangesModal from '$lib/components/admin/AdminUnsavedChangesModal.svelte';
+	import AdminColorManagerModal from '$lib/components/admin/AdminColorManagerModal.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
 	type CreateProductData = PageData['createProductForm']['data'];
 	type DraftVariant = CreateProductData['variants'][number];
+	type SizeType = DraftVariant['sizes'][number];
 	type ImageMetadata = CreateProductData['imageMetadata'][number];
 	type RedirectTarget = 'products' | 'categories' | 'drops';
 	type RedirectPath = '/app/products' | '/app/categories' | '/app/drops';
@@ -77,8 +78,58 @@
 	let categorySearch = $state('');
 	let categoryDropdownOpen = $state(false);
 
+	let activeColorDropdownClientId = $state<string | null>(null);
+	let showColorModal = $state(false);
+	let colors = $state<typeof data.colors>([]);
+
+	$effect.pre(() => {
+		colors = data.colors;
+	});
+
+	function toggleColorDropdown(clientId: string) {
+		if (activeColorDropdownClientId === clientId) {
+			activeColorDropdownClientId = null;
+		} else {
+			activeColorDropdownClientId = clientId;
+		}
+	}
+
+	function selectColor(
+		originalIndex: number,
+		selectedColor: { id: string; name: string; hex: string }
+	) {
+		$createProductForm.variants[originalIndex].colorId = selectedColor.id;
+		$createProductForm.variants[originalIndex].color = selectedColor.name;
+		$createProductForm.variants[originalIndex].colorHex = selectedColor.hex;
+		activeColorDropdownClientId = null;
+	}
+
+	$effect.pre(() => {
+		if ($createProductForm.variants.length > 0) {
+			const firstVar = $createProductForm.variants[0];
+			if (firstVar.clientId === 'default-color-card' && !firstVar.colorId) {
+				const blackColor = colors.find((c) => c.name.toLowerCase() === 'black');
+				if (blackColor) {
+					firstVar.colorId = blackColor.id;
+					firstVar.color = blackColor.name;
+					firstVar.colorHex = blackColor.hex;
+				}
+			}
+		}
+	});
+
+	$effect(() => {
+		if ($createProductForm.variants.length > 0) {
+			const activeColorIds = new Set(colors.map((c) => c.id));
+			for (const variant of $createProductForm.variants) {
+				if (variant.colorId && !activeColorIds.has(variant.colorId)) {
+					variant.colorId = null;
+				}
+			}
+		}
+	});
+
 	let expandedVariants = $state<Record<string, boolean>>({});
-	let hexIndicatorActive = $state<Record<string, boolean>>({});
 	let carouselImageId = $state<string | null>(null);
 	let selectedSnapshotVariantId = $state<string | null>(null);
 	let selectedSnapshotSize = $state<string | null>(null);
@@ -133,9 +184,6 @@
 	const dropTierWithoutDrop = $derived(
 		$createProductForm.tier === 'drop' && !$createProductForm.dropId
 	);
-	const selectedDrop = $derived(
-		data.drops.find((drop) => drop.id === $createProductForm.dropId) ?? null
-	);
 	const selectedTags = $derived(
 		data.tags.filter((tag) => $createProductForm.tagIds.includes(tag.id))
 	);
@@ -144,11 +192,6 @@
 	);
 	const activeImage = $derived(
 		activeImageIndex === null ? null : (imagePreviews[activeImageIndex] ?? null)
-	);
-	const primaryVariant = $derived(
-		$createProductForm.variants.find((v) => v.sortOrder === 1) ||
-			$createProductForm.variants[0] ||
-			null
 	);
 	const sortedVariants = $derived(
 		[...$createProductForm.variants].sort((a, b) => a.sortOrder - b.sortOrder)
@@ -206,12 +249,21 @@
 		return selectedVariant ?? sortedVariants[0] ?? null;
 	});
 
+	const sortedSnapshotSizes = $derived(
+		snapshotVariant
+			? [...snapshotVariant.sizes].sort((a, b) => {
+					const order = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+					return order.indexOf(a) - order.indexOf(b);
+				})
+			: []
+	);
+
 	const snapshotSize = $derived.by(() => {
 		if (!snapshotVariant || snapshotVariant.sizes.length === 0) return null;
 		return selectedSnapshotSize &&
 			(snapshotVariant.sizes as string[]).includes(selectedSnapshotSize)
 			? selectedSnapshotSize
-			: snapshotVariant.sizes[0];
+			: sortedSnapshotSizes[0];
 	});
 
 	const snapshotImages = $derived.by(() => {
@@ -264,22 +316,6 @@
 
 	function openSnapshotImagePreview(imgId: string) {
 		activeImageIndex = Number(imgId);
-	}
-
-	function handleHexInput(clientId: string, index: number, event: Event): void {
-		const input = event.currentTarget as HTMLInputElement;
-		let val = input.value;
-		if (val.includes('#')) {
-			val = val.replace(/#/g, '');
-			hexIndicatorActive = { ...hexIndicatorActive, [clientId]: true };
-			setTimeout(() => {
-				hexIndicatorActive = { ...hexIndicatorActive, [clientId]: false };
-			}, 800);
-		}
-		if (val.length > 6) {
-			val = val.slice(0, 6);
-		}
-		$createProductForm.variants[index].colorHex = val ? `#${val}` : '';
 	}
 
 	onDestroy(() => {
@@ -416,10 +452,23 @@
 	}
 
 	function createVariantDraft(): DraftVariant {
+		// Find the next unused color
+		const usedColorIds = new Set($createProductForm.variants.map((v) => v.colorId).filter(Boolean));
+		const usedColorNames = new Set($createProductForm.variants.map((v) => v.color.toLowerCase()));
+
+		const nextColor = colors.find(
+			(c) => !usedColorIds.has(c.id) && !usedColorNames.has(c.name.toLowerCase())
+		);
+
+		const assignedColor = nextColor ||
+			colors.find((c) => c.name.toLowerCase() === 'black') ||
+			colors[0] || { id: null, name: 'Default', hex: '#000000' };
+
 		return {
 			clientId: `variant-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-			color: '',
-			colorHex: '#000000',
+			colorId: assignedColor.id,
+			color: assignedColor.name,
+			colorHex: assignedColor.hex,
 			basePrice: $createProductForm.tier === 'drop' ? 3000 : 2500,
 			compareAtPrice: null,
 			sortOrder: $createProductForm.variants.length + 1,
@@ -433,7 +482,7 @@
 		expandedVariants[newVar.clientId] = true;
 	}
 
-	function toggleSize(clientId: string, size: any): void {
+	function toggleSize(clientId: string, size: SizeType): void {
 		const variants = [...$createProductForm.variants];
 		const variant = variants.find((v) => v.clientId === clientId);
 		if (!variant) return;
@@ -551,7 +600,7 @@
 
 		const result = [...metadata];
 
-		for (const [key, indexes] of Object.entries(groups)) {
+		for (const indexes of Object.values(groups)) {
 			const sortedIndexes = [...indexes].sort((a, b) => {
 				const posA = metadata[a].position ?? 0;
 				const posB = metadata[b].position ?? 0;
@@ -637,26 +686,6 @@
 		return transfer.files;
 	}
 
-	function setImageFiles(files: FileList | null | undefined): void {
-		const incomingFiles = Array.from(files ?? []);
-		if (incomingFiles.length === 0) return;
-
-		const selectedKeys = selectedImageFiles.map(fileIdentity);
-		const mergedFiles = [...selectedImageFiles];
-
-		for (const file of incomingFiles) {
-			const key = fileIdentity(file);
-			if (selectedKeys.includes(key)) continue;
-
-			selectedKeys.push(key);
-			mergedFiles.push(file);
-		}
-
-		selectedImageFiles = mergedFiles;
-		$imageFiles = createFileList(selectedImageFiles);
-		syncImagePreviews($imageFiles);
-	}
-
 	function syncImagePreviews(files: FileList | null): void {
 		const previousMetadata = $createProductForm.imageMetadata;
 		revokeImagePreviews();
@@ -685,11 +714,6 @@
 		};
 		$createProductForm.imageMetadata = metadata;
 		normalizePrimaryImageScopes(index);
-	}
-
-	function handleImageVariantChange(index: number, event: Event): void {
-		const value = (event.currentTarget as HTMLSelectElement).value;
-		updateImageMetadata(index, { variantClientId: value || null });
 	}
 
 	function handleImageAltInput(index: number, event: Event): void {
@@ -731,11 +755,6 @@
 		};
 		$createProductForm.imageMetadata = metadata;
 		normalizePrimaryImageScopes(index);
-	}
-
-	function handleActiveImageVariantChange(event: Event): void {
-		if (activeImageIndex === null) return;
-		handleImageVariantChange(activeImageIndex, event);
 	}
 
 	function handleActiveImageAltInput(event: Event): void {
@@ -1271,40 +1290,103 @@
 											name={`variants[${index}].clientId`}
 											bind:value={$createProductForm.variants[originalIndex].clientId}
 										/>
-										{#each variant.sizes as size}
+										{#each variant.sizes as size (size)}
 											<input type="hidden" name={`variants[${index}].sizes`} value={size} />
 										{/each}
 
-										<div class="grid gap-4 md:grid-cols-2">
-											<label class="grid gap-1">
+										<div class="grid gap-4">
+											<div class="relative grid gap-1">
 												<span
 													class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90"
 												>
-													Color Variant Name
+													Color Variant
 													<span class="ml-0.5 font-sans text-red-400">*</span>
 												</span>
-												<input
-													name={`variants[${index}].color`}
-													bind:value={$createProductForm.variants[originalIndex].color}
-													placeholder="e.g. Acid Volt"
-													aria-invalid={$createProductErrors.variants?.[index]?.color
-														? 'true'
-														: undefined}
-													class="min-h-11 border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none focus:border-volt"
-												/>
+												<div class="relative flex items-center">
+													{#if isValidHex($createProductForm.variants[originalIndex].colorHex)}
+														<span
+															class="absolute left-3 h-5 w-5 rounded-full border border-ash/30 shadow-sm"
+															style:background={$createProductForm.variants[originalIndex].colorHex}
+														></span>
+													{/if}
+													<input
+														type="text"
+														readonly
+														placeholder="Select Color"
+														value={$createProductForm.variants[originalIndex].color}
+														onclick={() => toggleColorDropdown(variant.clientId)}
+														class="min-h-11 w-full cursor-pointer border border-ash/30 bg-void py-2 pr-10 font-sans text-sm text-bone transition-colors outline-none focus:border-volt"
+														class:pl-10={isValidHex(
+															$createProductForm.variants[originalIndex].colorHex
+														)}
+													/>
+													<span class="pointer-events-none absolute right-3 text-ash/60">
+														<ChevronDown size={16} />
+													</span>
+
+													<input
+														type="hidden"
+														name={`variants[${index}].color`}
+														value={$createProductForm.variants[originalIndex].color}
+													/>
+													<input
+														type="hidden"
+														name={`variants[${index}].colorHex`}
+														value={$createProductForm.variants[originalIndex].colorHex ?? ''}
+													/>
+													<input
+														type="hidden"
+														name={`variants[${index}].colorId`}
+														value={$createProductForm.variants[originalIndex].colorId ?? ''}
+													/>
+												</div>
 												{#if $createProductErrors.variants?.[index]?.color}
 													<span class="font-sans text-xs text-red-400">
 														{$createProductErrors.variants[index]?.color?.[0]}
 													</span>
 												{/if}
-											</label>
 
-											<AdminHexInput
-												label="Color Hex"
-												name={`variants[${index}].colorHex`}
-												bind:value={$createProductForm.variants[originalIndex].colorHex}
-												clientId={variant.clientId}
-											/>
+												{#if activeColorDropdownClientId === variant.clientId}
+													<div
+														class="fixed inset-0 z-10"
+														onclick={() => (activeColorDropdownClientId = null)}
+														role="presentation"
+													></div>
+													<div
+														class="absolute top-full right-0 left-0 z-20 mt-1 max-h-60 overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl"
+													>
+														{#each colors as c (c.id)}
+															{@const isColorUsed = $createProductForm.variants.some((v, idx) => idx !== originalIndex && v.colorId === c.id)}
+															<button
+																type="button"
+																disabled={isColorUsed}
+																onclick={() => selectColor(originalIndex, c)}
+																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed ? 'opacity-30 cursor-not-allowed text-ash' : 'text-bone hover:bg-void/50'}"
+															>
+																<span
+																	class="h-4 w-4 rounded-full border border-ash/30"
+																	style:background={c.hex}
+																></span>
+																<span>{c.name}</span>
+																<span class="ml-auto font-mono text-xs text-ash/40">{c.hex}</span>
+															</button>
+														{/each}
+														<div class="mt-1 border-t border-ash/10 px-2 pt-1 pb-1">
+															<button
+																type="button"
+																onclick={() => {
+																	activeColorDropdownClientId = null;
+																	showColorModal = true;
+																}}
+																class="flex w-full items-center justify-center gap-1.5 bg-ash/10 px-3 py-2 font-sans text-xs font-bold tracking-wider text-bone uppercase transition-all hover:bg-ash/25"
+															>
+																<Plus size={14} />
+																Add New Color
+															</button>
+														</div>
+													</div>
+												{/if}
+											</div>
 										</div>
 
 										<div class="grid gap-4 md:grid-cols-3">
@@ -1397,10 +1479,10 @@
 												</span>
 												<div class="mt-1 flex flex-wrap gap-2">
 													{#each data.sizeOptions as sizeOpt (sizeOpt.value)}
-														{@const isSelected = variant.sizes.includes(sizeOpt.value as any)}
+														{@const isSelected = variant.sizes.includes(sizeOpt.value as SizeType)}
 														<button
 															type="button"
-															onclick={() => toggleSize(variant.clientId, sizeOpt.value)}
+															onclick={() => toggleSize(variant.clientId, sizeOpt.value as SizeType)}
 															class="min-h-10 border px-4 font-sans text-xs font-medium transition-colors {isSelected
 																? 'border-volt bg-volt font-bold text-void'
 																: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
@@ -1443,7 +1525,7 @@
 
 												{#if imagesForVariant(variant.clientId).length > 0}
 													<div class="mt-3 flex flex-wrap gap-3">
-														{#each imagesForVariant(variant.clientId) as img}
+														{#each imagesForVariant(variant.clientId) as img (img.index)}
 															<div
 																class="group relative block border border-ash/20 hover:border-volt"
 															>
@@ -1589,7 +1671,7 @@
 							{...$createProductConstraints.material}
 						/>
 						<div class="mt-2 flex flex-wrap gap-1.5">
-							{#each materialPresets as preset}
+							{#each materialPresets as preset (preset)}
 								<button
 									type="button"
 									onclick={() => appendMaterial(preset)}
@@ -1614,7 +1696,7 @@
 							{...$createProductConstraints.careInstructions}
 						></textarea>
 						<div class="mt-2 flex flex-wrap gap-1.5">
-							{#each carePresets as preset}
+							{#each carePresets as preset (preset)}
 								<button
 									type="button"
 									onclick={() => appendCare(preset)}
@@ -1843,7 +1925,7 @@
 								Size: {snapshotSize ?? 'Select'}
 							</p>
 							<div class="mt-2 flex flex-wrap gap-2">
-								{#each snapshotVariant.sizes as size (size)}
+								{#each sortedSnapshotSizes as size (size)}
 									<button
 										type="button"
 										onclick={() => selectSnapshotSize(size)}
@@ -2094,3 +2176,6 @@
 		showUnsavedModal = false;
 	}}
 />
+
+<!-- Color Manager Modal -->
+<AdminColorManagerModal bind:open={showColorModal} bind:colors={colors} />

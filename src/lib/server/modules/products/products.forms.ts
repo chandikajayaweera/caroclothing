@@ -53,7 +53,8 @@ export const listProductsFormSchema = z.object({
 	isNewArrival: z.boolean().optional(),
 	includeInactive: z.boolean().optional(),
 	limit: z.number().int().positive().optional(),
-	offset: z.number().int().min(0).optional()
+	offset: z.number().int().min(0).optional(),
+	query: z.string().optional()
 });
 
 export const listCategoriesFormSchema = z.object({
@@ -117,6 +118,7 @@ export const newTagNamesFormSchema = z.preprocess(
 );
 export const createProductDraftVariantFormSchema = z.object({
 	clientId: idSchema,
+	colorId: z.string().min(1).max(64).optional().nullable(),
 	color: z.string().trim().min(1).max(50),
 	colorHex: z.preprocess(
 		emptyStringToNull,
