@@ -19,9 +19,20 @@
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
+	import AdminTableGrid from '$lib/components/admin/AdminTableGrid.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 	type ProductItem = PageData['products']['items'][number];
+
+	const tableHeaders = [
+		{ label: 'Product' },
+		{ label: 'Tier' },
+		{ label: 'Price' },
+		{ label: 'Category' },
+		{ label: 'State' },
+		{ label: 'Media' },
+		{ label: 'Actions', class: 'text-right' }
+	];
 
 	let includeInactive = $derived(data.filters.includeInactive);
 
@@ -307,8 +318,8 @@
 		</div>
 
 		{#if products.length > 0}
-			<div class="grid gap-3 p-3 md:grid-cols-2 md:p-4 xl:hidden">
-				{#each products as product (product.id)}
+			<AdminTableGrid items={products} headers={tableHeaders}>
+				{#snippet card(product)}
 					<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
 						<div
 							class="grid min-w-0 grid-cols-[72px_minmax(0,1fr)] gap-3 sm:grid-cols-[88px_minmax(0,1fr)]"
@@ -462,226 +473,181 @@
 							</div>
 						</div>
 					</article>
-				{/each}
-			</div>
+				{/snippet}
 
-			<div class="hidden overflow-hidden xl:block">
-				<table class="w-full text-left">
-					<thead class="border-b border-charcoal">
-						<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-							<th class="px-5 py-4 font-normal">Product</th>
-							<th class="px-5 py-4 font-normal">Tier</th>
-							<th class="px-5 py-4 font-normal">Price</th>
-							<th class="px-5 py-4 font-normal">Category</th>
-							<th class="px-5 py-4 font-normal">State</th>
-							<th class="px-5 py-4 font-normal">Media</th>
-							<th class="px-5 py-4 text-right font-normal">Actions</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each products as product (product.id)}
-							<tr class="border-b border-charcoal/70 last:border-b-0">
-								<td class="px-5 py-4">
-									<div class="flex min-w-0 items-center gap-3">
-										<a
-											href={resolve(`/app/products/${product.slug}`)}
-											class="grid h-16 w-12 shrink-0 place-items-center border border-charcoal bg-void"
-											aria-label={`View ${product.name}`}
-										>
-											{#if product.primaryImageUrl}
-												<img
-													src={product.primaryImageUrl}
-													alt=""
-													class="h-full w-full object-cover"
-												/>
-											{:else}
-												<ImageOff size={16} class="text-ash/50" aria-hidden="true" />
-											{/if}
-										</a>
-										<div class="min-w-0">
-											<a
-												href={resolve(`/app/products/${product.slug}`)}
-												class="font-mono text-xs tracking-widest text-bone uppercase hover:text-volt"
-											>
-												{product.name}
-											</a>
-											<p class="mt-1 max-w-[220px] truncate font-mono text-[10px] text-ash">
-												{product.slug}
-											</p>
-										</div>
-									</div>
-								</td>
-								<td class="px-5 py-4 font-mono text-[10px] tracking-widest text-ash uppercase">
-									{formatLabel(product.tier)}
-								</td>
-								<td class="px-5 py-4">
-									<div class="flex flex-col gap-1 font-mono text-xs">
-										<span class="text-bone">{formatMoney(product.basePrice)}</span>
-										{#if product.compareAtPrice}
-											<span class="text-[10px] text-ash line-through">
-												{formatMoney(product.compareAtPrice)}
-											</span>
-										{/if}
-									</div>
-								</td>
-								<td class="px-5 py-4 font-mono text-[10px] text-ash">
-									{product.category?.name ?? 'No category'}
-								</td>
-								<td class="px-5 py-4">
-									<div class="flex flex-col gap-1">
+				{#snippet row(product)}
+					<tr class="border-b border-charcoal/70 last:border-b-0">
+						<td class="px-5 py-4">
+							<div class="flex min-w-0 items-center gap-3">
+								<a
+									href={resolve(`/app/products/${product.slug}`)}
+									class="grid h-16 w-12 shrink-0 place-items-center border border-charcoal bg-void"
+									aria-label={`View ${product.name}`}
+								>
+									{#if product.primaryImageUrl}
+										<img src={product.primaryImageUrl} alt="" class="h-full w-full object-cover" />
+									{:else}
+										<ImageOff size={16} class="text-ash/50" aria-hidden="true" />
+									{/if}
+								</a>
+								<div class="min-w-0">
+									<a
+										href={resolve(`/app/products/${product.slug}`)}
+										class="font-mono text-xs tracking-widest text-bone uppercase hover:text-volt"
+									>
+										{product.name}
+									</a>
+									<p class="mt-1 max-w-[220px] truncate font-mono text-[10px] text-ash">
+										{product.slug}
+									</p>
+								</div>
+							</div>
+						</td>
+						<td class="px-5 py-4 font-mono text-[10px] tracking-widest text-ash uppercase">
+							{formatLabel(product.tier)}
+						</td>
+						<td class="px-5 py-4">
+							<div class="flex flex-col gap-1 font-mono text-xs">
+								<span class="text-bone">{formatMoney(product.basePrice)}</span>
+								{#if product.compareAtPrice}
+									<span class="text-[10px] text-ash line-through">
+										{formatMoney(product.compareAtPrice)}
+									</span>
+								{/if}
+							</div>
+						</td>
+						<td class="px-5 py-4 font-mono text-[10px] text-ash">
+							{product.category?.name ?? 'No category'}
+						</td>
+						<td class="px-5 py-4">
+							<div class="flex flex-col gap-1">
+								<span
+									class="font-mono text-[10px] tracking-widest uppercase {productStatusClass(
+										product
+									)}"
+								>
+									{productStatusLabel(product)}
+								</span>
+								<div class="flex gap-1.5">
+									{#if product.isFeatured}
 										<span
-											class="font-mono text-[10px] tracking-widest uppercase {productStatusClass(
-												product
-											)}"
+											class="border border-amber-300/40 px-2 py-1 font-mono text-[8px] tracking-widest text-amber-300 uppercase"
 										>
-											{productStatusLabel(product)}
+											Featured
 										</span>
-										<div class="flex gap-1.5">
-											{#if product.isFeatured}
-												<span
-													class="border border-amber-300/40 px-2 py-1 font-mono text-[8px] tracking-widest text-amber-300 uppercase"
-												>
-													Featured
-												</span>
-											{/if}
-											{#if product.isNewArrival}
-												<span
-													class="border border-sky-300/40 px-2 py-1 font-mono text-[8px] tracking-widest text-sky-300 uppercase"
-												>
-													New
-												</span>
-											{/if}
-										</div>
-									</div>
-								</td>
-								<td class="px-5 py-4 font-mono text-[10px] text-ash">
-									{product.images.length} images / {product.variants.length} variants
-								</td>
-								<td class="px-5 py-4">
-									<div class="flex items-center justify-end gap-3">
-										<div class="flex items-center gap-2" aria-label="Product state actions">
-											<form
-												method="POST"
-												action="?/updateProductFlags"
-												use:updateProductFlagsEnhance
-											>
-												<input type="hidden" name="productId" value={product.id} />
-												<input type="hidden" name="isActive" value={String(!product.isActive)} />
-												<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
-												<input
-													type="hidden"
-													name="isNewArrival"
-													value={String(product.isNewArrival)}
-												/>
-												<button
-													type="submit"
-													disabled={$updateProductFlagsSubmitting}
-													class="grid h-9 w-9 place-items-center border transition-colors disabled:opacity-40 {product.isActive
-														? 'border-volt/40 bg-volt/10 text-volt hover:bg-volt hover:text-void'
-														: 'border-red-400/40 text-red-300 hover:border-volt hover:text-volt'}"
-													aria-label={`${product.isActive ? 'Deactivate' : 'Activate'} ${product.name}`}
-													title={product.isActive ? 'Deactivate' : 'Activate'}
-												>
-													<Power size={14} aria-hidden="true" />
-												</button>
-											</form>
-											<form
-												method="POST"
-												action="?/updateProductFlags"
-												use:updateProductFlagsEnhance
-											>
-												<input type="hidden" name="productId" value={product.id} />
-												<input type="hidden" name="isActive" value={String(product.isActive)} />
-												<input
-													type="hidden"
-													name="isFeatured"
-													value={String(!product.isFeatured)}
-												/>
-												<input
-													type="hidden"
-													name="isNewArrival"
-													value={String(product.isNewArrival)}
-												/>
-												<button
-													type="submit"
-													disabled={$updateProductFlagsSubmitting}
-													class="grid h-9 w-9 place-items-center border transition-colors disabled:opacity-40 {product.isFeatured
-														? 'border-amber-300/50 bg-amber-300/10 text-amber-300'
-														: 'border-ash/30 text-ash hover:border-amber-300 hover:text-amber-300'}"
-													aria-label={`${product.isFeatured ? 'Remove featured from' : 'Feature'} ${product.name}`}
-													title={product.isFeatured ? 'Remove featured' : 'Feature'}
-												>
-													<Star
-														size={14}
-														fill={product.isFeatured ? 'currentColor' : 'none'}
-														aria-hidden="true"
-													/>
-												</button>
-											</form>
-											<form
-												method="POST"
-												action="?/updateProductFlags"
-												use:updateProductFlagsEnhance
-											>
-												<input type="hidden" name="productId" value={product.id} />
-												<input type="hidden" name="isActive" value={String(product.isActive)} />
-												<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
-												<input
-													type="hidden"
-													name="isNewArrival"
-													value={String(!product.isNewArrival)}
-												/>
-												<button
-													type="submit"
-													disabled={$updateProductFlagsSubmitting}
-													class="grid h-9 w-9 place-items-center border transition-colors disabled:opacity-40 {product.isNewArrival
-														? 'border-sky-300/50 bg-sky-300/10 text-sky-300'
-														: 'border-ash/30 text-ash hover:border-sky-300 hover:text-sky-300'}"
-													aria-label={`${product.isNewArrival ? 'Remove new arrival from' : 'Mark new arrival'} ${product.name}`}
-													title={product.isNewArrival ? 'Remove new arrival' : 'Mark new arrival'}
-												>
-													<Sparkles size={14} aria-hidden="true" />
-												</button>
-											</form>
-										</div>
-										<div class="h-9 w-px bg-charcoal" aria-hidden="true"></div>
-										<div class="flex items-center gap-2" aria-label="Product record actions">
-											<a
-												href={resolve(`/app/products/${product.slug}`)}
-												class="grid h-9 w-9 place-items-center border border-volt/40 text-volt transition-colors hover:bg-volt hover:text-void"
-												aria-label={`View ${product.name}`}
-												title="View"
-											>
-												<Eye size={14} aria-hidden="true" />
-											</a>
-											<a
-												href={resolve(`/app/products/${product.slug}/edit`)}
-												class="grid h-9 w-9 place-items-center border border-ash/30 text-bone transition-colors hover:border-volt hover:text-volt"
-												aria-label={`Edit ${product.name}`}
-												title="Edit"
-											>
-												<Pencil size={14} aria-hidden="true" />
-											</a>
-											<form method="POST" action="?/deleteProduct" use:deleteProductEnhance>
-												<input type="hidden" name="productId" value={product.id} />
-												<button
-													type="submit"
-													disabled={$deleteProductSubmitting}
-													class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 transition-colors hover:bg-red-400 hover:text-void disabled:opacity-40"
-													aria-label={`Delete ${product.name}`}
-													title="Delete"
-												>
-													<Trash2 size={14} aria-hidden="true" />
-												</button>
-											</form>
-										</div>
-									</div>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+									{/if}
+									{#if product.isNewArrival}
+										<span
+											class="border border-sky-300/40 px-2 py-1 font-mono text-[8px] tracking-widest text-sky-300 uppercase"
+										>
+											New
+										</span>
+									{/if}
+								</div>
+							</div>
+						</td>
+						<td class="px-5 py-4 font-mono text-[10px] text-ash">
+							{product.images.length} images / {product.variants.length} variants
+						</td>
+						<td class="px-5 py-4">
+							<div class="flex items-center justify-end gap-3">
+								<div class="flex items-center gap-2" aria-label="Product state actions">
+									<form method="POST" action="?/updateProductFlags" use:updateProductFlagsEnhance>
+										<input type="hidden" name="productId" value={product.id} />
+										<input type="hidden" name="isActive" value={String(!product.isActive)} />
+										<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
+										<input type="hidden" name="isNewArrival" value={String(product.isNewArrival)} />
+										<button
+											type="submit"
+											disabled={$updateProductFlagsSubmitting}
+											class="grid h-9 w-9 place-items-center border transition-colors disabled:opacity-40 {product.isActive
+												? 'border-volt/40 bg-volt/10 text-volt hover:bg-volt hover:text-void'
+												: 'border-red-400/40 text-red-300 hover:border-volt hover:text-volt'}"
+											aria-label={`${product.isActive ? 'Deactivate' : 'Activate'} ${product.name}`}
+											title={product.isActive ? 'Deactivate' : 'Activate'}
+										>
+											<Power size={14} aria-hidden="true" />
+										</button>
+									</form>
+									<form method="POST" action="?/updateProductFlags" use:updateProductFlagsEnhance>
+										<input type="hidden" name="productId" value={product.id} />
+										<input type="hidden" name="isActive" value={String(product.isActive)} />
+										<input type="hidden" name="isFeatured" value={String(!product.isFeatured)} />
+										<input type="hidden" name="isNewArrival" value={String(product.isNewArrival)} />
+										<button
+											type="submit"
+											disabled={$updateProductFlagsSubmitting}
+											class="grid h-9 w-9 place-items-center border transition-colors disabled:opacity-40 {product.isFeatured
+												? 'border-amber-300/50 bg-amber-300/10 text-amber-300'
+												: 'border-ash/30 text-ash hover:border-amber-300 hover:text-amber-300'}"
+											aria-label={`${product.isFeatured ? 'Remove featured from' : 'Feature'} ${product.name}`}
+											title={product.isFeatured ? 'Remove featured' : 'Feature'}
+										>
+											<Star
+												size={14}
+												fill={product.isFeatured ? 'currentColor' : 'none'}
+												aria-hidden="true"
+											/>
+										</button>
+									</form>
+									<form method="POST" action="?/updateProductFlags" use:updateProductFlagsEnhance>
+										<input type="hidden" name="productId" value={product.id} />
+										<input type="hidden" name="isActive" value={String(product.isActive)} />
+										<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
+										<input
+											type="hidden"
+											name="isNewArrival"
+											value={String(!product.isNewArrival)}
+										/>
+										<button
+											type="submit"
+											disabled={$updateProductFlagsSubmitting}
+											class="grid h-9 w-9 place-items-center border transition-colors disabled:opacity-40 {product.isNewArrival
+												? 'border-sky-300/50 bg-sky-300/10 text-sky-300'
+												: 'border-ash/30 text-ash hover:border-sky-300 hover:text-sky-300'}"
+											aria-label={`${product.isNewArrival ? 'Remove new arrival from' : 'Mark new arrival'} ${product.name}`}
+											title={product.isNewArrival ? 'Remove new arrival' : 'Mark new arrival'}
+										>
+											<Sparkles size={14} aria-hidden="true" />
+										</button>
+									</form>
+								</div>
+								<div class="h-9 w-px bg-charcoal" aria-hidden="true"></div>
+								<div class="flex items-center gap-2" aria-label="Product record actions">
+									<a
+										href={resolve(`/app/products/${product.slug}`)}
+										class="grid h-9 w-9 place-items-center border border-volt/40 text-volt transition-colors hover:bg-volt hover:text-void"
+										aria-label={`View ${product.name}`}
+										title="View"
+									>
+										<Eye size={14} aria-hidden="true" />
+									</a>
+									<a
+										href={resolve(`/app/products/${product.slug}/edit`)}
+										class="grid h-9 w-9 place-items-center border border-ash/30 text-bone transition-colors hover:border-volt hover:text-volt"
+										aria-label={`Edit ${product.name}`}
+										title="Edit"
+									>
+										<Pencil size={14} aria-hidden="true" />
+									</a>
+									<form method="POST" action="?/deleteProduct" use:deleteProductEnhance>
+										<input type="hidden" name="productId" value={product.id} />
+										<button
+											type="submit"
+											disabled={$deleteProductSubmitting}
+											class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 transition-colors hover:bg-red-400 hover:text-void disabled:opacity-40"
+											aria-label={`Delete ${product.name}`}
+											title="Delete"
+										>
+											<Trash2 size={14} aria-hidden="true" />
+										</button>
+									</form>
+								</div>
+							</div>
+						</td>
+					</tr>
+				{/snippet}
+			</AdminTableGrid>
 
 			<div
 				class="flex flex-col gap-3 border-t border-charcoal p-5 font-mono text-[10px] tracking-widest text-ash uppercase sm:flex-row sm:items-center sm:justify-between"

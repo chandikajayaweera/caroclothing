@@ -4,7 +4,6 @@
 	import { generateSlug } from '$lib/shared/slug';
 	import {
 		AlertTriangle,
-		ArrowLeft,
 		ChevronDown,
 		FolderPlus,
 		ImageOff,
@@ -27,6 +26,7 @@
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminUnsavedChangesModal from '$lib/components/admin/AdminUnsavedChangesModal.svelte';
 	import AdminColorManagerModal from '$lib/components/admin/AdminColorManagerModal.svelte';
+	import AdminFormLayout from '$lib/components/admin/AdminFormLayout.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -80,6 +80,7 @@
 
 	let activeColorDropdownClientId = $state<string | null>(null);
 	let showColorModal = $state(false);
+	// eslint-disable-next-line svelte/prefer-writable-derived
 	let colors = $state<typeof data.colors>([]);
 
 	$effect.pre(() => {
@@ -916,44 +917,24 @@
 	<p hidden>Form response received.</p>
 {/if}
 
-<section class="mx-auto max-w-7xl overflow-x-hidden px-2 pb-24 md:px-0 lg:pb-10">
-	<div class="border-b border-charcoal pb-4 md:pb-6">
-		<button
-			type="button"
-			onclick={() => handleNavigate('products')}
-			class="inline-flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-volt"
-		>
-			<ArrowLeft size={14} aria-hidden="true" />
-			Back to products
-		</button>
-
-		<div class="mt-4 min-w-0">
-			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Catalog</p>
-			<h1 class="mt-1 font-display text-4xl leading-none text-bone uppercase md:text-6xl">
-				New Product
-			</h1>
-		</div>
-	</div>
-
-	{#if actionMessage || $createProductMessage}
-		<div class="mt-6 grid gap-2">
-			{#each [actionMessage, $createProductMessage].filter(Boolean) as message (message)}
-				<p class="border border-red-400/30 bg-red-950/20 px-4 py-3 font-sans text-xs text-red-300">
-					{message}
-				</p>
-			{/each}
-		</div>
-	{/if}
-
-	<form
-		bind:this={formElement}
-		method="POST"
-		action="?/createProduct"
-		enctype="multipart/form-data"
-		use:createProductEnhance
-		novalidate
-		class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
-	>
+<AdminFormLayout
+	backHref="/app/products"
+	backLabel="Back to products"
+	title="New Product"
+	actionMessage={[actionMessage, $createProductMessage].filter(Boolean).join('\n') || null}
+	isSubmitting={$createProductSubmitting}
+	submitLabel="Create Product"
+	oncancel={() => handleNavigate('products')}
+	enhanceAction={createProductEnhance}
+	bind:formElement
+	formAttrs={{
+		method: 'POST',
+		action: '?/createProduct',
+		enctype: 'multipart/form-data',
+		novalidate: true
+	}}
+>
+	{#snippet mainContent()}
 		<input type="hidden" name="redirectTo" bind:value={$createProductForm.redirectTo} />
 		<input
 			type="hidden"
@@ -1356,12 +1337,16 @@
 														class="absolute top-full right-0 left-0 z-20 mt-1 max-h-60 overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl"
 													>
 														{#each colors as c (c.id)}
-															{@const isColorUsed = $createProductForm.variants.some((v, idx) => idx !== originalIndex && v.colorId === c.id)}
+															{@const isColorUsed = $createProductForm.variants.some(
+																(v, idx) => idx !== originalIndex && v.colorId === c.id
+															)}
 															<button
 																type="button"
 																disabled={isColorUsed}
 																onclick={() => selectColor(originalIndex, c)}
-																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed ? 'opacity-30 cursor-not-allowed text-ash' : 'text-bone hover:bg-void/50'}"
+																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed
+																	? 'cursor-not-allowed text-ash opacity-30'
+																	: 'text-bone hover:bg-void/50'}"
 															>
 																<span
 																	class="h-4 w-4 rounded-full border border-ash/30"
@@ -1482,7 +1467,8 @@
 														{@const isSelected = variant.sizes.includes(sizeOpt.value as SizeType)}
 														<button
 															type="button"
-															onclick={() => toggleSize(variant.clientId, sizeOpt.value as SizeType)}
+															onclick={() =>
+																toggleSize(variant.clientId, sizeOpt.value as SizeType)}
 															class="min-h-10 border px-4 font-sans text-xs font-medium transition-colors {isSelected
 																? 'border-volt bg-volt font-bold text-void'
 																: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
@@ -1756,288 +1742,279 @@
 				{$createProductSubmitting ? 'Saving...' : 'Create Product'}
 			</AdminButton>
 		</div>
+	{/snippet}
 
-		<!-- Desktop Snapshot Sidebar -->
-		<aside class="grid gap-6 xl:sticky xl:top-8 xl:self-start">
-			<div class="border border-ash/15 bg-charcoal">
-				{#if carouselImage}
-					<div class="group relative">
-						<button
-							type="button"
-							onclick={() => openSnapshotImagePreview(carouselImage.id)}
-							class="group block w-full cursor-zoom-in text-left"
-							aria-label="Open selected product image detail"
+	{#snippet sidebarContent()}
+		{#if carouselImage}
+			<div class="group relative">
+				<button
+					type="button"
+					onclick={() => openSnapshotImagePreview(carouselImage.id)}
+					class="group block w-full cursor-zoom-in text-left"
+					aria-label="Open selected product image detail"
+				>
+					<div class="relative overflow-hidden bg-void">
+						<img
+							src={carouselImage.imageUrl}
+							alt={carouselImage.altText ?? ''}
+							class="aspect-[4/5] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+						/>
+						<span
+							class="absolute right-2 bottom-2 border border-ash/20 bg-void/90 px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase"
 						>
-							<div class="relative overflow-hidden bg-void">
-								<img
-									src={carouselImage.imageUrl}
-									alt={carouselImage.altText ?? ''}
-									class="aspect-[4/5] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-								/>
-								<span
-									class="absolute right-2 bottom-2 border border-ash/20 bg-void/90 px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase"
-								>
-									Open image
-								</span>
-							</div>
-						</button>
-
-						{#if snapshotImages.length > 1}
-							<button
-								type="button"
-								onclick={(e) => {
-									e.stopPropagation();
-									navigateSnapshotImage(-1);
-								}}
-								class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
-								aria-label="Previous image"
-							>
-								&larr;
-							</button>
-							<button
-								type="button"
-								onclick={(e) => {
-									e.stopPropagation();
-									navigateSnapshotImage(1);
-								}}
-								class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
-								aria-label="Next image"
-							>
-								&rarr;
-							</button>
-						{/if}
+							Open image
+						</span>
 					</div>
-				{:else}
-					<div
-						class="grid aspect-[4/5] place-items-center border-b border-ash/15 bg-void text-ash/40"
+				</button>
+
+				{#if snapshotImages.length > 1}
+					<button
+						type="button"
+						onclick={(e) => {
+							e.stopPropagation();
+							navigateSnapshotImage(-1);
+						}}
+						class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
+						aria-label="Previous image"
 					>
-						<ImageOff size={28} aria-hidden="true" />
-					</div>
+						&larr;
+					</button>
+					<button
+						type="button"
+						onclick={(e) => {
+							e.stopPropagation();
+							navigateSnapshotImage(1);
+						}}
+						class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
+						aria-label="Next image"
+					>
+						&rarr;
+					</button>
 				{/if}
+			</div>
+		{:else}
+			<div class="grid aspect-[4/5] place-items-center border-b border-ash/15 bg-void text-ash/40">
+				<ImageOff size={28} aria-hidden="true" />
+			</div>
+		{/if}
 
-				{#if snapshotImages.length > 0}
-					<div class="scrollbar-thin flex gap-2 overflow-x-auto border-b border-ash/15 bg-void p-3">
-						{#each snapshotImages as img (img.id)}
+		{#if snapshotImages.length > 0}
+			<div class="scrollbar-thin flex gap-2 overflow-x-auto border-b border-ash/15 bg-void p-3">
+				{#each snapshotImages as img (img.id)}
+					<button
+						type="button"
+						onclick={() => {
+							carouselImageId = img.id;
+						}}
+						class="relative shrink-0 cursor-pointer border transition-all {img.id ===
+						carouselImage?.id
+							? 'border-volt ring-1 ring-volt'
+							: 'border-ash/20 hover:border-volt/60'}"
+						title={img.altText ?? 'Product image'}
+						aria-label="Select product preview image"
+					>
+						<img src={img.imageUrl} alt="" class="h-12 w-12 object-cover" />
+						{#if img.isPrimary}
+							<span
+								class="absolute top-0 left-0 bg-volt px-0.5 font-sans text-[6px] leading-none font-bold text-void uppercase"
+								>Primary</span
+							>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="p-5">
+			<div class="flex items-start justify-between gap-4">
+				<div class="min-w-0">
+					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Snapshot</p>
+					<h2 class="mt-1 font-sans text-base leading-snug font-semibold text-bone">
+						{$createProductForm.name || 'Untitled product'}
+					</h2>
+				</div>
+				<span
+					class="shrink-0 border px-2 py-1 font-mono text-[9px] tracking-widest uppercase {$createProductForm.isActive
+						? 'border-volt/30 bg-volt/10 text-volt'
+						: 'border-red-500/25 bg-red-950/20 text-red-300'}"
+				>
+					{$createProductForm.isActive ? 'Live' : 'Draft'}
+				</span>
+			</div>
+
+			<div class="mt-4 grid gap-2">
+				<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+					{#if snapshotVariant}
+						<span class="font-mono text-base font-semibold text-bone">
+							{formatMoney(snapshotVariant.basePrice)}
+						</span>
+						{#if snapshotVariant.compareAtPrice}
+							<span class="font-mono text-xs text-ash line-through">
+								{formatMoney(snapshotVariant.compareAtPrice)}
+							</span>
+						{/if}
+						{#if snapshotDiscountPercent}
+							<span
+								class="border border-volt/25 bg-volt/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-volt uppercase"
+							>
+								{snapshotDiscountPercent}% off
+							</span>
+						{/if}
+					{:else}
+						<span class="font-mono text-sm text-bone">{priceRange}</span>
+					{/if}
+				</div>
+
+				<p class="font-sans text-xs leading-relaxed text-ash/80">
+					{$createProductForm.shortDescription || 'Short product description will appear here.'}
+				</p>
+			</div>
+
+			{#if sortedVariants.length > 0}
+				<div class="mt-5 border-t border-ash/10 pt-4">
+					<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+						Color: {snapshotVariant?.color ?? 'Select'}
+					</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#each sortedVariants as variant (variant.clientId)}
 							<button
 								type="button"
-								onclick={() => {
-									carouselImageId = img.id;
-								}}
-								class="relative shrink-0 cursor-pointer border transition-all {img.id ===
-								carouselImage?.id
-									? 'border-volt ring-1 ring-volt'
-									: 'border-ash/20 hover:border-volt/60'}"
-								title={img.altText ?? 'Product image'}
-								aria-label="Select product preview image"
+								onclick={() => selectSnapshotVariant(variant.clientId)}
+								class="inline-flex min-h-10 cursor-pointer items-center gap-2 border px-3 font-sans text-xs font-semibold transition-colors {snapshotVariant?.clientId ===
+								variant.clientId
+									? 'border-volt bg-volt text-void'
+									: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
+								aria-pressed={snapshotVariant?.clientId === variant.clientId}
 							>
-								<img src={img.imageUrl} alt="" class="h-12 w-12 object-cover" />
-								{#if img.isPrimary}
-									<span
-										class="absolute top-0 left-0 bg-volt px-0.5 font-sans text-[6px] leading-none font-bold text-void uppercase"
-										>Primary</span
-									>
-								{/if}
+								<span
+									class="h-3 w-3 border border-ash/30 {isValidHex(variant.colorHex)
+										? ''
+										: 'bg-ash/20'}"
+									style={isValidHex(variant.colorHex)
+										? `background-color: ${variant.colorHex}`
+										: ''}
+									aria-hidden="true"
+								></span>
+								<span>{variant.color || 'Unnamed'}</span>
 							</button>
 						{/each}
 					</div>
-				{/if}
-
-				<div class="p-5">
-					<div class="flex items-start justify-between gap-4">
-						<div class="min-w-0">
-							<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Snapshot</p>
-							<h2 class="mt-1 font-sans text-base leading-snug font-semibold text-bone">
-								{$createProductForm.name || 'Untitled product'}
-							</h2>
-						</div>
-						<span
-							class="shrink-0 border px-2 py-1 font-mono text-[9px] tracking-widest uppercase {$createProductForm.isActive
-								? 'border-volt/30 bg-volt/10 text-volt'
-								: 'border-red-500/25 bg-red-950/20 text-red-300'}"
-						>
-							{$createProductForm.isActive ? 'Live' : 'Draft'}
-						</span>
-					</div>
-
-					<div class="mt-4 grid gap-2">
-						<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-							{#if snapshotVariant}
-								<span class="font-mono text-base font-semibold text-bone">
-									{formatMoney(snapshotVariant.basePrice)}
-								</span>
-								{#if snapshotVariant.compareAtPrice}
-									<span class="font-mono text-xs text-ash line-through">
-										{formatMoney(snapshotVariant.compareAtPrice)}
-									</span>
-								{/if}
-								{#if snapshotDiscountPercent}
-									<span
-										class="border border-volt/25 bg-volt/10 px-1.5 py-0.5 font-mono text-[9px] font-bold text-volt uppercase"
-									>
-										{snapshotDiscountPercent}% off
-									</span>
-								{/if}
-							{:else}
-								<span class="font-mono text-sm text-bone">{priceRange}</span>
-							{/if}
-						</div>
-
-						<p class="font-sans text-xs leading-relaxed text-ash/80">
-							{$createProductForm.shortDescription || 'Short product description will appear here.'}
-						</p>
-					</div>
-
-					{#if sortedVariants.length > 0}
-						<div class="mt-5 border-t border-ash/10 pt-4">
-							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
-								Color: {snapshotVariant?.color ?? 'Select'}
-							</p>
-							<div class="mt-2 flex flex-wrap gap-2">
-								{#each sortedVariants as variant (variant.clientId)}
-									<button
-										type="button"
-										onclick={() => selectSnapshotVariant(variant.clientId)}
-										class="inline-flex min-h-10 cursor-pointer items-center gap-2 border px-3 font-sans text-xs font-semibold transition-colors {snapshotVariant?.clientId ===
-										variant.clientId
-											? 'border-volt bg-volt text-void'
-											: 'border-ash/30 bg-void text-ash hover:border-volt hover:text-volt'}"
-										aria-pressed={snapshotVariant?.clientId === variant.clientId}
-									>
-										<span
-											class="h-3 w-3 border border-ash/30 {isValidHex(variant.colorHex)
-												? ''
-												: 'bg-ash/20'}"
-											style={isValidHex(variant.colorHex)
-												? `background-color: ${variant.colorHex}`
-												: ''}
-											aria-hidden="true"
-										></span>
-										<span>{variant.color || 'Unnamed'}</span>
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					{#if snapshotVariant && snapshotVariant.sizes.length > 0}
-						<div class="mt-4 border-t border-ash/10 pt-4">
-							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
-								Size: {snapshotSize ?? 'Select'}
-							</p>
-							<div class="mt-2 flex flex-wrap gap-2">
-								{#each sortedSnapshotSizes as size (size)}
-									<button
-										type="button"
-										onclick={() => selectSnapshotSize(size)}
-										class="grid h-10 min-w-11 cursor-pointer place-items-center border px-3 font-mono text-xs transition-colors {snapshotSize ===
-										size
-											? 'border-volt bg-volt text-void'
-											: 'border-ash/30 bg-void text-bone hover:border-volt'}"
-										aria-pressed={snapshotSize === size}
-									>
-										{size}
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					<div class="grid gap-3 font-sans text-xs">
-						<div class="mt-5 flex justify-between gap-4 border-t border-ash/10 pt-4">
-							<span class="font-medium text-ash">Category</span>
-							<span class="text-right text-bone">{selectedCategoryName}</span>
-						</div>
-						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
-							<span class="font-medium text-ash">Tier</span>
-							<span class="text-right text-bone uppercase"
-								>{formatLabel($createProductForm.tier ?? '')}</span
-							>
-						</div>
-						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
-							<span class="font-medium text-ash">Gender / Fit</span>
-							<span class="text-right text-bone uppercase">
-								{formatLabel($createProductForm.gender ?? '')} / {formatLabel(
-									$createProductForm.fit ?? ''
-								)}
-							</span>
-						</div>
-						<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
-							<span class="font-medium text-ash">Images</span>
-							<span class="text-right text-bone">{activeLocalImages.length}</span>
-						</div>
-						{#if selectedTags.length > 0 || $createProductForm.newTagNames.length > 0}
-							<div class="flex flex-wrap gap-1.5 pt-1">
-								{#each selectedTags as tag (tag.id)}
-									<span
-										class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
-									>
-										{tag.name}
-									</span>
-								{/each}
-								{#each $createProductForm.newTagNames as tagName (tagName)}
-									<span
-										class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
-									>
-										{tagName}
-									</span>
-								{/each}
-							</div>
-						{/if}
-					</div>
-
-					{#if snapshotWarnings.length > 0}
-						<div class="mt-4 border border-yellow-500/20 bg-yellow-950/15 p-3">
-							<p
-								class="flex items-center gap-1.5 font-sans text-[11px] font-bold tracking-wide text-yellow-400 uppercase"
-							>
-								<AlertTriangle size={13} /> Merchandising Warnings
-							</p>
-							<ul class="m-0 mt-2 grid list-none gap-1 p-0">
-								{#each snapshotWarnings as warning (warning)}
-									<li
-										class="flex items-start gap-1 font-sans text-[11px] leading-normal text-ash/85"
-									>
-										<span class="mt-0.5 text-yellow-500/60">•</span>
-										<span>{warning}</span>
-									</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
 				</div>
-			</div>
-		</aside>
-	</form>
-</section>
+			{/if}
 
-<!-- Mobile Sticky Action Bar -->
-<div
-	class="fixed right-0 bottom-0 left-0 z-40 flex gap-3 border-t border-ash/15 bg-void/95 p-4 shadow-[0_-8px_24px_rgb(0,0,0,0.6)] backdrop-blur lg:hidden"
->
-	<AdminButton
-		type="button"
-		onclick={() => {
-			$createProductForm.isActive = false;
-			formElement?.requestSubmit();
-		}}
-		disabled={$createProductSubmitting}
-		variant="outline"
-		class="flex-1"
-	>
-		Save Draft
-	</AdminButton>
-	<AdminButton
-		type="button"
-		onclick={() => {
-			formElement?.requestSubmit();
-		}}
-		disabled={$createProductSubmitting}
-		variant="volt"
-		class="flex-1"
-	>
-		{$createProductSubmitting ? 'Saving...' : 'Create Product'}
-	</AdminButton>
-</div>
+			{#if snapshotVariant && snapshotVariant.sizes.length > 0}
+				<div class="mt-4 border-t border-ash/10 pt-4">
+					<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+						Size: {snapshotSize ?? 'Select'}
+					</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						{#each sortedSnapshotSizes as size (size)}
+							<button
+								type="button"
+								onclick={() => selectSnapshotSize(size)}
+								class="grid h-10 min-w-11 cursor-pointer place-items-center border px-3 font-mono text-xs transition-colors {snapshotSize ===
+								size
+									? 'border-volt bg-volt text-void'
+									: 'border-ash/30 bg-void text-bone hover:border-volt'}"
+								aria-pressed={snapshotSize === size}
+							>
+								{size}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<div class="grid gap-3 font-sans text-xs">
+				<div class="mt-5 flex justify-between gap-4 border-t border-ash/10 pt-4">
+					<span class="font-medium text-ash">Category</span>
+					<span class="text-right text-bone">{selectedCategoryName}</span>
+				</div>
+				<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+					<span class="font-medium text-ash">Tier</span>
+					<span class="text-right text-bone uppercase"
+						>{formatLabel($createProductForm.tier ?? '')}</span
+					>
+				</div>
+				<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+					<span class="font-medium text-ash">Gender / Fit</span>
+					<span class="text-right text-bone uppercase">
+						{formatLabel($createProductForm.gender ?? '')} / {formatLabel(
+							$createProductForm.fit ?? ''
+						)}
+					</span>
+				</div>
+				<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
+					<span class="font-medium text-ash">Images</span>
+					<span class="text-right text-bone">{activeLocalImages.length}</span>
+				</div>
+				{#if selectedTags.length > 0 || $createProductForm.newTagNames.length > 0}
+					<div class="flex flex-wrap gap-1.5 pt-1">
+						{#each selectedTags as tag (tag.id)}
+							<span class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase">
+								{tag.name}
+							</span>
+						{/each}
+						{#each $createProductForm.newTagNames as tagName (tagName)}
+							<span class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase">
+								{tagName}
+							</span>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			{#if snapshotWarnings.length > 0}
+				<div class="mt-4 border border-yellow-500/20 bg-yellow-950/15 p-3">
+					<p
+						class="flex items-center gap-1.5 font-sans text-[11px] font-bold tracking-wide text-yellow-400 uppercase"
+					>
+						<AlertTriangle size={13} /> Merchandising Warnings
+					</p>
+					<ul class="m-0 mt-2 grid list-none gap-1 p-0">
+						{#each snapshotWarnings as warning (warning)}
+							<li class="flex items-start gap-1 font-sans text-[11px] leading-normal text-ash/85">
+								<span class="mt-0.5 text-yellow-500/60">•</span>
+								<span>{warning}</span>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+		</div>
+	{/snippet}
+
+	{#snippet mobilePanel()}
+		<!-- Mobile Sticky Action Bar -->
+		<div
+			class="fixed right-0 bottom-0 left-0 z-40 flex gap-3 border-t border-ash/15 bg-void/95 p-4 shadow-[0_-8px_24px_rgb(0,0,0,0.6)] backdrop-blur lg:hidden"
+		>
+			<AdminButton
+				type="button"
+				onclick={() => {
+					$createProductForm.isActive = false;
+					formElement?.requestSubmit();
+				}}
+				disabled={$createProductSubmitting}
+				variant="outline"
+				class="flex-1"
+			>
+				Save Draft
+			</AdminButton>
+			<AdminButton
+				type="button"
+				onclick={() => {
+					formElement?.requestSubmit();
+				}}
+				disabled={$createProductSubmitting}
+				variant="volt"
+				class="flex-1"
+			>
+				{$createProductSubmitting ? 'Saving...' : 'Create Product'}
+			</AdminButton>
+		</div>
+	{/snippet}
+</AdminFormLayout>
 
 <!-- Image Preview Modal -->
 {#if activeImage && activeImageIndex !== null}
@@ -2178,4 +2155,4 @@
 />
 
 <!-- Color Manager Modal -->
-<AdminColorManagerModal bind:open={showColorModal} bind:colors={colors} />
+<AdminColorManagerModal bind:open={showColorModal} bind:colors />

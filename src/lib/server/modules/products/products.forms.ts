@@ -9,6 +9,7 @@ import {
 	insertProductSchema,
 	insertProductVariantSchema,
 	insertTagSchema,
+	slugSchema,
 	updateCategorySchema,
 	updateProductSchema,
 	updateProductVariantSchema,
@@ -25,6 +26,11 @@ function emptyFileToUndefined(value: unknown): unknown {
 
 function emptyStringToNull(value: unknown): unknown {
 	if (value === '') return null;
+	return value;
+}
+
+function emptyStringToUndefined(value: unknown): unknown {
+	if (value === '') return undefined;
 	return value;
 }
 
@@ -84,9 +90,27 @@ export const imageFilesFormSchema = z.preprocess(
 	z.array(imageFileSchema).default([])
 );
 
-export const createCategoryFormSchema = insertCategorySchema.omit({ imageR2Key: true }).extend({
+export const childCategoryFormSchema = z.object({
+	clientId: z.string().min(1),
+	name: z.string().min(1),
+	slug: slugSchema,
+	description: z.string().max(1000).optional().nullable(),
+	sortOrder: z.coerce.number().int().min(0).default(0),
+	isActive: z.boolean().default(true),
+	imageIndex: z.number().int().optional().nullable()
+});
+
+export const createCategoryFormSchema = z.object({
 	parentId: nullableIdFormSchema,
-	image: optionalImageFileSchema
+	// Single Category creation fields:
+	name: z.preprocess(emptyStringToUndefined, z.string().min(1).optional()),
+	slug: z.preprocess(emptyStringToUndefined, slugSchema.optional()),
+	description: z.string().max(1000).optional().nullable(),
+	sortOrder: z.coerce.number().int().min(0).default(0),
+	isActive: z.boolean().default(true),
+	// Multiple Child Category creation fields:
+	children: z.array(childCategoryFormSchema).default([]),
+	images: imageFilesFormSchema
 });
 
 const formBooleanSchema = z.preprocess((val) => {
@@ -294,4 +318,9 @@ export const updateProductVariantColorActionFormSchema = z.object({
 
 export const deleteProductVariantColorActionFormSchema = z.object({
 	variantColorId: idSchema
+});
+
+export const updateCategoryFlagsFormSchema = z.object({
+	categoryId: idSchema,
+	isActive: formBooleanSchema
 });

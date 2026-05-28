@@ -1,4 +1,17 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	like,
+	ne,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/foundation/guards';
@@ -1503,10 +1516,7 @@ export async function createColor(ctx: ServiceContext, input: InsertColor): Prom
 	if (existing.length > 0) {
 		const match = existing[0];
 		if (match.name.toLowerCase() === formattedName.toLowerCase()) {
-			throw new ProductError(
-				`Color name "${formattedName}" already exists.`,
-				ErrorCode.CONFLICT
-			);
+			throw new ProductError(`Color name "${formattedName}" already exists.`, ErrorCode.CONFLICT);
 		} else {
 			throw new ProductError(
 				`Color hex "${hexValue}" is already used by color "${match.name}".`,

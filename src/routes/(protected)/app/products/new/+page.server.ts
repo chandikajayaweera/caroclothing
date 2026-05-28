@@ -170,10 +170,13 @@ export const actions: Actions = {
 			const responseBody = toErrorResponseBody(appError, {
 				includeDetails: appError.statusCode < 500
 			});
-			return fail(appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400, {
-				success: false,
-				message: responseBody.message
-			});
+			return fail(
+				appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400,
+				{
+					success: false,
+					message: responseBody.message
+				}
+			);
 		}
 	},
 	deleteColor: async (event) => {
@@ -193,10 +196,13 @@ export const actions: Actions = {
 			const responseBody = toErrorResponseBody(appError, {
 				includeDetails: appError.statusCode < 500
 			});
-			return fail(appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400, {
-				success: false,
-				message: responseBody.message
-			});
+			return fail(
+				appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400,
+				{
+					success: false,
+					message: responseBody.message
+				}
+			);
 		}
 	}
 };

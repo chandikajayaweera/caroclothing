@@ -3,14 +3,12 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import {
-	createCategory,
-	createCategoryFormSchema,
 	deleteCategory,
 	deleteCategoryFormSchema,
 	listCategories,
 	listCategoriesFormSchema,
 	updateCategory,
-	updateCategoryActionFormSchema,
+	updateCategoryFlagsFormSchema,
 	type ListCategoriesOptions
 } from '$lib/server/modules/products';
 import type { ServiceContext } from '$lib/server/foundation/context';
@@ -63,32 +61,56 @@ function getIntegerParam(value: string | null): number | undefined {
 export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const ctx = getAdminContext(locals, platform);
 	const categoryOptions = getListOptions(url);
+	const query = url.searchParams.get('query')?.trim() || '';
 
 	try {
-		const [categories, createCategoryForm, updateCategoryForm, deleteCategoryForm] =
-			await Promise.all([
-				listCategories(ctx, categoryOptions),
-				superValidate(zod4(createCategoryFormSchema), {
-					id: 'createCategory'
-				}),
-				superValidate(zod4(updateCategoryActionFormSchema), {
-					id: 'updateCategory'
-				}),
-				superValidate(zod4(deleteCategoryFormSchema), {
-					id: 'deleteCategory'
-				})
-			]);
+		// Load all categories for filters and hierarchy parent lookup
+		const allCategories = await listCategories(ctx, { includeInactive: true, limit: 250 });
+
+		// Retrieve filtered categories
+		let categories = await listCategories(ctx, {
+			includeInactive: categoryOptions.includeInactive,
+			parentId: categoryOptions.parentId,
+			limit: 250 // Retrieve a generous page to filter in-memory if a query exists
+		});
+
+		if (query) {
+			const lowerQuery = query.toLowerCase();
+			categories = categories.filter(
+				(c) =>
+					c.name.toLowerCase().includes(lowerQuery) || c.slug.toLowerCase().includes(lowerQuery)
+			);
+		}
+
+		const total = categories.length;
+		const limit = categoryOptions.limit ?? 20;
+		const offset = categoryOptions.offset ?? 0;
+
+		const paginatedCategories = categories.slice(offset, offset + limit);
+
+		const [updateCategoryFlagsForm, deleteCategoryForm] = await Promise.all([
+			superValidate(zod4(updateCategoryFlagsFormSchema), {
+				id: 'updateCategoryFlags'
+			}),
+			superValidate(zod4(deleteCategoryFormSchema), {
+				id: 'deleteCategory'
+			})
+		]);
 
 		return {
-			categories,
+			categories: paginatedCategories,
+			allCategories,
+			total,
+			limit,
+			offset,
 			filters: {
 				includeInactive: categoryOptions.includeInactive ?? true,
 				parentId: categoryOptions.parentId === null ? 'root' : (categoryOptions.parentId ?? ''),
-				limit: categoryOptions.limit ?? '',
-				offset: categoryOptions.offset ?? ''
+				limit,
+				offset,
+				query
 			},
-			createCategoryForm,
-			updateCategoryForm,
+			updateCategoryFlagsForm,
 			deleteCategoryForm
 		};
 	} catch (error) {
@@ -97,34 +119,18 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 };
 
 export const actions: Actions = {
-	createCategory: async (event) => {
+	updateCategoryFlags: async (event) => {
 		const ctx = getAdminContext(event.locals, event.platform, event);
-		const form = await superValidate(event.request, zod4(createCategoryFormSchema), {
-			id: 'createCategory'
+		const form = await superValidate(event.request, zod4(updateCategoryFlagsFormSchema), {
+			id: 'updateCategoryFlags'
 		});
 
 		if (!form.valid) return fail(400, { form });
 
 		try {
-			await createCategory(ctx, form.data);
-			return message(form, 'Category created.');
-		} catch (error) {
-			return formFailFromAppError(form, error);
-		}
-	},
-
-	updateCategory: async (event) => {
-		const ctx = getAdminContext(event.locals, event.platform, event);
-		const form = await superValidate(event.request, zod4(updateCategoryActionFormSchema), {
-			id: 'updateCategory'
-		});
-
-		if (!form.valid) return fail(400, { form });
-
-		try {
-			const { categoryId, ...data } = form.data;
-			await updateCategory(ctx, { id: categoryId }, data);
-			return message(form, 'Category updated.');
+			const { categoryId, isActive } = form.data;
+			await updateCategory(ctx, { id: categoryId }, { isActive });
+			return message(form, 'Category visibility updated.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

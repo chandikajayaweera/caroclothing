@@ -60,7 +60,9 @@
 			const result = deserialize(await response.text());
 
 			if (result.type === 'success') {
-				const actionData = result.data as { color?: { id: string; name: string; hex: string } } | undefined;
+				const actionData = result.data as
+					| { color?: { id: string; name: string; hex: string } }
+					| undefined;
 				const newColor = actionData?.color;
 
 				if (newColor && newColor.id) {
@@ -115,7 +117,6 @@
 			submitting = false;
 		}
 	}
-
 </script>
 
 {#if open}
@@ -151,22 +152,24 @@
 						<p class="py-4 text-center font-sans text-xs text-ash/40">No colors created yet.</p>
 					{:else}
 						{#each colors as colorItem (colorItem.id)}
-							<div class="flex items-center justify-between py-2 min-h-10">
+							<div class="flex min-h-10 items-center justify-between py-2">
 								{#if deleteConfirmId === colorItem.id}
-									<div class="flex w-full items-center justify-between bg-red-950/20 px-2 py-1 border border-red-500/10">
+									<div
+										class="flex w-full items-center justify-between border border-red-500/10 bg-red-950/20 px-2 py-1"
+									>
 										<span class="font-sans text-xs text-red-400">Confirm delete?</span>
 										<div class="flex gap-2">
 											<button
 												type="button"
 												onclick={() => executeDelete(colorItem.id)}
-												class="font-sans text-[11px] font-bold text-red-400 hover:text-red-300 uppercase transition-colors"
+												class="font-sans text-[11px] font-bold text-red-400 uppercase transition-colors hover:text-red-300"
 											>
 												Delete
 											</button>
 											<button
 												type="button"
 												onclick={() => (deleteConfirmId = null)}
-												class="font-sans text-[11px] font-bold text-ash hover:text-bone uppercase transition-colors"
+												class="font-sans text-[11px] font-bold text-ash uppercase transition-colors hover:text-bone"
 											>
 												Cancel
 											</button>

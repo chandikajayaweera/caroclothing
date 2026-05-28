@@ -469,7 +469,15 @@ export function isAppError(error: unknown): error is AppError {
 }
 
 export function getErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
+	if (error instanceof Error) {
+		let msg = error.message;
+		if (error.cause instanceof Error) {
+			msg += ' | ' + error.cause.message;
+		} else if (error.cause) {
+			msg += ' | ' + String(error.cause);
+		}
+		return msg;
+	}
 	if (typeof error === 'string') return error;
 	return 'An unknown error occurred';
 }

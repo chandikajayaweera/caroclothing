@@ -117,6 +117,7 @@
 
 	let activeColorDropdownClientId = $state<string | null>(null);
 	let showColorModal = $state(false);
+	// eslint-disable-next-line svelte/prefer-writable-derived
 	let colors = $state<typeof data.colors>([]);
 
 	$effect.pre(() => {
@@ -1181,12 +1182,16 @@
 														class="absolute top-full right-0 left-0 z-20 mt-1 max-h-60 overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl"
 													>
 														{#each colors as c (c.id)}
-															{@const isColorUsed = localVariants.some((v) => !v.isDeleted && v.id !== card.id && v.colorId === c.id)}
+															{@const isColorUsed = localVariants.some(
+																(v) => !v.isDeleted && v.id !== card.id && v.colorId === c.id
+															)}
 															<button
 																type="button"
 																disabled={isColorUsed}
 																onclick={() => selectColor(originalIndex, c)}
-																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed ? 'opacity-30 cursor-not-allowed text-ash' : 'text-bone hover:bg-void/50'}"
+																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed
+																	? 'cursor-not-allowed text-ash opacity-30'
+																	: 'text-bone hover:bg-void/50'}"
 															>
 																<span
 																	class="h-4 w-4 rounded-full border border-ash/30"
@@ -1997,4 +2002,4 @@
 />
 
 <!-- Color Manager Modal -->
-<AdminColorManagerModal bind:open={showColorModal} bind:colors={colors} />
+<AdminColorManagerModal bind:open={showColorModal} bind:colors />
