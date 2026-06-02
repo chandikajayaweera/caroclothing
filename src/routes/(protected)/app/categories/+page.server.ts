@@ -64,30 +64,6 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const query = url.searchParams.get('query')?.trim() || '';
 
 	try {
-		// Load all categories for filters and hierarchy parent lookup
-		const allCategories = await listCategories(ctx, { includeInactive: true, limit: 250 });
-
-		// Retrieve filtered categories
-		let categories = await listCategories(ctx, {
-			includeInactive: categoryOptions.includeInactive,
-			parentId: categoryOptions.parentId,
-			limit: 250 // Retrieve a generous page to filter in-memory if a query exists
-		});
-
-		if (query) {
-			const lowerQuery = query.toLowerCase();
-			categories = categories.filter(
-				(c) =>
-					c.name.toLowerCase().includes(lowerQuery) || c.slug.toLowerCase().includes(lowerQuery)
-			);
-		}
-
-		const total = categories.length;
-		const limit = categoryOptions.limit ?? 20;
-		const offset = categoryOptions.offset ?? 0;
-
-		const paginatedCategories = categories.slice(offset, offset + limit);
-
 		const [updateCategoryFlagsForm, deleteCategoryForm] = await Promise.all([
 			superValidate(zod4(updateCategoryFlagsFormSchema), {
 				id: 'updateCategoryFlags'
@@ -97,17 +73,41 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			})
 		]);
 
+		const categoriesPromise = listCategories(ctx, {
+			includeInactive: categoryOptions.includeInactive,
+			parentId: categoryOptions.parentId,
+			limit: 250
+		}).then((fetchedCategories) => {
+			let categories = fetchedCategories;
+			if (query) {
+				const lowerQuery = query.toLowerCase();
+				categories = categories.filter(
+					(c) =>
+						c.name.toLowerCase().includes(lowerQuery) || c.slug.toLowerCase().includes(lowerQuery)
+				);
+			}
+			const limit = categoryOptions.limit ?? 20;
+			const offset = categoryOptions.offset ?? 0;
+			return {
+				items: categories.slice(offset, offset + limit),
+				total: categories.length
+			};
+		});
+
+		const allCategoriesPromise = listCategories(ctx, { includeInactive: true, limit: 250 });
+
 		return {
-			categories: paginatedCategories,
-			allCategories,
-			total,
-			limit,
-			offset,
+			streamed: {
+				categories: categoriesPromise,
+				allCategories: allCategoriesPromise
+			},
+			limit: categoryOptions.limit ?? 20,
+			offset: categoryOptions.offset ?? 0,
 			filters: {
 				includeInactive: categoryOptions.includeInactive ?? true,
 				parentId: categoryOptions.parentId === null ? 'root' : (categoryOptions.parentId ?? ''),
-				limit,
-				offset,
+				limit: categoryOptions.limit ?? 20,
+				offset: categoryOptions.offset ?? 0,
 				query
 			},
 			updateCategoryFlagsForm,

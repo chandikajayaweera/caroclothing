@@ -1,4 +1,5 @@
 <script lang="ts">
+	import AdminButton from './AdminButton.svelte';
 	let {
 		kicker,
 		title,
@@ -27,12 +28,9 @@
 				{title}
 			</h1>
 		</div>
-		<button
-			type="button"
-			class="mt-5 bg-volt px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase transition-colors hover:bg-bone md:mt-0"
-		>
+		<AdminButton type="button" variant="volt" size="md" class="mt-5 md:mt-0">
 			{primaryAction}
-		</button>
+		</AdminButton>
 	</div>
 
 	<div class="mt-8 grid gap-4 lg:grid-cols-[1fr_360px]">

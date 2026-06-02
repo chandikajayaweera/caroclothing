@@ -65,19 +65,15 @@ export const initializeInventoryFormSchema = z.object({
 	note: z.preprocess(emptyStringToUndefined, z.string().trim().max(500).optional().nullable())
 });
 
-export const updateInventorySettingsFormSchema = z.intersection(
-	z.object({
-		variantId: idSchema
-	}),
-	z.object({
-		lowStockThreshold: z.preprocess(
-			emptyStringToUndefined,
-			z.coerce.number().int().min(0).max(1_000_000).optional()
-		),
-		trackInventory: optionalBooleanSchema,
-		allowBackorder: optionalBooleanSchema
-	})
-);
+export const updateInventorySettingsFormSchema = z.object({
+	variantId: idSchema,
+	lowStockThreshold: z.preprocess(
+		emptyStringToUndefined,
+		z.coerce.number().int().min(0).max(1_000_000).optional()
+	),
+	trackInventory: optionalBooleanSchema,
+	allowBackorder: optionalBooleanSchema
+});
 
 export const restockInventoryFormSchema = z.object({
 	variantId: idSchema,

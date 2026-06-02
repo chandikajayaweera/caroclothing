@@ -19,7 +19,8 @@
 		formAttrs = {},
 		mainContent,
 		sidebarContent,
-		mobilePanel
+		mobilePanel,
+		showSubmitButton = true
 	}: {
 		backHref: string;
 		backLabel: string;
@@ -36,6 +37,7 @@
 		mainContent: Snippet;
 		sidebarContent: Snippet;
 		mobilePanel?: Snippet;
+		showSubmitButton?: boolean;
 	} = $props();
 
 	const noopAction = () => {};
@@ -47,6 +49,11 @@
 </svelte:head>
 
 <section class="mx-auto max-w-7xl overflow-x-hidden px-2 pb-24 md:px-0 lg:pb-10">
+	{#if isSubmitting}
+		<div class="fixed top-0 right-0 left-0 z-50 h-[3px] bg-void">
+			<div class="animate-progress-bar h-full bg-volt"></div>
+		</div>
+	{/if}
 	<!-- Page Header -->
 	<div class="border-b border-charcoal pb-4 md:pb-6">
 		<a
@@ -81,26 +88,46 @@
 		bind:this={formElement}
 		{...formAttrs}
 		use:activeEnhance
-		class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
+		class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
 	>
 		<!-- Left Main Column -->
-		<div class="grid gap-6">
+		<div class="min-w-0 grid gap-6">
 			{@render mainContent()}
 		</div>
 
-		<!-- Right Sidebar Column -->
-		<aside class="grid gap-6 xl:sticky xl:top-8 xl:self-start">
-			<div class="overflow-hidden border border-ash/15 bg-charcoal">
-				{@render sidebarContent()}
+		<!-- Right Sidebar Column — sticky, height-capped, scrollable content + pinned submit -->
+		<aside class="min-w-0 lg:sticky lg:top-4 lg:self-start">
+			<div
+				class="flex flex-col overflow-hidden border border-ash/15 bg-charcoal lg:max-h-[calc(100vh-5rem)]"
+			>
+				<!-- Scrollable snapshot area -->
+				<div class="min-h-0 flex-1 overflow-x-hidden lg:overflow-y-auto">
+					{@render sidebarContent()}
+				</div>
+
+				<!-- Pinned submit footer — only visible at lg+ (mobile panel handles < lg) -->
+				{#if showSubmitButton}
+					<div class="hidden shrink-0 border-t border-ash/10 p-4 lg:block">
+						<AdminButton
+							type="submit"
+							variant="volt"
+							size="md"
+							class="w-full"
+							disabled={isSubmitting}
+						>
+							{isSubmitting ? 'Saving...' : submitLabel}
+						</AdminButton>
+					</div>
+				{/if}
 			</div>
 		</aside>
 
-		<!-- Mobile Bottom Panel -->
+		<!-- Mobile / Tablet Bottom Panel (< lg) -->
 		{#if mobilePanel}
 			{@render mobilePanel()}
-		{:else}
+		{:else if showSubmitButton}
 			<div
-				class="fixed right-0 bottom-0 left-0 z-40 border-t border-charcoal bg-void p-4 sm:hidden"
+				class="fixed right-0 bottom-0 left-0 z-40 border-t border-charcoal bg-void p-4 lg:hidden"
 			>
 				<div class="mx-auto flex max-w-7xl justify-end gap-3">
 					<AdminButton type="button" variant="charcoal" size="md" onclick={oncancel}>
@@ -114,3 +141,24 @@
 		{/if}
 	</form>
 </section>
+
+<style>
+	@keyframes progress-slide {
+		0% {
+			left: -40%;
+			width: 40%;
+		}
+		50% {
+			width: 60%;
+		}
+		100% {
+			left: 100%;
+			width: 20%;
+		}
+	}
+	.animate-progress-bar {
+		position: absolute;
+		height: 100%;
+		animation: progress-slide 1.5s infinite linear;
+	}
+</style>

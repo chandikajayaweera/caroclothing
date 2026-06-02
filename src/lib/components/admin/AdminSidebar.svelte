@@ -3,6 +3,8 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
+	import { DropdownMenu } from 'bits-ui';
+	import { scale } from 'svelte/transition';
 	import {
 		Archive,
 		BadgePercent,
@@ -247,111 +249,129 @@
 	</nav>
 
 	<div class="relative hidden shrink-0 border-t border-charcoal p-3 lg:block">
-		<button
-			type="button"
-			class="flex w-full items-center justify-center gap-3 border border-charcoal bg-charcoal/25 p-2 text-left transition-colors hover:border-volt {collapsed
-				? 'lg:justify-center'
-				: 'lg:justify-start'}"
-			aria-label="Open profile menu"
-			aria-expanded={profileOpen}
-			onclick={() => (profileOpen = !profileOpen)}
-		>
-			{#if $session.data?.user.image}
-				<img src={$session.data.user.image} alt="" class="h-9 w-9 object-cover" />
-			{:else}
-				<span
-					class="grid h-9 w-9 shrink-0 place-items-center bg-void font-mono text-[10px] text-volt"
-					aria-hidden="true"
-				>
-					{userInitials}
-				</span>
-			{/if}
-			{#if !collapsed}
-				<div class="hidden min-w-0 lg:block">
-					<p class="truncate font-mono text-[10px] tracking-widest text-bone uppercase">
-						{$session.data?.user.name ?? 'Admin'}
-					</p>
-					<p class="mt-0.5 truncate font-mono text-[8px] tracking-[0.18em] text-ash/60 uppercase">
-						Profile
-					</p>
-				</div>
-			{/if}
-		</button>
-
-		{#if profileOpen}
-			<button
-				type="button"
-				class="fixed inset-0 z-85 cursor-default bg-transparent"
-				aria-label="Close profile menu"
-				onclick={() => (profileOpen = false)}
-			></button>
-
-			<div
-				class="absolute bottom-3 left-[calc(100%+12px)] z-90 w-[min(320px,calc(100vw-88px))] border border-charcoal bg-void shadow-2xl shadow-black/50 lg:w-80"
-				role="dialog"
-				aria-label="Profile menu"
+		<DropdownMenu.Root bind:open={profileOpen}>
+			<DropdownMenu.Trigger
+				class="flex w-full items-center justify-center gap-3 border border-charcoal bg-charcoal/25 p-2 text-left transition-colors outline-none hover:border-volt {collapsed
+					? 'lg:justify-center'
+					: 'lg:justify-start'}"
+				aria-label="Open profile menu"
 			>
-				<div class="flex items-start justify-between gap-4 border-b border-charcoal p-4">
-					<div class="flex min-w-0 items-center gap-3">
-						{#if $session.data?.user.image}
-							<img src={$session.data.user.image} alt="" class="h-11 w-11 object-cover" />
-						{:else}
-							<div
-								class="grid h-11 w-11 shrink-0 place-items-center border border-charcoal bg-charcoal font-mono text-xs text-volt"
-								aria-hidden="true"
-							>
-								{userInitials}
-							</div>
-						{/if}
-						<div class="min-w-0">
-							<p class="truncate font-mono text-[11px] tracking-widest text-bone uppercase">
-								{$session.data?.user.name ?? 'Admin'}
-							</p>
-							<p class="mt-1 truncate font-mono text-[9px] tracking-widest text-ash uppercase">
-								{$session.data?.user.email ?? 'Admin session'}
-							</p>
-						</div>
+				{#if $session.data?.user.image}
+					<img src={$session.data.user.image} alt="" class="h-9 w-9 object-cover" />
+				{:else}
+					<span
+						class="grid h-9 w-9 shrink-0 place-items-center bg-void font-mono text-[10px] text-volt"
+						aria-hidden="true"
+					>
+						{userInitials}
+					</span>
+				{/if}
+				{#if !collapsed}
+					<div class="hidden min-w-0 lg:block">
+						<p class="truncate font-mono text-[10px] tracking-widest text-bone uppercase">
+							{$session.data?.user.name ?? 'Admin'}
+						</p>
+						<p class="mt-0.5 truncate font-mono text-[8px] tracking-[0.18em] text-ash/60 uppercase">
+							Profile
+						</p>
 					</div>
-					<button
-						type="button"
-						class="text-ash transition-colors hover:text-bone"
-						aria-label="Close profile menu"
-						onclick={() => (profileOpen = false)}
-					>
-						<X size={16} aria-hidden="true" />
-					</button>
-				</div>
+				{/if}
+			</DropdownMenu.Trigger>
 
-				<div class="p-2">
-					<div class="mb-2 flex items-center gap-3 border border-charcoal bg-charcoal/30 p-3">
-						<ShieldCheck size={16} class="text-volt" aria-hidden="true" />
-						<div>
-							<p class="font-mono text-[8px] tracking-[0.2em] text-ash/50 uppercase">Role</p>
-							<p class="mt-1 font-mono text-[10px] tracking-widest text-volt uppercase">
-								adminUser
-							</p>
-						</div>
-					</div>
+			{#if profileOpen}
+				<DropdownMenu.Portal>
+					<DropdownMenu.Content side="right" align="end" sideOffset={12} class="z-50 outline-none">
+						{#snippet child({ props, open })}
+							{#if open}
+								<div
+									{...props}
+									transition:scale={{ duration: 120, start: 0.96 }}
+									class="z-50 w-[min(320px,calc(100vw-88px))] border border-charcoal bg-void shadow-2xl shadow-black/50 outline-none lg:w-80"
+								>
+									<div class="flex items-start justify-between gap-4 border-b border-charcoal p-4">
+										<div class="flex min-w-0 items-center gap-3">
+											{#if $session.data?.user.image}
+												<img src={$session.data.user.image} alt="" class="h-11 w-11 object-cover" />
+											{:else}
+												<div
+													class="grid h-11 w-11 shrink-0 place-items-center border border-charcoal bg-charcoal font-mono text-xs text-volt"
+													aria-hidden="true"
+												>
+													{userInitials}
+												</div>
+											{/if}
+											<div class="min-w-0">
+												<p
+													class="truncate font-mono text-[11px] tracking-widest text-bone uppercase"
+												>
+													{$session.data?.user.name ?? 'Admin'}
+												</p>
+												<p
+													class="mt-1 truncate font-mono text-[9px] tracking-widest text-ash uppercase"
+												>
+													{$session.data?.user.email ?? 'Admin session'}
+												</p>
+											</div>
+										</div>
+										<button
+											type="button"
+											class="text-ash transition-colors hover:text-bone"
+											aria-label="Close profile menu"
+											onclick={() => (profileOpen = false)}
+										>
+											<X size={16} aria-hidden="true" />
+										</button>
+									</div>
 
-					<a
-						href={resolve('/account')}
-						class="flex h-11 items-center gap-3 px-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:bg-charcoal/50 hover:text-bone"
-						onclick={() => (profileOpen = false)}
-					>
-						<UserRoundPen size={16} aria-hidden="true" />
-						<span>Edit Profile</span>
-					</a>
-					<button
-						type="button"
-						class="flex h-11 w-full items-center gap-3 px-3 text-left font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:bg-charcoal/50 hover:text-bone"
-						onclick={signOut}
-					>
-						<LogOut size={16} aria-hidden="true" />
-						<span>Logout</span>
-					</button>
-				</div>
-			</div>
-		{/if}
+									<div class="p-2">
+										<div
+											class="mb-2 flex items-center gap-3 border border-charcoal bg-charcoal/30 p-3"
+										>
+											<ShieldCheck size={16} class="text-volt" aria-hidden="true" />
+											<div>
+												<p class="font-mono text-[8px] tracking-[0.2em] text-ash/50 uppercase">
+													Role
+												</p>
+												<p class="mt-1 font-mono text-[10px] tracking-widest text-volt uppercase">
+													adminUser
+												</p>
+											</div>
+										</div>
+
+										<DropdownMenu.Item>
+											{#snippet child({ props })}
+												<a
+													href={resolve('/account')}
+													{...props}
+													class="flex h-11 items-center gap-3 px-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors outline-none hover:bg-charcoal/50 hover:text-bone data-[highlighted]:bg-charcoal/50 data-[highlighted]:text-bone"
+													onclick={() => (profileOpen = false)}
+												>
+													<UserRoundPen size={16} aria-hidden="true" />
+													<span>Edit Profile</span>
+												</a>
+											{/snippet}
+										</DropdownMenu.Item>
+										<DropdownMenu.Item>
+											{#snippet child({ props })}
+												<button
+													type="button"
+													{...props}
+													class="flex h-11 w-full items-center gap-3 px-3 text-left font-mono text-[10px] tracking-widest text-ash uppercase transition-colors outline-none hover:bg-charcoal/50 hover:text-bone data-[highlighted]:bg-charcoal/50 data-[highlighted]:text-bone"
+													onclick={signOut}
+												>
+													<LogOut size={16} aria-hidden="true" />
+													<span>Logout</span>
+												</button>
+											{/snippet}
+										</DropdownMenu.Item>
+									</div>
+								</div>
+							{/if}
+						{/snippet}
+					</DropdownMenu.Content>
+				</DropdownMenu.Portal>
+			{/if}
+		</DropdownMenu.Root>
 	</div>
 </aside>
 

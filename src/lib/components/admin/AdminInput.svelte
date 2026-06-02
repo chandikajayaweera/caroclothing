@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Label } from 'bits-ui';
+
 	let {
 		label,
 		name,
@@ -34,7 +36,7 @@
 	);
 </script>
 
-<label class="grid gap-1 {className}">
+<Label.Root class="grid gap-1 {className}">
 	{#if label}
 		<span class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90">
 			{label}
@@ -67,4 +69,4 @@
 			{helpText}
 		</p>
 	{/if}
-</label>
+</Label.Root>

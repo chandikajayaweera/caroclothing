@@ -86,23 +86,21 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const productOptions = getListOptions(url);
 
 	try {
-		const [products, stats, categories, deleteProductForm, updateProductFlagsForm] =
-			await Promise.all([
-				listProducts(ctx, productOptions),
-				getProductStats(ctx),
-				listCategories(ctx, { includeInactive: true, limit: 100 }),
-				superValidate(zod4(deleteProductFormSchema), {
-					id: 'deleteProduct'
-				}),
-				superValidate(zod4(updateProductFlagsFormSchema), {
-					id: 'updateProductFlags'
-				})
-			]);
+		const [deleteProductForm, updateProductFlagsForm] = await Promise.all([
+			superValidate(zod4(deleteProductFormSchema), {
+				id: 'deleteProduct'
+			}),
+			superValidate(zod4(updateProductFlagsFormSchema), {
+				id: 'updateProductFlags'
+			})
+		]);
 
 		return {
-			products,
-			stats,
-			categories,
+			streamed: {
+				products: listProducts(ctx, productOptions),
+				stats: getProductStats(ctx),
+				categories: listCategories(ctx, { includeInactive: true, limit: 100 })
+			},
 			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
 			filters: {
@@ -114,8 +112,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				isNewArrival:
 					productOptions.isNewArrival === undefined ? '' : String(productOptions.isNewArrival),
 				includeInactive: productOptions.includeInactive ?? true,
-				limit: products.limit,
-				offset: products.offset,
+				limit: productOptions.limit ?? 20,
+				offset: productOptions.offset ?? 0,
 				query: productOptions.query ?? ''
 			},
 			deleteProductForm,

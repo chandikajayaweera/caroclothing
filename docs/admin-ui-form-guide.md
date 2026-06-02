@@ -123,3 +123,22 @@ When an operator edits text inputs, adjusts variant options/sizes, or manages pr
   - Evaluate the superform `$isTainted` store.
   - For complex state collections (like JSON-serialized variant lists or files list) not managed by Superforms fields, compare current local state against the initial database load values.
   - Replace page exit links (e.g. "Back to products") with click handlers that perform this check and open the warning modal if dirty.
+
+---
+
+## 📐 Reusable Layout Templates
+
+All admin screens are built on one of three unified layouts found in `$lib/components/admin/layout/` to enforce UI consistency:
+
+### 1. `AdminListLayout` (Listing/Table Views)
+- **Use Case**: Searchable directories of categories, products, or other records.
+- **Features**: Built-in stats overview blocks, search query forms with advanced filters panel (featuring `slide` transitions), table grids, progressive pagination via link URLs, and custom card/row loading skeletons.
+
+### 2. `AdminDetailLayout` (Object Details Views)
+- **Use Case**: Read-only overview of specific items (e.g. category detail, product detail).
+- **Features**: Top navigation back link, action buttons (edit/delete), responsive 2-column detail grid, and default native `fade` animations.
+
+### 3. `AdminFormLayout` (Form New/Edit Views)
+- **Use Case**: Adding new records or editing existing ones.
+- **Features**: Wraps the form elements, handles loading/saving states (progress line indicator), structural left main column + right sticky summary preview sidebar, and sticky mobile action panels.
+

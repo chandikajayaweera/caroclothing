@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Button } from 'bits-ui';
 	import type { Snippet } from 'svelte';
 
 	let {
@@ -41,7 +42,7 @@
 	};
 
 	const baseClasses =
-		'inline-flex items-center justify-center gap-2 text-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-void disabled:cursor-not-allowed disabled:opacity-40';
+		'inline-flex items-center justify-center gap-2 text-center transition-all duration-100 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-void disabled:cursor-not-allowed disabled:opacity-40';
 
 	const combinedClasses = $derived(
 		`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`
@@ -49,11 +50,11 @@
 </script>
 
 {#if href}
-	<a {href} class={combinedClasses} role="button" {...rest}>
+	<Button.Root {href} {disabled} {onclick} class={combinedClasses} {...rest}>
 		{@render children()}
-	</a>
+	</Button.Root>
 {:else}
-	<button {type} {disabled} {onclick} class={combinedClasses} {...rest}>
+	<Button.Root {type} {disabled} {onclick} class={combinedClasses} {...rest}>
 		{@render children()}
-	</button>
+	</Button.Root>
 {/if}

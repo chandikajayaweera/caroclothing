@@ -37,14 +37,11 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const category = await getCategory(
-			ctx,
-			{ slug: params.categoryslug },
-			{ includeInactive: true }
-		);
+		const [category, allCategories] = await Promise.all([
+			getCategory(ctx, { slug: params.categoryslug }, { includeInactive: true }),
+			listCategories(ctx, { includeInactive: true, limit: 150 })
+		]);
 
-		// List categories to select parent. Exclude the current category and ensure parent is a root category (parentId is null)
-		const allCategories = await listCategories(ctx, { includeInactive: true, limit: 150 });
 		const parentOptions = allCategories.filter((c) => c.id !== category.id && c.parentId === null);
 
 		const updateCategoryForm = await superValidate(

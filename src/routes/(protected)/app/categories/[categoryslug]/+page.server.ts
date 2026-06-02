@@ -37,30 +37,32 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			{ includeInactive: true }
 		);
 
-		let parentCategoryName = null;
-		if (category.parentId) {
-			try {
-				const parent = await getCategory(ctx, { id: category.parentId }, { includeInactive: true });
-				parentCategoryName = parent.name;
-			} catch {
-				// ignore
-			}
-		}
+		const parentPromise = category.parentId
+			? getCategory(ctx, { id: category.parentId }, { includeInactive: true })
+					.then((p) => p.name)
+					.catch(() => null)
+			: Promise.resolve(null);
 
-		const [subcategories, productsResult, deleteCategoryForm] = await Promise.all([
-			listCategories(ctx, { parentId: category.id, includeInactive: true, limit: 100 }),
-			listProducts(ctx, { categoryId: category.id, includeInactive: true, limit: 100 }),
-			superValidate(zod4(deleteCategoryFormSchema), {
-				id: 'deleteCategory'
-			})
-		]);
+		const deleteCategoryForm = await superValidate(zod4(deleteCategoryFormSchema), {
+			id: 'deleteCategory'
+		});
 
 		return {
 			category,
-			parentCategoryName,
-			subcategories,
-			products: productsResult.items,
-			deleteCategoryForm
+			deleteCategoryForm,
+			streamed: {
+				parentCategoryName: parentPromise,
+				subcategories: listCategories(ctx, {
+					parentId: category.id,
+					includeInactive: true,
+					limit: 100
+				}),
+				products: listProducts(ctx, {
+					categoryId: category.id,
+					includeInactive: true,
+					limit: 100
+				}).then((r) => r.items)
+			}
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);

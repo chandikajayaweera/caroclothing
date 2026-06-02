@@ -8,8 +8,20 @@
 	import BottomNav from '$lib/components/layout/BottomNav.svelte';
 	import { page } from '$app/state';
 	import { fly } from 'svelte/transition';
+	import { onNavigate } from '$app/navigation';
 
 	let { children } = $props();
+
+	onNavigate((navigation) => {
+		if (!document.startViewTransition) return;
+
+		return new Promise((resolve) => {
+			document.startViewTransition(async () => {
+				resolve();
+				await navigation.complete;
+			});
+		});
+	});
 
 	const showFooterRoutes = ['/', '/about'];
 	const shouldShowFooter = $derived(showFooterRoutes.includes(page.url.pathname));

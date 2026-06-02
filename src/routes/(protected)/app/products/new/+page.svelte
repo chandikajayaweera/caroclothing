@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { generateSlug } from '$lib/shared/slug';
 	import {
 		AlertTriangle,
@@ -9,24 +7,25 @@
 		ImageOff,
 		Layers,
 		Plus,
-		Save,
 		Star,
 		Trash2,
 		Upload,
 		X
 	} from 'lucide-svelte';
-	import { onDestroy, tick } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { flip } from 'svelte/animate';
 	import { filesProxy, superForm } from 'sveltekit-superforms';
 	import type { ActionData, PageData } from './$types';
+	import { Dialog, DropdownMenu } from 'bits-ui';
+	import { fade, scale, slide } from 'svelte/transition';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
-	import AdminUnsavedChangesModal from '$lib/components/admin/AdminUnsavedChangesModal.svelte';
+	import AdminToast from '$lib/components/admin/AdminToast.svelte';
 	import AdminColorManagerModal from '$lib/components/admin/AdminColorManagerModal.svelte';
-	import AdminFormLayout from '$lib/components/admin/AdminFormLayout.svelte';
+	import AdminFormLayout from '$lib/components/admin/layout/AdminFormLayout.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -35,7 +34,7 @@
 	type SizeType = DraftVariant['sizes'][number];
 	type ImageMetadata = CreateProductData['imageMetadata'][number];
 	type RedirectTarget = 'products' | 'categories' | 'drops';
-	type RedirectPath = '/app/products' | '/app/categories' | '/app/drops';
+
 	type ImagePreview = {
 		url: string;
 		name: string;
@@ -60,8 +59,7 @@
 		constraints: createProductConstraints,
 		message: createProductMessage,
 		enhance: createProductEnhance,
-		submitting: createProductSubmitting,
-		isTainted: isCreateProductTainted
+		submitting: createProductSubmitting
 	} = createProductSuperform;
 
 	const imageFiles = filesProxy(createProductSuperform, 'images');
@@ -69,8 +67,11 @@
 	let formElement = $state<HTMLFormElement | null>(null);
 	let slugManuallyEdited = $state(false);
 	let newTagDraft = $state('');
-	let pendingRedirect = $state<RedirectTarget | null>(null);
-	let showUnsavedModal = $state(false);
+	let toastMessage = $state<string | null>(null);
+
+	$effect(() => {
+		if ($createProductMessage) toastMessage = $createProductMessage;
+	});
 	let activeImageIndex = $state<number | null>(null);
 	let imagePreviews = $state<ImagePreview[]>([]);
 	let selectedImageFiles = $state<File[]>([]);
@@ -86,14 +87,6 @@
 	$effect.pre(() => {
 		colors = data.colors;
 	});
-
-	function toggleColorDropdown(clientId: string) {
-		if (activeColorDropdownClientId === clientId) {
-			activeColorDropdownClientId = null;
-		} else {
-			activeColorDropdownClientId = clientId;
-		}
-	}
 
 	function selectColor(
 		originalIndex: number,
@@ -338,33 +331,6 @@
 
 	function isValidHex(value: string | null | undefined): value is string {
 		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
-	}
-
-	function targetPath(target: RedirectTarget): RedirectPath {
-		if (target === 'products') return '/app/products';
-		if (target === 'categories') return '/app/categories';
-		return '/app/drops';
-	}
-
-	function hasDirtyDraft(): boolean {
-		return (
-			isCreateProductTainted() ||
-			imagePreviews.length > 0 ||
-			$createProductForm.variants.length > 0 ||
-			$createProductForm.tagIds.length > 0 ||
-			$createProductForm.newTagNames.length > 0 ||
-			newTagDraft.trim().length > 0
-		);
-	}
-
-	async function handleNavigate(target: RedirectTarget): Promise<void> {
-		if (hasDirtyDraft()) {
-			pendingRedirect = target;
-			showUnsavedModal = true;
-			return;
-		}
-
-		await goto(resolve(targetPath(target)));
 	}
 
 	function addExistingTag(tagId: string): void {
@@ -826,29 +792,6 @@
 		syncImagePreviews($imageFiles);
 	}
 
-	async function saveDraftAndRedirect(): Promise<void> {
-		if (!pendingRedirect || !formElement) return;
-
-		$createProductForm.redirectTo = pendingRedirect;
-		$createProductForm.isActive = false;
-
-		if (pendingRedirect === 'drops') {
-			$createProductForm.tier = 'drop';
-			$createProductForm.dropId = null;
-			handleTierChange();
-		}
-
-		await tick();
-		formElement.requestSubmit();
-		pendingRedirect = null;
-	}
-
-	async function leaveUnsaved(): Promise<void> {
-		if (!pendingRedirect) return;
-
-		await goto(resolve(targetPath(pendingRedirect)));
-	}
-
 	function appendCare(preset: string) {
 		const current = $createProductForm.careInstructions || '';
 		if (current.includes(preset)) return;
@@ -924,7 +867,7 @@
 	actionMessage={[actionMessage, $createProductMessage].filter(Boolean).join('\n') || null}
 	isSubmitting={$createProductSubmitting}
 	submitLabel="Create Product"
-	oncancel={() => handleNavigate('products')}
+	oncancel={() => history.back()}
 	enhanceAction={createProductEnhance}
 	bind:formElement
 	formAttrs={{
@@ -1026,13 +969,7 @@
 							{/if}
 						</div>
 
-						<AdminButton
-							type="button"
-							onclick={() => handleNavigate('categories')}
-							variant="outline"
-							size="sm"
-							class="self-end"
-						>
+						<AdminButton href="/app/categories/new" variant="outline" size="sm" class="self-end">
 							<FolderPlus size={14} aria-hidden="true" />
 							New Category
 						</AdminButton>
@@ -1063,13 +1000,7 @@
 								{/each}
 							</AdminSelect>
 
-							<AdminButton
-								type="button"
-								onclick={() => handleNavigate('drops')}
-								variant="outline"
-								size="sm"
-								class="self-end"
-							>
+							<AdminButton href="/app/drops/new" variant="outline" size="sm" class="self-end">
 								<Layers size={14} aria-hidden="true" />
 								New Drop
 							</AdminButton>
@@ -1202,6 +1133,7 @@
 
 							<article
 								animate:flip={{ duration: 300 }}
+								transition:slide={{ duration: 250 }}
 								class="border border-ash/20 bg-void transition-colors"
 							>
 								<!-- Collapsed Header -->
@@ -1284,26 +1216,91 @@
 													<span class="ml-0.5 font-sans text-red-400">*</span>
 												</span>
 												<div class="relative flex items-center">
-													{#if isValidHex($createProductForm.variants[originalIndex].colorHex)}
-														<span
-															class="absolute left-3 h-5 w-5 rounded-full border border-ash/30 shadow-sm"
-															style:background={$createProductForm.variants[originalIndex].colorHex}
-														></span>
-													{/if}
-													<input
-														type="text"
-														readonly
-														placeholder="Select Color"
-														value={$createProductForm.variants[originalIndex].color}
-														onclick={() => toggleColorDropdown(variant.clientId)}
-														class="min-h-11 w-full cursor-pointer border border-ash/30 bg-void py-2 pr-10 font-sans text-sm text-bone transition-colors outline-none focus:border-volt"
-														class:pl-10={isValidHex(
-															$createProductForm.variants[originalIndex].colorHex
-														)}
-													/>
-													<span class="pointer-events-none absolute right-3 text-ash/60">
-														<ChevronDown size={16} />
-													</span>
+													<DropdownMenu.Root
+														open={activeColorDropdownClientId === variant.clientId}
+														onOpenChange={(v) => {
+															if (v) {
+																activeColorDropdownClientId = variant.clientId;
+															} else if (activeColorDropdownClientId === variant.clientId) {
+																activeColorDropdownClientId = null;
+															}
+														}}
+													>
+														<DropdownMenu.Trigger class="w-full text-left outline-none">
+															<div class="relative flex items-center">
+																{#if isValidHex($createProductForm.variants[originalIndex].colorHex)}
+																	<span
+																		class="absolute left-3 h-5 w-5 rounded-full border border-ash/30 shadow-sm"
+																		style:background={$createProductForm.variants[originalIndex]
+																			.colorHex}
+																	></span>
+																{/if}
+																<input
+																	type="text"
+																	readonly
+																	placeholder="Select Color"
+																	value={$createProductForm.variants[originalIndex].color}
+																	class="min-h-11 w-full cursor-pointer border border-ash/30 bg-void py-2 pr-10 font-sans text-sm text-bone transition-colors outline-none focus:border-volt"
+																	class:pl-10={isValidHex(
+																		$createProductForm.variants[originalIndex].colorHex
+																	)}
+																/>
+																<span class="pointer-events-none absolute right-3 text-ash/60">
+																	<ChevronDown size={16} />
+																</span>
+															</div>
+														</DropdownMenu.Trigger>
+														{#if activeColorDropdownClientId === variant.clientId}
+															<DropdownMenu.Portal>
+																<DropdownMenu.Content sideOffset={4} class="z-50">
+																	{#snippet child({ props, open })}
+																		{#if open}
+																			<div
+																				{...props}
+																				transition:scale={{ duration: 120, start: 0.96 }}
+																				class="max-h-60 w-[var(--bits-dropdown-anchor-width)] min-w-[var(--bits-dropdown-anchor-width)] overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl outline-none"
+																			>
+																				{#each colors as c (c.id)}
+																					{@const isColorUsed = $createProductForm.variants.some(
+																						(v, idx) => idx !== originalIndex && v.colorId === c.id
+																					)}
+																					<DropdownMenu.Item
+																						disabled={isColorUsed}
+																						onclick={() => selectColor(originalIndex, c)}
+																						class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors outline-none {isColorUsed
+																							? 'cursor-not-allowed text-ash opacity-30'
+																							: 'text-bone hover:bg-void/50 data-[highlighted]:bg-void/50'}"
+																					>
+																						<span
+																							class="h-4 w-4 rounded-full border border-ash/30"
+																							style:background={c.hex}
+																						></span>
+																						<span>{c.name}</span>
+																						<span class="ml-auto font-mono text-xs text-ash/40"
+																							>{c.hex}</span
+																						>
+																					</DropdownMenu.Item>
+																				{/each}
+																				<div class="mt-1 border-t border-ash/10 px-2 pt-1 pb-1">
+																					<button
+																						type="button"
+																						onclick={() => {
+																							activeColorDropdownClientId = null;
+																							showColorModal = true;
+																						}}
+																						class="flex w-full items-center justify-center gap-1.5 bg-ash/10 px-3 py-2 font-sans text-xs font-bold tracking-wider text-bone uppercase transition-all hover:bg-ash/25"
+																					>
+																						<Plus size={14} />
+																						Add New Color
+																					</button>
+																				</div>
+																			</div>
+																		{/if}
+																	{/snippet}
+																</DropdownMenu.Content>
+															</DropdownMenu.Portal>
+														{/if}
+													</DropdownMenu.Root>
 
 													<input
 														type="hidden"
@@ -1321,56 +1318,6 @@
 														value={$createProductForm.variants[originalIndex].colorId ?? ''}
 													/>
 												</div>
-												{#if $createProductErrors.variants?.[index]?.color}
-													<span class="font-sans text-xs text-red-400">
-														{$createProductErrors.variants[index]?.color?.[0]}
-													</span>
-												{/if}
-
-												{#if activeColorDropdownClientId === variant.clientId}
-													<div
-														class="fixed inset-0 z-10"
-														onclick={() => (activeColorDropdownClientId = null)}
-														role="presentation"
-													></div>
-													<div
-														class="absolute top-full right-0 left-0 z-20 mt-1 max-h-60 overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl"
-													>
-														{#each colors as c (c.id)}
-															{@const isColorUsed = $createProductForm.variants.some(
-																(v, idx) => idx !== originalIndex && v.colorId === c.id
-															)}
-															<button
-																type="button"
-																disabled={isColorUsed}
-																onclick={() => selectColor(originalIndex, c)}
-																class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors {isColorUsed
-																	? 'cursor-not-allowed text-ash opacity-30'
-																	: 'text-bone hover:bg-void/50'}"
-															>
-																<span
-																	class="h-4 w-4 rounded-full border border-ash/30"
-																	style:background={c.hex}
-																></span>
-																<span>{c.name}</span>
-																<span class="ml-auto font-mono text-xs text-ash/40">{c.hex}</span>
-															</button>
-														{/each}
-														<div class="mt-1 border-t border-ash/10 px-2 pt-1 pb-1">
-															<button
-																type="button"
-																onclick={() => {
-																	activeColorDropdownClientId = null;
-																	showColorModal = true;
-																}}
-																class="flex w-full items-center justify-center gap-1.5 bg-ash/10 px-3 py-2 font-sans text-xs font-bold tracking-wider text-bone uppercase transition-all hover:bg-ash/25"
-															>
-																<Plus size={14} />
-																Add New Color
-															</button>
-														</div>
-													</div>
-												{/if}
 											</div>
 										</div>
 
@@ -1730,17 +1677,6 @@
 					</label>
 				</div>
 			</details>
-
-			<!-- Desktop Save Panel -->
-			<AdminButton
-				type="submit"
-				disabled={$createProductSubmitting}
-				variant="volt"
-				class="hidden min-h-12 w-full lg:inline-flex"
-			>
-				<Save size={15} aria-hidden="true" />
-				{$createProductSubmitting ? 'Saving...' : 'Create Product'}
-			</AdminButton>
 		</div>
 	{/snippet}
 
@@ -1757,7 +1693,7 @@
 						<img
 							src={carouselImage.imageUrl}
 							alt={carouselImage.altText ?? ''}
-							class="aspect-[4/5] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+							class="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
 						/>
 						<span
 							class="absolute right-2 bottom-2 border border-ash/20 bg-void/90 px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase"
@@ -1793,7 +1729,7 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="grid aspect-[4/5] place-items-center border-b border-ash/15 bg-void text-ash/40">
+			<div class="grid aspect-video place-items-center border-b border-ash/15 bg-void text-ash/40">
 				<ImageOff size={28} aria-hidden="true" />
 			</div>
 		{/if}
@@ -1965,18 +1901,18 @@
 			</div>
 
 			{#if snapshotWarnings.length > 0}
-				<div class="mt-4 border border-yellow-500/20 bg-yellow-950/15 p-3">
+				<div
+					transition:slide={{ duration: 200 }}
+					class="mt-4 border border-amber-300/20 bg-amber-300/5 p-3.5"
+				>
 					<p
-						class="flex items-center gap-1.5 font-sans text-[11px] font-bold tracking-wide text-yellow-400 uppercase"
+						class="flex items-center gap-2 font-mono text-[9px] font-semibold tracking-wider text-amber-300 uppercase"
 					>
-						<AlertTriangle size={13} /> Merchandising Warnings
+						<AlertTriangle size={12} /> Attention ({snapshotWarnings.length})
 					</p>
-					<ul class="m-0 mt-2 grid list-none gap-1 p-0">
+					<ul class="mt-2 list-disc space-y-1 pl-4 font-sans text-xs text-ash/70">
 						{#each snapshotWarnings as warning (warning)}
-							<li class="flex items-start gap-1 font-sans text-[11px] leading-normal text-ash/85">
-								<span class="mt-0.5 text-yellow-500/60">•</span>
-								<span>{warning}</span>
-							</li>
+							<li>{warning}</li>
 						{/each}
 					</ul>
 				</div>
@@ -2017,141 +1953,174 @@
 </AdminFormLayout>
 
 <!-- Image Preview Modal -->
-{#if activeImage && activeImageIndex !== null}
-	{@const metadata = getImageMetadata(activeImageIndex)}
-	<div
-		class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-void/90 px-3 py-4 backdrop-blur-sm sm:px-4 sm:py-6"
-	>
-		<section
-			class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-ash/25 bg-void shadow-2xl lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
-		>
-			<div
-				class="group relative flex min-h-0 w-full min-w-0 items-center overflow-hidden bg-charcoal/40"
-			>
-				<img
-					src={activeImage.url}
-					alt={metadata.altText ?? ''}
-					class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
-				/>
-
-				{#if activeVariantImages.length > 1}
-					<button
-						type="button"
-						onclick={() => navigateActiveImage(-1)}
-						class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
-						aria-label="Previous image"
-					>
-						&larr;
-					</button>
-					<button
-						type="button"
-						onclick={() => navigateActiveImage(1)}
-						class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
-						aria-label="Next image"
-					>
-						&rarr;
-					</button>
-				{/if}
-			</div>
-			<div
-				class="grid min-w-0 content-start gap-4 overflow-x-hidden border-t border-ash/15 bg-charcoal p-5 lg:overflow-y-auto lg:border-t-0 lg:border-l"
-			>
-				<div class="flex items-start justify-between gap-4">
-					<div class="min-w-0">
-						<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Media Info</p>
-						<h2 class="wrap-break-words mt-1 font-sans text-base font-semibold text-bone">
-							{activeImage.name}
-						</h2>
-						<p class="mt-1 font-mono text-[10px] text-ash/60">
-							{formatFileSize(activeImage.size)}
-						</p>
-					</div>
-					<div class="flex shrink-0 items-center gap-2">
-						<button
-							type="button"
-							onclick={() => {
-								if (activeImageIndex !== null) {
-									removeImage(activeImageIndex);
-									activeImageIndex = null;
-								}
-							}}
-							class="grid h-9 w-9 place-items-center border border-red-500/25 text-red-400 transition-colors hover:border-red-400 hover:text-red-300"
-							aria-label="Remove image"
-						>
-							<Trash2 size={14} aria-hidden="true" />
-						</button>
-						<button
-							type="button"
-							onclick={() => (activeImageIndex = null)}
-							class="grid h-9 w-9 place-items-center border border-ash/30 text-ash transition-colors hover:border-volt hover:text-volt"
-							aria-label="Close detail modal"
-						>
-							<X size={15} aria-hidden="true" />
-						</button>
-					</div>
-				</div>
-
-				<label class="grid gap-1">
-					<span class="font-sans text-xs font-semibold text-ash">Linked Color Variant</span>
-					<select
-						value={metadata.variantClientId ?? ''}
-						disabled
-						class="min-h-11 w-full cursor-not-allowed border border-ash/30 bg-void/50 px-3 py-2 font-sans text-sm text-ash opacity-80 outline-none"
-					>
-						<option value="">Product-wide Image</option>
-						{#each $createProductForm.variants as variant (variant.clientId)}
-							<option value={variant.clientId}>{variantLabel(variant.clientId)}</option>
-						{/each}
-					</select>
-				</label>
-
-				<AdminInput
-					label="Alt Text"
-					value={metadata.altText ?? ''}
-					oninput={handleActiveImageAltInput}
-					name="imageAltText"
-				/>
-
-				<AdminSelect
-					label="Display Order"
-					name="imagePosition"
-					value={metadata.position}
-					onchange={handleActiveImagePositionChange}
-				>
-					{#each imagePositionOptionsForVariant(metadata.variantClientId) as positionValue (positionValue)}
-						<option value={positionValue}>{positionValue}</option>
-					{/each}
-				</AdminSelect>
-
-				<AdminButton
-					type="button"
-					onclick={markActiveImagePrimary}
-					variant={metadata.isPrimary ? 'volt' : 'outline'}
-					class="w-full"
-				>
-					<Star size={14} fill={metadata.isPrimary ? 'currentColor' : 'none'} aria-hidden="true" />
-					<span>Primary for {variantLabel(metadata.variantClientId)}</span>
-				</AdminButton>
-			</div>
-		</section>
-	</div>
-{/if}
-
-<!-- Unsaved Changes Modal -->
-<AdminUnsavedChangesModal
-	bind:isOpen={showUnsavedModal}
-	title="Save before leaving?"
-	description="You have unsaved changes. You can save this product as an inactive draft before opening {pendingRedirect
-		? formatLabel(pendingRedirect)
-		: ''}, or discard your changes."
-	saveLabel="Save Draft"
-	discardLabel="Discard changes"
-	onsave={saveDraftAndRedirect}
-	ondiscard={leaveUnsaved}
-	oncancel={() => {
-		pendingRedirect = null;
-		showUnsavedModal = false;
+<!-- Image Preview Modal -->
+<Dialog.Root
+	open={activeImageIndex !== null}
+	onOpenChange={(v) => {
+		if (!v) activeImageIndex = null;
 	}}
+>
+	{#if activeImageIndex !== null}
+		<Dialog.Portal>
+			<Dialog.Overlay>
+				{#snippet child({ props, open })}
+					{#if open}
+						<div
+							{...props}
+							transition:fade={{ duration: 150 }}
+							class="fixed inset-0 z-50 bg-void/90 backdrop-blur-sm"
+						></div>
+					{/if}
+				{/snippet}
+			</Dialog.Overlay>
+			<div
+				class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-3 py-4 sm:px-4 sm:py-6"
+			>
+				<Dialog.Content>
+					{#snippet child({ props, open })}
+						{#if open && activeImage && activeImageIndex !== null}
+							{@const metadata = getImageMetadata(activeImageIndex)}
+							<div
+								{...props}
+								transition:scale={{ duration: 200, start: 0.95 }}
+								class="mx-auto my-auto grid w-full max-w-5xl min-w-0 border border-ash/25 bg-void shadow-2xl outline-none lg:max-h-[90vh] lg:grid-cols-[minmax(0,1fr)_340px] lg:overflow-hidden"
+							>
+								<Dialog.Title class="sr-only">Product Image Preview</Dialog.Title>
+								<Dialog.Description class="sr-only">
+									Full size zoomed view and metadata management for this product photo.
+								</Dialog.Description>
+
+								<div
+									class="group relative flex min-h-0 w-full min-w-0 items-center overflow-hidden bg-charcoal/40"
+								>
+									<img
+										src={activeImage.url}
+										alt={metadata.altText ?? ''}
+										class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
+									/>
+
+									{#if activeVariantImages.length > 1}
+										<button
+											type="button"
+											onclick={() => navigateActiveImage(-1)}
+											class="absolute top-1/2 left-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
+											aria-label="Previous image"
+										>
+											&larr;
+										</button>
+										<button
+											type="button"
+											onclick={() => navigateActiveImage(1)}
+											class="absolute top-1/2 right-2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center border border-ash/20 bg-void/80 text-bone transition-colors select-none hover:border-volt hover:text-volt"
+											aria-label="Next image"
+										>
+											&rarr;
+										</button>
+									{/if}
+								</div>
+								<div
+									class="grid min-w-0 content-start gap-4 overflow-x-hidden border-t border-ash/15 bg-charcoal p-5 lg:overflow-y-auto lg:border-t-0 lg:border-l"
+								>
+									<div class="flex items-start justify-between gap-4">
+										<div class="min-w-0">
+											<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
+												Media Info
+											</p>
+											<h2 class="wrap-break-words mt-1 font-sans text-base font-semibold text-bone">
+												{activeImage.name}
+											</h2>
+											<p class="mt-1 font-mono text-[10px] text-ash/60">
+												{formatFileSize(activeImage.size)}
+											</p>
+										</div>
+										<div class="flex shrink-0 items-center gap-2">
+											<button
+												type="button"
+												onclick={() => {
+													if (activeImageIndex !== null) {
+														removeImage(activeImageIndex);
+														activeImageIndex = null;
+													}
+												}}
+												class="grid h-9 w-9 place-items-center border border-red-500/25 text-red-400 transition-colors hover:border-red-400 hover:text-red-300"
+												aria-label="Remove image"
+											>
+												<Trash2 size={14} aria-hidden="true" />
+											</button>
+											<button
+												type="button"
+												onclick={() => (activeImageIndex = null)}
+												class="grid h-9 w-9 place-items-center border border-ash/30 text-ash transition-colors hover:border-volt hover:text-volt"
+												aria-label="Close detail modal"
+											>
+												<X size={15} aria-hidden="true" />
+											</button>
+										</div>
+									</div>
+
+									<label class="grid gap-1">
+										<span class="font-sans text-xs font-semibold text-ash"
+											>Linked Color Variant</span
+										>
+										<select
+											value={metadata.variantClientId ?? ''}
+											disabled
+											class="min-h-11 w-full cursor-not-allowed border border-ash/30 bg-void/50 px-3 py-2 font-sans text-sm text-ash opacity-80 outline-none"
+										>
+											<option value="">Product-wide Image</option>
+											{#each $createProductForm.variants as variant (variant.clientId)}
+												<option value={variant.clientId}>{variantLabel(variant.clientId)}</option>
+											{/each}
+										</select>
+									</label>
+
+									<AdminInput
+										label="Alt Text"
+										value={metadata.altText ?? ''}
+										oninput={handleActiveImageAltInput}
+										name="imageAltText"
+									/>
+
+									<AdminSelect
+										label="Display Order"
+										name="imagePosition"
+										value={metadata.position}
+										onchange={handleActiveImagePositionChange}
+									>
+										{#each imagePositionOptionsForVariant(metadata.variantClientId) as positionValue (positionValue)}
+											<option value={positionValue}>{positionValue}</option>
+										{/each}
+									</AdminSelect>
+
+									<AdminButton
+										type="button"
+										onclick={markActiveImagePrimary}
+										variant={metadata.isPrimary ? 'volt' : 'outline'}
+										class="w-full"
+									>
+										<Star
+											size={14}
+											fill={metadata.isPrimary ? 'currentColor' : 'none'}
+											aria-hidden="true"
+										/>
+										<span>Primary for {variantLabel(metadata.variantClientId)}</span>
+									</AdminButton>
+								</div>
+							</div>
+						{/if}
+					{/snippet}
+				</Dialog.Content>
+			</div>
+		</Dialog.Portal>
+	{/if}
+</Dialog.Root>
+
+<!-- Server Error Toast -->
+<AdminToast
+	message={toastMessage}
+	type="error"
+	duration={6000}
+	onclose={() => (toastMessage = null)}
 />
 
 <!-- Color Manager Modal -->

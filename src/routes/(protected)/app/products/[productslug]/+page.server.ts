@@ -19,11 +19,9 @@ function getAdminContext(
 export const load: PageServerLoad = async ({ locals, params, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
-	try {
-		const product = await getProduct(ctx, { slug: params.productslug }, { includeInactive: true });
-
-		return { product };
-	} catch (error) {
-		throwHttpFromAppError(error);
-	}
+	return {
+		streamed: {
+			product: getProduct(ctx, { slug: params.productslug }, { includeInactive: true })
+		}
+	};
 };
