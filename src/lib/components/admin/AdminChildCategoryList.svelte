@@ -70,9 +70,7 @@
 	function handleChildNameInput(index: number, event: Event) {
 		const value = (event.target as HTMLInputElement).value;
 		const slug = generateSlug(value);
-		children = children.map((c, i) =>
-			i === index ? { ...c, name: value, slug } : c
-		);
+		children = children.map((c, i) => (i === index ? { ...c, name: value, slug } : c));
 	}
 
 	function handleChildSlugInput(index: number, event: Event) {
@@ -85,9 +83,7 @@
 			.replace(/-{2,}/g, '-');
 		// Write sanitized value back to the input
 		(event.target as HTMLInputElement).value = sanitized;
-		children = children.map((c, i) =>
-			i === index ? { ...c, slug: sanitized } : c
-		);
+		children = children.map((c, i) => (i === index ? { ...c, slug: sanitized } : c));
 	}
 
 	function handleChildFileChange(index: number, event: Event) {
@@ -211,7 +207,12 @@
 						value={child.name}
 						placeholder="e.g. Summer Collection"
 						oninput={(e) => handleChildNameInput(i, e)}
-						class="min-h-11 border bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt {childError(i, 'name') ? 'border-red-400/50 focus:border-red-400' : 'border-ash/30'}"
+						class="min-h-11 border bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt {childError(
+							i,
+							'name'
+						)
+							? 'border-red-400/50 focus:border-red-400'
+							: 'border-ash/30'}"
 					/>
 					{#if childError(i, 'name')}
 						<span class="font-sans text-xs text-red-400">{childError(i, 'name')}</span>
@@ -234,7 +235,12 @@
 						value={child.slug}
 						placeholder="auto-generated"
 						oninput={(e) => handleChildSlugInput(i, e)}
-						class="min-h-11 border bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt {childError(i, 'slug') ? 'border-red-400/50 focus:border-red-400' : 'border-ash/30'}"
+						class="min-h-11 border bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt {childError(
+							i,
+							'slug'
+						)
+							? 'border-red-400/50 focus:border-red-400'
+							: 'border-ash/30'}"
 					/>
 					{#if childError(i, 'slug')}
 						<span class="font-sans text-xs text-red-400">{childError(i, 'slug')}</span>
@@ -261,7 +267,12 @@
 						const val = (e.target as HTMLTextAreaElement).value;
 						children[i] = { ...children[i], description: val || null };
 					}}
-					class="min-h-20 resize-y border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 outline-none transition-colors hover:border-ash/60 focus:border-volt {childError(i, 'description') ? 'border-red-400/50 focus:border-red-400' : 'border-ash/30'}"
+					class="min-h-20 resize-y border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt {childError(
+						i,
+						'description'
+					)
+						? 'border-red-400/50 focus:border-red-400'
+						: 'border-ash/30'}"
 				></textarea>
 				{#if childError(i, 'description')}
 					<span class="font-sans text-xs text-red-400">{childError(i, 'description')}</span>
@@ -284,7 +295,12 @@
 						name="children[{i}].sortOrder"
 						bind:value={child.sortOrder}
 						min={0}
-						class="min-h-11 border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 outline-none transition-colors hover:border-ash/60 focus:border-volt {childError(i, 'sortOrder') ? 'border-red-400/50 focus:border-red-400' : 'border-ash/30'}"
+						class="min-h-11 border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt {childError(
+							i,
+							'sortOrder'
+						)
+							? 'border-red-400/50 focus:border-red-400'
+							: 'border-ash/30'}"
 					/>
 					{#if childError(i, 'sortOrder')}
 						<span class="font-sans text-xs text-red-400">{childError(i, 'sortOrder')}</span>
@@ -336,9 +352,7 @@
 			</div>
 
 			<!-- Active toggle -->
-			<div
-				class="mt-2 flex items-center justify-between border-t border-charcoal/40 pt-4"
-			>
+			<div class="mt-2 flex items-center justify-between border-t border-charcoal/40 pt-4">
 				<div class="grid">
 					<span class="font-sans text-sm font-semibold text-bone">Active</span>
 					<span class="font-sans text-xs text-ash/60">Visible to shoppers</span>

@@ -18,15 +18,22 @@ import {
 } from '$lib/server/foundation/utils';
 import { SRI_LANKA_DISTRICTS, type SriLankaDistrict } from '../addresses/addresses.drizzle';
 import {
-	insertShippingMethodSchema,
-	insertShippingZoneSchema,
+	carrier,
 	shippingMethod,
 	shippingZone,
+	insertCarrierSchema,
+	updateCarrierSchema,
+	insertShippingMethodSchema,
 	updateShippingMethodSchema,
-	type InsertShippingMethod,
-	type InsertShippingZone,
+	insertShippingZoneSchema,
+	updateShippingZoneSchema,
+	type Carrier,
 	type ShippingMethod,
 	type ShippingZone,
+	type InsertCarrier,
+	type UpdateCarrier,
+	type InsertShippingMethod,
+	type InsertShippingZone,
 	type UpdateShippingMethod
 } from './shipping.drizzle';
 import type {
@@ -43,7 +50,10 @@ import type {
 	ShippingQuoteDTO,
 	ShippingZoneDTO,
 	ShippingZoneListResult,
-	UpdateShippingMethodInput
+	UpdateShippingMethodInput,
+	CreateCarrierInput,
+	UpdateCarrierInput,
+	CarrierDTO
 } from './shipping.types';
 
 type Db = ReturnType<typeof getDb>;
@@ -53,12 +63,123 @@ type QueryExecutor = Db | ShippingTx;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
+// ---------------------------------------------------------------------------
+// DISTRICT HELPERS
+// ---------------------------------------------------------------------------
+
 export function listShippingDistrictOptions(): ShippingDistrictOption[] {
 	return SRI_LANKA_DISTRICTS.map((district) => ({
 		value: district,
 		label: district
 	}));
 }
+
+// ---------------------------------------------------------------------------
+// CARRIER CRUD
+// ---------------------------------------------------------------------------
+
+export async function listCarriers(ctx: ServiceContext): Promise<CarrierDTO[]> {
+	requireAdmin(ctx.actor);
+	const rows = await getDb().select().from(carrier).orderBy(asc(carrier.name));
+	return rows.map(toCarrierDTO);
+}
+
+export async function createCarrier(
+	ctx: ServiceContext,
+	input: CreateCarrierInput
+): Promise<CarrierDTO> {
+	requireAdmin(ctx.actor);
+	const data = parseInsertCarrier(input);
+
+	try {
+		const [row] = await getDb().insert(carrier).values(data).returning();
+		if (!row) {
+			throw new ShippingError('Carrier was not created.', ErrorCode.INTERNAL_ERROR);
+		}
+		return toCarrierDTO(row);
+	} catch (error) {
+		throw mapShippingPersistenceError(error);
+	}
+}
+
+export async function updateCarrier(
+	ctx: ServiceContext,
+	input: UpdateCarrierInput & { carrierId: string }
+): Promise<CarrierDTO> {
+	requireAdmin(ctx.actor);
+	const carrierId = normalizeId(input.carrierId, 'carrierId');
+	const existing = await loadCarrierByIdTx(getDb(), carrierId);
+	const { carrierId: ignoredId, ...rawData } = input;
+	void ignoredId;
+	const data = parseUpdateCarrier(rawData);
+	const updateValues = removeUndefinedValues(data);
+
+	if (Object.keys(updateValues).length === 0) {
+		return toCarrierDTO(existing);
+	}
+
+	try {
+		const [row] = await getDb()
+			.update(carrier)
+			.set(updateValues)
+			.where(eq(carrier.id, carrierId))
+			.returning();
+
+		if (!row) {
+			throw new ShippingError('Carrier not found.', ErrorCode.NOT_FOUND, { carrierId });
+		}
+		return toCarrierDTO(row);
+	} catch (error) {
+		throw mapShippingPersistenceError(error);
+	}
+}
+
+export async function deleteCarrier(
+	ctx: ServiceContext,
+	input: { carrierId: string }
+): Promise<void> {
+	requireAdmin(ctx.actor);
+	const carrierId = normalizeId(input.carrierId, 'carrierId');
+	const db = getDb();
+
+	// Pre-delete safety check:
+	// Verify if any active shipping methods or zones override point directly to this carrier.
+	const [methodRef] = await db
+		.select({ id: shippingMethod.id, name: shippingMethod.name })
+		.from(shippingMethod)
+		.where(eq(shippingMethod.carrierId, carrierId))
+		.limit(1);
+
+	if (methodRef) {
+		throw new ShippingError(
+			`Cannot delete carrier. It is referenced by shipping method "${methodRef.name}".`,
+			ErrorCode.CONFLICT
+		);
+	}
+
+	const [zoneRef] = await db
+		.select({ id: shippingZone.id, district: shippingZone.district })
+		.from(shippingZone)
+		.where(eq(shippingZone.carrierIdOverride, carrierId))
+		.limit(1);
+
+	if (zoneRef) {
+		throw new ShippingError(
+			`Cannot delete carrier. It is referenced by zone override for district "${zoneRef.district}".`,
+			ErrorCode.CONFLICT
+		);
+	}
+
+	const [deleted] = await db.delete(carrier).where(eq(carrier.id, carrierId)).returning();
+
+	if (!deleted) {
+		throw new ShippingError('Carrier not found.', ErrorCode.NOT_FOUND, { carrierId });
+	}
+}
+
+// ---------------------------------------------------------------------------
+// QUOTES & SNAPSHOTS
+// ---------------------------------------------------------------------------
 
 export async function listShippingQuotes(
 	input: ListShippingQuotesInput = {}
@@ -67,22 +188,78 @@ export async function listShippingQuotes(
 	const district = input.district ?? null;
 	const db = getDb();
 
-	const rows = await db
-		.select()
+	// Select active shipping methods and their default carrier details
+	const methodsWithCarrier = await db
+		.select({
+			method: shippingMethod,
+			methodCarrier: carrier
+		})
 		.from(shippingMethod)
+		.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
 		.where(eq(shippingMethod.isActive, true))
 		.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name));
-	const zonesByMethodId = district
-		? await loadZonesByMethodIdForDistrictTx(
-				db,
-				rows.map((row) => row.id),
-				district
-			)
-		: new Map<string, ShippingZone>();
 
-	return rows.map((row) =>
-		toShippingQuoteDTO(row, zonesByMethodId.get(row.id) ?? null, district, subtotal)
-	);
+	if (methodsWithCarrier.length === 0) return [];
+
+	const methodIds = methodsWithCarrier.map((row) => row.method.id);
+
+	// Load zones with overrides for the target district
+	const zonesWithCarrier = district
+		? await db
+				.select({
+					zone: shippingZone,
+					zoneCarrier: carrier
+				})
+				.from(shippingZone)
+				.leftJoin(carrier, eq(shippingZone.carrierIdOverride, carrier.id))
+				.where(
+					and(
+						inArray(shippingZone.shippingMethodId, methodIds),
+						eq(shippingZone.district, district)
+					)
+				)
+		: [];
+
+	const zonesMap = new Map<string, { zone: ShippingZone; zoneCarrier: Carrier | null }>();
+	for (const row of zonesWithCarrier) {
+		zonesMap.set(row.zone.shippingMethodId, {
+			zone: row.zone,
+			zoneCarrier: row.zoneCarrier
+		});
+	}
+
+	const quotes: ShippingQuoteDTO[] = [];
+
+	for (const { method, methodCarrier } of methodsWithCarrier) {
+		const zoneOverride = zonesMap.get(method.id);
+
+		// Availability Check: If zone exists and isAvailable = false, completely hide it
+		if (zoneOverride && !zoneOverride.zone.isAvailable) {
+			continue;
+		}
+
+		// Active Carrier Check: If carrier is deactivated (isActive = false), exclude this quote
+		if (methodCarrier && !methodCarrier.isActive) {
+			continue;
+		}
+		if (zoneOverride && zoneOverride.zoneCarrier && !zoneOverride.zoneCarrier.isActive) {
+			continue;
+		}
+
+		const resolvedCarrierName = zoneOverride?.zoneCarrier?.name ?? methodCarrier?.name ?? null;
+
+		quotes.push(
+			toShippingQuoteDTO(
+				method,
+				zoneOverride?.zone ?? null,
+				district,
+				subtotal,
+				resolvedCarrierName
+			)
+		);
+	}
+
+	return quotes;
 }
 
 export async function calculateShippingQuote(
@@ -90,6 +267,73 @@ export async function calculateShippingQuote(
 ): Promise<ShippingQuoteDTO> {
 	return calculateShippingQuoteTx(getDb(), input);
 }
+
+export async function calculateShippingQuoteTx(
+	tx: QueryExecutor,
+	input: CalculateShippingQuoteInput & { activeOnly?: boolean }
+): Promise<ShippingQuoteDTO> {
+	const shippingMethodId = normalizeId(input.shippingMethodId, 'shippingMethodId');
+	const subtotal = normalizeMoney(input.subtotal, 'subtotal');
+
+	const [methodWithCarrier] = await tx
+		.select({
+			method: shippingMethod,
+			methodCarrier: carrier
+		})
+		.from(shippingMethod)
+		.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
+		.where(eq(shippingMethod.id, shippingMethodId))
+		.limit(1);
+
+	if (!methodWithCarrier) {
+		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
+			shippingMethodId
+		});
+	}
+
+	if (input.activeOnly !== false && !methodWithCarrier.method.isActive) {
+		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
+			shippingMethodId
+		});
+	}
+
+	const zone = await loadShippingZoneByMethodDistrictTx(tx, shippingMethodId, input.district);
+
+	let resolvedCarrierName = methodWithCarrier.methodCarrier?.name ?? null;
+	if (zone?.carrierIdOverride) {
+		const [zoneCarrierRow] = await tx
+			.select()
+			.from(carrier)
+			.where(eq(carrier.id, zone.carrierIdOverride))
+			.limit(1);
+		if (zoneCarrierRow) resolvedCarrierName = zoneCarrierRow.name;
+	}
+
+	return toShippingQuoteDTO(
+		methodWithCarrier.method,
+		zone,
+		input.district,
+		subtotal,
+		resolvedCarrierName
+	);
+}
+
+export function createShippingMethodSnapshot(quote: ShippingQuoteDTO): ShippingMethodSnapshot {
+	return {
+		id: quote.shippingMethodId,
+		name: quote.name,
+		description: quote.description,
+		carrier: quote.carrier,
+		price: quote.price,
+		estimatedDaysMin: quote.estimatedDaysMin,
+		estimatedDaysMax: quote.estimatedDaysMax,
+		etaText: quote.etaText
+	};
+}
+
+// ---------------------------------------------------------------------------
+// SHIPPING METHODS CRUD
+// ---------------------------------------------------------------------------
 
 export async function createShippingMethod(
 	ctx: ServiceContext,
@@ -105,7 +349,17 @@ export async function createShippingMethod(
 			throw new ShippingError('Shipping method was not created.', ErrorCode.INTERNAL_ERROR);
 		}
 
-		return toShippingMethodDTO(row);
+		let carrierName: string | null = null;
+		if (row.carrierId) {
+			const [res] = await getDb()
+				.select({ name: carrier.name })
+				.from(carrier)
+				.where(eq(carrier.id, row.carrierId))
+				.limit(1);
+			if (res) carrierName = res.name;
+		}
+
+		return toShippingMethodDTO(row, carrierName);
 	} catch (error) {
 		throw mapShippingPersistenceError(error);
 	}
@@ -124,7 +378,16 @@ export async function updateShippingMethod(
 	const updateValues = removeUndefinedValues(data);
 
 	if (Object.keys(updateValues).length === 0) {
-		return toShippingMethodDTO(existing);
+		let carrierName: string | null = null;
+		if (existing.carrierId) {
+			const [res] = await getDb()
+				.select({ name: carrier.name })
+				.from(carrier)
+				.where(eq(carrier.id, existing.carrierId))
+				.limit(1);
+			if (res) carrierName = res.name;
+		}
+		return toShippingMethodDTO(existing, carrierName);
 	}
 
 	try {
@@ -140,7 +403,17 @@ export async function updateShippingMethod(
 			});
 		}
 
-		return toShippingMethodDTO(row);
+		let carrierName: string | null = null;
+		if (row.carrierId) {
+			const [res] = await getDb()
+				.select({ name: carrier.name })
+				.from(carrier)
+				.where(eq(carrier.id, row.carrierId))
+				.limit(1);
+			if (res) carrierName = res.name;
+		}
+
+		return toShippingMethodDTO(row, carrierName);
 	} catch (error) {
 		throw mapShippingPersistenceError(error);
 	}
@@ -151,14 +424,31 @@ export async function getShippingMethod(
 	input: { shippingMethodId: string; includeZones?: boolean }
 ): Promise<ShippingMethodDTO> {
 	requireAdmin(ctx.actor);
-	const row = await loadShippingMethodByIdTx(getDb(), input.shippingMethodId);
+	const shippingMethodId = normalizeId(input.shippingMethodId, 'shippingMethodId');
+	const db = getDb();
 
-	if (!input.includeZones) {
-		return toShippingMethodDTO(row);
+	const [res] = await db
+		.select({
+			method: shippingMethod,
+			carrierName: carrier.name
+		})
+		.from(shippingMethod)
+		.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
+		.where(eq(shippingMethod.id, shippingMethodId))
+		.limit(1);
+
+	if (!res) {
+		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
+			shippingMethodId
+		});
 	}
 
-	const zones = await loadZonesForMethodTx(getDb(), row.id);
-	return toShippingMethodDTO(row, zones.map(toShippingZoneDTO));
+	if (!input.includeZones) {
+		return toShippingMethodDTO(res.method, res.carrierName);
+	}
+
+	const zones = await loadZonesForMethodTx(db, res.method.id);
+	return toShippingMethodDTO(res.method, res.carrierName, zones.map(toShippingZoneDTO));
 }
 
 export async function listShippingMethods(
@@ -171,10 +461,16 @@ export async function listShippingMethods(
 	const offset = normalizeOffset(options.offset);
 	const where = buildShippingMethodListWhere(options);
 	const db = getDb();
+
 	const countQuery = db.select({ total: count() }).from(shippingMethod);
+
 	const listQuery = db
-		.select()
+		.select({
+			method: shippingMethod,
+			carrierName: carrier.name
+		})
 		.from(shippingMethod)
+		.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
 		.orderBy(
 			asc(shippingMethod.sortOrder),
 			asc(shippingMethod.name),
@@ -182,24 +478,31 @@ export async function listShippingMethods(
 		)
 		.limit(limit)
 		.offset(offset);
+
 	const [totalRows, rows] = await Promise.all([
 		where ? countQuery.where(where) : countQuery,
 		where ? listQuery.where(where) : listQuery
 	]);
-	const zonesByMethodId = options.includeZones
-		? await loadZonesByMethodIdsTx(
-				db,
-				rows.map((row) => row.id)
-			)
-		: new Map<string, ShippingZoneDTO[]>();
+
+	const methodIds = rows.map((r) => r.method.id);
+	const zonesByMethodId =
+		options.includeZones && methodIds.length > 0
+			? await loadZonesByMethodIdsTx(db, methodIds)
+			: new Map<string, ShippingZoneDTO[]>();
 
 	return {
-		items: rows.map((row) => toShippingMethodDTO(row, zonesByMethodId.get(row.id))),
+		items: rows.map((r) =>
+			toShippingMethodDTO(r.method, r.carrierName, zonesByMethodId.get(r.method.id))
+		),
 		total: totalRows[0]?.total ?? 0,
 		limit,
 		offset
 	};
 }
+
+// ---------------------------------------------------------------------------
+// SHIPPING ZONES CRUD
+// ---------------------------------------------------------------------------
 
 export async function setShippingZone(
 	ctx: ServiceContext,
@@ -263,36 +566,9 @@ export async function listShippingZones(
 	};
 }
 
-export function createShippingMethodSnapshot(quote: ShippingQuoteDTO): ShippingMethodSnapshot {
-	return {
-		id: quote.shippingMethodId,
-		name: quote.name,
-		description: quote.description,
-		carrier: quote.carrier,
-		price: quote.price,
-		estimatedDaysMin: quote.estimatedDaysMin,
-		estimatedDaysMax: quote.estimatedDaysMax,
-		etaText: quote.etaText
-	};
-}
-
-export async function calculateShippingQuoteTx(
-	tx: QueryExecutor,
-	input: CalculateShippingQuoteInput & { activeOnly?: boolean }
-): Promise<ShippingQuoteDTO> {
-	const shippingMethodId = normalizeId(input.shippingMethodId, 'shippingMethodId');
-	const subtotal = normalizeMoney(input.subtotal, 'subtotal');
-	const method = await loadShippingMethodByIdTx(tx, shippingMethodId);
-
-	if (input.activeOnly !== false && !method.isActive) {
-		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
-			shippingMethodId
-		});
-	}
-
-	const zone = await loadShippingZoneByMethodDistrictTx(tx, shippingMethodId, input.district);
-	return toShippingQuoteDTO(method, zone, input.district, subtotal);
-}
+// ---------------------------------------------------------------------------
+// SERVICE INTERNAL HELPERS
+// ---------------------------------------------------------------------------
 
 async function setShippingZoneWithRetry(
 	ctx: ServiceContext,
@@ -317,7 +593,9 @@ async function setShippingZoneWithRetry(
 					.set({
 						priceOverride: data.priceOverride,
 						estimatedDaysMin: data.estimatedDaysMin,
-						estimatedDaysMax: data.estimatedDaysMax
+						estimatedDaysMax: data.estimatedDaysMax,
+						isAvailable: data.isAvailable,
+						carrierIdOverride: data.carrierIdOverride
 					})
 					.where(eq(shippingZone.id, existing.id))
 					.returning();
@@ -420,24 +698,39 @@ async function loadZonesByMethodIdsTx(
 	return groups;
 }
 
-async function loadZonesByMethodIdForDistrictTx(
-	tx: QueryExecutor,
-	shippingMethodIds: string[],
-	district: SriLankaDistrict
-): Promise<Map<string, ShippingZone>> {
-	if (shippingMethodIds.length === 0) return new Map();
+async function loadCarrierByIdTx(tx: QueryExecutor, carrierId: string): Promise<Carrier> {
+	const normalizedId = normalizeId(carrierId, 'carrierId');
+	const [row] = await tx.select().from(carrier).where(eq(carrier.id, normalizedId)).limit(1);
 
-	const rows = await tx
-		.select()
-		.from(shippingZone)
-		.where(
-			and(
-				inArray(shippingZone.shippingMethodId, shippingMethodIds),
-				eq(shippingZone.district, district)
-			)
-		);
+	if (!row) {
+		throw new ShippingError('Carrier not found.', ErrorCode.NOT_FOUND, { carrierId: normalizedId });
+	}
 
-	return new Map(rows.map((row) => [row.shippingMethodId, row]));
+	return row;
+}
+
+// ---------------------------------------------------------------------------
+// PARSERS
+// ---------------------------------------------------------------------------
+
+function parseInsertCarrier(input: InsertCarrier): InsertCarrier {
+	const result = insertCarrierSchema.safeParse(input);
+	if (!result.success) {
+		throw new ShippingError('Invalid carrier data.', ErrorCode.VALIDATION_ERROR, {
+			issues: result.error.issues
+		});
+	}
+	return result.data;
+}
+
+function parseUpdateCarrier(input: UpdateCarrier): UpdateCarrier {
+	const result = updateCarrierSchema.safeParse(input);
+	if (!result.success) {
+		throw new ShippingError('Invalid carrier data.', ErrorCode.VALIDATION_ERROR, {
+			issues: result.error.issues
+		});
+	}
+	return result.data;
 }
 
 function parseInsertShippingMethod(input: InsertShippingMethod): InsertShippingMethod {
@@ -452,8 +745,8 @@ function parseInsertShippingMethod(input: InsertShippingMethod): InsertShippingM
 	return {
 		...result.data,
 		description: result.data.description ?? null,
-		carrier: result.data.carrier ?? null,
-		freeShippingThreshold: result.data.freeShippingThreshold ?? null
+		freeShippingThreshold: result.data.freeShippingThreshold ?? null,
+		carrierId: result.data.carrierId ?? null
 	};
 }
 
@@ -505,12 +798,33 @@ function validateDeliveryEstimateRange(input: {
 	}
 }
 
-function toShippingMethodDTO(row: ShippingMethod, zones?: ShippingZoneDTO[]): ShippingMethodDTO {
+// ---------------------------------------------------------------------------
+// DTO CONVERTERS
+// ---------------------------------------------------------------------------
+
+function toCarrierDTO(row: Carrier): CarrierDTO {
+	return {
+		id: row.id,
+		name: row.name,
+		code: row.code,
+		urlTemplate: row.urlTemplate ?? null,
+		notes: row.notes ?? null,
+		isActive: row.isActive,
+		createdAt: new Date(row.createdAt),
+		updatedAt: new Date(row.updatedAt)
+	};
+}
+
+function toShippingMethodDTO(
+	row: ShippingMethod,
+	carrierName: string | null,
+	zones?: ShippingZoneDTO[]
+): ShippingMethodDTO {
 	return {
 		id: row.id,
 		name: row.name,
 		description: row.description,
-		carrier: row.carrier,
+		carrier: carrierName,
 		price: row.price,
 		freeShippingThreshold: row.freeShippingThreshold,
 		estimatedDaysMin: row.estimatedDaysMin,
@@ -518,8 +832,9 @@ function toShippingMethodDTO(row: ShippingMethod, zones?: ShippingZoneDTO[]): Sh
 		etaText: formatEtaText(row.estimatedDaysMin, row.estimatedDaysMax),
 		isActive: row.isActive,
 		sortOrder: row.sortOrder,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
+		carrierId: row.carrierId,
+		createdAt: new Date(row.createdAt),
+		updatedAt: new Date(row.updatedAt),
 		...(zones ? { zones } : {})
 	};
 }
@@ -532,6 +847,8 @@ function toShippingZoneDTO(row: ShippingZone): ShippingZoneDTO {
 		priceOverride: row.priceOverride,
 		estimatedDaysMin: row.estimatedDaysMin,
 		estimatedDaysMax: row.estimatedDaysMax,
+		isAvailable: row.isAvailable,
+		carrierIdOverride: row.carrierIdOverride,
 		etaText: formatEtaText(row.estimatedDaysMin, row.estimatedDaysMax)
 	};
 }
@@ -540,7 +857,8 @@ function toShippingQuoteDTO(
 	method: ShippingMethod,
 	zone: ShippingZone | null,
 	district: SriLankaDistrict | null,
-	subtotal: number
+	subtotal: number,
+	resolvedCarrierName: string | null
 ): ShippingQuoteDTO {
 	const priceBeforeFreeShipping = zone?.priceOverride ?? method.price;
 	const freeShippingThresholdMet =
@@ -553,7 +871,7 @@ function toShippingQuoteDTO(
 		shippingMethodId: method.id,
 		name: method.name,
 		description: method.description,
-		carrier: method.carrier,
+		carrier: resolvedCarrierName,
 		district,
 		basePrice: method.price,
 		zonePriceOverride: zone?.priceOverride ?? null,
@@ -628,6 +946,7 @@ function normalizeId(value: string, field: string): string {
 	return normalized;
 }
 
+// Moneys are standard LKR
 function normalizeMoney(value: number, field: string): number {
 	if (!Number.isInteger(value) || value < 0) {
 		throw new ShippingError(`Invalid ${field}.`, ErrorCode.VALIDATION_ERROR, { [field]: value });
@@ -666,15 +985,15 @@ function mapShippingPersistenceError(error: unknown): never {
 	const message = getErrorMessage(error);
 
 	if (isUniqueConstraintError(message)) {
-		throw new ShippingError('Shipping zone already exists.', ErrorCode.CONFLICT);
+		throw new ShippingError('Unique constraint violation.', ErrorCode.CONFLICT);
 	}
 
 	if (isForeignKeyConstraintError(message)) {
-		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND);
+		throw new ShippingError('Foreign key constraint violation.', ErrorCode.VALIDATION_ERROR);
 	}
 
 	if (isCheckConstraintError(message)) {
-		throw new ShippingError('Invalid shipping data.', ErrorCode.VALIDATION_ERROR);
+		throw new ShippingError('Invalid data constraint check.', ErrorCode.VALIDATION_ERROR);
 	}
 
 	throw error;

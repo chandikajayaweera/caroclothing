@@ -65,8 +65,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 
 			if (query) {
 				const lower = query.toLowerCase();
-				items = items.filter((d) =>
-					d.name.toLowerCase().includes(lower) || d.slug.toLowerCase().includes(lower)
+				items = items.filter(
+					(d) => d.name.toLowerCase().includes(lower) || d.slug.toLowerCase().includes(lower)
 				);
 			}
 
@@ -77,7 +77,9 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 		});
 
 		// Load all drops for statistics overview
-		const allDropsPromise = listDrops(ctx, { includeArchived: true, limit: 250 }).then((r) => r.items);
+		const allDropsPromise = listDrops(ctx, { includeArchived: true, limit: 250 }).then(
+			(r) => r.items
+		);
 
 		return {
 			streamed: {

@@ -26,6 +26,8 @@ export type WishlistVariantSummaryDTO = {
 	priceOverride: number | null;
 	effectivePrice: number;
 	isActive: boolean;
+	inventoryQuantity: number | null;
+	trackInventory: boolean;
 };
 
 export type WishlistItemDTO = {

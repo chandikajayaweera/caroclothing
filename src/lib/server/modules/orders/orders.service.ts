@@ -10,6 +10,7 @@ import {
 	like,
 	lte,
 	or,
+	sql,
 	type SQL
 } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
@@ -92,7 +93,8 @@ import {
 	type OrderItem,
 	type OrderStatus,
 	type OrderStatusHistory,
-	type Payment
+	type Payment,
+	type PaymentStatus
 } from './orders.drizzle';
 import type {
 	CancelExpiredPendingOrdersInput,
@@ -114,7 +116,6 @@ import type {
 	OrderSummaryDTO,
 	PaymentDTO,
 	PaymentListResult,
-	PaymentStatus,
 	PlaceOrderFromCartInput,
 	PreviewOrderFromCartInput,
 	RecordablePaymentStatus,
@@ -146,21 +147,6 @@ const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 	delivered: ['refunded'],
 	cancelled: [],
 	refunded: []
-};
-const RECORDABLE_PAYMENT_STATUSES = [
-	'pending',
-	'authorized',
-	'captured',
-	'failed'
-] as const satisfies readonly PaymentStatus[];
-const recordablePaymentStatusSet = new Set<PaymentStatus>(RECORDABLE_PAYMENT_STATUSES);
-const ALLOWED_PAYMENT_STATUS_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
-	pending: ['pending', 'authorized', 'captured', 'failed'],
-	authorized: ['authorized', 'captured', 'failed'],
-	captured: ['captured'],
-	failed: ['failed', 'pending', 'authorized', 'captured'],
-	refunded: ['refunded'],
-	partially_refunded: ['partially_refunded', 'refunded']
 };
 
 export async function previewOrderFromCart(
@@ -285,7 +271,9 @@ export async function placeOrderFromCartTx(
 		status: 'pending',
 		transactionId: null,
 		gatewayResponse: null,
-		refundAmount: null
+		refundAmount: null,
+		bankSlipR2Key: input.bankSlipR2Key ?? null,
+		bankReference: input.bankReference ?? null
 	});
 	const [createdPayment] = await tx.insert(payment).values(paymentValues).returning();
 	if (!createdPayment) {
@@ -490,127 +478,6 @@ export async function updateOrderFulfillment(
 	}
 }
 
-export async function listPayments(
-	ctx: ServiceContext,
-	options: ListPaymentsOptions = {}
-): Promise<PaymentListResult> {
-	requireAdmin(ctx.actor);
-
-	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
-	const offset = normalizeOffset(options.offset);
-	const where = buildPaymentListWhere(options);
-	const db = getDb();
-	const countQuery = db.select({ total: count() }).from(payment);
-	const listQuery = db
-		.select()
-		.from(payment)
-		.orderBy(desc(payment.createdAt))
-		.limit(limit)
-		.offset(offset);
-	const [totalRows, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
-
-	return {
-		items: rows.map(toPaymentDTO),
-		total: Number(totalRows[0]?.total ?? 0),
-		limit,
-		offset
-	};
-}
-
-export async function getPayment(ctx: ServiceContext, input: GetPaymentInput): Promise<PaymentDTO> {
-	requireAdmin(ctx.actor);
-	const row = await loadPaymentByIdTx(getDb(), input.paymentId);
-	return toPaymentDTO(row);
-}
-
-export async function recordPayment(
-	ctx: ServiceContext,
-	input: RecordPaymentInput
-): Promise<PaymentDTO> {
-	requireAdmin(ctx.actor);
-	let notificationsToPublish: NotificationOutboxDTO[] = [];
-
-	try {
-		const paymentDto = await getDb().transaction(async (tx) => {
-			const result = await recordPaymentTx(tx, ctx, input);
-			const notification = await enqueuePaymentUpdateNotificationTx(tx, result);
-			if (notification) notificationsToPublish = [notification];
-			return result;
-		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
-		return paymentDto;
-	} catch (error) {
-		throw mapPaymentPersistenceError(error);
-	}
-}
-
-export async function recordRefund(
-	ctx: ServiceContext,
-	input: RecordRefundInput
-): Promise<PaymentDTO> {
-	requireAdmin(ctx.actor);
-	let notificationsToPublish: NotificationOutboxDTO[] = [];
-
-	try {
-		const paymentDto = await getDb().transaction(async (tx) => {
-			const paymentRow = await loadPaymentByIdTx(tx, input.paymentId);
-			const orderRow = await loadOrderByIdTx(tx, paymentRow.orderId);
-			const refundAmount = normalizeMoney(input.refundAmount, 'refundAmount');
-
-			if (refundAmount > paymentRow.amount) {
-				throw new PaymentError('Refund amount exceeds payment amount.', ErrorCode.REFUND_FAILED, {
-					paymentId: paymentRow.id,
-					amount: paymentRow.amount,
-					refundAmount
-				});
-			}
-
-			const status: PaymentStatus =
-				refundAmount === paymentRow.amount ? 'refunded' : 'partially_refunded';
-			const [updated] = await tx
-				.update(payment)
-				.set(
-					parsePaymentUpdate({
-						status,
-						refundAmount,
-						refundedAt: resolveNow(ctx, input.now),
-						gatewayResponse:
-							'gatewayResponse' in input ? (input.gatewayResponse ?? null) : undefined
-					})
-				)
-				.where(eq(payment.id, paymentRow.id))
-				.returning();
-
-			if (!updated) {
-				throw new PaymentError('Payment not found.', ErrorCode.PAYMENT_NOT_FOUND, {
-					paymentId: paymentRow.id
-				});
-			}
-
-			if (status === 'refunded' && orderRow.status === 'delivered') {
-				await transitionOrderStatusTx(tx, ctx, {
-					orderId: orderRow.id,
-					toStatus: 'refunded',
-					note: 'Payment refunded.',
-					now: input.now
-				});
-			}
-
-			const result = toPaymentDTO(updated);
-			const notification = await enqueuePaymentUpdateNotificationTx(tx, result);
-			if (notification) notificationsToPublish = [notification];
-			return result;
-		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
-		return paymentDto;
-	} catch (error) {
-		throw mapPaymentPersistenceError(error);
-	}
-}
-
 export async function cancelExpiredPendingOrders(
 	ctx: ServiceContext,
 	input: CancelExpiredPendingOrdersInput = {}
@@ -725,91 +592,6 @@ async function buildOrderPreviewTx(
 		canCheckout: blockingReasons.length === 0,
 		blockingReasons
 	};
-}
-
-async function recordPaymentTx(
-	tx: OrdersTx,
-	ctx: ServiceContext,
-	input: RecordPaymentInput
-): Promise<PaymentDTO> {
-	const now = resolveNow(ctx, input.now);
-	const nextStatus = input.status;
-
-	assertRecordablePaymentStatus(nextStatus);
-
-	const orderRow = await loadOrderByIdTx(tx, input.orderId);
-	const existing = input.paymentId
-		? await loadPaymentByIdTx(tx, input.paymentId)
-		: await loadLatestPaymentForOrderTx(tx, orderRow.id);
-
-	if (existing && existing.orderId !== orderRow.id) {
-		throw new PaymentError('Payment does not belong to the order.', ErrorCode.PAYMENT_NOT_FOUND, {
-			orderId: orderRow.id,
-			paymentId: existing.id
-		});
-	}
-
-	let row: Payment;
-	if (existing) {
-		assertPaymentStatusTransition(existing.status, nextStatus);
-
-		const [updated] = await tx
-			.update(payment)
-			.set(
-				parsePaymentUpdate({
-					status: nextStatus,
-					transactionId: input.transactionId,
-					gatewayResponse: 'gatewayResponse' in input ? (input.gatewayResponse ?? null) : undefined,
-					paidAt: shouldSetPaidAt(nextStatus) ? (input.paidAt ?? now) : input.paidAt
-				})
-			)
-			.where(eq(payment.id, existing.id))
-			.returning();
-
-		if (!updated) {
-			throw new PaymentError('Payment not found.', ErrorCode.PAYMENT_NOT_FOUND, {
-				paymentId: existing.id
-			});
-		}
-		row = updated;
-	} else {
-		if (!input.method || input.amount === undefined) {
-			throw new PaymentError('Payment method and amount are required.', ErrorCode.VALIDATION_ERROR);
-		}
-
-		const [created] = await tx
-			.insert(payment)
-			.values(
-				parseNewPayment({
-					orderId: orderRow.id,
-					amount: input.amount,
-					currency: 'LKR',
-					method: input.method,
-					status: nextStatus,
-					transactionId: input.transactionId ?? null,
-					gatewayResponse: 'gatewayResponse' in input ? (input.gatewayResponse ?? null) : null,
-					refundAmount: null
-				})
-			)
-			.returning();
-
-		if (!created) {
-			throw new PaymentError('Payment was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
-		row = created;
-	}
-
-	if (shouldConfirmOrderFromPayment(nextStatus) && orderRow.status === 'pending') {
-		await transitionOrderStatusTx(tx, ctx, {
-			orderId: orderRow.id,
-			toStatus: 'confirmed',
-			note: `Payment ${nextStatus}.`,
-			now
-		});
-	}
-
-	return toPaymentDTO(row);
 }
 
 async function applyInventoryForStatusTransitionTx(
@@ -1089,7 +871,7 @@ async function enqueueOrderStatusTransitionNotificationsTx(
 	return notification ? [notification] : [];
 }
 
-async function enqueuePaymentUpdateNotificationTx(
+export async function enqueuePaymentUpdateNotificationTx(
 	tx: OrdersTx,
 	paymentDto: PaymentDTO
 ): Promise<NotificationOutboxDTO | null> {
@@ -1309,7 +1091,7 @@ function toOrderSummaryDTO(row: Order, items: OrderItem[]): OrderSummaryDTO {
 		items,
 		payments: [],
 		statusHistory: [],
-		includeItems: false,
+		includeItems: true,
 		includePayments: false,
 		includeStatusHistory: false
 	});
@@ -1595,33 +1377,6 @@ async function loadPaymentsForOrderTx(db: QueryExecutor, orderId: string): Promi
 		.orderBy(desc(payment.createdAt));
 }
 
-async function loadLatestPaymentForOrderTx(
-	db: QueryExecutor,
-	orderId: string
-): Promise<Payment | null> {
-	const [row] = await db
-		.select()
-		.from(payment)
-		.where(eq(payment.orderId, normalizeId(orderId, 'orderId')))
-		.orderBy(desc(payment.createdAt))
-		.limit(1);
-
-	return row ?? null;
-}
-
-async function loadPaymentByIdTx(db: QueryExecutor, paymentId: string): Promise<Payment> {
-	const normalizedId = normalizeId(paymentId, 'paymentId');
-	const [row] = await db.select().from(payment).where(eq(payment.id, normalizedId)).limit(1);
-
-	if (!row) {
-		throw new PaymentError('Payment not found.', ErrorCode.PAYMENT_NOT_FOUND, {
-			paymentId: normalizedId
-		});
-	}
-
-	return row;
-}
-
 async function loadOrderStatusHistoryForOrderTx(
 	db: QueryExecutor,
 	orderId: string
@@ -1667,17 +1422,9 @@ function buildOrderListWhere(options: ListOrdersOptions, ctx: ServiceContext): S
 		conditions.push(eq(order.status, 'pending'));
 		conditions.push(lte(order.paymentExpiresAt, now));
 	}
-
-	return conditions.length > 0 ? (and(...conditions) as SQL) : undefined;
-}
-
-function buildPaymentListWhere(options: ListPaymentsOptions): SQL | undefined {
-	const conditions: SQL[] = [];
-
-	if (options.orderId)
-		conditions.push(eq(payment.orderId, normalizeId(options.orderId, 'orderId')));
-	if (options.status) conditions.push(eq(payment.status, options.status));
-	if (options.method) conditions.push(eq(payment.method, options.method));
+	if (options.orderIds && options.orderIds.length > 0) {
+		conditions.push(inArray(order.id, options.orderIds));
+	}
 
 	return conditions.length > 0 ? (and(...conditions) as SQL) : undefined;
 }
@@ -1703,34 +1450,6 @@ function assertStatusTransition(fromStatus: OrderStatus, toStatus: OrderStatus):
 	}
 }
 
-function assertRecordablePaymentStatus(
-	status: PaymentStatus
-): asserts status is RecordablePaymentStatus {
-	if (!recordablePaymentStatusSet.has(status)) {
-		throw new PaymentError(
-			'Refund payment statuses must be recorded with recordRefund.',
-			ErrorCode.VALIDATION_ERROR,
-			{ status }
-		);
-	}
-}
-
-function assertPaymentStatusTransition(
-	fromStatus: PaymentStatus,
-	toStatus: RecordablePaymentStatus
-): void {
-	if (!ALLOWED_PAYMENT_STATUS_TRANSITIONS[fromStatus].includes(toStatus)) {
-		throw new PaymentError(
-			'Invalid payment status transition.',
-			ErrorCode.PAYMENT_ALREADY_PROCESSED,
-			{
-				fromStatus,
-				toStatus
-			}
-		);
-	}
-}
-
 function statusTimestampValues(status: OrderStatus, now: Date): Partial<NewOrder> {
 	if (status === 'confirmed') return { confirmedAt: now, paymentExpiresAt: null };
 	if (status === 'shipped') return { shippedAt: now };
@@ -1742,14 +1461,6 @@ function statusTimestampValues(status: OrderStatus, now: Date): Partial<NewOrder
 
 function isTerminalOrderStatus(status: OrderStatus): boolean {
 	return status === 'cancelled' || status === 'refunded';
-}
-
-function shouldSetPaidAt(status: RecordablePaymentStatus): boolean {
-	return status === 'authorized' || status === 'captured';
-}
-
-function shouldConfirmOrderFromPayment(status: RecordablePaymentStatus): boolean {
-	return status === 'authorized' || status === 'captured';
 }
 
 function addressRowToCheckoutAddress(row: Address): CheckoutAddressDTO {
@@ -1890,3 +1601,126 @@ function mapPaymentPersistenceError(error: unknown): never {
 }
 
 const onlinePaymentMethodSet = new Set<string>(ONLINE_PAYMENT_METHODS);
+
+export async function getOrderAnalytics(ctx: ServiceContext): Promise<{
+	totalSales: number;
+	pendingFulfillmentCount: number;
+	openOrdersCount: number;
+	unpaidHoldsCount: number;
+}> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+
+	const [salesResult] = await db
+		.select({
+			total: sql<number>`COALESCE(SUM(${order.totalAmount}), 0)`
+		})
+		.from(order)
+		.where(sql`${order.status} <> 'cancelled'`);
+
+	const [pendingFulfillmentResult] = await db
+		.select({
+			count: count()
+		})
+		.from(order)
+		.where(inArray(order.status, ['confirmed', 'processing']));
+
+	const [openOrdersResult] = await db
+		.select({
+			count: count()
+		})
+		.from(order)
+		.where(inArray(order.status, ['pending', 'confirmed', 'processing', 'shipped']));
+
+	const [unpaidHoldsResult] = await db
+		.select({
+			count: count()
+		})
+		.from(order)
+		.where(eq(order.status, 'pending'));
+
+	return {
+		totalSales: Number(salesResult?.total ?? 0),
+		pendingFulfillmentCount: Number(pendingFulfillmentResult?.count ?? 0),
+		openOrdersCount: Number(openOrdersResult?.count ?? 0),
+		unpaidHoldsCount: Number(unpaidHoldsResult?.count ?? 0)
+	};
+}
+
+export async function bulkTransitionOrderStatus(
+	ctx: ServiceContext,
+	input: { orderIds: string[]; toStatus: string; note?: string }
+): Promise<{
+	successCount: number;
+	failureCount: number;
+	results: Array<{ orderId: string; orderNumber?: string; success: boolean; error?: string }>;
+}> {
+	requireAdmin(ctx.actor);
+
+	const results: Array<{
+		orderId: string;
+		orderNumber?: string;
+		success: boolean;
+		error?: string;
+	}> = [];
+	let successCount = 0;
+	let failureCount = 0;
+
+	for (const orderId of input.orderIds) {
+		try {
+			const existing = await getDb()
+				.select({ orderNumber: order.orderNumber })
+				.from(order)
+				.where(eq(order.id, orderId))
+				.then((rows) => rows[0]);
+
+			await transitionOrderStatus(ctx, {
+				orderId,
+				toStatus: input.toStatus as any,
+				note: input.note ?? 'Transitioned via bulk action.'
+			});
+
+			results.push({
+				orderId,
+				orderNumber: existing?.orderNumber,
+				success: true
+			});
+			successCount++;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Unknown error';
+			results.push({
+				orderId,
+				success: false,
+				error: message
+			});
+			failureCount++;
+		}
+	}
+
+	return {
+		successCount,
+		failureCount,
+		results
+	};
+}
+
+export async function listAllOrdersForExport(
+	ctx: ServiceContext,
+	options: Omit<ListOrdersOptions, 'limit' | 'offset'>
+): Promise<OrderSummaryDTO[]> {
+	requireAdmin(ctx.actor);
+	const db = getDb();
+	const where = buildOrderListWhere(options, ctx);
+
+	const listQuery = db.select().from(order).orderBy(desc(order.createdAt), desc(order.id));
+
+	const rows = await (where ? listQuery.where(where) : listQuery);
+
+	const itemsByOrderId = await loadOrderItemsByOrderId(
+		db,
+		rows.map((row) => row.id)
+	);
+
+	return rows.map((row) => toOrderSummaryDTO(row, itemsByOrderId.get(row.id) ?? []));
+}

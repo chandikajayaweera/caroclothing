@@ -14,6 +14,13 @@ import {
 	setShippingZoneFormSchema,
 	updateShippingMethod,
 	updateShippingMethodFormSchema,
+	listCarriers,
+	createCarrier,
+	updateCarrier,
+	deleteCarrier,
+	createCarrierFormSchema,
+	updateCarrierFormSchema,
+	deleteCarrierFormSchema,
 	type ListShippingMethodsOptions,
 	type ListShippingZonesOptions,
 	type SriLankaDistrict
@@ -69,27 +76,48 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const zoneOptions = getZoneOptions(url);
 
 	try {
-		const [methods, zones, createMethodForm, updateMethodForm, setZoneForm, removeZoneForm] =
-			await Promise.all([
-				listShippingMethods(ctx, methodOptions),
-				listShippingZones(ctx, zoneOptions),
-				superValidate(zod4(createShippingMethodFormSchema), {
-					id: 'createShippingMethod'
-				}),
-				superValidate(zod4(updateShippingMethodFormSchema), {
-					id: 'updateShippingMethod'
-				}),
-				superValidate(zod4(setShippingZoneFormSchema), {
-					id: 'setShippingZone'
-				}),
-				superValidate(zod4(removeShippingZoneFormSchema), {
-					id: 'removeShippingZone'
-				})
-			]);
+		const [
+			methods,
+			zones,
+			carriers,
+			createMethodForm,
+			updateMethodForm,
+			setZoneForm,
+			removeZoneForm,
+			createCarrierForm,
+			updateCarrierForm,
+			deleteCarrierForm
+		] = await Promise.all([
+			listShippingMethods(ctx, methodOptions),
+			listShippingZones(ctx, zoneOptions),
+			listCarriers(ctx),
+			superValidate(zod4(createShippingMethodFormSchema), {
+				id: 'createShippingMethod'
+			}),
+			superValidate(zod4(updateShippingMethodFormSchema), {
+				id: 'updateShippingMethod'
+			}),
+			superValidate(zod4(setShippingZoneFormSchema), {
+				id: 'setShippingZone'
+			}),
+			superValidate(zod4(removeShippingZoneFormSchema), {
+				id: 'removeShippingZone'
+			}),
+			superValidate(zod4(createCarrierFormSchema), {
+				id: 'createCarrier'
+			}),
+			superValidate(zod4(updateCarrierFormSchema), {
+				id: 'updateCarrier'
+			}),
+			superValidate(zod4(deleteCarrierFormSchema), {
+				id: 'deleteCarrier'
+			})
+		]);
 
 		return {
 			methods,
 			zones,
+			carriers,
 			districts: listShippingDistrictOptions(),
 			filters: {
 				status: url.searchParams.get('status') ?? '',
@@ -100,7 +128,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			createMethodForm,
 			updateMethodForm,
 			setZoneForm,
-			removeZoneForm
+			removeZoneForm,
+			createCarrierForm,
+			updateCarrierForm,
+			deleteCarrierForm
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -167,6 +198,55 @@ export const actions: Actions = {
 		try {
 			await removeShippingZone(ctx, form.data);
 			return message(form, 'Shipping zone removed.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	// Carrier CRUD Actions
+	createCarrier: async ({ locals, request }) => {
+		const ctx = getAdminContext(locals);
+		const form = await superValidate(request, zod4(createCarrierFormSchema), {
+			id: 'createCarrier'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			await createCarrier(ctx, form.data);
+			return message(form, 'Carrier created.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	updateCarrier: async ({ locals, request }) => {
+		const ctx = getAdminContext(locals);
+		const form = await superValidate(request, zod4(updateCarrierFormSchema), {
+			id: 'updateCarrier'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			await updateCarrier(ctx, form.data);
+			return message(form, 'Carrier updated.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	deleteCarrier: async ({ locals, request }) => {
+		const ctx = getAdminContext(locals);
+		const form = await superValidate(request, zod4(deleteCarrierFormSchema), {
+			id: 'deleteCarrier'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			await deleteCarrier(ctx, { carrierId: form.data.carrierId });
+			return message(form, 'Carrier deleted.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

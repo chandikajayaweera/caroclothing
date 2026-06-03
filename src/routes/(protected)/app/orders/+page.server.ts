@@ -9,7 +9,6 @@ import {
 	cancelOrderFormSchema,
 	listOrders,
 	listOrdersFormSchema,
-	listPayments,
 	recordPayment,
 	recordPaymentFormSchema,
 	recordRefund,
@@ -17,7 +16,10 @@ import {
 	transitionOrderStatus,
 	transitionOrderStatusFormSchema,
 	updateOrderFulfillment,
-	updateOrderFulfillmentFormSchema
+	updateOrderFulfillmentFormSchema,
+	getOrderAnalytics,
+	bulkTransitionOrderStatus,
+	bulkTransitionOrderStatusFormSchema
 } from '$lib/server/modules/orders';
 import {
 	formFailFromAppError,
@@ -33,6 +35,14 @@ function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceCo
 }
 
 function getListOptions(url: URL) {
+	const orderIdsParam = url.searchParams.get('orderIds');
+	const orderIds = orderIdsParam
+		? orderIdsParam
+				.split(',')
+				.map((id) => id.trim())
+				.filter(Boolean)
+		: undefined;
+
 	const result = listOrdersFormSchema.safeParse({
 		status: url.searchParams.get('status') || undefined,
 		query: url.searchParams.get('query') || undefined,
@@ -42,7 +52,11 @@ function getListOptions(url: URL) {
 		offset: url.searchParams.get('offset') || undefined
 	});
 
-	return result.success ? result.data : {};
+	const data = result.success ? result.data : {};
+	return {
+		...data,
+		orderIds
+	};
 }
 
 export const load: PageServerLoad = async ({ locals, platform, url }) => {
@@ -52,16 +66,17 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	try {
 		const [
 			orders,
-			payments,
+			analytics,
 			transitionStatusForm,
 			cancelOrderForm,
 			updateFulfillmentForm,
 			recordPaymentForm,
 			recordRefundForm,
-			cancelExpiredForm
+			cancelExpiredForm,
+			bulkTransitionForm
 		] = await Promise.all([
 			listOrders(ctx, orderOptions),
-			listPayments(ctx, { limit: 25 }),
+			getOrderAnalytics(ctx),
 			superValidate(zod4(transitionOrderStatusFormSchema), {
 				id: 'transitionOrderStatus'
 			}),
@@ -79,12 +94,15 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			}),
 			superValidate(zod4(cancelExpiredPendingOrdersFormSchema), {
 				id: 'cancelExpiredPendingOrders'
+			}),
+			superValidate(zod4(bulkTransitionOrderStatusFormSchema), {
+				id: 'bulkTransitionOrderStatus'
 			})
 		]);
 
 		return {
 			orders,
-			payments,
+			analytics,
 			filters: {
 				status: url.searchParams.get('status') ?? '',
 				query: url.searchParams.get('query')?.trim() ?? '',
@@ -98,7 +116,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			updateFulfillmentForm,
 			recordPaymentForm,
 			recordRefundForm,
-			cancelExpiredForm
+			cancelExpiredForm,
+			bulkTransitionForm
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -197,6 +216,33 @@ export const actions: Actions = {
 		try {
 			const result = await cancelExpiredPendingOrders(ctx, { limit: form.data.limit });
 			return message(form, `Cancelled ${result.cancelledCount} expired pending orders.`);
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	bulkTransition: async ({ locals, platform, request }) => {
+		const ctx = getAdminContext(locals, platform);
+		const form = await superValidate(request, zod4(bulkTransitionOrderStatusFormSchema), {
+			id: 'bulkTransitionOrderStatus'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			const splitIds = form.data.orderIds
+				.split(',')
+				.map((id) => id.trim())
+				.filter(Boolean);
+			const result = await bulkTransitionOrderStatus(ctx, {
+				orderIds: splitIds,
+				toStatus: form.data.toStatus,
+				note: form.data.note ?? undefined
+			});
+			return message(
+				form,
+				`Successfully transitioned ${result.successCount} orders. Failed: ${result.failureCount}.`
+			);
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

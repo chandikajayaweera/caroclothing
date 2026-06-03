@@ -28,21 +28,23 @@ function getAdminContext(locals: App.Locals) {
 }
 
 function getPromoCodeOptions(url: URL): ListPromoCodesOptions {
+	const tab = url.searchParams.get('tab') || 'codes';
 	return {
 		isActive: getStatusFilter(url.searchParams.get('status')),
 		query: url.searchParams.get('query')?.trim() || undefined,
-		limit: getIntegerParam(url.searchParams.get('limit')),
-		offset: getIntegerParam(url.searchParams.get('offset'))
+		limit: tab === 'codes' ? getIntegerParam(url.searchParams.get('limit')) : undefined,
+		offset: tab === 'codes' ? getIntegerParam(url.searchParams.get('offset')) : undefined
 	};
 }
 
 function getPromoUsageOptions(url: URL): ListPromoCodeUsagesOptions {
+	const tab = url.searchParams.get('tab') || 'codes';
 	return {
 		promoCodeId: url.searchParams.get('promoCodeId')?.trim() || undefined,
 		userId: url.searchParams.get('userId')?.trim() || undefined,
 		orderId: url.searchParams.get('orderId')?.trim() || undefined,
-		limit: getIntegerParam(url.searchParams.get('usageLimit')) ?? 25,
-		offset: getIntegerParam(url.searchParams.get('usageOffset'))
+		limit: tab === 'usages' ? (getIntegerParam(url.searchParams.get('limit')) ?? 25) : 25,
+		offset: tab === 'usages' ? getIntegerParam(url.searchParams.get('offset')) : undefined
 	};
 }
 

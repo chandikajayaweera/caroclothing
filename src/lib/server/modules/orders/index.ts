@@ -6,14 +6,20 @@ export {
 	cancelExpiredPendingOrders,
 	cancelOrder,
 	getOrder,
-	getPayment,
 	listMyOrders,
 	listOrders,
-	listPayments,
 	placeOrderFromCart,
 	previewOrderFromCart,
-	recordPayment,
-	recordRefund,
 	transitionOrderStatus,
-	updateOrderFulfillment
+	updateOrderFulfillment,
+	getOrderAnalytics,
+	bulkTransitionOrderStatus,
+	listAllOrdersForExport
 } from './orders.service';
+
+export {
+	getPayment,
+	listPayments,
+	recordPayment,
+	recordRefund
+} from '../payments/payments.service';

@@ -34,7 +34,9 @@
 
 <section class="mx-auto max-w-7xl pb-24">
 	<!-- Top Navigation and Action Bar -->
-	<div class="flex flex-col gap-4 border-b border-charcoal pb-5 md:flex-row md:items-center md:justify-between">
+	<div
+		class="flex flex-col gap-4 border-b border-charcoal pb-5 md:flex-row md:items-center md:justify-between"
+	>
 		<div class="flex items-center gap-4">
 			<a
 				href={backHref}

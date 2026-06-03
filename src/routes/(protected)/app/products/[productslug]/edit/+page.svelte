@@ -38,7 +38,6 @@
 		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
 	}
 
-
 	function initialForm<T>(getValue: () => T): T {
 		return getValue();
 	}
@@ -861,12 +860,7 @@
 							{/if}
 						</div>
 
-						<AdminButton
-							href="/app/categories"
-							variant="outline"
-							size="sm"
-							class="self-end"
-						>
+						<AdminButton href="/app/categories" variant="outline" size="sm" class="self-end">
 							<FolderPlus size={14} aria-hidden="true" />
 							New Category
 						</AdminButton>
@@ -887,12 +881,7 @@
 								{/each}
 							</AdminSelect>
 
-							<AdminButton
-								href="/app/drops"
-								variant="outline"
-								size="sm"
-								class="self-end"
-							>
+							<AdminButton href="/app/drops" variant="outline" size="sm" class="self-end">
 								<Layers size={14} aria-hidden="true" />
 								New Drop
 							</AdminButton>
@@ -1448,10 +1437,8 @@
 
 	{#snippet sidebarContent()}
 		<!-- Live Preview Overview / Snapshot -->
-		<div class="p-4 border-b border-ash/15">
-			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
-				Page Stats
-			</p>
+		<div class="border-b border-ash/15 p-4">
+			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Page Stats</p>
 			<div class="mt-3 grid grid-cols-2 gap-3 text-left font-sans text-xs">
 				<div>
 					<p class="font-sans text-[11px] font-semibold tracking-wider text-ash uppercase">State</p>
@@ -1509,7 +1496,7 @@
 							</span>
 						</div>
 					</button>
- 
+
 					{#if snapshotImages.length > 1}
 						<button
 							type="button"
@@ -1696,12 +1683,16 @@
 					{#if selectedTags.length > 0 || $updateProductForm.newTagNames.length > 0}
 						<div class="flex flex-wrap gap-1.5 pt-1">
 							{#each selectedTags as tag (tag.id)}
-								<span class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase">
+								<span
+									class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
+								>
 									{tag.name}
 								</span>
 							{/each}
 							{#each $updateProductForm.newTagNames as tagName (tagName)}
-								<span class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase">
+								<span
+									class="border border-ash/20 px-2 py-1 font-mono text-[9px] text-ash uppercase"
+								>
 									{tagName}
 								</span>
 							{/each}
@@ -1721,8 +1712,8 @@
 						</ul>
 					</div>
 				{/if}
+			</div>
 		</div>
-	</div>
 	{/snippet}
 </AdminFormLayout>
 

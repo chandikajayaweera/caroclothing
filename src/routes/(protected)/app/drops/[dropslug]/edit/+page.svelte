@@ -1,7 +1,19 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { generateSlug } from '$lib/shared/slug';
-	import { Save, Upload, X, ImageOff, ShoppingBag, Star, AlertTriangle, Layers, Calendar, Power, Info } from 'lucide-svelte';
+	import {
+		Save,
+		Upload,
+		X,
+		ImageOff,
+		ShoppingBag,
+		Star,
+		AlertTriangle,
+		Layers,
+		Calendar,
+		Power,
+		Info
+	} from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
 	import { superForm, filesProxy } from 'sveltekit-superforms';
 	import { Dialog } from 'bits-ui';
@@ -88,7 +100,10 @@
 
 	// Reactive combined action messages
 	const actionMessage = $derived(
-		$updateDropMessage || $setDropProductsMessage || $setDropHeroProductMessage || $transitionDropStatusMessage
+		$updateDropMessage ||
+			$setDropProductsMessage ||
+			$setDropHeroProductMessage ||
+			$transitionDropStatusMessage
 	);
 
 	let activeTab = $state<'general' | 'lineup'>(
@@ -187,8 +202,6 @@
 		}
 	}
 
-
-
 	// Lineup management local states
 	let searchProductQuery = $state('');
 	let activeSearchQuery = $state('');
@@ -210,7 +223,9 @@
 	function toggleProductInLineup(productId: string) {
 		const idx = $setDropProductsForm.productIds.indexOf(productId);
 		if (idx >= 0) {
-			$setDropProductsForm.productIds = $setDropProductsForm.productIds.filter((id) => id !== productId);
+			$setDropProductsForm.productIds = $setDropProductsForm.productIds.filter(
+				(id) => id !== productId
+			);
 		} else {
 			$setDropProductsForm.productIds = [...$setDropProductsForm.productIds, productId];
 		}
@@ -278,7 +293,9 @@
 								Verify you wish to transition drop to Live status.
 							</Dialog.Description>
 
-							<div class="flex items-center gap-2 font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
+							<div
+								class="flex items-center gap-2 font-mono text-[9px] tracking-[0.2em] text-volt uppercase"
+							>
 								<AlertTriangle size={12} class="text-volt" />
 								<span>DANGER ZONE / LAUNCH SIGNAL</span>
 							</div>
@@ -286,14 +303,21 @@
 								LAUNCH "{data.drop.name}" LIVE?
 							</h2>
 							<p class="mt-3 font-sans text-sm leading-relaxed text-ash/80">
-								Are you sure you want to transition this drop to <strong class="text-volt uppercase">LIVE</strong>? This will instantly trigger the dispatch of notifications (SMS/Email) to all waitlist signups. The lineup products will go on sale immediately.
+								Are you sure you want to transition this drop to <strong class="text-volt uppercase"
+									>LIVE</strong
+								>? This will instantly trigger the dispatch of notifications (SMS/Email) to all
+								waitlist signups. The lineup products will go on sale immediately.
 							</p>
 							<div class="mt-6 grid gap-3 sm:grid-cols-2">
 								<AdminButton type="button" onclick={confirmLaunch} variant="volt">
 									<Power size={14} aria-hidden="true" />
 									Confirm & Launch
 								</AdminButton>
-								<AdminButton type="button" onclick={() => showLaunchConfirm = false} variant="outline">
+								<AdminButton
+									type="button"
+									onclick={() => (showLaunchConfirm = false)}
+									variant="outline"
+								>
 									Cancel
 								</AdminButton>
 							</div>
@@ -310,7 +334,10 @@
 	title={`Edit Drop: ${data.drop.name}`}
 	backHref={`/app/drops/${data.drop.slug}`}
 	backLabel="Back to detail"
-	isSubmitting={$updateDropSubmitting || $setDropProductsSubmitting || $setDropHeroProductSubmitting || $transitionDropStatusSubmitting}
+	isSubmitting={$updateDropSubmitting ||
+		$setDropProductsSubmitting ||
+		$setDropHeroProductSubmitting ||
+		$transitionDropStatusSubmitting}
 	showSubmitButton={activeTab === 'general'}
 	oncancel={() => history.back()}
 	enhanceAction={updateDropEnhance}
@@ -320,7 +347,7 @@
 		enctype: 'multipart/form-data',
 		novalidate: true
 	}}
-	bind:formElement={formElement}
+	bind:formElement
 >
 	{#snippet mainContent()}
 		<!-- Hidden input for heroImage (required for superforms file submission, must stay mounted in DOM) -->
@@ -333,18 +360,24 @@
 		/>
 
 		<!-- Form Tabs -->
-		<div class="flex border-b border-charcoal mb-6">
+		<div class="mb-6 flex border-b border-charcoal">
 			<button
 				type="button"
-				class="px-5 py-3 font-display text-lg tracking-widest uppercase border-b-2 transition-colors {activeTab === 'general' ? 'border-volt text-volt bg-charcoal/30' : 'border-transparent text-ash hover:text-bone hover:border-ash/30'}"
-				onclick={() => activeTab = 'general'}
+				class="border-b-2 px-5 py-3 font-display text-lg tracking-widest uppercase transition-colors {activeTab ===
+				'general'
+					? 'border-volt bg-charcoal/30 text-volt'
+					: 'border-transparent text-ash hover:border-ash/30 hover:text-bone'}"
+				onclick={() => (activeTab = 'general')}
 			>
 				General info
 			</button>
 			<button
 				type="button"
-				class="px-5 py-3 font-display text-lg tracking-widest uppercase border-b-2 transition-colors {activeTab === 'lineup' ? 'border-volt text-volt bg-charcoal/30' : 'border-transparent text-ash hover:text-bone hover:border-ash/30'}"
-				onclick={() => activeTab = 'lineup'}
+				class="border-b-2 px-5 py-3 font-display text-lg tracking-widest uppercase transition-colors {activeTab ===
+				'lineup'
+					? 'border-volt bg-charcoal/30 text-volt'
+					: 'border-transparent text-ash hover:border-ash/30 hover:text-bone'}"
+				onclick={() => (activeTab = 'lineup')}
 			>
 				Lineup Products
 			</button>
@@ -353,11 +386,17 @@
 		{#if activeTab === 'general'}
 			<div class="space-y-6">
 				<!-- Hidden variables for dates -->
-				<input type="hidden" name="removeHeroImage" value={String($updateDropForm.removeHeroImage)} />
+				<input
+					type="hidden"
+					name="removeHeroImage"
+					value={String($updateDropForm.removeHeroImage)}
+				/>
 
 				<AdminCard title="General Settings">
 					<div class="space-y-4">
-						<p class="font-sans text-xs text-ash/70 -mt-3 mb-2">Update the core metadata for the drop release.</p>
+						<p class="-mt-3 mb-2 font-sans text-xs text-ash/70">
+							Update the core metadata for the drop release.
+						</p>
 
 						<div class="grid gap-4 sm:grid-cols-2">
 							<AdminInput
@@ -413,7 +452,9 @@
 
 				<AdminCard title="Release Timings">
 					<div class="space-y-4">
-						<p class="font-sans text-xs text-ash/70 -mt-3 mb-2">Scheduled launch date and flash closure timing (optional).</p>
+						<p class="-mt-3 mb-2 font-sans text-xs text-ash/70">
+							Scheduled launch date and flash closure timing (optional).
+						</p>
 
 						<div class="grid gap-4 sm:grid-cols-2">
 							<AdminDateTimePicker
@@ -437,12 +478,7 @@
 			<!-- LINEUP TAB CONTROLS -->
 			<div class="space-y-6">
 				<!-- Assign Products Form -->
-				<form
-					method="POST"
-					action="?/setDropProducts"
-					use:setDropProductsEnhance
-					class="space-y-4"
-				>
+				<form method="POST" action="?/setDropProducts" use:setDropProductsEnhance class="space-y-4">
 					<input type="hidden" name="dropId" value={$setDropProductsForm.dropId} />
 					{#each $setDropProductsForm.productIds as prodId}
 						<input type="hidden" name="productIds" value={prodId} />
@@ -450,7 +486,9 @@
 
 					<AdminCard title="Product Lineup Management">
 						<div class="space-y-4">
-							<p class="font-sans text-xs text-ash/70 -mt-5 mb-2">Choose active products to feature in this drop event.</p>
+							<p class="-mt-5 mb-2 font-sans text-xs text-ash/70">
+								Choose active products to feature in this drop event.
+							</p>
 
 							<div class="flex gap-2">
 								<input
@@ -467,7 +505,7 @@
 								/>
 								<AdminButton
 									type="button"
-									onclick={() => activeSearchQuery = searchProductQuery.toLowerCase().trim()}
+									onclick={() => (activeSearchQuery = searchProductQuery.toLowerCase().trim())}
 									variant="outline"
 									class="shrink-0"
 								>
@@ -488,45 +526,60 @@
 								{/if}
 							</div>
 
-							<div class="border border-charcoal bg-void overflow-hidden">
-								<div class="max-h-80 overflow-y-auto divide-y divide-charcoal/50 pr-1">
+							<div class="overflow-hidden border border-charcoal bg-void">
+								<div class="max-h-80 divide-y divide-charcoal/50 overflow-y-auto pr-1">
 									{#if data.dropTierProducts.length === 0}
 										<div class="p-6 text-center">
-											<p class="font-mono text-xs text-ash/50 uppercase">No drop-tier products available</p>
-											<p class="font-sans text-xs text-ash/60 mt-1.5 max-w-md mx-auto">
-												Only products configured with the <strong class="text-volt uppercase">Drop</strong> tier can be added to a lineup. Please create or update products to the drop tier first under Catalog -> Products.
+											<p class="font-mono text-xs text-ash/50 uppercase">
+												No drop-tier products available
+											</p>
+											<p class="mx-auto mt-1.5 max-w-md font-sans text-xs text-ash/60">
+												Only products configured with the <strong class="text-volt uppercase"
+													>Drop</strong
+												> tier can be added to a lineup. Please create or update products to the drop
+												tier first under Catalog -> Products.
 											</p>
 										</div>
 									{:else if filteredDropTierProducts.length === 0}
-										<p class="font-mono text-xs text-ash/50 p-5 text-center uppercase">No products match your search</p>
+										<p class="p-5 text-center font-mono text-xs text-ash/50 uppercase">
+											No products match your search
+										</p>
 									{:else}
 										{#each filteredDropTierProducts as prod (prod.id)}
 											{@const isAssigned = $setDropProductsForm.productIds.includes(prod.id)}
 											<div class="flex items-center justify-between gap-4 p-3 hover:bg-charcoal/20">
-												<div class="flex items-center gap-3 min-w-0">
+												<div class="flex min-w-0 items-center gap-3">
 													<button
 														type="button"
 														onclick={() => toggleProductInLineup(prod.id)}
-														class="grid h-5 w-5 shrink-0 place-items-center border border-ash/40 bg-void transition-colors focus:outline-none focus:border-volt {isAssigned ? 'border-volt bg-volt text-void' : ''}"
+														class="grid h-5 w-5 shrink-0 place-items-center border border-ash/40 bg-void transition-colors focus:border-volt focus:outline-none {isAssigned
+															? 'border-volt bg-volt text-void'
+															: ''}"
 													>
 														{#if isAssigned}
 															<span class="font-mono text-[9px] font-bold">✓</span>
 														{/if}
 													</button>
-													<div class="h-10 w-12 shrink-0 border border-charcoal bg-charcoal/10 overflow-hidden">
+													<div
+														class="h-10 w-12 shrink-0 overflow-hidden border border-charcoal bg-charcoal/10"
+													>
 														{#if prod.primaryImageUrl}
-															<img src={prod.primaryImageUrl} alt="" class="h-full w-full object-cover" />
+															<img
+																src={prod.primaryImageUrl}
+																alt=""
+																class="h-full w-full object-cover"
+															/>
 														{:else}
-															<div class="h-full w-full bg-void flex items-center justify-center">
+															<div class="flex h-full w-full items-center justify-center bg-void">
 																<ShoppingBag size={12} class="text-ash/30" />
 															</div>
 														{/if}
 													</div>
 													<div class="min-w-0">
-														<p class="font-mono text-xs font-semibold text-bone uppercase truncate">
+														<p class="truncate font-mono text-xs font-semibold text-bone uppercase">
 															{prod.name}
 														</p>
-														<p class="font-mono text-[8px] text-ash truncate">
+														<p class="truncate font-mono text-[8px] text-ash">
 															{prod.slug}
 														</p>
 													</div>
@@ -541,11 +594,7 @@
 							</div>
 
 							<div class="flex justify-end pt-3">
-								<AdminButton
-									type="submit"
-									variant="volt"
-									disabled={$setDropProductsSubmitting}
-								>
+								<AdminButton type="submit" variant="volt" disabled={$setDropProductsSubmitting}>
 									<Save size={14} />
 									Save Lineup Changes ({$setDropProductsForm.productIds.length} Selected)
 								</AdminButton>
@@ -556,49 +605,57 @@
 
 				<!-- Hero Product Selector Form -->
 				{#if currentlyAssignedProducts.length > 0}
-					<form
-						method="POST"
-						action="?/setDropHeroProduct"
-						use:setDropHeroProductEnhance
-					>
+					<form method="POST" action="?/setDropHeroProduct" use:setDropHeroProductEnhance>
 						<input type="hidden" name="dropId" value={$setDropHeroProductForm.dropId} />
 
 						<AdminCard title="Featured Hero Product">
 							<div class="space-y-4">
-								<p class="font-sans text-xs text-ash/70 -mt-5 mb-2">Select a single assigned product to anchor the drop background hero showcase.</p>
+								<p class="-mt-5 mb-2 font-sans text-xs text-ash/70">
+									Select a single assigned product to anchor the drop background hero showcase.
+								</p>
 
-								<div class="border border-charcoal bg-void divide-y divide-charcoal/50 overflow-hidden">
+								<div
+									class="divide-y divide-charcoal/50 overflow-hidden border border-charcoal bg-void"
+								>
 									{#each currentlyAssignedProducts as prod (prod.id)}
 										{@const isHero = $setDropHeroProductForm.productId === prod.id}
-										<label class="flex items-center gap-4 p-3 hover:bg-charcoal/20 cursor-pointer">
+										<label class="flex cursor-pointer items-center gap-4 p-3 hover:bg-charcoal/20">
 											<input
 												type="radio"
 												name="productId"
 												value={prod.id}
 												checked={isHero}
-												onchange={() => $setDropHeroProductForm.productId = prod.id}
-												class="h-4 w-4 text-volt bg-void border border-ash/30 focus:ring-volt shrink-0"
+												onchange={() => ($setDropHeroProductForm.productId = prod.id)}
+												class="h-4 w-4 shrink-0 border border-ash/30 bg-void text-volt focus:ring-volt"
 											/>
-											<div class="h-10 w-12 shrink-0 border border-charcoal bg-charcoal/10 overflow-hidden">
+											<div
+												class="h-10 w-12 shrink-0 overflow-hidden border border-charcoal bg-charcoal/10"
+											>
 												{#if prod.primaryImageUrl}
-													<img src={prod.primaryImageUrl} alt="" class="h-full w-full object-cover" />
+													<img
+														src={prod.primaryImageUrl}
+														alt=""
+														class="h-full w-full object-cover"
+													/>
 												{:else}
-													<div class="h-full w-full bg-void flex items-center justify-center">
+													<div class="flex h-full w-full items-center justify-center bg-void">
 														<ShoppingBag size={12} class="text-ash/30" />
 													</div>
 												{/if}
 											</div>
-											<div class="min-w-0 flex-1 flex items-center justify-between">
+											<div class="flex min-w-0 flex-1 items-center justify-between">
 												<div class="min-w-0">
-													<p class="font-mono text-xs font-semibold text-bone uppercase truncate">
+													<p class="truncate font-mono text-xs font-semibold text-bone uppercase">
 														{prod.name}
 													</p>
-													<p class="font-mono text-[8px] text-ash truncate">
+													<p class="truncate font-mono text-[8px] text-ash">
 														{prod.slug}
 													</p>
 												</div>
 												{#if isHero}
-													<span class="font-mono text-[9px] text-volt uppercase flex items-center gap-1">
+													<span
+														class="flex items-center gap-1 font-mono text-[9px] text-volt uppercase"
+													>
 														<Star size={10} class="fill-current" />
 														<span>Selected hero</span>
 													</span>
@@ -633,7 +690,11 @@
 				<div class="space-y-4">
 					<div class="flex items-center justify-between border-b border-charcoal/50 pb-3">
 						<span class="font-mono text-xs text-ash">Active Status</span>
-						<span class="rounded px-2.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase {getStatusClass(data.drop.status)}">
+						<span
+							class="rounded px-2.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase {getStatusClass(
+								data.drop.status
+							)}"
+						>
 							{getStatusLabel(data.drop.status)}
 						</span>
 					</div>
@@ -691,7 +752,9 @@
 								Archive Record
 							</AdminButton>
 						{:else}
-							<div class="flex items-center gap-2 p-3 bg-void/50 border border-charcoal text-ash/60">
+							<div
+								class="flex items-center gap-2 border border-charcoal bg-void/50 p-3 text-ash/60"
+							>
 								<Info size={14} />
 								<span class="font-sans text-[11px]">This drop is archived and read-only.</span>
 							</div>
@@ -703,27 +766,41 @@
 			<!-- Hero Image Uploader Card -->
 			<AdminCard title="Hero Banner Image">
 				<div class="space-y-4">
-					<p class="font-sans text-xs text-ash/70 -mt-3 mb-2">Upload wallpaper hero visual for homepage teaser panel.</p>
+					<p class="-mt-3 mb-2 font-sans text-xs text-ash/70">
+						Upload wallpaper hero visual for homepage teaser panel.
+					</p>
 
 					{#if imagePreviewUrl}
-						<div class="relative aspect-video w-full border border-charcoal bg-void overflow-hidden">
-							<img src={imagePreviewUrl} alt="Hero teaser preview" class="h-full w-full object-cover" />
+						<div
+							class="relative aspect-video w-full overflow-hidden border border-charcoal bg-void"
+						>
+							<img
+								src={imagePreviewUrl}
+								alt="Hero teaser preview"
+								class="h-full w-full object-cover"
+							/>
 							<button
 								type="button"
 								onclick={removeSelectedFile}
-								class="absolute top-2 right-2 grid h-7 w-7 place-items-center bg-void border border-red-400/40 text-red-400 rounded-full hover:bg-red-400 hover:text-void transition-colors"
+								class="absolute top-2 right-2 grid h-7 w-7 place-items-center rounded-full border border-red-400/40 bg-void text-red-400 transition-colors hover:bg-red-400 hover:text-void"
 								title="Remove Hero Image"
 							>
 								<X size={14} />
 							</button>
 						</div>
 					{:else if data.drop.heroImageUrl && !$updateDropForm.removeHeroImage}
-						<div class="relative aspect-video w-full border border-charcoal bg-void overflow-hidden">
-							<img src={data.drop.heroImageUrl} alt="Hero teaser" class="h-full w-full object-cover" />
+						<div
+							class="relative aspect-video w-full overflow-hidden border border-charcoal bg-void"
+						>
+							<img
+								src={data.drop.heroImageUrl}
+								alt="Hero teaser"
+								class="h-full w-full object-cover"
+							/>
 							<button
 								type="button"
 								onclick={removeSelectedFile}
-								class="absolute top-2 right-2 grid h-7 w-7 place-items-center bg-void border border-red-400/40 text-red-400 rounded-full hover:bg-red-400 hover:text-void transition-colors"
+								class="absolute top-2 right-2 grid h-7 w-7 place-items-center rounded-full border border-red-400/40 bg-void text-red-400 transition-colors hover:bg-red-400 hover:text-void"
 								title="Delete Existing Image"
 							>
 								<X size={14} />
@@ -731,17 +808,12 @@
 						</div>
 					{:else}
 						<label
-							class="flex aspect-video w-full cursor-pointer flex-col items-center justify-center border border-dashed border-ash/30 bg-void/50 hover:border-volt/60 hover:bg-void transition-colors"
+							class="flex aspect-video w-full cursor-pointer flex-col items-center justify-center border border-dashed border-ash/30 bg-void/50 transition-colors hover:border-volt/60 hover:bg-void"
 						>
-							<Upload size={20} class="text-ash/60 mb-2" />
+							<Upload size={20} class="mb-2 text-ash/60" />
 							<span class="font-sans text-xs text-ash">Upload replacements banner</span>
 							<span class="mt-1 font-mono text-[9px] text-ash/40">JPG, PNG or WEBP (Max 5MB)</span>
-							<input
-								type="file"
-								accept="image/*"
-								class="hidden"
-								onchange={handleFileChange}
-							/>
+							<input type="file" accept="image/*" class="hidden" onchange={handleFileChange} />
 						</label>
 					{/if}
 					{#if $updateDropErrors.heroImage?.[0]}
@@ -767,7 +839,9 @@
 			<AdminCard title="Live Teaser Preview">
 				<div>
 					<div class="border border-charcoal bg-void p-4">
-						<div class="aspect-video w-full border border-charcoal bg-charcoal/30 overflow-hidden flex items-center justify-center">
+						<div
+							class="flex aspect-video w-full items-center justify-center overflow-hidden border border-charcoal bg-charcoal/30"
+						>
 							{#if imagePreviewUrl}
 								<img src={imagePreviewUrl} alt="" class="h-full w-full object-cover" />
 							{:else}
@@ -782,7 +856,7 @@
 						<h3 class="mt-3 font-mono text-sm font-bold tracking-widest text-bone uppercase">
 							{$updateDropForm.name || 'NEW DROP'}
 						</h3>
-						<p class="mt-1 font-mono text-[9px] text-volt uppercase tracking-wider">
+						<p class="mt-1 font-mono text-[9px] tracking-wider text-volt uppercase">
 							{$updateDropForm.tagline || 'COMING SOON'}
 						</p>
 						<div class="mt-4 flex items-center justify-between border-t border-charcoal/50 pt-3">
@@ -794,7 +868,6 @@
 					</div>
 				</div>
 			</AdminCard>
-
 		</div>
 	{/snippet}
 </AdminFormLayout>

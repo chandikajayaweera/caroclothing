@@ -57,7 +57,6 @@ const updateDropSchemaWithCoercion = updateDropBaseSchema
 	})
 	.superRefine(validateDropWindow);
 
-
 function getAdminContext(
 	locals: App.Locals,
 	platform?: App.Platform,

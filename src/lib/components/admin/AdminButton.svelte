@@ -15,7 +15,7 @@
 	}: {
 		type?: 'button' | 'submit';
 		variant?: 'volt' | 'charcoal' | 'outline' | 'danger';
-		size?: 'sm' | 'md' | 'lg';
+		size?: 'sm' | 'md' | 'lg' | 'icon';
 		disabled?: boolean;
 		href?: string;
 		onclick?: (event: MouseEvent) => void;
@@ -38,7 +38,8 @@
 	const sizeClasses = {
 		sm: 'min-h-9 px-3 py-1.5 text-xs font-sans font-medium',
 		md: 'min-h-11 px-5 py-3 text-xs tracking-widest font-mono uppercase font-bold',
-		lg: 'min-h-12 px-6 py-3.5 text-sm tracking-widest font-mono uppercase font-bold'
+		lg: 'min-h-12 px-6 py-3.5 text-sm tracking-widest font-mono uppercase font-bold',
+		icon: 'min-h-0 h-7 w-7 p-0 flex-shrink-0'
 	};
 
 	const baseClasses =

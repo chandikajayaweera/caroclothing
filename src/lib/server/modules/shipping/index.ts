@@ -13,5 +13,9 @@ export {
 	listShippingZones,
 	removeShippingZone,
 	setShippingZone,
-	updateShippingMethod
+	updateShippingMethod,
+	listCarriers,
+	createCarrier,
+	updateCarrier,
+	deleteCarrier
 } from './shipping.service';

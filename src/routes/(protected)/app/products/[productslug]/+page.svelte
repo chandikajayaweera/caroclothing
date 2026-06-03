@@ -344,7 +344,9 @@
 													{/each}
 												</div>
 											{:else}
-												<p class="font-sans text-xs text-ash/50">No images for this color variant.</p>
+												<p class="font-sans text-xs text-ash/50">
+													No images for this color variant.
+												</p>
 											{/if}
 										</div>
 									</div>

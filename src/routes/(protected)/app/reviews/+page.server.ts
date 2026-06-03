@@ -10,7 +10,6 @@ import {
 	deleteReviewMedia,
 	deleteReviewMediaFormSchema,
 	getReviewModerationSummary,
-	listPendingReviews,
 	listReviews,
 	listReviewsFormSchema,
 	moderateReview,
@@ -75,7 +74,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	try {
 		const [
 			reviews,
-			pendingReviews,
 			summary,
 			moderateReviewForm,
 			deleteReviewForm,
@@ -84,7 +82,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			reorderReviewMediaForm
 		] = await Promise.all([
 			listReviews(ctx, reviewOptions),
-			listPendingReviews(ctx, { limit: 8 }),
 			getReviewModerationSummary(ctx, {
 				productId: reviewOptions.productId
 			}),
@@ -107,7 +104,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		return {
 			reviews,
-			pendingReviews,
 			summary,
 			filters: {
 				status: url.searchParams.get('status') ?? '',

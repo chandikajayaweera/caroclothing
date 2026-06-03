@@ -92,7 +92,9 @@ export const previewOrderFromCartFormSchema = z.object({
 
 export const placeOrderFromCartFormSchema = previewOrderFromCartFormSchema.safeExtend({
 	paymentMethod: z.enum(PAYMENT_METHODS),
-	customerNote: optionalNullableStringSchema(1000)
+	customerNote: optionalNullableStringSchema(1000),
+	bankSlipR2Key: optionalNullableStringSchema(500),
+	bankReference: optionalNullableStringSchema(100)
 });
 
 export const getOrderFormSchema = z.object({
@@ -166,4 +168,11 @@ export const recordRefundFormSchema = z.object({
 
 export const cancelExpiredPendingOrdersFormSchema = z.object({
 	limit: z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).max(200).default(50))
+});
+
+export const bulkTransitionOrderStatusFormSchema = z.object({
+	// Comma separated list of order IDs submitted from client checkboxes
+	orderIds: z.string().min(1),
+	toStatus: z.enum(ORDER_STATUSES),
+	note: noteSchema
 });

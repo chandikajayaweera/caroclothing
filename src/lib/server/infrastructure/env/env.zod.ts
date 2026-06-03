@@ -27,7 +27,17 @@ export const envSchema = z.object({
 	TEXT_LK_PROMOTIONAL_SENDER_ID: z.string().min(1, 'TEXT_LK_PROMOTIONAL_SENDER_ID is required'),
 	PUBLIC_OTP_COOLDOWN_SECONDS: z.coerce
 		.number()
-		.min(1, 'OTP_COOLDOWN_SECONDS must be at least 1 second')
+		.min(1, 'OTP_COOLDOWN_SECONDS must be at least 1 second'),
+
+	// Payments
+	PAYHERE_MERCHANT_ID: z.string().optional(),
+	PAYHERE_MERCHANT_SECRET: z.string().optional(),
+	PAYHERE_IS_SANDBOX: z.string().optional().default('true'),
+	PAYPAL_CLIENT_ID: z.string().optional(),
+	PAYPAL_CLIENT_SECRET: z.string().optional(),
+	PAYPAL_IS_SANDBOX: z.string().optional().default('true'),
+	PAYKOKO_API_KEY: z.string().optional(),
+	MINTPAY_API_KEY: z.string().optional()
 });
 
 export type Env = z.infer<typeof envSchema>;

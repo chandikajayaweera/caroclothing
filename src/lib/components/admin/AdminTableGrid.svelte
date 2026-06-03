@@ -6,13 +6,15 @@
 		headers,
 		row,
 		card,
-		gridClass = 'grid gap-3 p-3 md:grid-cols-2 md:p-4 xl:hidden'
+		gridClass = 'grid gap-3 p-3 md:grid-cols-2 md:p-4 xl:hidden',
+		tableClass = 'hidden overflow-hidden xl:block'
 	}: {
 		items: T[];
 		headers: { label: string; class?: string }[];
 		row: Snippet<[T]>;
 		card: Snippet<[T]>;
 		gridClass?: string;
+		tableClass?: string;
 	} = $props();
 </script>
 
@@ -25,7 +27,7 @@
 	</div>
 
 	<!-- Desktop Table View -->
-	<div class="hidden overflow-hidden xl:block">
+	<div class={tableClass}>
 		<table class="w-full text-left">
 			<thead class="border-b border-charcoal">
 				<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">

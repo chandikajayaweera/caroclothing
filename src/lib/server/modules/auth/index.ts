@@ -20,6 +20,7 @@ import {
 import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
 
 export * from './auth.types';
+export * from './auth.forms';
 
 export {
 	banUser,
@@ -63,6 +64,17 @@ function createAuth() {
 	return betterAuth({
 		baseURL: env.PUBLIC_APP_URL,
 		secret: env.BETTER_AUTH_SECRET,
+		onAPIError: {
+			throw: true,
+			onError: (error, ctx) => {
+				if (isAppError(error)) {
+					console.error(`[auth] API error [${error.code}]: ${error.message}`);
+				} else {
+					console.error('[auth] Unexpected Better Auth API error:', error);
+				}
+			},
+			errorURL: '/auth/error'
+		},
 
 		database: drizzleAdapter(db, { provider: 'sqlite' }),
 

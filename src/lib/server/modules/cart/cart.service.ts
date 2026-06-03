@@ -10,6 +10,9 @@ import {
 	isNull,
 	lte,
 	or,
+	sql,
+	sum,
+	notInArray,
 	type SQL
 } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -49,8 +52,7 @@ import {
 	productVariantColor as productVariantColorTable,
 	type Product,
 	type ProductImage,
-	type ProductVariant,
-	type ProductVariantColor
+	type ProductVariant
 } from '../products/products.drizzle';
 import {
 	cart as cartTable,
@@ -865,6 +867,7 @@ async function loadPurchasableVariantTx(
 			priceOverride: null,
 			basePrice: row.color.basePrice,
 			compareAtPrice: row.color.compareAtPrice
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		} as any,
 		unitPrice: row.color.basePrice
 	};
@@ -935,6 +938,7 @@ async function hydrateCheckoutOrderCartTx(
 	const imageKeyByItemId = new Map(
 		itemRows.map((item) => {
 			const variant = variantsById.get(item.variantId);
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const variantColorId = variant ? (variant as any).variantColorId : null;
 			return [
 				item.id,
@@ -1146,8 +1150,10 @@ function toCartItemDTO(input: {
 	reservedForItem: number;
 	liveDropProductIds: Set<string>;
 }): CartItemDTO {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const currentUnitPrice = input.variant ? (input.variant as any).basePrice : null;
 	const availability = resolveCartItemAvailability(input);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const variantColorId = input.variant ? (input.variant as any).variantColorId : null;
 
 	return {
@@ -1262,7 +1268,20 @@ function cartListConditions(options: ListCartsOptions, now: Date): SQL[] {
 	if (options.ownerType === 'guest') conditions.push(isNotNull(cartTable.sessionToken));
 	if (options.userId) conditions.push(eq(cartTable.userId, normalizeId(options.userId, 'userId')));
 
-	if (!options.includeExpired) {
+	const status = options.status || 'all';
+	if (status === 'active') {
+		conditions.push(or(isNull(cartTable.expiresAt), gt(cartTable.expiresAt, now)) as SQL);
+	} else if (status === 'expired') {
+		conditions.push(and(isNotNull(cartTable.expiresAt), lte(cartTable.expiresAt, now)) as SQL);
+	} else if (status === 'empty') {
+		const db = getDb();
+		const emptySubquery = db.select({ cartId: cartItemTable.cartId }).from(cartItemTable);
+		conditions.push(notInArray(cartTable.id, emptySubquery));
+	} else if (status === 'non-empty') {
+		const db = getDb();
+		const emptySubquery = db.select({ cartId: cartItemTable.cartId }).from(cartItemTable);
+		conditions.push(inArray(cartTable.id, emptySubquery));
+	} else if (!options.includeExpired) {
 		conditions.push(or(isNull(cartTable.expiresAt), gt(cartTable.expiresAt, now)) as SQL);
 	}
 
@@ -1463,4 +1482,65 @@ function mapCartPersistenceError(error: unknown): never {
 	}
 
 	throw error;
+}
+
+export async function deleteCart(
+	ctx: ServiceContext,
+	input: { cartId: string; now?: Date }
+): Promise<{ itemCount: number; releasedQuantity: number }> {
+	requireAdmin(ctx.actor);
+
+	const cartId = normalizeId(input.cartId, 'cartId');
+	const now = resolveNow(ctx, input.now);
+
+	try {
+		return await getDb().transaction(async (tx) => {
+			return deleteCartByIdTx(tx, cartId, now);
+		});
+	} catch (error) {
+		throw mapCartPersistenceError(error);
+	}
+}
+
+export async function getCartSummary(
+	ctx: ServiceContext,
+	input: { now?: Date } = {}
+): Promise<{
+	total: number;
+	active: number;
+	expired: number;
+	guest: number;
+	user: number;
+	totalSubtotal: number;
+	totalItems: number;
+}> {
+	requireAdmin(ctx.actor);
+	const now = resolveNow(ctx, input.now);
+	const db = getDb();
+
+	const [[totalRow], [activeRow], [guestRow], [userRow], [itemStats]] = await Promise.all([
+		db.select({ count: count() }).from(cartTable),
+		db
+			.select({ count: count() })
+			.from(cartTable)
+			.where(or(isNull(cartTable.expiresAt), gt(cartTable.expiresAt, now))),
+		db.select({ count: count() }).from(cartTable).where(isNotNull(cartTable.sessionToken)),
+		db.select({ count: count() }).from(cartTable).where(isNotNull(cartTable.userId)),
+		db
+			.select({
+				totalQuantity: sum(cartItemTable.quantity),
+				totalValue: sum(sql`${cartItemTable.quantity} * ${cartItemTable.unitPrice}`)
+			})
+			.from(cartItemTable)
+	]);
+
+	return {
+		total: Number(totalRow?.count ?? 0),
+		active: Number(activeRow?.count ?? 0),
+		expired: Math.max(0, Number(totalRow?.count ?? 0) - Number(activeRow?.count ?? 0)),
+		guest: Number(guestRow?.count ?? 0),
+		user: Number(userRow?.count ?? 0),
+		totalSubtotal: Number(itemStats?.totalValue ?? 0),
+		totalItems: Number(itemStats?.totalQuantity ?? 0)
+	};
 }

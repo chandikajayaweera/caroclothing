@@ -18,9 +18,12 @@
 		return getValue();
 	}
 
-	const createDropSuperform = superForm(initialForm(() => data.createDropForm), {
-		resetForm: false
-	});
+	const createDropSuperform = superForm(
+		initialForm(() => data.createDropForm),
+		{
+			resetForm: false
+		}
+	);
 
 	const {
 		form: createDropForm,
@@ -187,7 +190,7 @@
 						bind:value={$createDropForm.description}
 						rows={5}
 						placeholder="Long-form story copy, material details, sizing callouts..."
-						class="w-full resize-y border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 outline-none transition-colors hover:border-ash/60 focus:border-volt"
+						class="w-full resize-y border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 					></textarea>
 					{#if $createDropErrors.description?.[0]}
 						<p class="font-sans text-xs text-red-400">{$createDropErrors.description[0]}</p>
@@ -239,7 +242,7 @@
 				{@const valid = $createDropForm.endAt > $createDropForm.launchAt}
 				<div
 					transition:slide={{ duration: 200 }}
-					class="mt-4 flex items-center gap-2 border px-3.5 py-2.5 font-mono text-[10px] uppercase tracking-widest {valid
+					class="mt-4 flex items-center gap-2 border px-3.5 py-2.5 font-mono text-[10px] tracking-widest uppercase {valid
 						? 'border-volt/20 bg-volt/5 text-volt'
 						: 'border-red-400/20 bg-red-950/20 text-red-300'}"
 				>
@@ -285,11 +288,7 @@
 			class="relative aspect-video w-full overflow-hidden border-b border-charcoal bg-charcoal/20"
 		>
 			{#if heroPreviewUrl}
-				<img
-					src={heroPreviewUrl}
-					alt="Drop hero preview"
-					class="h-full w-full object-cover"
-				/>
+				<img src={heroPreviewUrl} alt="Drop hero preview" class="h-full w-full object-cover" />
 				<!-- Teaser overlay simulation -->
 				<div
 					class="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-void/80 via-void/20 to-transparent p-4"
@@ -304,7 +303,7 @@
 			{:else}
 				<div class="flex h-full flex-col items-center justify-center gap-2">
 					<ImageOff size={24} class="text-ash/25" />
-					<p class="font-mono text-[9px] text-ash/30 uppercase tracking-widest">No hero image</p>
+					<p class="font-mono text-[9px] tracking-widest text-ash/30 uppercase">No hero image</p>
 				</div>
 			{/if}
 		</div>
@@ -314,7 +313,9 @@
 			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Snapshot</p>
 
 			<div class="mt-2 flex items-start justify-between gap-3">
-				<h2 class="min-w-0 truncate font-sans text-base font-semibold leading-snug text-bone uppercase">
+				<h2
+					class="min-w-0 truncate font-sans text-base leading-snug font-semibold text-bone uppercase"
+				>
 					{$createDropForm.name || 'Untitled Drop'}
 				</h2>
 				<span
@@ -367,7 +368,6 @@
 				</ul>
 			</div>
 		{/if}
-
 	{/snippet}
 </AdminFormLayout>
 

@@ -1,11 +1,43 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { fade, scale } from 'svelte/transition';
+	import {
+		ShoppingBag,
+		User,
+		UserCheck,
+		Clock,
+		Trash2,
+		X,
+		Info,
+		Lock,
+		Eye,
+		Settings2,
+		FileWarning
+	} from 'lucide-svelte';
+	import type { AdminCartDTO } from '$lib/server/modules/cart';
+	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
+	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+
 	let { data } = $props();
 
-	const ownerTypeOptions = [
-		{ value: '', label: 'All owners' },
-		{ value: 'user', label: 'User carts' },
-		{ value: 'guest', label: 'Guest carts' }
-	];
+	let selectedCart = $state<AdminCartDTO | null>(null);
+	let detailOpen = $state(false);
+	let filterUserId = $derived(data.filters.userId ?? '');
+
+	let showFilters = $state(false);
+	const hasActiveFilters = $derived(
+		data.filters.status !== '' ||
+			data.filters.ownerType !== '' ||
+			data.filters.includeExpired === true
+	);
+
+	$effect(() => {
+		if (hasActiveFilters) {
+			showFilters = true;
+		}
+	});
 
 	function formatDate(value: Date | string | null): string {
 		if (!value) return 'Never';
@@ -14,149 +46,640 @@
 			timeStyle: 'short'
 		}).format(new Date(value));
 	}
+
+	function getFilterUrl(key: string, value: string | undefined): string {
+		const url = new URL(page.url);
+		if (value) {
+			url.searchParams.set(key, value);
+		} else {
+			url.searchParams.delete(key);
+		}
+		url.searchParams.delete('offset'); // Reset paging
+		return url.pathname + url.search;
+	}
+
+	function clearFilters() {
+		goto('/app/bag');
+	}
+
+	function openDetails(cart: AdminCartDTO) {
+		selectedCart = cart;
+		detailOpen = true;
+	}
+
+	function closeDetails() {
+		detailOpen = false;
+	}
+
+	let deletionSubmitting = $state(false);
+	async function handleDeleteCart(e: SubmitEvent) {
+		e.preventDefault();
+		if (!selectedCart) return;
+
+		const confirmation = confirm(
+			'Are you sure you want to permanently delete this cart? All items will be removed and reserved inventory will be released immediately.'
+		);
+		if (!confirmation) return;
+
+		deletionSubmitting = true;
+		const formData = new FormData();
+		formData.set('cartId', selectedCart.id);
+
+		try {
+			const res = await fetch('?/delete', {
+				method: 'POST',
+				body: formData
+			});
+			const result = (await res.json()) as { success?: boolean; status?: number; type?: string };
+			if (result.type === 'success' || result.status === 200) {
+				detailOpen = false;
+				selectedCart = null;
+				// Reload page state silently
+				const url = new URL(page.url);
+				// eslint-disable-next-line svelte/no-navigation-without-resolve
+				goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+			}
+		} catch (err) {
+			console.error('Failed to delete cart:', err);
+		} finally {
+			deletionSubmitting = false;
+		}
+	}
 </script>
 
 <svelte:head>
-	<title>Bag | Caro Admin</title>
+	<title>Bags | Caro Admin</title>
 	<meta
 		name="description"
-		content="Inspect guest and user bags, session ownership, item rows, expiry behavior, merge state, and locked unit prices."
+		content="Manage active and expired carts, trace customer items, audit locked pricing anomalies, and release reserved inventory."
 	/>
 </svelte:head>
 
-<section class="mx-auto max-w-7xl">
-	<div class="items-end justify-between border-b border-charcoal pb-6 md:flex md:pb-8">
-		<div>
-			<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">Services</p>
-			<h1 class="mt-2 font-display text-6xl leading-none text-bone uppercase md:text-7xl">Bag</h1>
-		</div>
-
-		<form method="POST" action="?/deleteExpired" class="mt-5 flex gap-2 md:mt-0">
-			<input type="hidden" name="limit" value="100" />
-			<button
-				type="submit"
-				class="bg-volt px-5 py-3 font-mono text-[10px] tracking-widest text-void uppercase transition-colors hover:bg-bone"
-			>
-				Clean Expired
-			</button>
-		</form>
-	</div>
-
-	<div class="mt-8 grid gap-4 lg:grid-cols-[1fr_340px]">
-		<div class="border border-charcoal bg-charcoal/25">
-			<div class="border-b border-charcoal p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-					{data.carts.total} carts tracked
-				</p>
-			</div>
-
-			{#if data.carts.items.length > 0}
-				<div class="overflow-x-auto">
-					<table class="w-full min-w-[900px] text-left">
-						<thead class="border-b border-charcoal">
-							<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-								<th class="px-5 py-4 font-normal">Owner</th>
-								<th class="px-5 py-4 font-normal">Items</th>
-								<th class="px-5 py-4 font-normal">Subtotal</th>
-								<th class="px-5 py-4 font-normal">Unavailable</th>
-								<th class="px-5 py-4 font-normal">Expires</th>
-								<th class="px-5 py-4 font-normal">Updated</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each data.carts.items as cart (cart.id)}
-								<tr class="border-b border-charcoal/70 last:border-b-0">
-									<td class="px-5 py-4">
-										<div class="flex flex-col gap-1">
-											<span class="font-mono text-xs text-bone uppercase">{cart.ownerType}</span>
-											<span class="max-w-[220px] truncate font-mono text-[10px] text-ash">
-												{cart.userId ?? cart.sessionToken ?? cart.id}
-											</span>
-										</div>
-									</td>
-									<td class="px-5 py-4 font-mono text-xs text-bone">
-										{cart.itemCount}
-									</td>
-									<td class="px-5 py-4 font-mono text-xs text-bone">
-										LKR {cart.subtotal.toLocaleString()}
-									</td>
-									<td class="px-5 py-4">
-										<span
-											class="font-mono text-[10px] tracking-widest uppercase {cart.hasUnavailableItems
-												? 'text-volt'
-												: 'text-ash'}"
-										>
-											{cart.hasUnavailableItems ? 'Review' : 'Clear'}
-										</span>
-									</td>
-									<td class="px-5 py-4 font-mono text-[10px] text-ash">
-										{formatDate(cart.expiresAt)}
-									</td>
-									<td class="px-5 py-4 font-mono text-[10px] text-ash">
-										{formatDate(cart.updatedAt)}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			{:else}
-				<div class="p-12 text-center">
-					<p class="font-display text-4xl text-bone uppercase">No carts found</p>
-					<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-						Adjust filters or wait for customer activity.
-					</p>
-				</div>
-			{/if}
-		</div>
-
-		<aside class="border border-charcoal bg-void p-5">
-			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Filters</p>
-			<form method="GET" class="mt-5 flex flex-col gap-4">
-				<label class="flex flex-col gap-2">
-					<span class="font-mono text-[9px] tracking-widest text-ash uppercase">Owner</span>
-					<select
-						name="ownerType"
-						class="border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone"
-					>
-						{#each ownerTypeOptions as option (option.value)}
-							<option value={option.value} selected={data.filters.ownerType === option.value}>
-								{option.label}
-							</option>
-						{/each}
-					</select>
-				</label>
-
-				<label class="flex flex-col gap-2">
-					<span class="font-mono text-[9px] tracking-widest text-ash uppercase">User ID</span>
-					<input
-						name="userId"
-						value={data.filters.userId}
-						class="border border-charcoal bg-charcoal/30 px-3 py-3 font-mono text-xs text-bone"
-					/>
-				</label>
-
-				<label
-					class="flex items-center gap-3 font-mono text-[10px] tracking-widest text-ash uppercase"
+<AdminListLayout
+	title="Carts & Bags"
+	kicker="Services"
+	loading={false}
+	query={data.filters.userId}
+	bind:showFilters
+	{hasActiveFilters}
+	totalItems={data.carts.total}
+	limit={data.filters.limit}
+	offset={data.filters.offset}
+	tableHeaders={[
+		{ label: 'Owner' },
+		{ label: 'Identity Identifier' },
+		{ label: 'Items' },
+		{ label: 'Subtotal' },
+		{ label: 'Expiry Status' },
+		{ label: 'Last Updated' },
+		{ label: 'Actions', class: 'text-right' }
+	]}
+	items={data.carts.items}
+	onclearfilters={clearFilters}
+	searchPlaceholder="Search user ID..."
+>
+	{#snippet statsSnippet()}
+		<div class="mt-8 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
+			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+				<p
+					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
 				>
-					<input
-						type="checkbox"
-						name="includeExpired"
-						value="true"
-						checked={data.filters.includeExpired}
-						class="h-4 w-4"
-					/>
-					Include expired
-				</label>
+					Total Carts
+				</p>
+				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
+					{data.summary.total}
+				</p>
+			</AdminCard>
+			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+				<p
+					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+				>
+					Active Carts
+				</p>
+				<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
+					{data.summary.active}
+				</p>
+			</AdminCard>
+			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+				<p
+					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+				>
+					Expired Carts
+				</p>
+				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
+					{data.summary.expired}
+				</p>
+			</AdminCard>
+			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+				<p
+					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+				>
+					Reserved Items
+				</p>
+				<p class="mt-2 font-display text-3xl leading-none text-sky-400 uppercase sm:text-4xl">
+					{data.summary.totalItems}
+				</p>
+			</AdminCard>
+			<AdminCard class="col-span-2 min-w-0 lg:col-span-1" padding="p-3 sm:p-5">
+				<p
+					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+				>
+					Total Value Held
+				</p>
+				<p class="mt-2 font-display text-2xl leading-none text-emerald-400 uppercase sm:text-3xl">
+					LKR {data.summary.totalSubtotal.toLocaleString()}
+				</p>
+			</AdminCard>
+		</div>
+	{/snippet}
 
-				<input type="hidden" name="limit" value={data.filters.limit} />
+	{#snippet headerActions()}
+		<div class="flex flex-col gap-3 md:flex-row md:items-center">
+			<form method="POST" action="?/deleteExpired" class="flex">
+				<input type="hidden" name="limit" value="100" />
 				<button
 					type="submit"
-					class="border border-ash/30 px-5 py-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:border-volt hover:text-volt"
+					class="border border-rose-500/30 bg-rose-500/5 px-4 py-2 font-mono text-[9px] font-bold tracking-widest text-rose-400 uppercase transition-colors hover:bg-rose-500/10"
 				>
-					Apply Filters
+					Clean Expired Guest Carts
 				</button>
 			</form>
-		</aside>
+		</div>
+	{/snippet}
+
+	{#snippet advancedFilters()}
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+			<AdminSelect
+				label="Include Expired Carts"
+				name="includeExpired"
+				value={data.filters.includeExpired ? 'true' : 'false'}
+				onchange={(e) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+				options={[
+					{ value: 'false', label: 'No' },
+					{ value: 'true', label: 'Yes' }
+				]}
+			/>
+
+			<AdminSelect
+				label="Status"
+				name="status"
+				value={data.filters.status}
+				options={[
+					{ value: '', label: 'All Carts' },
+					{ value: 'active', label: 'Active' },
+					{ value: 'expired', label: 'Expired' },
+					{ value: 'empty', label: 'Empty' },
+					{ value: 'non-empty', label: 'With Items' }
+				]}
+				onchange={(e) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+			/>
+
+			<AdminSelect
+				label="Owner Type"
+				name="ownerType"
+				value={data.filters.ownerType}
+				options={[
+					{ value: '', label: 'All Owners' },
+					{ value: 'user', label: 'User Carts' },
+					{ value: 'guest', label: 'Guest Carts' }
+				]}
+				onchange={(e) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+			/>
+		</div>
+	{/snippet}
+
+	{#snippet card(cart: any)}
+		{@const isExpired = cart.expiresAt && new Date(cart.expiresAt) <= new Date()}
+		<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
+			<div class="flex flex-col gap-3">
+				<div class="flex items-start justify-between gap-2">
+					<div class="min-w-0">
+						<div class="flex items-center gap-2">
+							{#if cart.ownerType === 'user'}
+								<UserCheck size={12} class="text-volt" />
+								<span class="font-mono text-[8px] tracking-widest text-volt uppercase">User</span>
+							{:else}
+								<User size={12} class="text-sky-400" />
+								<span class="font-mono text-[8px] tracking-widest text-sky-400 uppercase"
+									>Guest</span
+								>
+							{/if}
+						</div>
+						<p class="mt-1.5 truncate font-mono text-[10px] text-bone select-all">
+							{cart.userId ?? cart.sessionToken ?? cart.id}
+						</p>
+					</div>
+					<div class="flex shrink-0 flex-col items-end gap-1">
+						{#if isExpired}
+							<span
+								class="border border-rose-500/30 bg-rose-500/5 px-2 py-0.5 font-mono text-[8px] tracking-widest text-rose-400 uppercase"
+							>
+								Expired
+							</span>
+						{:else if cart.expiresAt}
+							<span
+								class="border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 font-mono text-[8px] tracking-widest text-amber-400 uppercase"
+							>
+								Active
+							</span>
+						{:else}
+							<span
+								class="border border-charcoal bg-void px-2 py-0.5 font-mono text-[8px] tracking-widest text-ash/60 uppercase"
+							>
+								No Expiry
+							</span>
+						{/if}
+					</div>
+				</div>
+
+				<div class="font-mono text-[10px] text-ash">
+					<p>Items: <span class="text-bone">{cart.itemCount}</span></p>
+					<p class="mt-1">
+						Subtotal: <span class="text-bone">LKR {cart.subtotal.toLocaleString()}</span>
+					</p>
+					<p class="mt-1 text-[9px] text-ash/60">Updated: {formatDate(cart.updatedAt)}</p>
+				</div>
+
+				<div class="mt-2 flex justify-end border-t border-charcoal pt-3">
+					<button
+						type="button"
+						onclick={() => openDetails(cart)}
+						class="border border-ash/30 px-2 py-1 font-mono text-[9px] tracking-wider text-ash uppercase hover:border-volt hover:text-volt"
+					>
+						View Details
+					</button>
+				</div>
+			</div>
+		</article>
+	{/snippet}
+
+	{#snippet row(cart: any)}
+		{@const isExpired = cart.expiresAt && new Date(cart.expiresAt) <= new Date()}
+		<tr class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/10">
+			<!-- Owner -->
+			<td class="px-5 py-4">
+				<div class="flex items-center gap-2">
+					{#if cart.ownerType === 'user'}
+						<UserCheck size={14} class="text-volt" />
+						<span class="font-mono text-[9px] tracking-widest text-volt uppercase">User</span>
+					{:else}
+						<User size={14} class="text-sky-400" />
+						<span class="font-mono text-[9px] tracking-widest text-sky-400 uppercase">Guest</span>
+					{/if}
+				</div>
+			</td>
+
+			<!-- Identity Identifier -->
+			<td class="px-5 py-4">
+				<span
+					class="block max-w-[200px] truncate font-mono text-xs text-bone"
+					title={cart.userId ?? cart.sessionToken ?? cart.id}
+				>
+					{cart.userId ?? cart.sessionToken ?? cart.id}
+				</span>
+			</td>
+
+			<!-- Items count -->
+			<td class="px-5 py-4">
+				<span class="font-mono text-xs text-bone"
+					>{cart.itemCount} {cart.itemCount === 1 ? 'item' : 'items'}</span
+				>
+			</td>
+
+			<!-- Subtotal -->
+			<td class="px-5 py-4 font-mono text-xs text-bone">
+				LKR {cart.subtotal.toLocaleString()}
+			</td>
+
+			<!-- Expiry Badge -->
+			<td class="px-5 py-4">
+				{#if isExpired}
+					<span
+						class="border border-rose-500/30 bg-rose-500/5 px-2 py-0.5 font-mono text-[9px] tracking-widest text-rose-400 uppercase"
+					>
+						Expired
+					</span>
+				{:else if cart.expiresAt}
+					<span
+						class="border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 font-mono text-[9px] tracking-widest text-amber-400 uppercase"
+					>
+						Expires {formatDate(cart.expiresAt)}
+					</span>
+				{:else}
+					<span
+						class="border border-charcoal bg-void px-2 py-0.5 font-mono text-[9px] tracking-widest text-ash/60 uppercase"
+					>
+						No Expiry
+					</span>
+				{/if}
+			</td>
+
+			<!-- Updated At -->
+			<td class="px-5 py-4 font-mono text-[10px] text-ash">
+				{formatDate(cart.updatedAt)}
+			</td>
+
+			<!-- Actions -->
+			<td class="px-5 py-4 text-right">
+				<button
+					type="button"
+					onclick={() => openDetails(cart)}
+					class="inline-flex items-center gap-1.5 border border-ash/30 px-2.5 py-1.5 font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:border-volt hover:text-volt"
+				>
+					<Eye size={10} /> View Details
+				</button>
+			</td>
+		</tr>
+	{/snippet}
+
+	{#snippet emptyState()}
+		<p class="font-display text-4xl text-bone uppercase">No items found</p>
+		<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+			Adjust filters or query parameters.
+		</p>
+	{/snippet}
+</AdminListLayout>
+
+<!-- TECHNICAL DETAIL SLIDE-OVER DRAWER -->
+{#if detailOpen && selectedCart}
+	<button
+		type="button"
+		class="fixed inset-0 z-[90] bg-void/70 backdrop-blur-sm transition-opacity"
+		onclick={closeDetails}
+		aria-label="Close cart details"
+		transition:fade={{ duration: 150 }}
+	></button>
+
+	<div
+		class="fixed inset-y-0 right-0 z-[100] w-full max-w-2xl overflow-y-auto border-l border-charcoal bg-void p-6 shadow-2xl"
+		transition:scale={{ duration: 150, start: 0.98, opacity: 0 }}
+	>
+		<!-- Detail view header -->
+		<div class="mb-6 flex items-center justify-between border-b border-charcoal pb-4">
+			<div>
+				<p class="mb-0.5 font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Cart Detail</p>
+				<h2 class="max-w-md truncate font-mono text-sm font-bold text-bone">
+					ID: {selectedCart.id}
+				</h2>
+			</div>
+			<button
+				type="button"
+				class="p-1 text-ash transition-colors hover:text-bone"
+				onclick={closeDetails}
+				aria-label="Close details"
+			>
+				<X size={18} />
+			</button>
+		</div>
+
+		<!-- Main details Split Grid: Visual Mockup on top, Stats below -->
+		<div class="space-y-6">
+			<!-- Cart Items List -->
+			<div>
+				<p class="mb-3 font-mono text-[9px] tracking-[0.2em] text-ash/50 uppercase">
+					Cart Contents
+				</p>
+
+				{#if selectedCart.items && selectedCart.items.length > 0}
+					<div class="space-y-3">
+						{#each selectedCart.items as item (item.id)}
+							<div class="flex items-start gap-4 border border-charcoal/80 bg-charcoal/10 p-3">
+								<!-- Thumbnail image -->
+								{#if item.imageUrl}
+									<img
+										src={item.imageUrl}
+										alt={item.productName || 'Product'}
+										class="h-16 w-16 border border-charcoal bg-charcoal object-cover"
+									/>
+								{:else}
+									<div
+										class="flex h-16 w-16 shrink-0 items-center justify-center border border-charcoal bg-charcoal text-ash/40"
+									>
+										<ShoppingBag size={20} />
+									</div>
+								{/if}
+
+								<!-- Item info details -->
+								<div class="min-w-0 flex-1">
+									<h4 class="truncate font-mono text-xs font-bold text-bone">
+										{item.productName || 'Unknown Product'}
+									</h4>
+									<div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-ash">
+										{#if item.size}
+											<span>Size: <strong class="text-bone uppercase">{item.size}</strong></span>
+										{/if}
+										{#if item.color}
+											<span class="flex items-center gap-1">
+												Color:
+												{#if item.colorHex}
+													<span
+														class="h-2.5 w-2.5 rounded-full border border-charcoal"
+														style="background-color: {item.colorHex}"
+													></span>
+												{/if}
+												<strong class="text-bone">{item.color}</strong>
+											</span>
+										{/if}
+										<span>Qty: <strong class="text-bone">{item.quantity}</strong></span>
+									</div>
+
+									<!-- Availability and Price Changed warnings -->
+									<div class="mt-2 flex flex-wrap gap-2">
+										{#if item.priceChanged}
+											<span
+												class="inline-flex items-center gap-1 border border-volt/30 bg-volt/5 px-1.5 py-0.5 font-mono text-[8px] font-bold tracking-wider text-volt uppercase"
+												title="Price has changed since this item was added to the cart. Price locked at LKR {item.unitPrice}."
+											>
+												<FileWarning size={10} /> Price Locked
+											</span>
+										{/if}
+										{#if item.availabilityStatus === 'available'}
+											<span
+												class="inline-flex items-center border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-emerald-400 uppercase"
+											>
+												In Stock
+											</span>
+										{:else if item.availabilityStatus === 'backorder'}
+											<span
+												class="inline-flex items-center border border-amber-500/30 bg-amber-500/5 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-amber-400 uppercase"
+											>
+												Backorder
+											</span>
+										{:else if item.availabilityStatus === 'untracked'}
+											<span
+												class="inline-flex items-center border border-charcoal bg-void px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-ash/60 uppercase"
+											>
+												Untracked
+											</span>
+										{:else}
+											<span
+												class="inline-flex items-center border border-rose-500/30 bg-rose-500/5 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-rose-400 uppercase"
+											>
+												Unavailable
+											</span>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Prices right-aligned -->
+								<div class="text-right font-mono text-xs">
+									<div class="font-medium text-bone">LKR {item.lineTotal.toLocaleString()}</div>
+									<div class="mt-0.5 text-[9px] text-ash/60">
+										LKR {item.unitPrice.toLocaleString()} ea
+									</div>
+									{#if item.priceChanged && item.currentUnitPrice}
+										<div
+											class="mt-1 text-[8px] text-volt line-through"
+											title="Current catalog price"
+										>
+											LKR {item.currentUnitPrice.toLocaleString()}
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="border border-charcoal/80 bg-charcoal/10 p-6 text-center">
+						<ShoppingBag size={24} class="mx-auto mb-2 text-ash/20" />
+						<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
+							This cart is empty.
+						</p>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Cart Subtotals & Value breakdown -->
+			<div class="space-y-2 rounded-lg border border-charcoal bg-charcoal/15 p-4 font-mono text-xs">
+				<div class="flex justify-between text-ash">
+					<span>Cart Subtotal:</span>
+					<span class="text-bone">LKR {selectedCart.subtotal.toLocaleString()}</span>
+				</div>
+				{#if selectedCart.discountAmount > 0}
+					<div class="flex justify-between text-rose-400">
+						<span>Promo Code Discount:</span>
+						<span>- LKR {selectedCart.discountAmount.toLocaleString()}</span>
+					</div>
+				{/if}
+				<div class="flex justify-between border-t border-charcoal pt-2 text-sm font-bold text-bone">
+					<span>Total Value:</span>
+					<span class="text-volt">LKR {selectedCart.totalBeforeShipping.toLocaleString()}</span>
+				</div>
+			</div>
+
+			<!-- Quick info stats grid -->
+			<div class="grid grid-cols-2 gap-3">
+				<div class="border border-charcoal bg-charcoal/10 p-3">
+					<span class="block font-mono text-[8px] text-ash/50 uppercase">Owner Type</span>
+					<span class="mt-1 block font-mono text-xs font-bold text-bone uppercase">
+						{#if selectedCart.ownerType === 'user'}
+							<span class="text-volt">User Cart</span>
+						{:else}
+							<span class="text-sky-400">Guest Cart</span>
+						{/if}
+					</span>
+				</div>
+				<div class="border border-charcoal bg-charcoal/10 p-3">
+					<span class="block font-mono text-[8px] text-ash/50 uppercase">Promo Code Applied</span>
+					<span class="mt-1 block truncate font-mono text-xs text-bone"
+						>{selectedCart.promoCodeId || 'None'}</span
+					>
+				</div>
+				<div class="border border-charcoal bg-charcoal/10 p-3">
+					<span class="block font-mono text-[8px] text-ash/50 uppercase">Items Count</span>
+					<span class="mt-1 block font-mono text-xs text-bone">{selectedCart.itemCount} items</span>
+				</div>
+				<div class="border border-charcoal bg-charcoal/10 p-3">
+					<span class="block font-mono text-[8px] text-ash/50 uppercase">Session / Identifier</span>
+					<span
+						class="mt-1 block truncate font-mono text-[10px] text-bone"
+						title={selectedCart.userId ?? selectedCart.sessionToken}
+						>{selectedCart.userId ?? selectedCart.sessionToken ?? '—'}</span
+					>
+				</div>
+			</div>
+
+			<!-- Expiry and locking block -->
+			{#if selectedCart.expiresAt}
+				<div
+					class="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4"
+				>
+					<Clock class="mt-0.5 shrink-0 text-amber-400" size={16} />
+					<div>
+						<p class="font-mono text-[9px] font-bold text-amber-300 uppercase">
+							Expiry Date & Stock Retention
+						</p>
+						<p class="mt-1 font-mono text-[10px] leading-relaxed text-amber-200/80">
+							This guest session expires on {formatDate(selectedCart.expiresAt)}. Once expired,
+							inventory reservations are automatically released.
+						</p>
+					</div>
+				</div>
+			{:else}
+				<div class="flex items-start gap-3 rounded-lg border border-charcoal bg-charcoal/10 p-4">
+					<Lock class="mt-0.5 shrink-0 text-ash/60" size={16} />
+					<div>
+						<p class="font-mono text-[9px] font-bold text-ash uppercase">
+							Indefinite Authentication Retention
+						</p>
+						<p class="mt-1 font-mono text-[10px] leading-relaxed text-ash/80">
+							Authenticated user carts persist indefinitely and do not expire.
+						</p>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Copyable Raw JSON Payload block -->
+			<div>
+				<div class="mb-2 flex items-center justify-between">
+					<p class="font-mono text-[9px] tracking-[0.2em] text-ash/50 uppercase">
+						Raw JSON Cart Data
+					</p>
+					<button
+						type="button"
+						onclick={() => {
+							navigator.clipboard.writeText(JSON.stringify(selectedCart, null, 2));
+						}}
+						class="font-mono text-[8px] text-volt uppercase hover:underline"
+					>
+						Copy Raw Data
+					</button>
+				</div>
+				<pre
+					class="max-h-60 overflow-y-auto border border-charcoal bg-void p-4 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-ash/80">{JSON.stringify(
+						selectedCart,
+						null,
+						2
+					)}</pre>
+			</div>
+
+			<!-- Actions block (Delete Cart) -->
+			<div class="flex items-center justify-between gap-4 border-t border-charcoal pt-4">
+				<div class="flex items-center gap-2 font-mono text-[9px] text-ash">
+					<Info size={12} class="text-rose-400" />
+					<span>Deleting releases inventory blocks immediately.</span>
+				</div>
+
+				<form onsubmit={handleDeleteCart}>
+					<button
+						type="submit"
+						disabled={deletionSubmitting}
+						class="flex items-center gap-2 border border-rose-500/60 bg-rose-500/10 px-4 py-2 font-mono text-[10px] font-bold tracking-widest text-rose-400 uppercase transition-colors hover:bg-rose-500/25 disabled:opacity-50"
+					>
+						<Trash2 size={12} />
+						{deletionSubmitting ? 'Deleting...' : 'Delete Cart'}
+					</button>
+				</form>
+			</div>
+		</div>
 	</div>
-</section>
+{/if}

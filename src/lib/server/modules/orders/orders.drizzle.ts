@@ -11,6 +11,7 @@ import { shippingMethod } from '../shipping/shipping.drizzle';
 import type { AddressSnapshot } from '../addresses/addresses.types';
 import type { PromoCodeSnapshot } from '../promotions/promotions.types';
 import type { ShippingMethodSnapshot } from '../shipping/shipping.types';
+import { payment } from '../payments/payments.drizzle';
 
 // ---------------------------------------------------------------------------
 // ORDER STATUS ENUM
@@ -41,37 +42,13 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 // Covers all popular Sri Lankan payment options.
 // ---------------------------------------------------------------------------
 
-export const PAYMENT_METHODS = [
-	'card', // credit / debit card via gateway
-	'bank_transfer', // direct bank transfer (common for large SL orders)
-	'cash_on_delivery', // CoD — still widely used in SL
-	'payhere', // PayHere — most popular SL payment gateway
-	'ipg', // Dialog Axiata IPG
-	'webxpay' // WebXPay SL gateway
-] as const;
-
-export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
-
-export const ONLINE_PAYMENT_METHODS = [
-	'card',
-	'payhere',
-	'ipg',
-	'webxpay'
-] as const satisfies readonly PaymentMethod[];
-
-export const OFFLINE_PAYMENT_METHODS = [
-	'bank_transfer',
-	'cash_on_delivery'
-] as const satisfies readonly PaymentMethod[];
-
-export const PAYMENT_STATUSES = [
-	'pending',
-	'authorized',
-	'captured',
-	'failed',
-	'refunded',
-	'partially_refunded'
-] as const;
+export {
+	PAYMENT_METHODS,
+	PAYMENT_STATUSES,
+	ONLINE_PAYMENT_METHODS,
+	OFFLINE_PAYMENT_METHODS
+} from '../payments/payments.drizzle';
+export type { PaymentMethod, PaymentStatus } from '../payments/payments.drizzle';
 
 // ---------------------------------------------------------------------------
 // ORDERS
@@ -245,50 +222,7 @@ export const orderItem = sqliteTable(
 // ---------------------------------------------------------------------------
 // PAYMENTS
 // ---------------------------------------------------------------------------
-
-export const payment = sqliteTable(
-	'payment',
-	{
-		id: text('id')
-			.primaryKey()
-			.$defaultFn(() => nanoid()),
-		orderId: text('order_id')
-			.notNull()
-			.references(() => order.id, { onDelete: 'cascade' }),
-		amount: integer('amount').notNull(),
-		currency: text('currency').default('LKR').notNull(),
-		method: text('method', { enum: PAYMENT_METHODS }).notNull(),
-		status: text('status', { enum: PAYMENT_STATUSES }).default('pending').notNull(),
-		// Payment gateway transaction reference
-		transactionId: text('transaction_id'),
-		// Raw JSON response from gateway — useful for debugging failed payments
-		gatewayResponse: text('gateway_response', { mode: 'json' }),
-		refundAmount: integer('refund_amount'),
-		refundedAt: integer('refunded_at', { mode: 'timestamp_ms' }),
-		paidAt: integer('paid_at', { mode: 'timestamp_ms' }),
-		createdAt: integer('created_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.notNull(),
-		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-			.$onUpdate(() => new Date())
-			.notNull()
-	},
-	(table) => [
-		index('payment_order_idx').on(table.orderId),
-		index('payment_status_idx').on(table.status),
-		index('payment_transaction_idx').on(table.transactionId),
-		check('payment_amount_positive', sql`${table.amount} > 0`),
-		check(
-			'payment_refund_valid',
-			sql`${table.refundAmount} IS NULL OR (${table.refundAmount} >= 0 AND ${table.refundAmount} <= ${table.amount})`
-		),
-		check(
-			'payment_gateway_response_valid',
-			sql`${table.gatewayResponse} IS NULL OR json_valid(${table.gatewayResponse})`
-		)
-	]
-);
+export { payment } from '../payments/payments.drizzle';
 
 // ---------------------------------------------------------------------------
 // ORDER STATUS HISTORY  (append-only audit trail — never delete rows)
@@ -365,12 +299,7 @@ export const orderItemRelations = relations(orderItem, ({ one }) => ({
 	})
 }));
 
-export const paymentRelations = relations(payment, ({ one }) => ({
-	order: one(order, {
-		fields: [payment.orderId],
-		references: [order.id]
-	})
-}));
+export { paymentRelations } from '../payments/payments.drizzle';
 
 export const orderStatusHistoryRelations = relations(orderStatusHistory, ({ one }) => ({
 	order: one(order, {
@@ -499,49 +428,11 @@ export const insertOrderItemSchema = insertOrderItemBaseSchema.refine(
 );
 export const selectOrderItemSchema = createSelectSchema(orderItem);
 
-export const insertPaymentBaseSchema = createInsertSchema(payment, {
-	orderId: idSchema,
-	amount: z.number().int().positive(),
-	currency: z.string().length(3).optional(),
-	method: z.enum(PAYMENT_METHODS),
-	status: z.enum(PAYMENT_STATUSES).optional(),
-	transactionId: z.string().max(255).optional().nullable(),
-	gatewayResponse: z.any().optional().nullable(),
-	refundAmount: z.number().int().min(0).optional().nullable()
-}).omit({
-	id: true,
-	refundedAt: true,
-	paidAt: true,
-	createdAt: true,
-	updatedAt: true
-});
-export const insertPaymentSchema = insertPaymentBaseSchema.refine(
-	(d) => d.refundAmount == null || d.refundAmount <= d.amount,
-	{
-		message: 'refundAmount cannot exceed amount',
-		path: ['refundAmount']
-	}
-);
-export const selectPaymentSchema = createSelectSchema(payment);
-// NOTE: refundAmount upper-bound (must not exceed the payment's amount) cannot be
-// validated here because amount is not part of the update payload. Enforce this
-// at the application layer by loading the existing payment record before updating.
-export const updatePaymentSchema = createUpdateSchema(payment, {
-	status: z.enum(PAYMENT_STATUSES).optional(),
-	transactionId: z.string().max(255).optional().nullable(),
-	gatewayResponse: z.any().optional().nullable(),
-	refundAmount: z.number().int().min(0).optional().nullable(),
-	refundedAt: timestampMsSchema.optional().nullable(),
-	paidAt: timestampMsSchema.optional().nullable()
-}).omit({
-	id: true,
-	orderId: true,
-	amount: true,
-	currency: true,
-	method: true,
-	createdAt: true,
-	updatedAt: true
-});
+export {
+	insertPaymentSchema,
+	selectPaymentSchema,
+	updatePaymentSchema
+} from '../payments/payments.drizzle';
 
 export const insertOrderStatusHistoryBaseSchema = createInsertSchema(orderStatusHistory, {
 	orderId: idSchema,
@@ -575,11 +466,13 @@ export type OrderItem = typeof orderItem.$inferSelect;
 export type NewOrderItem = typeof orderItem.$inferInsert;
 export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
 export type SelectOrderItem = z.infer<typeof selectOrderItemSchema>;
-export type Payment = typeof payment.$inferSelect;
-export type NewPayment = typeof payment.$inferInsert;
-export type InsertPayment = z.infer<typeof insertPaymentSchema>;
-export type SelectPayment = z.infer<typeof selectPaymentSchema>;
-export type UpdatePayment = z.infer<typeof updatePaymentSchema>;
+export type {
+	Payment,
+	NewPayment,
+	InsertPayment,
+	SelectPayment,
+	UpdatePayment
+} from '../payments/payments.drizzle';
 export type OrderStatusHistory = typeof orderStatusHistory.$inferSelect;
 export type NewOrderStatusHistory = typeof orderStatusHistory.$inferInsert;
 export type InsertOrderStatusHistory = z.infer<typeof insertOrderStatusHistorySchema>;

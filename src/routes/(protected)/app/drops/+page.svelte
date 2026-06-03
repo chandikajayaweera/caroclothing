@@ -2,7 +2,17 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { Eye, Pencil, Plus, Power, Trash2, Calendar, ShoppingBag, Users, AlertTriangle } from 'lucide-svelte';
+	import {
+		Eye,
+		Pencil,
+		Plus,
+		Power,
+		Trash2,
+		Calendar,
+		ShoppingBag,
+		Users,
+		AlertTriangle
+	} from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import { Dialog } from 'bits-ui';
 	import { fade, scale } from 'svelte/transition';
@@ -58,15 +68,15 @@
 	const dropActionMessage = $derived(
 		actionData?.form?.message ?? $deleteDropMessage ?? $transitionDropStatusMessage
 	);
- 
+
 	let toastMessage = $state<string | null>(null);
- 
+
 	$effect(() => {
 		if (dropActionMessage) {
 			toastMessage = dropActionMessage;
 		}
 	});
- 
+
 	function clearFilters() {
 		goto('/app/drops');
 	}
@@ -158,7 +168,12 @@
 </form>
 
 <!-- Confirmation Modal for "Go Live" -->
-<Dialog.Root open={confirmingTransition !== null} onOpenChange={(open) => { if (!open) confirmingTransition = null; }}>
+<Dialog.Root
+	open={confirmingTransition !== null}
+	onOpenChange={(open) => {
+		if (!open) confirmingTransition = null;
+	}}
+>
 	{#if confirmingTransition}
 		<Dialog.Portal>
 			<Dialog.Overlay>
@@ -184,7 +199,9 @@
 								Verify you wish to transition drop to Live status.
 							</Dialog.Description>
 
-							<div class="flex items-center gap-2 font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
+							<div
+								class="flex items-center gap-2 font-mono text-[9px] tracking-[0.2em] text-volt uppercase"
+							>
 								<AlertTriangle size={12} class="text-volt" />
 								<span>DANGER ZONE / HIGH IMPACT ACTION</span>
 							</div>
@@ -192,14 +209,21 @@
 								LAUNCH "{confirmingTransition?.dropName ?? ''}" LIVE?
 							</h2>
 							<p class="mt-3 font-sans text-sm leading-relaxed text-ash/80">
-								Transitioning this drop to <strong class="text-volt uppercase">LIVE</strong> will instantly make all assigned products purchasable. It will also immediately enqueue and dispatch launch emails/SMS notifications to all contacts registered on the waitlist. This action is irreversible.
+								Transitioning this drop to <strong class="text-volt uppercase">LIVE</strong> will instantly
+								make all assigned products purchasable. It will also immediately enqueue and dispatch
+								launch emails/SMS notifications to all contacts registered on the waitlist. This action
+								is irreversible.
 							</p>
 							<div class="mt-6 grid gap-3 sm:grid-cols-2">
 								<AdminButton type="button" onclick={confirmLaunch} variant="volt">
 									<Power size={14} aria-hidden="true" />
 									Launch Drop Live
 								</AdminButton>
-								<AdminButton type="button" onclick={() => confirmingTransition = null} variant="outline">
+								<AdminButton
+									type="button"
+									onclick={() => (confirmingTransition = null)}
+									variant="outline"
+								>
 									Cancel
 								</AdminButton>
 							</div>
@@ -212,16 +236,13 @@
 </Dialog.Root>
 
 {#await Promise.all([data.streamed.drops, data.streamed.allDrops])}
-	<AdminListLayout
-		title="Drops"
-		loading={true}
-		{tableHeaders}
-		items={[]}
-	>
+	<AdminListLayout title="Drops" loading={true} {tableHeaders} items={[]}>
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
 				{#each Array(5) as _}
-					<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+					<div
+						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+					>
 						<div class="flex flex-1 items-center gap-3">
 							<div class="h-12 w-20 bg-charcoal"></div>
 							<div class="flex-1 space-y-2">
@@ -255,8 +276,8 @@
 			inactive: statsTeaser
 		}}
 		query={data.filters.query}
-		bind:showFilters={showFilters}
-		hasActiveFilters={hasActiveFilters}
+		bind:showFilters
+		{hasActiveFilters}
 		totalItems={total}
 		limit={data.limit}
 		offset={data.offset}
@@ -265,12 +286,7 @@
 		onclearfilters={clearFilters}
 	>
 		{#snippet headerActions()}
-			<AdminButton
-				href={resolve('/app/drops/new')}
-				variant="volt"
-				size="md"
-				class="mt-5 md:mt-0"
-			>
+			<AdminButton href={resolve('/app/drops/new')} variant="volt" size="md" class="mt-5 md:mt-0">
 				<Plus size={14} aria-hidden="true" />
 				Create Drop
 			</AdminButton>
@@ -299,7 +315,9 @@
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
 				{#each Array(5) as _}
-					<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+					<div
+						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+					>
 						<div class="flex flex-1 items-center gap-3">
 							<div class="h-12 w-20 bg-charcoal"></div>
 							<div class="flex-1 space-y-2">
@@ -320,7 +338,7 @@
 				<div class="grid min-w-0 grid-cols-[80px_minmax(0,1fr)] gap-3">
 					<a
 						href={resolve(`/app/drops/${dropItem.slug}`)}
-						class="grid aspect-video w-full place-items-center border border-charcoal bg-charcoal/30 overflow-hidden"
+						class="grid aspect-video w-full place-items-center overflow-hidden border border-charcoal bg-charcoal/30"
 						aria-label={`View ${dropItem.name}`}
 					>
 						{#if dropItem.heroImageUrl}
@@ -341,14 +359,18 @@
 								<p class="mt-0.5 truncate font-mono text-[10px] text-ash">{dropItem.slug}</p>
 							</div>
 							<span
-								class="shrink-0 rounded px-1.5 py-0.5 font-mono text-[8px] tracking-wider uppercase {getStatusClass(dropItem.status)}"
+								class="shrink-0 rounded px-1.5 py-0.5 font-mono text-[8px] tracking-wider uppercase {getStatusClass(
+									dropItem.status
+								)}"
 							>
 								{getStatusLabel(dropItem.status)}
 							</span>
 						</div>
 
 						{#if dropItem.tagline}
-							<p class="mt-2 font-mono text-[9px] text-volt uppercase leading-tight">{dropItem.tagline}</p>
+							<p class="mt-2 font-mono text-[9px] leading-tight text-volt uppercase">
+								{dropItem.tagline}
+							</p>
 						{/if}
 
 						<div class="mt-3 space-y-1 font-mono text-[10px]">
@@ -356,7 +378,7 @@
 								<Calendar size={11} />
 								<span>Launch At: {formatDateTime(dropItem.launchAt)}</span>
 							</div>
-							<div class="flex items-center gap-3 mt-1.5 flex-wrap">
+							<div class="mt-1.5 flex flex-wrap items-center gap-3">
 								<span class="inline-flex items-center gap-1 text-bone">
 									<ShoppingBag size={11} class="text-volt" />
 									{dropItem.products.length} Products
@@ -371,9 +393,10 @@
 						{#if dropItem.status === 'teaser'}
 							<button
 								type="button"
-								onclick={() => handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'live')}
+								onclick={() =>
+									handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'live')}
 								disabled={$transitionDropStatusSubmitting}
-								class="grid h-10 w-full place-items-center border border-volt/40 text-volt hover:bg-volt hover:text-void disabled:opacity-40 transition-colors"
+								class="grid h-10 w-full place-items-center border border-volt/40 text-volt transition-colors hover:bg-volt hover:text-void disabled:opacity-40"
 								aria-label={`Go Live`}
 								title="Go Live"
 							>
@@ -382,9 +405,10 @@
 						{:else if dropItem.status === 'live'}
 							<button
 								type="button"
-								onclick={() => handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'sold_out')}
+								onclick={() =>
+									handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'sold_out')}
 								disabled={$transitionDropStatusSubmitting}
-								class="grid h-10 w-full place-items-center border border-red-400/40 text-red-300 hover:bg-red-400 hover:text-void disabled:opacity-40 transition-colors"
+								class="grid h-10 w-full place-items-center border border-red-400/40 text-red-300 transition-colors hover:bg-red-400 hover:text-void disabled:opacity-40"
 								aria-label={`Mark Sold Out`}
 								title="Mark Sold Out"
 							>
@@ -393,16 +417,19 @@
 						{:else if dropItem.status === 'sold_out'}
 							<button
 								type="button"
-								onclick={() => handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'archived')}
+								onclick={() =>
+									handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'archived')}
 								disabled={$transitionDropStatusSubmitting}
-								class="grid h-10 w-full place-items-center border border-ash/40 text-ash hover:bg-ash hover:text-void disabled:opacity-40 transition-colors"
+								class="grid h-10 w-full place-items-center border border-ash/40 text-ash transition-colors hover:bg-ash hover:text-void disabled:opacity-40"
 								aria-label={`Archive Drop`}
 								title="Archive Drop"
 							>
 								<Trash2 size={14} aria-hidden="true" />
 							</button>
 						{:else}
-							<div class="grid h-10 w-full place-items-center border border-charcoal text-ash/40 cursor-not-allowed">
+							<div
+								class="grid h-10 w-full cursor-not-allowed place-items-center border border-charcoal text-ash/40"
+							>
 								<Power size={14} aria-hidden="true" />
 							</div>
 						{/if}
@@ -447,7 +474,7 @@
 				<td class="px-5 py-4">
 					<a
 						href={resolve(`/app/drops/${dropItem.slug}`)}
-						class="grid h-12 w-20 shrink-0 place-items-center border border-charcoal bg-void overflow-hidden"
+						class="grid h-12 w-20 shrink-0 place-items-center overflow-hidden border border-charcoal bg-void"
 						aria-label={`View ${dropItem.name}`}
 					>
 						{#if dropItem.heroImageUrl}
@@ -466,7 +493,9 @@
 							{dropItem.name}
 						</a>
 						{#if dropItem.tagline}
-							<p class="mt-0.5 font-mono text-[9px] text-volt uppercase truncate max-w-[200px]">{dropItem.tagline}</p>
+							<p class="mt-0.5 max-w-[200px] truncate font-mono text-[9px] text-volt uppercase">
+								{dropItem.tagline}
+							</p>
 						{/if}
 						<p class="mt-1 font-mono text-[9px] text-ash">
 							{dropItem.slug}
@@ -475,7 +504,9 @@
 				</td>
 				<td class="px-5 py-4">
 					<span
-						class="rounded px-1.5 py-0.5 font-mono text-[8px] tracking-wider uppercase {getStatusClass(dropItem.status)}"
+						class="rounded px-1.5 py-0.5 font-mono text-[8px] tracking-wider uppercase {getStatusClass(
+							dropItem.status
+						)}"
 					>
 						{getStatusLabel(dropItem.status)}
 					</span>
@@ -503,9 +534,10 @@
 							{#if dropItem.status === 'teaser'}
 								<button
 									type="button"
-									onclick={() => handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'live')}
+									onclick={() =>
+										handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'live')}
 									disabled={$transitionDropStatusSubmitting}
-									class="grid h-9 w-9 place-items-center border border-volt/40 text-volt hover:bg-volt hover:text-void disabled:opacity-40 transition-colors"
+									class="grid h-9 w-9 place-items-center border border-volt/40 text-volt transition-colors hover:bg-volt hover:text-void disabled:opacity-40"
 									aria-label={`Go Live`}
 									title="Go Live"
 								>
@@ -514,9 +546,10 @@
 							{:else if dropItem.status === 'live'}
 								<button
 									type="button"
-									onclick={() => handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'sold_out')}
+									onclick={() =>
+										handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'sold_out')}
 									disabled={$transitionDropStatusSubmitting}
-									class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 hover:bg-red-400 hover:text-void disabled:opacity-40 transition-colors"
+									class="grid h-9 w-9 place-items-center border border-red-400/40 text-red-300 transition-colors hover:bg-red-400 hover:text-void disabled:opacity-40"
 									aria-label={`Mark Sold Out`}
 									title="Mark Sold Out"
 								>
@@ -525,16 +558,19 @@
 							{:else if dropItem.status === 'sold_out'}
 								<button
 									type="button"
-									onclick={() => handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'archived')}
+									onclick={() =>
+										handleTransitionClick(dropItem.id, dropItem.name, dropItem.status, 'archived')}
 									disabled={$transitionDropStatusSubmitting}
-									class="grid h-9 w-9 place-items-center border border-ash/40 text-ash hover:bg-ash hover:text-void disabled:opacity-40 transition-colors"
+									class="grid h-9 w-9 place-items-center border border-ash/40 text-ash transition-colors hover:bg-ash hover:text-void disabled:opacity-40"
 									aria-label={`Archive Drop`}
 									title="Archive Drop"
 								>
 									<Trash2 size={14} aria-hidden="true" />
 								</button>
 							{:else}
-								<div class="grid h-9 w-9 place-items-center border border-charcoal text-ash/40 cursor-not-allowed">
+								<div
+									class="grid h-9 w-9 cursor-not-allowed place-items-center border border-charcoal text-ash/40"
+								>
 									<Power size={14} aria-hidden="true" />
 								</div>
 							{/if}

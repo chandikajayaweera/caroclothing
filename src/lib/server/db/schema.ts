@@ -13,3 +13,4 @@ export * from '../modules/promotions/promotions.drizzle';
 export * from '../modules/reviews/reviews.drizzle';
 export * from '../modules/shipping/shipping.drizzle';
 export * from '../modules/wishlist/wishlist.drizzle';
+export * from '../modules/payments/payments.drizzle';

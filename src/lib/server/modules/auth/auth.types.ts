@@ -98,6 +98,9 @@ export type UserAdminDTO = {
 	updatedAt: Date;
 	authMethodCount: number;
 	sessionCount: number;
+	lastActiveAt?: Date | null;
+	lastActiveIp?: string | null;
+	lastActiveUserAgent?: string | null;
 	authMethods?: AuthMethodDTO[];
 };
 
@@ -105,6 +108,9 @@ export type ListUsersOptions = {
 	query?: string | null;
 	role?: UserRole | null;
 	banned?: boolean | null;
+	provider?: string | null;
+	createdAfter?: Date | null;
+	createdBefore?: Date | null;
 	limit?: number;
 	offset?: number;
 };

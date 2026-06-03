@@ -26,6 +26,9 @@ const optionalBooleanSchema = z.preprocess((value) => {
 	return value;
 }, z.boolean().optional());
 
+const emptyOrAllToUndefined = (value: unknown): unknown =>
+	typeof value === 'string' && (value.trim() === '' || value.trim() === 'all') ? undefined : value;
+
 export const inventoryStockStatusFilterSchema = z.enum([
 	'missing',
 	'low',
@@ -38,7 +41,7 @@ export const listInventoryFormSchema = z.object({
 	query: querySchema,
 	productId: optionalIdSchema,
 	variantId: optionalIdSchema,
-	stockStatus: z.preprocess(emptyStringToUndefined, inventoryStockStatusFilterSchema.optional()),
+	stockStatus: z.preprocess(emptyOrAllToUndefined, inventoryStockStatusFilterSchema.optional()),
 	trackInventory: optionalBooleanSchema,
 	allowBackorder: optionalBooleanSchema,
 	limit: limitSchema,

@@ -58,21 +58,15 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const listOptions = parsed.success ? parsed.data : { limit: 50, offset: 0 };
 
 	try {
-		const [
-			summary,
-			inventoryResult,
-			initializeForm,
-			updateSettingsForm,
-			restockForm,
-			adjustForm
-		] = await Promise.all([
-			getInventorySummary(ctx),
-			listInventory(ctx, listOptions),
-			superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
-			superValidate(zod4(updateInventorySettingsFormSchema), { id: 'updateInventorySettings' }),
-			superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
-			superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
-		]);
+		const [summary, inventoryResult, initializeForm, updateSettingsForm, restockForm, adjustForm] =
+			await Promise.all([
+				getInventorySummary(ctx),
+				listInventory(ctx, listOptions),
+				superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
+				superValidate(zod4(updateInventorySettingsFormSchema), { id: 'updateInventorySettings' }),
+				superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
+				superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
+			]);
 
 		let activeDetail = null;
 		if (openId) {
@@ -90,8 +84,10 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			filters: {
 				query: listOptions.query ?? '',
 				stockStatus: listOptions.stockStatus ?? '',
-				trackInventory: listOptions.trackInventory === undefined ? '' : String(listOptions.trackInventory),
-				allowBackorder: listOptions.allowBackorder === undefined ? '' : String(listOptions.allowBackorder),
+				trackInventory:
+					listOptions.trackInventory === undefined ? '' : String(listOptions.trackInventory),
+				allowBackorder:
+					listOptions.allowBackorder === undefined ? '' : String(listOptions.allowBackorder),
 				limit: listOptions.limit ?? 50,
 				offset: listOptions.offset ?? 0
 			},

@@ -57,11 +57,7 @@
 
 	{#snippet mainContent()}
 		<!-- Category Banner Card -->
-		<AdminCard
-			bg="bg-charcoal"
-			border="border border-charcoal"
-			class="overflow-hidden p-5 sm:p-6"
-		>
+		<AdminCard bg="bg-charcoal" border="border border-charcoal" class="overflow-hidden p-5 sm:p-6">
 			<div
 				class="relative flex aspect-video w-full items-center justify-center overflow-hidden border border-charcoal bg-void"
 			>
@@ -158,8 +154,7 @@
 				</div>
 				<div class="flex justify-between">
 					<span class="text-ash/50">Slug:</span>
-					<span class="max-w-[180px] truncate text-bone" title={category.slug}
-						>{category.slug}</span
+					<span class="max-w-[180px] truncate text-bone" title={category.slug}>{category.slug}</span
 					>
 				</div>
 				<div class="flex justify-between font-mono">
@@ -225,9 +220,7 @@
 						{#each products as product (product.id)}
 							<div class="flex flex-col justify-between gap-3 border border-charcoal bg-void p-3">
 								<div class="flex items-center gap-3">
-									<div
-										class="h-10 w-8 shrink-0 overflow-hidden border border-charcoal bg-charcoal"
-									>
+									<div class="h-10 w-8 shrink-0 overflow-hidden border border-charcoal bg-charcoal">
 										{#if product.primaryImageUrl}
 											<img
 												src={product.primaryImageUrl}
@@ -243,8 +236,7 @@
 										>
 											{product.name}
 										</a>
-										<span class="block truncate font-mono text-[9px] text-ash"
-											>/{product.slug}</span
+										<span class="block truncate font-mono text-[9px] text-ash">/{product.slug}</span
 										>
 									</div>
 								</div>

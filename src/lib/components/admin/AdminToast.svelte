@@ -85,7 +85,7 @@
 {#if visible && message}
 	<!-- Backdrop anchor: fixed bottom-right desktop, bottom-center mobile -->
 	<div
-		class="fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 sm:bottom-5 sm:left-auto sm:right-5 sm:translate-x-0"
+		class="fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 sm:right-5 sm:bottom-5 sm:left-auto sm:translate-x-0"
 		role="status"
 		aria-live="polite"
 		aria-atomic="true"
@@ -106,7 +106,7 @@
 			</span>
 
 			<!-- Message -->
-			<p class="flex-1 font-mono text-[11px] uppercase tracking-wide leading-snug pr-4">
+			<p class="flex-1 pr-4 font-mono text-[11px] leading-snug tracking-wide uppercase">
 				{message}
 			</p>
 
@@ -116,10 +116,10 @@
 				onclick={dismiss}
 				aria-label="Dismiss notification"
 				class="
-					absolute right-2.5 top-2.5 shrink-0 rounded-sm p-0.5
+					absolute top-2.5 right-2.5 shrink-0 rounded-sm p-0.5
 					transition-colors duration-150
 					{variantClasses.closeClass}
-					focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current
+					focus-visible:ring-1 focus-visible:ring-current focus-visible:outline-none
 				"
 			>
 				<X size={13} stroke-width={2.5} />

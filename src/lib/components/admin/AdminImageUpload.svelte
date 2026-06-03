@@ -128,10 +128,10 @@
 	<div
 		class="relative aspect-video w-full overflow-hidden rounded-lg border transition-all duration-200
 			{dragActive
-				? 'border-volt bg-volt/5'
-				: previewUrl
-					? 'border-ash/20 bg-void/50'
-					: 'border-dashed border-ash/20 bg-void/50 hover:border-volt/60 hover:bg-void/80'}"
+			? 'border-volt bg-volt/5'
+			: previewUrl
+				? 'border-ash/20 bg-void/50'
+				: 'border-dashed border-ash/20 bg-void/50 hover:border-volt/60 hover:bg-void/80'}"
 		role="presentation"
 		ondragover={handleDragOver}
 		ondragleave={handleDragLeave}
@@ -156,7 +156,7 @@
 					border border-red-400/30 bg-void/80 text-red-300
 					transition-colors duration-150
 					hover:bg-red-500/20 hover:text-red-200
-					focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+					focus-visible:ring-2 focus-visible:ring-red-400/50 focus-visible:outline-none"
 			>
 				<X size={14} strokeWidth={2.5} />
 			</button>
@@ -180,10 +180,10 @@
 				</span>
 
 				<span class="flex flex-col gap-1">
-					<span class="font-sans text-sm font-semibold text-bone/90 leading-tight">
+					<span class="font-sans text-sm leading-tight font-semibold text-bone/90">
 						{dragActive ? 'Release to upload' : 'Drop image here or click to browse'}
 					</span>
-					<span class="font-mono text-xs text-ash/70 tracking-wide uppercase">
+					<span class="font-mono text-xs tracking-wide text-ash/70 uppercase">
 						JPG · PNG · WEBP · MAX {maxSizeMb}MB
 					</span>
 				</span>
@@ -205,10 +205,10 @@
 	{#if fileMeta}
 		<div class="flex items-center gap-2 px-1">
 			<Upload size={12} class="shrink-0 text-ash/50" />
-			<span class="font-mono text-xs text-ash/70 truncate" title={fileMeta.name}>
+			<span class="truncate font-mono text-xs text-ash/70" title={fileMeta.name}>
 				{fileMeta.name}
 			</span>
-			<span class="font-mono text-xs text-ash/40 ml-auto shrink-0">
+			<span class="ml-auto shrink-0 font-mono text-xs text-ash/40">
 				{fileMeta.size}
 			</span>
 		</div>
@@ -216,6 +216,6 @@
 
 	<!-- Error message -->
 	{#if displayError}
-		<p class="font-sans text-xs text-red-400 px-1">{displayError}</p>
+		<p class="px-1 font-sans text-xs text-red-400">{displayError}</p>
 	{/if}
 </div>

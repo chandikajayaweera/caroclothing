@@ -91,7 +91,7 @@
 		class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
 	>
 		<!-- Left Main Column -->
-		<div class="min-w-0 grid gap-6">
+		<div class="grid min-w-0 gap-6">
 			{@render mainContent()}
 		</div>
 

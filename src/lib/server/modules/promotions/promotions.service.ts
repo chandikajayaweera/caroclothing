@@ -69,7 +69,7 @@ export async function createPromoCode(
 ): Promise<PromoCodeDTO> {
 	requireAdmin(ctx.actor);
 	const now = resolveNow(ctx);
-	const data = parseCreatePromoCode(input);
+	const data = parseCreatePromoCode(input, now);
 
 	try {
 		const [row] = await getDb().insert(promoCode).values(toNewPromoCodeValues(data)).returning();
@@ -146,7 +146,7 @@ export async function updatePromoCode(
 		});
 	}
 
-	const data = parseUpdatePromoCode(input.data, existing);
+	const data = parseUpdatePromoCode(input.data, existing, now);
 	const updateValues = toPromoCodeUpdateValues(data, now);
 
 	if (Object.keys(updateValues).length === 0) {
@@ -678,7 +678,7 @@ async function countPromoCodeUsagesForUserTx(
 	return Number(row?.total ?? 0);
 }
 
-function parseCreatePromoCode(input: CreatePromoCodeInput): InsertPromoCode {
+function parseCreatePromoCode(input: CreatePromoCodeInput, now: Date): InsertPromoCode {
 	const result = insertPromoCodeSchema.safeParse({
 		...input,
 		code: normalizePromoCode(input.code),
@@ -692,10 +692,20 @@ function parseCreatePromoCode(input: CreatePromoCodeInput): InsertPromoCode {
 		});
 	}
 
+	if (result.data.startsAt && result.data.startsAt < now.getTime() - 60000) {
+		throw new PromotionError('Start date cannot be in the past.', ErrorCode.VALIDATION_ERROR, {
+			startsAt: result.data.startsAt
+		});
+	}
+
 	return result.data;
 }
 
-function parseUpdatePromoCode(input: UpdatePromoCodeInput, existing: PromoCode): UpdatePromoCode {
+function parseUpdatePromoCode(
+	input: UpdatePromoCodeInput,
+	existing: PromoCode,
+	now: Date
+): UpdatePromoCode {
 	const {
 		isActive: ignoredIsActive,
 		usedCount: ignoredUsedCount,
@@ -719,7 +729,7 @@ function parseUpdatePromoCode(input: UpdatePromoCodeInput, existing: PromoCode):
 		});
 	}
 
-	validateResolvedPromoCodeWindow(existing, result.data);
+	validateResolvedPromoCodeWindow(existing, result.data, now);
 
 	return result.data;
 }
@@ -785,7 +795,11 @@ function toPromoCodeUpdateValues(data: UpdatePromoCode, now: Date): Partial<NewP
 	}) as Partial<NewPromoCode>;
 }
 
-function validateResolvedPromoCodeWindow(existing: PromoCode, data: UpdatePromoCode): void {
+function validateResolvedPromoCodeWindow(
+	existing: PromoCode,
+	data: UpdatePromoCode,
+	now: Date
+): void {
 	const startsAt =
 		data.startsAt === undefined ? existing.startsAt : (timestampMsToDate(data.startsAt) ?? null);
 	const expiresAt =
@@ -796,6 +810,34 @@ function validateResolvedPromoCodeWindow(existing: PromoCode, data: UpdatePromoC
 			startsAt,
 			expiresAt
 		});
+	}
+
+	if (data.startsAt !== undefined) {
+		const newStartsAt = timestampMsToDate(data.startsAt);
+		const existingTime = existing.startsAt?.getTime();
+		const newTime = newStartsAt?.getTime();
+
+		if (newTime !== existingTime) {
+			if (existing.startsAt && existing.startsAt.getTime() < now.getTime()) {
+				throw new PromotionError(
+					'Cannot modify start date of a promotion that has already started.',
+					ErrorCode.VALIDATION_ERROR,
+					{
+						existingStartsAt: existing.startsAt,
+						requestedStartsAt: newStartsAt
+					}
+				);
+			}
+			if (newTime && newTime < now.getTime() - 60000) {
+				throw new PromotionError(
+					'Start date cannot be set in the past.',
+					ErrorCode.VALIDATION_ERROR,
+					{
+						requestedStartsAt: newStartsAt
+					}
+				);
+			}
+		}
 	}
 }
 

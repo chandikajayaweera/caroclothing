@@ -7,11 +7,11 @@
 	let sidebarCollapsed = $state(false);
 	let mobileSidebarOpen = $state(false);
 
-	const sidebarWidth = $derived(sidebarCollapsed ? '88px minmax(0, 1fr)' : '260px minmax(0, 1fr)');
+	const sidebarWidth = $derived(sidebarCollapsed ? '68px minmax(0, 1fr)' : '260px minmax(0, 1fr)');
 </script>
 
 <div
-	class="h-dvh min-h-0 overflow-hidden bg-void text-bone lg:grid lg:grid-cols-(--admin-sidebar-width)"
+	class="h-dvh min-h-0 overflow-hidden bg-void text-bone transition-[grid-template-columns] duration-300 ease-in-out lg:grid lg:grid-cols-(--admin-sidebar-width)"
 	style="--admin-sidebar-width: {sidebarWidth};"
 >
 	<AdminSidebar

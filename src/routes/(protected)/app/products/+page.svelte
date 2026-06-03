@@ -9,6 +9,7 @@
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 	type ProductItem = Awaited<PageData['streamed']['products']>['items'][number];
@@ -30,7 +31,8 @@
 			data.filters.tier !== '' ||
 			data.filters.gender !== '' ||
 			data.filters.isFeatured !== '' ||
-			data.filters.isNewArrival !== ''
+			data.filters.isNewArrival !== '' ||
+			data.filters.includeInactive === false
 	);
 	let showFilters = $state(false);
 
@@ -64,15 +66,15 @@
 	const productActionMessage = $derived(
 		actionData?.form?.message ?? $deleteProductMessage ?? $updateProductFlagsMessage
 	);
- 
+
 	let toastMessage = $state<string | null>(null);
- 
+
 	$effect(() => {
 		if (productActionMessage) {
 			toastMessage = productActionMessage;
 		}
 	});
- 
+
 	function clearFilters() {
 		goto(`/app/products?includeInactive=${includeInactive}`);
 	}
@@ -101,16 +103,13 @@
 {/if}
 
 {#await Promise.all([data.streamed.products, data.streamed.stats, data.streamed.categories])}
-	<AdminListLayout
-		title="Products"
-		loading={true}
-		{tableHeaders}
-		items={[]}
-	>
+	<AdminListLayout title="Products" loading={true} {tableHeaders} items={[]}>
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
 				{#each Array(5) as _}
-					<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+					<div
+						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+					>
 						<div class="flex flex-1 items-center gap-3">
 							<div class="h-16 w-12 bg-charcoal"></div>
 							<div class="flex-1 space-y-2">
@@ -144,9 +143,8 @@
 			inactive: draftCount
 		}}
 		query={data.filters.query}
-		includeInactive={includeInactive}
-		bind:showFilters={showFilters}
-		hasActiveFilters={hasActiveFilters}
+		bind:showFilters
+		{hasActiveFilters}
 		totalItems={total}
 		limit={data.filters.limit}
 		offset={data.filters.offset}
@@ -167,7 +165,22 @@
 		{/snippet}
 
 		{#snippet advancedFilters()}
-			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				<AdminFilterToggle
+					label="Include Inactive"
+					name="includeInactive"
+					checked={includeInactive}
+					uncheckedValue="false"
+					onclick={(e: any) => {
+						const form = (e.currentTarget as HTMLElement).closest('form');
+						if (form) {
+							setTimeout(() => {
+								form.requestSubmit();
+							}, 0);
+						}
+					}}
+				/>
+
 				<AdminSelect
 					label="Category"
 					name="categoryId"
@@ -242,7 +255,9 @@
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
 				{#each Array(5) as _}
-					<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+					<div
+						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+					>
 						<div class="flex flex-1 items-center gap-3">
 							<div class="h-16 w-12 bg-charcoal"></div>
 							<div class="flex-1 space-y-2">
@@ -315,9 +330,7 @@
 								</span>
 							{/if}
 						</div>
-						<div
-							class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 font-mono text-[10px] uppercase"
-						>
+						<div class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 font-mono text-[10px] uppercase">
 							<span class="text-bone">{formatMoney(product.basePrice)}</span>
 							<span class="truncate text-ash">{product.category?.name ?? 'No category'}</span>
 							<span class="text-ash">{product.images.length} images</span>
@@ -369,11 +382,7 @@
 							<input type="hidden" name="productId" value={product.id} />
 							<input type="hidden" name="isActive" value={String(product.isActive)} />
 							<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
-							<input
-								type="hidden"
-								name="isNewArrival"
-								value={String(!product.isNewArrival)}
-							/>
+							<input type="hidden" name="isNewArrival" value={String(!product.isNewArrival)} />
 							<button
 								type="submit"
 								disabled={$updateProductFlagsSubmitting}
@@ -431,11 +440,7 @@
 							aria-label={`View ${product.name}`}
 						>
 							{#if product.primaryImageUrl}
-								<img
-									src={product.primaryImageUrl}
-									alt=""
-									class="h-full w-full object-cover"
-								/>
+								<img src={product.primaryImageUrl} alt="" class="h-full w-full object-cover" />
 							{:else}
 								<ImageOff size={16} class="text-ash/50" aria-hidden="true" />
 							{/if}
@@ -472,9 +477,7 @@
 				<td class="px-5 py-4">
 					<div class="flex flex-col gap-1">
 						<span
-							class="font-mono text-[10px] tracking-widest uppercase {productStatusClass(
-								product
-							)}"
+							class="font-mono text-[10px] tracking-widest uppercase {productStatusClass(product)}"
 						>
 							{productStatusLabel(product)}
 						</span>
@@ -506,11 +509,7 @@
 								<input type="hidden" name="productId" value={product.id} />
 								<input type="hidden" name="isActive" value={String(!product.isActive)} />
 								<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
-								<input
-									type="hidden"
-									name="isNewArrival"
-									value={String(product.isNewArrival)}
-								/>
+								<input type="hidden" name="isNewArrival" value={String(product.isNewArrival)} />
 								<button
 									type="submit"
 									disabled={$updateProductFlagsSubmitting}
@@ -527,11 +526,7 @@
 								<input type="hidden" name="productId" value={product.id} />
 								<input type="hidden" name="isActive" value={String(product.isActive)} />
 								<input type="hidden" name="isFeatured" value={String(!product.isFeatured)} />
-								<input
-									type="hidden"
-									name="isNewArrival"
-									value={String(product.isNewArrival)}
-								/>
+								<input type="hidden" name="isNewArrival" value={String(product.isNewArrival)} />
 								<button
 									type="submit"
 									disabled={$updateProductFlagsSubmitting}
@@ -552,11 +547,7 @@
 								<input type="hidden" name="productId" value={product.id} />
 								<input type="hidden" name="isActive" value={String(product.isActive)} />
 								<input type="hidden" name="isFeatured" value={String(product.isFeatured)} />
-								<input
-									type="hidden"
-									name="isNewArrival"
-									value={String(!product.isNewArrival)}
-								/>
+								<input type="hidden" name="isNewArrival" value={String(!product.isNewArrival)} />
 								<button
 									type="submit"
 									disabled={$updateProductFlagsSubmitting}

@@ -9,8 +9,11 @@
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
+
+	let includeInactive = $derived(data.filters.includeInactive);
 
 	const tableHeaders = [
 		{ label: 'Category' },
@@ -21,8 +24,11 @@
 		{ label: 'Actions', class: 'text-right' }
 	];
 
-	let includeInactive = $derived(data.filters.includeInactive);
-	const hasActiveFilters = $derived(data.filters.parentId !== '' || data.filters.query !== '');
+	const hasActiveFilters = $derived(
+		data.filters.parentId !== '' ||
+			data.filters.query !== '' ||
+			data.filters.includeInactive === false
+	);
 	let showFilters = $state(false);
 
 	$effect(() => {
@@ -55,15 +61,15 @@
 	const categoryActionMessage = $derived(
 		actionData?.form?.message ?? $deleteCategoryMessage ?? $updateCategoryFlagsMessage
 	);
- 
+
 	let toastMessage = $state<string | null>(null);
- 
+
 	$effect(() => {
 		if (categoryActionMessage) {
 			toastMessage = categoryActionMessage;
 		}
 	});
- 
+
 	function clearFilters() {
 		goto(`/app/categories?includeInactive=${includeInactive}`);
 	}
@@ -80,16 +86,13 @@
 {/if}
 
 {#await Promise.all([data.streamed.categories, data.streamed.allCategories])}
-	<AdminListLayout
-		title="Categories"
-		loading={true}
-		{tableHeaders}
-		items={[]}
-	>
+	<AdminListLayout title="Categories" loading={true} {tableHeaders} items={[]}>
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
 				{#each Array(5) as _}
-					<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+					<div
+						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+					>
 						<div class="flex flex-1 items-center gap-3">
 							<div class="h-12 w-16 bg-charcoal"></div>
 							<div class="flex-1 space-y-2">
@@ -123,9 +126,8 @@
 			inactive: allStatsInactive
 		}}
 		query={data.filters.query}
-		includeInactive={includeInactive}
-		bind:showFilters={showFilters}
-		hasActiveFilters={hasActiveFilters}
+		bind:showFilters
+		{hasActiveFilters}
 		totalItems={total}
 		limit={data.limit}
 		offset={data.offset}
@@ -147,6 +149,21 @@
 
 		{#snippet advancedFilters()}
 			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				<AdminFilterToggle
+					label="Include Inactive"
+					name="includeInactive"
+					checked={includeInactive}
+					uncheckedValue="false"
+					onclick={(e: any) => {
+						const form = (e.currentTarget as HTMLElement).closest('form');
+						if (form) {
+							setTimeout(() => {
+								form.requestSubmit();
+							}, 0);
+						}
+					}}
+				/>
+
 				<AdminSelect
 					label="Parent Category"
 					name="parentId"
@@ -170,7 +187,9 @@
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
 				{#each Array(5) as _}
-					<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+					<div
+						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+					>
 						<div class="flex flex-1 items-center gap-3">
 							<div class="h-12 w-16 bg-charcoal"></div>
 							<div class="flex-1 space-y-2">
@@ -232,9 +251,7 @@
 
 						<div class="mt-3 font-mono text-[10px] uppercase">
 							<span class="text-ash/50">Parent: </span>
-							<span class="text-bone"
-								>{parentCategoryName(category.parentId, allCategories)}</span
-							>
+							<span class="text-bone">{parentCategoryName(category.parentId, allCategories)}</span>
 						</div>
 
 						{#if category.description}

@@ -2,7 +2,9 @@ import type { SriLankaDistrict } from '../addresses/addresses.drizzle';
 import type {
 	InsertShippingMethod,
 	InsertShippingZone,
-	UpdateShippingMethod
+	UpdateShippingMethod,
+	InsertCarrier,
+	UpdateCarrier
 } from './shipping.drizzle';
 
 export type { SriLankaDistrict };
@@ -12,11 +14,22 @@ export type ShippingDistrictOption = {
 	label: SriLankaDistrict;
 };
 
+export type CarrierDTO = {
+	id: string;
+	name: string;
+	code: string;
+	urlTemplate: string | null;
+	notes: string | null;
+	isActive: boolean;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
 export type ShippingMethodDTO = {
 	id: string;
 	name: string;
 	description: string | null;
-	carrier: string | null;
+	carrier: string | null; // Resolved carrier name for backward compatibility
 	price: number;
 	freeShippingThreshold: number | null;
 	estimatedDaysMin: number;
@@ -24,6 +37,7 @@ export type ShippingMethodDTO = {
 	etaText: string;
 	isActive: boolean;
 	sortOrder: number;
+	carrierId: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 	zones?: ShippingZoneDTO[];
@@ -36,6 +50,8 @@ export type ShippingZoneDTO = {
 	priceOverride: number;
 	estimatedDaysMin: number;
 	estimatedDaysMax: number;
+	isAvailable: boolean;
+	carrierIdOverride: string | null;
 	etaText: string;
 };
 
@@ -43,7 +59,7 @@ export type ShippingQuoteDTO = {
 	shippingMethodId: string;
 	name: string;
 	description: string | null;
-	carrier: string | null;
+	carrier: string | null; // Resolved carrier name for backward compatibility
 	district: SriLankaDistrict | null;
 	basePrice: number;
 	zonePriceOverride: number | null;
@@ -74,6 +90,9 @@ export type ShippingMethodSnapshot = {
 export type CreateShippingMethodInput = InsertShippingMethod;
 export type UpdateShippingMethodInput = UpdateShippingMethod;
 export type SetShippingZoneInput = InsertShippingZone;
+
+export type CreateCarrierInput = InsertCarrier;
+export type UpdateCarrierInput = UpdateCarrier;
 
 export type ListShippingQuotesInput = {
 	district?: SriLankaDistrict | null;

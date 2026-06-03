@@ -1,0 +1,48 @@
+import type { PageServerLoad } from './$types';
+import { getOrderAnalytics, listOrders } from '$lib/server/modules/orders';
+import { getProductStats } from '$lib/server/modules/products';
+import { getInventorySummary, listInventory } from '$lib/server/modules/inventory';
+import { listDrops } from '$lib/server/modules/drops';
+import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import type { ServiceContext } from '$lib/server/foundation/context';
+
+function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceContext {
+	return {
+		actor: locals.user,
+		notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+	};
+}
+
+export const load: PageServerLoad = async ({ locals, platform }) => {
+	const ctx = getAdminContext(locals, platform);
+
+	try {
+		const [
+			ordersResult,
+			analytics,
+			productStats,
+			inventorySummary,
+			lowStockInventory,
+			recentDrops
+		] = await Promise.all([
+			listOrders(ctx, { limit: 5 }),
+			getOrderAnalytics(ctx),
+			getProductStats(ctx),
+			getInventorySummary(ctx),
+			listInventory(ctx, { stockStatus: 'low', limit: 5 }),
+			listDrops(ctx, { limit: 5, includeArchived: false })
+		]);
+
+		return {
+			recentOrders: ordersResult.items,
+			totalOrders: ordersResult.total,
+			analytics,
+			productStats,
+			inventorySummary,
+			lowStockItems: lowStockInventory.items,
+			recentDrops: recentDrops.items
+		};
+	} catch (err) {
+		throw throwHttpFromAppError(err);
+	}
+};

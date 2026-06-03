@@ -27,7 +27,16 @@ export const createPromoCodeFormSchema = insertPromoCodeBaseSchema
 	.safeExtend({
 		code: codeSchema
 	})
-	.superRefine(validatePromoCodeWindowAndValue);
+	.superRefine(validatePromoCodeWindowAndValue)
+	.superRefine((data, ctx) => {
+		if (data.startsAt && data.startsAt < Date.now() - 60000) {
+			ctx.addIssue({
+				code: 'custom',
+				message: 'Start date cannot be in the past',
+				path: ['startsAt']
+			});
+		}
+	});
 
 export const updatePromoCodeFormSchema = z.intersection(
 	z.object({

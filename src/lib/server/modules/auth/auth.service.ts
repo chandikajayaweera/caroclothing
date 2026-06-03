@@ -10,6 +10,10 @@ import {
 	like,
 	ne,
 	or,
+	exists,
+	isNotNull,
+	gte,
+	lte,
 	type SQL
 } from 'drizzle-orm';
 
@@ -231,7 +235,7 @@ export async function listUsers(
 		.offset(offset);
 
 	return {
-		items: await hydrateUserAdminDTOs(db, rows, ctx, { includeAuthMethods: false }),
+		items: await hydrateUserAdminDTOs(db, rows, ctx, { includeAuthMethods: true }),
 		total: totalRow?.total ?? 0,
 		limit,
 		offset
@@ -424,13 +428,15 @@ async function hydrateUserAdminDTOs(
 	if (users.length === 0) return [];
 
 	const userIds = users.map((row) => row.id);
-	const [accountsByUserId, sessionCountByUserId] = await Promise.all([
+	const [accountsByUserId, sessionCountByUserId, latestSessionByUserId] = await Promise.all([
 		loadSafeAccountsByUserIds(db, userIds),
-		countSessionsForUserIds(db, userIds)
+		countSessionsForUserIds(db, userIds),
+		loadLatestSessionsForUserIds(db, userIds)
 	]);
 
 	return users.map((row) => {
 		const authMethods = buildAuthMethods(row, accountsByUserId.get(row.id) ?? []);
+		const latestSession = latestSessionByUserId.get(row.id);
 		const dto: UserAdminDTO = {
 			id: row.id,
 			name: row.name,
@@ -447,7 +453,10 @@ async function hydrateUserAdminDTOs(
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt,
 			authMethodCount: authMethods.length,
-			sessionCount: sessionCountByUserId.get(row.id) ?? 0
+			sessionCount: sessionCountByUserId.get(row.id) ?? 0,
+			lastActiveAt: latestSession?.updatedAt ?? null,
+			lastActiveIp: latestSession?.ipAddress ?? null,
+			lastActiveUserAgent: latestSession?.userAgent ?? null
 		};
 
 		if (options.includeAuthMethods) {
@@ -549,6 +558,55 @@ async function countSessionsForUserIds(
 	return new Map(rows.map((row) => [row.userId, row.total]));
 }
 
+async function loadLatestSessionsForUserIds(
+	db: QueryExecutor,
+	userIds: string[]
+): Promise<
+	Map<
+		string,
+		{
+			updatedAt: Date;
+			ipAddress: string | null;
+			userAgent: string | null;
+		}
+	>
+> {
+	const ids = uniqueStrings(userIds);
+	if (ids.length === 0) return new Map();
+
+	const rows = await db
+		.select({
+			userId: sessionTable.userId,
+			updatedAt: sessionTable.updatedAt,
+			ipAddress: sessionTable.ipAddress,
+			userAgent: sessionTable.userAgent
+		})
+		.from(sessionTable)
+		.where(inArray(sessionTable.userId, ids));
+
+	const latestMap = new Map<
+		string,
+		{
+			updatedAt: Date;
+			ipAddress: string | null;
+			userAgent: string | null;
+		}
+	>();
+
+	for (const row of rows) {
+		const existing = latestMap.get(row.userId);
+		if (!existing || row.updatedAt > existing.updatedAt) {
+			latestMap.set(row.userId, {
+				updatedAt: row.updatedAt,
+				ipAddress: row.ipAddress,
+				userAgent: row.userAgent
+			});
+		}
+	}
+
+	return latestMap;
+}
+
 async function assertAnotherActiveAdminExists(
 	tx: Tx,
 	excludedUserId: string,
@@ -593,6 +651,33 @@ function buildUserListWhere(options: ListUsersOptions): SQL | undefined {
 
 	if (typeof options.banned === 'boolean') {
 		conditions.push(eq(userTable.banned, options.banned));
+	}
+
+	if (options.provider) {
+		if (options.provider === 'anonymous') {
+			conditions.push(eq(userTable.isAnonymous, true));
+		} else if (options.provider === 'phone') {
+			conditions.push(isNotNull(userTable.phoneNumber));
+		} else if (options.provider === 'google') {
+			conditions.push(
+				exists(
+					getDb()
+						.select()
+						.from(accountTable)
+						.where(
+							and(eq(accountTable.userId, userTable.id), eq(accountTable.providerId, 'google'))
+						)
+				)
+			);
+		}
+	}
+
+	if (options.createdAfter) {
+		conditions.push(gte(userTable.createdAt, options.createdAfter));
+	}
+
+	if (options.createdBefore) {
+		conditions.push(lte(userTable.createdAt, options.createdBefore));
 	}
 
 	if (conditions.length === 0) return undefined;

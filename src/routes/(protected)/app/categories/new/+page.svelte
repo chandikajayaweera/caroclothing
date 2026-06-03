@@ -20,10 +20,13 @@
 		return getValue();
 	}
 
-	const createCategorySuperform = superForm(initialForm(() => data.createCategoryForm), {
-		dataType: 'json',
-		resetForm: false
-	});
+	const createCategorySuperform = superForm(
+		initialForm(() => data.createCategoryForm),
+		{
+			dataType: 'json',
+			resetForm: false
+		}
+	);
 
 	const {
 		form: createCategoryForm,
@@ -248,7 +251,7 @@
 						name="description"
 						bind:value={$createCategoryForm.description}
 						placeholder="Describe the designs, silhouettes, and fabric weight featured in this category..."
-						class="min-h-28 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 outline-none transition-colors hover:border-ash/60 focus:border-volt resize-y"
+						class="min-h-28 w-full resize-y border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 					></textarea>
 					{#if $createCategoryErrors.description}
 						<span class="font-sans text-xs text-red-400"
@@ -295,7 +298,9 @@
 
 	{#snippet sidebarContent()}
 		<!-- ── Image Preview ─────────────────────────────────────────── -->
-		<div class="relative aspect-video w-full overflow-hidden border-b border-charcoal bg-charcoal/20">
+		<div
+			class="relative aspect-video w-full overflow-hidden border-b border-charcoal bg-charcoal/20"
+		>
 			{#if rootImagePreviewUrl && !$createCategoryForm.parentId}
 				<img
 					src={rootImagePreviewUrl}
@@ -315,7 +320,9 @@
 
 			{#if !$createCategoryForm.parentId}
 				<div class="mt-2 flex items-start justify-between gap-3">
-					<h2 class="font-sans text-base font-semibold leading-snug text-bone uppercase truncate min-w-0">
+					<h2
+						class="min-w-0 truncate font-sans text-base leading-snug font-semibold text-bone uppercase"
+					>
 						{$createCategoryForm.name || 'Unnamed Category'}
 					</h2>
 					<span
@@ -349,10 +356,14 @@
 			{:else}
 				<div class="mt-2">
 					<div class="flex items-center justify-between gap-3">
-						<h2 class="font-sans text-base font-semibold leading-snug text-bone uppercase truncate min-w-0">
+						<h2
+							class="min-w-0 truncate font-sans text-base leading-snug font-semibold text-bone uppercase"
+						>
 							{parentCategoryName}
 						</h2>
-						<span class="shrink-0 border border-volt/30 bg-volt/10 px-2 py-1 font-mono text-[9px] tracking-widest text-volt uppercase">
+						<span
+							class="shrink-0 border border-volt/30 bg-volt/10 px-2 py-1 font-mono text-[9px] tracking-widest text-volt uppercase"
+						>
 							Parent
 						</span>
 					</div>
@@ -379,7 +390,9 @@
 										>{child.name || 'Unnamed'}</span
 									>
 									{#if child.slug}
-										<span class="ml-auto shrink-0 font-mono text-[8px] text-ash/40">/{child.slug}</span>
+										<span class="ml-auto shrink-0 font-mono text-[8px] text-ash/40"
+											>/{child.slug}</span
+										>
 									{/if}
 								</div>
 							{/each}
@@ -391,8 +404,13 @@
 
 		<!-- ── Warnings ──────────────────────────────────────────────── -->
 		{#if snapshotWarnings.length > 0}
-			<div transition:slide={{ duration: 200 }} class="mx-5 mb-4 border border-amber-300/20 bg-amber-300/5 p-3.5">
-				<p class="flex items-center gap-2 font-mono text-[9px] font-semibold tracking-wider text-amber-300 uppercase">
+			<div
+				transition:slide={{ duration: 200 }}
+				class="mx-5 mb-4 border border-amber-300/20 bg-amber-300/5 p-3.5"
+			>
+				<p
+					class="flex items-center gap-2 font-mono text-[9px] font-semibold tracking-wider text-amber-300 uppercase"
+				>
 					<AlertTriangle size={12} />
 					Attention ({snapshotWarnings.length})
 				</p>
@@ -403,7 +421,6 @@
 				</ul>
 			</div>
 		{/if}
-
 	{/snippet}
 </AdminFormLayout>
 

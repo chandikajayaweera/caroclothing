@@ -100,6 +100,7 @@ export type ListCartsOptions = {
 	ownerType?: CartOwnerType;
 	userId?: string;
 	includeExpired?: boolean;
+	status?: 'active' | 'expired' | 'empty' | 'non-empty' | 'all';
 	limit?: number;
 	offset?: number;
 };

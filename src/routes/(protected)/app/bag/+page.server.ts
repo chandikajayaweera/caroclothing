@@ -6,6 +6,8 @@ import {
 	deleteExpiredGuestCarts,
 	deleteExpiredGuestCartsFormSchema,
 	listCarts,
+	deleteCart,
+	getCartSummary,
 	type CartOwnerType,
 	type ListCartsOptions
 } from '$lib/server/modules/cart';
@@ -24,12 +26,25 @@ function getListOptions(url: URL): ListCartsOptions {
 	const limit = getIntegerParam(url.searchParams.get('limit'));
 	const offset = getIntegerParam(url.searchParams.get('offset'));
 
+	const statusVal = url.searchParams.get('status');
+	const status =
+		statusVal === 'active' ||
+		statusVal === 'expired' ||
+		statusVal === 'empty' ||
+		statusVal === 'non-empty' ||
+		statusVal === 'all'
+			? statusVal
+			: undefined;
+
 	return {
 		ownerType,
 		userId,
 		limit,
 		offset,
-		includeExpired: url.searchParams.get('includeExpired') === 'true'
+		status,
+		includeExpired:
+			url.searchParams.get('includeExpired') === 'true' ||
+			url.searchParams.get('includeInactive') === 'true'
 	};
 }
 
@@ -49,8 +64,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const ctx = getAdminContext(locals);
 
 	try {
-		const [carts, cleanupForm] = await Promise.all([
+		const [carts, summary, cleanupForm] = await Promise.all([
 			listCarts(ctx, getListOptions(url)),
+			getCartSummary(ctx),
 			superValidate(zod4(deleteExpiredGuestCartsFormSchema), {
 				id: 'deleteExpiredGuestCarts'
 			})
@@ -58,10 +74,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		return {
 			carts,
+			summary,
 			filters: {
 				ownerType: getOwnerType(url.searchParams.get('ownerType')) ?? '',
 				userId: url.searchParams.get('userId')?.trim() ?? '',
-				includeExpired: url.searchParams.get('includeExpired') === 'true',
+				status: url.searchParams.get('status') ?? '',
+				includeExpired:
+					url.searchParams.get('includeExpired') === 'true' ||
+					url.searchParams.get('includeInactive') === 'true',
 				limit: getIntegerParam(url.searchParams.get('limit')) ?? carts.limit,
 				offset: getIntegerParam(url.searchParams.get('offset')) ?? carts.offset
 			},
@@ -89,6 +109,27 @@ export const actions: Actions = {
 			);
 		} catch (error) {
 			return formFailFromAppError(form, error);
+		}
+	},
+	delete: async ({ locals, request }) => {
+		const ctx = getAdminContext(locals);
+		const data = await request.formData();
+		const cartId = data.get('cartId') as string;
+
+		if (!cartId) {
+			return fail(400, { message: 'Cart ID is required.' });
+		}
+
+		try {
+			const result = await deleteCart(ctx, { cartId });
+			return {
+				success: true,
+				message: `Deleted cart successfully. Released ${result.releasedQuantity} reserved items.`
+			};
+		} catch (error) {
+			return fail(400, {
+				message: error instanceof Error ? error.message : 'Failed to delete cart.'
+			});
 		}
 	}
 };

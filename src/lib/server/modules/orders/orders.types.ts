@@ -12,10 +12,10 @@ import type {
 	OrderStatus,
 	OrderStatusHistory,
 	Payment,
-	PaymentMethod
+	PaymentMethod,
+	PaymentStatus
 } from './orders.drizzle';
 
-export type PaymentStatus = Payment['status'];
 export type RecordablePaymentStatus = Exclude<PaymentStatus, 'refunded' | 'partially_refunded'>;
 
 export type OrderLookup = { id: string; orderNumber?: never } | { id?: never; orderNumber: string };
@@ -151,6 +151,8 @@ export type PreviewOrderFromCartInput = {
 export type PlaceOrderFromCartInput = PreviewOrderFromCartInput & {
 	paymentMethod: PaymentMethod;
 	customerNote?: string | null;
+	bankSlipR2Key?: string | null;
+	bankReference?: string | null;
 };
 
 export type GetOrderInput = {
@@ -172,6 +174,7 @@ export type ListOrdersOptions = ListMyOrdersOptions & {
 	createdFrom?: Date;
 	createdTo?: Date;
 	paymentExpiredOnly?: boolean;
+	orderIds?: string[];
 };
 
 export type OrderListResult = {

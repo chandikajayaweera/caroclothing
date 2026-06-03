@@ -16,7 +16,6 @@
 		loading = false,
 		showFilters = $bindable(false),
 		hasActiveFilters = false,
-		includeInactive = $bindable(false),
 		query = $bindable(''),
 		searchPlaceholder = 'Search by name or slug...',
 		totalItems = 0,
@@ -24,12 +23,15 @@
 		offset = 0,
 		tableHeaders,
 		items = [],
+		gridClass = undefined,
+		tableClass = undefined,
 		headerActions,
 		advancedFilters,
 		card,
 		row,
 		skeleton,
 		emptyState,
+		statsSnippet,
 		onclearfilters
 	}: {
 		title: string;
@@ -40,7 +42,6 @@
 		loading?: boolean;
 		showFilters?: boolean;
 		hasActiveFilters?: boolean;
-		includeInactive?: boolean;
 		query?: string;
 		searchPlaceholder?: string;
 		totalItems?: number;
@@ -48,12 +49,15 @@
 		offset?: number;
 		tableHeaders: { label: string; class?: string }[];
 		items?: any[];
+		gridClass?: string;
+		tableClass?: string;
 		headerActions?: Snippet;
 		advancedFilters?: Snippet;
 		card: Snippet<[any]>;
 		row: Snippet<[any]>;
 		skeleton?: Snippet;
 		emptyState?: Snippet;
+		statsSnippet?: Snippet;
 		onclearfilters?: () => void;
 	} = $props();
 
@@ -109,53 +113,69 @@
 	{/if}
 
 	<!-- Stats Summary Section -->
-	<div class="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
-		{#if loading || !stats}
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]">
-					Total
-				</p>
-				<div class="mt-2 h-8 w-12 animate-pulse bg-charcoal"></div>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]">
-					Active
-				</p>
-				<div class="mt-2 h-8 w-12 animate-pulse bg-charcoal"></div>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]">
-					Inactive
-				</p>
-				<div class="mt-2 h-8 w-12 animate-pulse bg-charcoal"></div>
-			</AdminCard>
-		{:else}
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]">
-					Total
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
-					{stats.total}
-				</p>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]">
-					Active
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
-					{stats.active}
-				</p>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]">
-					Inactive
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
-					{stats.inactive}
-				</p>
-			</AdminCard>
-		{/if}
-	</div>
+	{#if statsSnippet}
+		{@render statsSnippet()}
+	{:else}
+		<div class="mt-8 grid grid-cols-3 gap-2 sm:gap-3">
+			{#if loading || !stats}
+				<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+					<p
+						class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+					>
+						Total
+					</p>
+					<div class="mt-2 h-8 w-12 animate-pulse bg-charcoal"></div>
+				</AdminCard>
+				<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+					<p
+						class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+					>
+						Active
+					</p>
+					<div class="mt-2 h-8 w-12 animate-pulse bg-charcoal"></div>
+				</AdminCard>
+				<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+					<p
+						class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+					>
+						Inactive
+					</p>
+					<div class="mt-2 h-8 w-12 animate-pulse bg-charcoal"></div>
+				</AdminCard>
+			{:else}
+				<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+					<p
+						class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+					>
+						Total
+					</p>
+					<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
+						{stats.total}
+					</p>
+				</AdminCard>
+				<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+					<p
+						class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+					>
+						Active
+					</p>
+					<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
+						{stats.active}
+					</p>
+				</AdminCard>
+				<AdminCard class="min-w-0" padding="p-3 sm:p-5">
+					<p
+						class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
+					>
+						Inactive
+					</p>
+					<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
+						{stats.inactive}
+					</p>
+				</AdminCard>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Main List Card (Search & Filters + Table Grid) -->
 	<AdminCard
@@ -171,7 +191,9 @@
 					<div class="flex flex-col gap-3 md:flex-row md:items-center">
 						<div class="flex flex-1 items-center gap-2">
 							<div class="relative flex-1">
-								<div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-ash/50">
+								<div
+									class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-ash/50"
+								>
 									<Search size={14} aria-hidden="true" />
 								</div>
 								<input
@@ -196,9 +218,14 @@
 						<div class="flex items-center gap-2">
 							<button
 								type="button"
-								onclick={() => { if (!loading) showFilters = !showFilters; }}
+								onclick={() => {
+									if (!loading) showFilters = !showFilters;
+								}}
 								disabled={loading}
-								class="flex min-h-11 items-center gap-2 border px-4 font-mono text-[10px] tracking-widest uppercase transition-colors disabled:opacity-50 {showFilters || hasActiveFilters ? 'border-volt bg-volt/10 text-volt' : 'border-ash/30 text-ash hover:border-ash/60'}"
+								class="flex min-h-11 items-center gap-2 border px-4 font-mono text-[10px] tracking-widest uppercase transition-colors disabled:opacity-50 {showFilters ||
+								hasActiveFilters
+									? 'border-volt bg-volt/10 text-volt'
+									: 'border-ash/30 text-ash hover:border-ash/60'}"
 							>
 								<Filter size={14} aria-hidden="true" />
 								<span>Filters</span>
@@ -206,7 +233,7 @@
 									<span class="ml-1 h-1.5 w-1.5 rounded-full bg-volt"></span>
 								{/if}
 							</button>
- 
+
 							{#if (hasActiveFilters || query) && onclearfilters}
 								<button
 									type="button"
@@ -217,16 +244,6 @@
 									Clear
 								</button>
 							{/if}
-
-							<AdminToggle
-								label="Inactive"
-								name="includeInactive"
-								disabled={loading}
-								bind:checked={includeInactive}
-								onclick={autoSubmitFilter}
-								class="min-h-11 gap-3 border border-ash/30 bg-void px-3.5 py-2.5 disabled:opacity-50"
-							/>
-							<input type="hidden" name="includeInactive" value="false" />
 						</div>
 					</div>
 
@@ -250,7 +267,9 @@
 			{:else}
 				<div class="animate-pulse space-y-4 p-5">
 					{#each Array(5) as _}
-						<div class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0">
+						<div
+							class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
+						>
 							<div class="flex flex-1 items-center gap-3">
 								<div class="h-12 w-16 bg-charcoal"></div>
 								<div class="flex-1 space-y-2">
@@ -266,10 +285,12 @@
 			{/if}
 		{:else if items.length > 0}
 			<div transition:fade={{ duration: 150 }}>
-				<AdminTableGrid {items} headers={tableHeaders} {card} {row} />
+				<AdminTableGrid {items} headers={tableHeaders} {card} {row} {gridClass} {tableClass} />
 
 				<!-- Pagination Panel -->
-				<div class="flex flex-col gap-3 border-t border-charcoal p-5 font-mono text-[10px] tracking-widest text-ash uppercase sm:flex-row sm:items-center sm:justify-between">
+				<div
+					class="flex flex-col gap-3 border-t border-charcoal p-5 font-mono text-[10px] tracking-widest text-ash uppercase sm:flex-row sm:items-center sm:justify-between"
+				>
 					<p>
 						Showing {offset + 1}-{Math.min(offset + limit, totalItems)} of {totalItems}
 					</p>

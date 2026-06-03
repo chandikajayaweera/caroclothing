@@ -35,6 +35,7 @@ import {
 	type NewWishlistItem,
 	type WishlistItem
 } from './wishlist.drizzle';
+import { inventory } from '../inventory/inventory.drizzle';
 import type {
 	ListWishlistOptions,
 	ListWishlistSignalsOptions,
@@ -419,10 +420,12 @@ async function hydrateWishlistSignals(
 			? await db
 					.select({
 						variant: productVariant,
-						color: productVariantColor
+						color: productVariantColor,
+						inventory: inventory
 					})
 					.from(productVariant)
 					.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+					.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 					.where(inArray(productVariant.id, variantIds))
 			: [];
 	const imagesByProductId = await loadProductImagesByProductId(productIds);
@@ -454,7 +457,11 @@ async function hydrateWishlistSignals(
 					primaryPrices?.compareAtPrice ?? null
 				),
 				variant: variantJoined
-					? toWishlistVariantSummaryDTO(variantJoined.variant, variantJoined.color)
+					? toWishlistVariantSummaryDTO(
+							variantJoined.variant,
+							variantJoined.color,
+							variantJoined.inventory
+						)
 					: null,
 				imageUrl,
 				effectivePrice: variantJoined
@@ -536,7 +543,8 @@ function toWishlistProductSummaryDTO(
 
 function toWishlistVariantSummaryDTO(
 	row: ProductVariant,
-	colorRow: ProductVariantColor
+	colorRow: ProductVariantColor,
+	inventoryRow?: { quantity: number; trackInventory: boolean } | null
 ): WishlistVariantSummaryDTO {
 	return {
 		id: row.id,
@@ -546,7 +554,9 @@ function toWishlistVariantSummaryDTO(
 		colorHex: colorRow.colorHex,
 		priceOverride: null,
 		effectivePrice: colorRow.basePrice,
-		isActive: row.isActive
+		isActive: row.isActive,
+		inventoryQuantity: inventoryRow ? inventoryRow.quantity : null,
+		trackInventory: inventoryRow ? inventoryRow.trackInventory : false
 	};
 }
 

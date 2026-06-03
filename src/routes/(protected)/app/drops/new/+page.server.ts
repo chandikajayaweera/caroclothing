@@ -2,7 +2,11 @@ import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { superValidate, withFiles } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
-import { createDrop, insertDropBaseSchema, optionalDropHeroImageFileSchema } from '$lib/server/modules/drops';
+import {
+	createDrop,
+	insertDropBaseSchema,
+	optionalDropHeroImageFileSchema
+} from '$lib/server/modules/drops';
 import { z } from 'zod';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
@@ -44,7 +48,6 @@ const createDropSchemaWithCoercion = insertDropBaseSchema
 		}, z.number().int().positive().optional().nullable())
 	})
 	.superRefine(validateDropWindow);
-
 
 function getAdminContext(
 	locals: App.Locals,

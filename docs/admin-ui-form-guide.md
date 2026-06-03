@@ -56,6 +56,7 @@ Replace raw, tiny HTML checkboxes with custom toggle switches that have a minimu
 
 - **Opaque state transmission in multipart forms**: When forms use `enctype="multipart/form-data"` (e.g. edit pages supporting file uploads) rather than JSON dataType, standard buttons or unchecked checkboxes are omitted from `FormData`. Toggles must always output a `<input type="hidden" {name} value={checked ? 'true' : 'false'} />` tag to guarantee boolean values are sent.
 - **Server-side Schema Coercion**: Zod form schemas must preprocess these string values (e.g. using `z.preprocess`) to map `"true"` and `"false"` to actual booleans. Use Zod `.extend({...})` instead of `.safeExtend({...})` on the schema to permit overriding base database schema types.
+- **Svelte 5 `$bindable()` Fallback Restrictions**: Avoid defining default/fallback values on the child component props destructured with `$bindable(...)` (e.g. use `checked = $bindable()` instead of `checked = $bindable(false)`). When a child prop has a fallback value, Svelte 5 strictly forbids parents from binding to an `undefined` value, throwing a fatal `props_invalid_value` crash. Handle default fallback values internally inside `$effect.pre` in the child or ensure the parent state is never `undefined`.
 
 ```html
 <!-- Custom Toggle Switch Markup -->
@@ -131,14 +132,26 @@ When an operator edits text inputs, adjusts variant options/sizes, or manages pr
 All admin screens are built on one of three unified layouts found in `$lib/components/admin/layout/` to enforce UI consistency:
 
 ### 1. `AdminListLayout` (Listing/Table Views)
+
 - **Use Case**: Searchable directories of categories, products, or other records.
 - **Features**: Built-in stats overview blocks, search query forms with advanced filters panel (featuring `slide` transitions), table grids, progressive pagination via link URLs, and custom card/row loading skeletons.
 
 ### 2. `AdminDetailLayout` (Object Details Views)
+
 - **Use Case**: Read-only overview of specific items (e.g. category detail, product detail).
 - **Features**: Top navigation back link, action buttons (edit/delete), responsive 2-column detail grid, and default native `fade` animations.
 
 ### 3. `AdminFormLayout` (Form New/Edit Views)
+
 - **Use Case**: Adding new records or editing existing ones.
 - **Features**: Wraps the form elements, handles loading/saving states (progress line indicator), structural left main column + right sticky summary preview sidebar, and sticky mobile action panels.
 
+---
+
+## 🌐 Same-Page Parameter Navigation & Data Invalidation
+
+When utilizing query parameters (such as `?open=id` or `?query=search`) to control drawers, modals, or filter states on the same route/pathname:
+
+- **Server Load Invalidation**: Changing query parameters client-side via `goto(...)` does not automatically trigger SvelteKit to rerun server-only load functions (`+page.server.ts`), as the client router does not track dependencies inside server-only code.
+- **Enforcing Refresh**: Always pass `{ invalidateAll: true }` in the `goto` options when updating search parameters to force SvelteKit to refetch fresh data from the server.
+- **UX Responsiveness**: When closing modals or toggling immediate UI states, update local reactive variables (e.g. `drawerOpen = false`) synchronously _before_ initiating the asynchronous `goto` call to ensure the interface responds instantly.

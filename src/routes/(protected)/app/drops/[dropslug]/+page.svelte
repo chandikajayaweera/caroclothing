@@ -195,7 +195,9 @@
 								Verify you wish to transition drop to Live status.
 							</Dialog.Description>
 
-							<div class="flex items-center gap-2 font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
+							<div
+								class="flex items-center gap-2 font-mono text-[9px] tracking-[0.2em] text-volt uppercase"
+							>
 								<AlertTriangle size={12} class="text-volt" />
 								<span>DANGER ZONE / LAUNCH SIGNAL</span>
 							</div>
@@ -203,14 +205,21 @@
 								LAUNCH "{drop.name}" LIVE?
 							</h2>
 							<p class="mt-3 font-sans text-sm leading-relaxed text-ash/80">
-								Are you sure you want to transition this drop to <strong class="text-volt uppercase">LIVE</strong>? This will instantly trigger the dispatch of notifications (SMS/Email) to all waitlist signups. The lineup products will go on sale immediately.
+								Are you sure you want to transition this drop to <strong class="text-volt uppercase"
+									>LIVE</strong
+								>? This will instantly trigger the dispatch of notifications (SMS/Email) to all
+								waitlist signups. The lineup products will go on sale immediately.
 							</p>
 							<div class="mt-6 grid gap-3 sm:grid-cols-2">
 								<AdminButton type="button" onclick={confirmLaunch} variant="volt">
 									<Power size={14} aria-hidden="true" />
 									Confirm & Launch
 								</AdminButton>
-								<AdminButton type="button" onclick={() => showLaunchConfirm = false} variant="outline">
+								<AdminButton
+									type="button"
+									onclick={() => (showLaunchConfirm = false)}
+									variant="outline"
+								>
 									Cancel
 								</AdminButton>
 							</div>
@@ -232,11 +241,7 @@
 >
 	{#snippet headerActions()}
 		<div class="flex items-center gap-3">
-			<AdminButton
-				href={resolve(`/app/drops/${drop.slug}/edit`)}
-				variant="outline"
-				size="md"
-			>
+			<AdminButton href={resolve(`/app/drops/${drop.slug}/edit`)} variant="outline" size="md">
 				<Edit size={14} aria-hidden="true" />
 				Edit Drop
 			</AdminButton>
@@ -260,21 +265,21 @@
 	{#snippet mainContent()}
 		<div class="space-y-6">
 			<!-- Hero Banner display -->
-			<div class="relative w-full border border-charcoal bg-void overflow-hidden">
-				<div class="absolute inset-0 bg-gradient-to-t from-void to-transparent z-10"></div>
-				<div class="aspect-[21/9] w-full flex items-center justify-center bg-charcoal/20">
+			<div class="relative w-full overflow-hidden border border-charcoal bg-void">
+				<div class="absolute inset-0 z-10 bg-gradient-to-t from-void to-transparent"></div>
+				<div class="flex aspect-[21/9] w-full items-center justify-center bg-charcoal/20">
 					{#if drop.heroImageUrl}
 						<img src={drop.heroImageUrl} alt="" class="h-full w-full object-cover" />
 					{:else}
-						<div class="flex flex-col items-center justify-center text-ash/30 p-8">
+						<div class="flex flex-col items-center justify-center p-8 text-ash/30">
 							<Calendar size={48} class="mb-2" />
 							<span class="font-sans text-xs">No hero banner image assigned.</span>
 						</div>
 					{/if}
 				</div>
-				<div class="absolute bottom-6 left-6 right-6 z-20">
+				<div class="absolute right-6 bottom-6 left-6 z-20">
 					{#if drop.tagline}
-						<p class="font-mono text-xs tracking-[0.2em] text-volt uppercase leading-none mb-2">
+						<p class="mb-2 font-mono text-xs leading-none tracking-[0.2em] text-volt uppercase">
 							{drop.tagline}
 						</p>
 					{/if}
@@ -288,7 +293,9 @@
 			{#if drop.description}
 				<AdminCard title="Description / Story Copy">
 					<div class="p-5">
-						<div class="prose prose-invert max-w-none font-sans text-sm text-ash/85 whitespace-pre-line">
+						<div
+							class="prose prose-invert max-w-none font-sans text-sm whitespace-pre-line text-ash/85"
+						>
 							{drop.description}
 						</div>
 					</div>
@@ -308,16 +315,25 @@
 					{/if}
 				{/snippet}
 				<div class="p-5">
-					<p class="font-sans text-xs text-ash/70 -mt-5 mb-4">
+					<p class="-mt-5 mb-4 font-sans text-xs text-ash/70">
 						Curated selection of limited-edition items assigned to this release.
 					</p>
 
 					{#if drop.products.length === 0}
-						<div class="flex flex-col items-center justify-center border border-dashed border-charcoal p-10 text-center">
-							<ShoppingBag size={24} class="text-ash/30 mb-2" />
+						<div
+							class="flex flex-col items-center justify-center border border-dashed border-charcoal p-10 text-center"
+						>
+							<ShoppingBag size={24} class="mb-2 text-ash/30" />
 							<p class="font-mono text-xs text-ash uppercase">Lineup is empty</p>
-							<p class="font-sans text-xs text-ash/60 mt-1 max-w-sm">No products are assigned. To add products, click Edit Drop and go to the lineup tab.</p>
-							<AdminButton href={resolve(`/app/drops/${drop.slug}/edit?tab=lineup`)} variant="outline" size="sm" class="mt-4">
+							<p class="mt-1 max-w-sm font-sans text-xs text-ash/60">
+								No products are assigned. To add products, click Edit Drop and go to the lineup tab.
+							</p>
+							<AdminButton
+								href={resolve(`/app/drops/${drop.slug}/edit?tab=lineup`)}
+								variant="outline"
+								size="sm"
+								class="mt-4"
+							>
 								Manage Lineup
 							</AdminButton>
 						</div>
@@ -325,43 +341,55 @@
 						<div class="grid gap-4 sm:grid-cols-2">
 							{#each drop.products as item (item.productId)}
 								{@const prod = item.product}
-								<article class="border border-charcoal bg-void p-3 flex gap-3 relative min-w-0">
+								<article class="relative flex min-w-0 gap-3 border border-charcoal bg-void p-3">
 									{#if item.isHero}
-										<div class="absolute -top-1.5 -left-1.5 bg-volt text-void px-2 py-0.5 font-mono text-[8px] font-bold tracking-widest uppercase flex items-center gap-1 shadow-md">
+										<div
+											class="absolute -top-1.5 -left-1.5 flex items-center gap-1 bg-volt px-2 py-0.5 font-mono text-[8px] font-bold tracking-widest text-void uppercase shadow-md"
+										>
 											<Star size={8} class="fill-current" />
 											<span>Hero</span>
 										</div>
 									{/if}
 
-									<div class="h-16 w-20 shrink-0 border border-charcoal bg-charcoal/20 overflow-hidden">
+									<div
+										class="h-16 w-20 shrink-0 overflow-hidden border border-charcoal bg-charcoal/20"
+									>
 										{#if prod?.primaryImageUrl}
 											<img src={prod.primaryImageUrl} alt="" class="h-full w-full object-cover" />
 										{:else}
-											<div class="h-full w-full bg-void flex items-center justify-center">
+											<div class="flex h-full w-full items-center justify-center bg-void">
 												<ShoppingBag size={16} class="text-ash/30" />
 											</div>
 										{/if}
 									</div>
 
-									<div class="min-w-0 flex-1 flex flex-col justify-between">
+									<div class="flex min-w-0 flex-1 flex-col justify-between">
 										<div>
 											<div class="flex items-start justify-between gap-1.5">
-												<h4 class="font-mono text-xs font-semibold text-bone uppercase truncate">
+												<h4 class="truncate font-mono text-xs font-semibold text-bone uppercase">
 													{prod?.name || 'Unknown Product'}
 												</h4>
 												{#if prod}
-													<span class="font-mono text-[9px] uppercase tracking-wider {prod.isActive ? 'text-volt' : 'text-red-300'}">
+													<span
+														class="font-mono text-[9px] tracking-wider uppercase {prod.isActive
+															? 'text-volt'
+															: 'text-red-300'}"
+													>
 														{prod.isActive ? 'Active' : 'Inactive'}
 													</span>
 												{/if}
 											</div>
-											<p class="font-mono text-[9px] text-ash truncate mt-0.5">
+											<p class="mt-0.5 truncate font-mono text-[9px] text-ash">
 												{prod?.slug || item.productId}
 											</p>
 										</div>
-										<div class="mt-2 flex items-center justify-between border-t border-charcoal/30 pt-1.5 font-mono text-[10px]">
+										<div
+											class="mt-2 flex items-center justify-between border-t border-charcoal/30 pt-1.5 font-mono text-[10px]"
+										>
 											<span class="text-ash">Price Range:</span>
-											<span class="text-bone font-semibold">{prod ? getProductPriceRange(prod) : '—'}</span>
+											<span class="font-semibold text-bone"
+												>{prod ? getProductPriceRange(prod) : '—'}</span
+											>
 										</div>
 									</div>
 								</article>
@@ -377,23 +405,27 @@
 		<div class="space-y-6">
 			<!-- Drop Status / Countdown controller -->
 			<AdminCard title="Release Management">
-				<div class="p-5 space-y-4">
+				<div class="space-y-4 p-5">
 					<div class="flex items-center justify-between border-b border-charcoal pb-4">
 						<span class="font-mono text-xs text-ash">Active Status</span>
-						<span class="rounded px-2.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase {getStatusClass(drop.status)}">
+						<span
+							class="rounded px-2.5 py-0.5 font-mono text-[9px] font-bold tracking-widest uppercase {getStatusClass(
+								drop.status
+							)}"
+						>
 							{getStatusLabel(drop.status)}
 						</span>
 					</div>
 
 					{#if drop.status === 'teaser' && drop.launchAt}
 						<div class="border border-charcoal bg-void p-4 text-center">
-							<p class="font-mono text-[8px] tracking-[0.25em] text-volt uppercase mb-1.5">
+							<p class="mb-1.5 font-mono text-[8px] tracking-[0.25em] text-volt uppercase">
 								RELEASE COUNTDOWN
 							</p>
-							<p class="font-display text-2xl text-bone tracking-widest leading-none">
+							<p class="font-display text-2xl leading-none tracking-widest text-bone">
 								{countdownText}
 							</p>
-							<p class="font-mono text-[9px] text-ash mt-2">
+							<p class="mt-2 font-mono text-[9px] text-ash">
 								Launch target: {formatDateTime(drop.launchAt)}
 							</p>
 						</div>
@@ -418,7 +450,7 @@
 					</div>
 
 					<!-- State actions buttons -->
-					<div class="border-t border-charcoal/60 pt-4 space-y-2">
+					<div class="space-y-2 border-t border-charcoal/60 pt-4">
 						{#if drop.status === 'teaser'}
 							<AdminButton
 								type="button"
@@ -471,7 +503,9 @@
 								Archive Record
 							</AdminButton>
 						{:else}
-							<div class="flex items-center gap-2 p-3 bg-void/50 border border-charcoal text-ash/60">
+							<div
+								class="flex items-center gap-2 border border-charcoal bg-void/50 p-3 text-ash/60"
+							>
 								<Info size={14} />
 								<span class="font-sans text-[11px]">This drop is archived and read-only.</span>
 							</div>
@@ -482,13 +516,13 @@
 
 			<!-- Waitlist signup analytics -->
 			<AdminCard title="Waitlist Registrations">
-				<div class="p-5 space-y-4">
+				<div class="space-y-4 p-5">
 					{#await data.streamed.waitlist}
 						<div class="animate-pulse space-y-3">
-							<div class="h-8 bg-charcoal rounded w-1/3"></div>
+							<div class="h-8 w-1/3 rounded bg-charcoal"></div>
 							<div class="space-y-1.5">
-								<div class="h-4 bg-charcoal rounded w-full"></div>
-								<div class="h-4 bg-charcoal rounded w-5/6"></div>
+								<div class="h-4 w-full rounded bg-charcoal"></div>
+								<div class="h-4 w-5/6 rounded bg-charcoal"></div>
 							</div>
 						</div>
 					{:then waitlistResult}
@@ -509,26 +543,31 @@
 						</div>
 
 						<div class="border-t border-charcoal/60 pt-4">
-							<div class="flex items-center gap-2 font-mono text-[10px] text-volt uppercase mb-3">
+							<div class="mb-3 flex items-center gap-2 font-mono text-[10px] text-volt uppercase">
 								<Users size={12} />
 								<span>Recent Signups ({total})</span>
 							</div>
 
 							{#if waitlist.length === 0}
-								<p class="font-mono text-[10px] text-ash/50 py-2">No signups registered yet.</p>
+								<p class="py-2 font-mono text-[10px] text-ash/50">No signups registered yet.</p>
 							{:else}
-								<div class="max-h-60 overflow-y-auto space-y-2 pr-1 font-mono text-[10px]">
+								<div class="max-h-60 space-y-2 overflow-y-auto pr-1 font-mono text-[10px]">
 									{#each waitlist as entry (entry.id)}
-										<div class="border border-charcoal/40 bg-void p-2 flex items-center justify-between gap-3">
-											<div class="min-w-0 flex items-center gap-2">
+										<div
+											class="flex items-center justify-between gap-3 border border-charcoal/40 bg-void p-2"
+										>
+											<div class="flex min-w-0 items-center gap-2">
 												{#if entry.contactType === 'email'}
-													<Mail size={11} class="text-ash/60 shrink-0" />
+													<Mail size={11} class="shrink-0 text-ash/60" />
 												{:else}
-													<Phone size={11} class="text-ash/60 shrink-0" />
+													<Phone size={11} class="shrink-0 text-ash/60" />
 												{/if}
-												<span class="text-bone truncate">{entry.contact}</span>
+												<span class="truncate text-bone">{entry.contact}</span>
 											</div>
-											<span class="shrink-0 text-right text-[8px] text-ash/40" title="Signed up time">
+											<span
+												class="shrink-0 text-right text-[8px] text-ash/40"
+												title="Signed up time"
+											>
 												{new Date(entry.createdAt).toLocaleDateString()}
 											</span>
 										</div>

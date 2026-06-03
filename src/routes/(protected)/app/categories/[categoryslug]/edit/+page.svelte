@@ -1,5 +1,5 @@
 <script lang="ts">
-		import { generateSlug } from '$lib/shared/slug';
+	import { generateSlug } from '$lib/shared/slug';
 	import { ArrowLeft, FolderOpen, Upload, X } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -205,8 +205,6 @@
 		slugManuallyEdited = true;
 	}
 
-
-
 	function formatFileSize(bytes: number): string {
 		if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 		return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -330,9 +328,7 @@
 					class="min-h-32 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 				></textarea>
 				{#if $updateCategoryErrors.description}
-					<span class="font-sans text-xs text-red-400"
-						>{$updateCategoryErrors.description[0]}</span
-					>
+					<span class="font-sans text-xs text-red-400">{$updateCategoryErrors.description[0]}</span>
 				{/if}
 			</div>
 		</AdminCard>
@@ -382,74 +378,72 @@
 							<X size={14} />
 						</button>
 					</div>
-				{:else}
-					{#if imagePreviewUrl}
-						<div
-							class="relative flex items-center justify-between gap-4 border border-charcoal bg-void p-3"
-						>
-							<div class="flex min-w-0 items-center gap-3">
-								<div
-									class="h-16 w-16 flex-shrink-0 overflow-hidden border border-charcoal bg-charcoal"
-								>
-									<img src={imagePreviewUrl} alt="Preview" class="h-full w-full object-cover" />
-								</div>
-								<div class="min-w-0">
-									<p class="truncate font-mono text-xs text-bone">{selectedFile?.name}</p>
-									<p class="mt-0.5 font-mono text-[10px] text-ash">
-										{selectedFile ? formatFileSize(selectedFile.size) : ''}
-									</p>
-								</div>
+				{:else if imagePreviewUrl}
+					<div
+						class="relative flex items-center justify-between gap-4 border border-charcoal bg-void p-3"
+					>
+						<div class="flex min-w-0 items-center gap-3">
+							<div
+								class="h-16 w-16 flex-shrink-0 overflow-hidden border border-charcoal bg-charcoal"
+							>
+								<img src={imagePreviewUrl} alt="Preview" class="h-full w-full object-cover" />
 							</div>
-							<button
-								type="button"
-								onclick={removeSelectedFile}
-								class="flex h-8 w-8 items-center justify-center border border-red-400/30 text-red-300 transition-colors hover:bg-red-400 hover:text-void"
-								title="Cancel new image"
-							>
-								<X size={14} />
-							</button>
+							<div class="min-w-0">
+								<p class="truncate font-mono text-xs text-bone">{selectedFile?.name}</p>
+								<p class="mt-0.5 font-mono text-[10px] text-ash">
+									{selectedFile ? formatFileSize(selectedFile.size) : ''}
+								</p>
+							</div>
 						</div>
-					{:else if $updateCategoryForm.removeImage}
-						<div
-							class="flex items-center justify-between border border-dashed border-red-400/20 bg-red-950/5 p-4"
+						<button
+							type="button"
+							onclick={removeSelectedFile}
+							class="flex h-8 w-8 items-center justify-center border border-red-400/30 text-red-300 transition-colors hover:bg-red-400 hover:text-void"
+							title="Cancel new image"
 						>
-							<p class="font-sans text-xs text-red-300">Existing image marked for removal.</p>
-							<button
-								type="button"
-								onclick={() => {
-									$updateCategoryForm.removeImage = false;
-								}}
-								class="border border-ash/30 px-3 py-1.5 font-mono text-[9px] tracking-wider text-ash uppercase hover:border-volt hover:text-volt"
-							>
-								Undo Removal
-							</button>
-						</div>
-						<label
-							for="category-image-input"
-							class="mt-3 flex cursor-pointer flex-col items-center justify-center border border-dashed border-ash/20 bg-void/50 py-10 transition-colors hover:border-volt hover:bg-void"
+							<X size={14} />
+						</button>
+					</div>
+				{:else if $updateCategoryForm.removeImage}
+					<div
+						class="flex items-center justify-between border border-dashed border-red-400/20 bg-red-950/5 p-4"
+					>
+						<p class="font-sans text-xs text-red-300">Existing image marked for removal.</p>
+						<button
+							type="button"
+							onclick={() => {
+								$updateCategoryForm.removeImage = false;
+							}}
+							class="border border-ash/30 px-3 py-1.5 font-mono text-[9px] tracking-wider text-ash uppercase hover:border-volt hover:text-volt"
 						>
-							<Upload size={24} class="mb-3 text-ash/50" />
-							<span class="font-sans text-xs font-medium text-bone"
-								>Click to upload replacement image</span
-							>
-							<span class="mt-1 font-mono text-[9px] tracking-wider text-ash/50 uppercase">
-								JPG, PNG, WEBP · MAX 5MB
-							</span>
-						</label>
-					{:else}
-						<label
-							for="category-image-input"
-							class="flex cursor-pointer flex-col items-center justify-center border border-dashed border-ash/20 bg-void/50 py-10 transition-colors hover:border-volt hover:bg-void"
+							Undo Removal
+						</button>
+					</div>
+					<label
+						for="category-image-input"
+						class="mt-3 flex cursor-pointer flex-col items-center justify-center border border-dashed border-ash/20 bg-void/50 py-10 transition-colors hover:border-volt hover:bg-void"
+					>
+						<Upload size={24} class="mb-3 text-ash/50" />
+						<span class="font-sans text-xs font-medium text-bone"
+							>Click to upload replacement image</span
 						>
-							<Upload size={24} class="mb-3 text-ash/50" />
-							<span class="font-sans text-xs font-medium text-bone"
-								>Click to upload category image</span
-							>
-							<span class="mt-1 font-mono text-[9px] tracking-wider text-ash/50 uppercase">
-								JPG, PNG, WEBP · MAX 5MB
-							</span>
-						</label>
-					{/if}
+						<span class="mt-1 font-mono text-[9px] tracking-wider text-ash/50 uppercase">
+							JPG, PNG, WEBP · MAX 5MB
+						</span>
+					</label>
+				{:else}
+					<label
+						for="category-image-input"
+						class="flex cursor-pointer flex-col items-center justify-center border border-dashed border-ash/20 bg-void/50 py-10 transition-colors hover:border-volt hover:bg-void"
+					>
+						<Upload size={24} class="mb-3 text-ash/50" />
+						<span class="font-sans text-xs font-medium text-bone"
+							>Click to upload category image</span
+						>
+						<span class="mt-1 font-mono text-[9px] tracking-wider text-ash/50 uppercase">
+							JPG, PNG, WEBP · MAX 5MB
+						</span>
+					</label>
 				{/if}
 			</div>
 
@@ -487,10 +481,8 @@
 
 	{#snippet sidebarContent()}
 		<!-- Live Preview Overview -->
-		<div class="p-4 border-b border-ash/15">
-			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
-				Live Overview
-			</p>
+		<div class="border-b border-ash/15 p-4">
+			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Live Overview</p>
 		</div>
 		<div class="p-4">
 			<div class="overflow-hidden border border-charcoal bg-void">
@@ -498,10 +490,7 @@
 				<button
 					type="button"
 					onclick={() => {
-						if (
-							imagePreviewUrl ||
-							(data.category.imageUrl && !$updateCategoryForm.removeImage)
-						) {
+						if (imagePreviewUrl || (data.category.imageUrl && !$updateCategoryForm.removeImage)) {
 							showImagePreviewPopup = true;
 						}
 					}}
@@ -544,9 +533,7 @@
 				<!-- Details -->
 				<div class="p-4">
 					<div class="flex min-w-0 items-start justify-between gap-2">
-						<h3
-							class="truncate font-mono text-sm font-semibold tracking-wider text-bone uppercase"
-						>
+						<h3 class="truncate font-mono text-sm font-semibold tracking-wider text-bone uppercase">
 							{$updateCategoryForm.name || 'Unnamed Category'}
 						</h3>
 						<span
@@ -587,7 +574,6 @@
 					</ul>
 				</div>
 			{/if}
-
 		</div>
 	{/snippet}
 </AdminFormLayout>
@@ -727,7 +713,9 @@
 		role="dialog"
 		aria-modal="true"
 	>
-		<div class="relative max-h-[90vh] max-w-[90vw] overflow-hidden border border-charcoal bg-charcoal">
+		<div
+			class="relative max-h-[90vh] max-w-[90vw] overflow-hidden border border-charcoal bg-charcoal"
+		>
 			<button
 				type="button"
 				onclick={() => (showImagePreviewPopup = false)}
