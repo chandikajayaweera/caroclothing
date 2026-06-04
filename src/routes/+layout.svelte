@@ -4,13 +4,25 @@
 	import Navbar from '$lib/components/layout/Navbar.svelte';
 	import Footer from '$lib/components/layout/Footer.svelte';
 	import CartDrawer from '$lib/components/cart/CartDrawer.svelte';
+	import WishlistDrawer from '$lib/components/layout/WishlistDrawer.svelte';
 	import Toast from '$lib/components/shared/Toast.svelte';
 	import BottomNav from '$lib/components/layout/BottomNav.svelte';
 	import { page } from '$app/state';
 	import { fly } from 'svelte/transition';
 	import { onNavigate } from '$app/navigation';
 
-	let { children } = $props();
+	import { cart } from '$lib/client/modules/stores/cart.svelte';
+	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
+
+	let { children, data } = $props();
+
+	$effect(() => {
+		cart.setCart(data?.cart);
+		wishlist.setProductIds(data?.wishlistProductIds || []);
+		if (data?.user) {
+			wishlist.syncLocalWishlist();
+		}
+	});
 
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) return;
@@ -52,6 +64,7 @@
 
 	{#if !isAppRoute}
 		<CartDrawer />
+		<WishlistDrawer />
 	{/if}
 	<Toast />
 

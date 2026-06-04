@@ -18,12 +18,12 @@
 		| '/account'
 		| '/account/addresses'
 		| '/account/orders'
+		| '/account/wishlist'
 		| '/app'
 		| '/bag'
 		| '/checkout'
 		| '/drops'
-		| '/shop'
-		| '/wishlist';
+		| '/shop';
 
 	const DEFAULT_REDIRECT_TO: RedirectPath = '/';
 	const ALLOWED_REDIRECT_PATHS = new Set<string>([
@@ -31,12 +31,12 @@
 		'/account',
 		'/account/addresses',
 		'/account/orders',
+		'/account/wishlist',
 		'/app',
 		'/bag',
 		'/checkout',
 		'/drops',
-		'/shop',
-		'/wishlist'
+		'/shop'
 	]);
 	const PHONE_DIGITS_PATTERN = /^7\d{8}$/;
 	const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';

@@ -10,5 +10,6 @@ export {
 	listInventory,
 	listInventoryMovements,
 	restockInventory,
-	updateInventorySettings
+	updateInventorySettings,
+	getInventoryAvailabilityByVariantIds
 } from './inventory.service';

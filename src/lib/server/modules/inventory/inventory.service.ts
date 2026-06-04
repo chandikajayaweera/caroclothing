@@ -1110,3 +1110,11 @@ function mapInventoryPersistenceError(error: unknown): never {
 
 	throw error;
 }
+
+export async function getInventoryAvailabilityByVariantIds(
+	ctx: ServiceContext,
+	input: { variantIds: string[] }
+): Promise<InventoryAvailabilityDTO[]> {
+	return getInventoryAvailabilityByVariantIdsTx(getDb(), input);
+}
+

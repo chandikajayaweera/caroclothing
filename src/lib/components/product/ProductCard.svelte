@@ -1,16 +1,35 @@
 <script lang="ts">
-	import { uiStore } from '$lib/client/modules/stores/ui';
+	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 
-	let { product } = $props();
+	let { product }: { product: any } = $props();
 
-	let isSaved = $state(false);
+	const isSaved = $derived(wishlist.has(product.id));
 
 	function toggleWishlist(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
-		isSaved = !isSaved;
-		// Add to wishlist store logic here
+		wishlist.toggle(product.id);
 	}
+
+	const primaryImage = $derived(product.primaryImageUrl ?? product.primaryImage ?? '/placeholder.png');
+	const hoverImage = $derived(product.images?.[1]?.imageUrl ?? product.hoverImage ?? primaryImage);
+	const price = $derived(product.basePrice ?? product.price ?? 0);
+
+	const colorSwatches = $derived.by(() => {
+		if (product.colorSwatches) return product.colorSwatches;
+		const swatches: { name: string; hex: string }[] = [];
+		const seen = new Set<string>();
+		for (const variant of product.variants ?? []) {
+			if (variant.color && !seen.has(variant.color)) {
+				seen.add(variant.color);
+				swatches.push({
+					name: variant.color,
+					hex: variant.colorHex ?? '#FFFFFF'
+				});
+			}
+		}
+		return swatches;
+	});
 </script>
 
 <div class="group relative flex cursor-pointer flex-col">
@@ -19,60 +38,56 @@
 		<div class="relative aspect-[3/4] overflow-hidden rounded-none bg-charcoal">
 			<!-- Primary Image -->
 			<img
-				src={product.primaryImage}
+				src={primaryImage}
 				alt={product.name}
 				class="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
 			/>
 
 			<!-- Hover Image -->
-			{#if product.hoverImage && product.hoverImage !== product.primaryImage}
+			{#if hoverImage !== primaryImage}
 				<img
-					src={product.hoverImage}
+					src={hoverImage}
 					alt={product.name}
 					class="absolute inset-0 h-full w-full object-cover object-top opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 				/>
 			{/if}
 
 			<!-- Badge -->
-			{#if product.availableCount !== undefined}
-				<div class="absolute top-2 left-2 z-10">
-					{#if product.availableCount === 0 && !product.allowBackorder}
-						<span
-							class="border border-ash/30 bg-charcoal px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
-						>
-							SOLD OUT
-						</span>
-					{:else if product.availableCount > 0 && product.availableCount <= (product.lowStockThreshold || 5)}
+			<div class="absolute top-2 left-2 z-10 flex flex-col gap-1">
+				{#if product.stockStatus === 'sold-out'}
+					<span
+						class="bg-charcoal border border-ash/20 px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
+					>
+						SOLD OUT
+					</span>
+				{:else if product.stockStatus === 'low-stock'}
+					<span
+						class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void font-bold uppercase"
+					>
+						LOW STOCK
+					</span>
+				{:else}
+					{#if product.tier === 'drop'}
 						<span
 							class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
 						>
-							LOW STOCK
+							DROP
 						</span>
-					{:else if product.isNewArrival}
+					{:else if product.isNewArrival || product.badge === 'NEW'}
 						<span
 							class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
 						>
 							NEW
 						</span>
-					{/if}
-				</div>
-			{:else if product.badge}
-				<div class="absolute top-2 left-2 z-10">
-					{#if product.badge === 'SOLD OUT'}
+					{:else if product.badge}
 						<span
-							class="border border-ash/30 bg-charcoal px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
-						>
-							{product.badge}
-						</span>
-					{:else}
-						<span
-							class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+							class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
 						>
 							{product.badge}
 						</span>
 					{/if}
-				</div>
-			{/if}
+				{/if}
+			</div>
 
 			<!-- Wishlist Heart -->
 			<button
@@ -107,7 +122,7 @@
 				{product.name}
 			</h3>
 			<div class="flex items-baseline gap-2">
-				<span class="font-mono text-sm text-bone">LKR {product.price?.toLocaleString()}</span>
+				<span class="font-mono text-sm text-bone">LKR {price.toLocaleString()}</span>
 				{#if product.compareAtPrice}
 					<span class="font-mono text-xs text-ash line-through">
 						LKR {product.compareAtPrice.toLocaleString()}
@@ -116,9 +131,9 @@
 			</div>
 
 			<!-- Color swatches -->
-			{#if product.colorSwatches && product.colorSwatches.length > 0}
+			{#if colorSwatches.length > 0}
 				<div class="mt-1 flex gap-1.5">
-					{#each product.colorSwatches as swatch}
+					{#each colorSwatches as swatch}
 						<div
 							class="h-3 w-3 rounded-full border border-ash/20"
 							style="background-color: {swatch.hex}"

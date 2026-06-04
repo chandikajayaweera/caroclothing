@@ -4,6 +4,7 @@ export * from './cart.types';
 
 export {
 	addItemToCart,
+	applyPromoCodeToCart,
 	clearCart,
 	deleteCart,
 	deleteExpiredGuestCarts,
@@ -16,5 +17,7 @@ export {
 	listCarts,
 	mergeGuestCartIntoUserCart,
 	removeCartItem,
+	removePromoCodeFromCart,
 	updateCartItemQuantity
 } from './cart.service';
+

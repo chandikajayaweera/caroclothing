@@ -34,9 +34,12 @@ import {
 	isUniqueConstraintError,
 	normalizeLimit,
 	normalizeOffset,
-	resolveNow
+	resolveNow,
+	isString
 } from '$lib/server/foundation/utils';
 import { drop as dropTable, dropProduct as dropProductTable } from '../drops/drops.drizzle';
+import { promoCode as promoCodeTable } from '../promotions/promotions.drizzle';
+import { validatePromoCodeForCartTx, type PromotionsTx } from '../promotions/promotions.service';
 import {
 	getInventoryAvailabilityByVariantIdsTx,
 	getOutstandingReservedQuantityTx,
@@ -1016,6 +1019,13 @@ async function hydrateCartsTx(tx: QueryExecutor, rows: Cart[], now: Date): Promi
 	const reservedByItemId = await loadReservedQuantitiesByItemId(tx, itemRows);
 	const itemsByCartId = groupByCartId(itemRows);
 
+	const promoCodeIds = uniqueStrings(rows.map((row) => row.promoCodeId).filter(isString));
+	const promoCodes =
+		promoCodeIds.length > 0
+			? await tx.select().from(promoCodeTable).where(inArray(promoCodeTable.id, promoCodeIds))
+			: [];
+	const promoCodesById = new Map(promoCodes.map((p) => [p.id, p]));
+
 	return rows.map((row) => {
 		const items = (itemsByCartId.get(row.id) ?? []).map((item) =>
 			toCartItemDTO({
@@ -1030,6 +1040,30 @@ async function hydrateCartsTx(tx: QueryExecutor, rows: Cart[], now: Date): Promi
 		);
 		const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
 
+		let discountAmount = 0;
+		const promoCodeId = row.promoCodeId;
+		if (promoCodeId) {
+			const promo = promoCodesById.get(promoCodeId);
+			if (
+				promo &&
+				promo.isActive &&
+				(promo.startsAt === null || promo.startsAt <= now) &&
+				(promo.expiresAt === null || promo.expiresAt > now) &&
+				(promo.minOrderAmount === null || subtotal >= promo.minOrderAmount) &&
+				(promo.usageLimit === null || promo.usedCount < promo.usageLimit)
+			) {
+				const rawDiscount =
+					promo.discountType === 'percentage'
+						? Math.floor((subtotal * promo.discountValue) / 100)
+						: promo.discountValue;
+				const cappedByMaxDiscount =
+					promo.maxDiscountAmount === null
+						? rawDiscount
+						: Math.min(rawDiscount, promo.maxDiscountAmount);
+				discountAmount = Math.min(cappedByMaxDiscount, subtotal);
+			}
+		}
+
 		return {
 			id: row.id,
 			ownerType: row.userId ? 'user' : 'guest',
@@ -1038,8 +1072,8 @@ async function hydrateCartsTx(tx: QueryExecutor, rows: Cart[], now: Date): Promi
 			items,
 			itemCount: items.reduce((total, item) => total + item.quantity, 0),
 			subtotal,
-			discountAmount: 0,
-			totalBeforeShipping: subtotal,
+			discountAmount,
+			totalBeforeShipping: Math.max(0, subtotal - discountAmount),
 			hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt
@@ -1543,4 +1577,56 @@ export async function getCartSummary(
 		totalSubtotal: Number(itemStats?.totalValue ?? 0),
 		totalItems: Number(itemStats?.totalQuantity ?? 0)
 	};
+}
+
+export async function applyPromoCodeToCart(
+	ctx: ServiceContext,
+	input: CartAccessInput & { code: string }
+): Promise<CartDTO> {
+	const owner = resolveCartOwner(ctx, input, { required: true });
+	const code = input.code.trim().toUpperCase();
+	const now = resolveNow(ctx, input.now);
+
+	try {
+		return await getDb().transaction(async (tx) => {
+			const cartRow = await getOrCreateCartTx(tx, owner, now);
+			const cartDto = await hydrateCartTx(tx, cartRow, now);
+
+			const validation = await validatePromoCodeForCartTx(tx as PromotionsTx, {
+				code,
+				userId: cartRow.userId,
+				subtotal: cartDto.subtotal,
+				now
+			});
+
+			const updatedCart = await touchAndReloadCartTx(tx, cartRow.id, now, {
+				promoCodeId: validation.promoCodeId
+			});
+
+			return hydrateCartTx(tx, updatedCart, now);
+		});
+	} catch (error) {
+		throw mapCartPersistenceError(error);
+	}
+}
+
+export async function removePromoCodeFromCart(
+	ctx: ServiceContext,
+	input: CartAccessInput
+): Promise<CartDTO> {
+	const owner = resolveCartOwner(ctx, input, { required: true });
+	const now = resolveNow(ctx, input.now);
+
+	try {
+		return await getDb().transaction(async (tx) => {
+			const cartRow = await getOrCreateCartTx(tx, owner, now);
+			const updatedCart = await touchAndReloadCartTx(tx, cartRow.id, now, {
+				promoCodeId: null
+			});
+
+			return hydrateCartTx(tx, updatedCart, now);
+		});
+	} catch (error) {
+		throw mapCartPersistenceError(error);
+	}
 }

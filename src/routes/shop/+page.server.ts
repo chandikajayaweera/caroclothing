@@ -9,6 +9,7 @@ import {
 	type ListProductsOptions,
 	type ProductTier
 } from '$lib/server/modules/products';
+import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
@@ -73,8 +74,59 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			listCategories(null, { limit: 100 })
 		]);
 
+		// Map stock status to products list
+		const variantIds = products.items.flatMap((p) => p.variants.map((v) => v.id));
+		const availability = variantIds.length > 0
+			? await getInventoryAvailabilityByVariantIds(ctx, { variantIds })
+			: [];
+		const availabilityMap = new Map(availability.map((a) => [a.variantId, a]));
+
+		const mappedItems = products.items.map((p) => {
+			let totalStock = 0;
+			let trackAny = false;
+			let hasAvailable = false;
+
+			for (const v of p.variants) {
+				const stock = availabilityMap.get(v.id);
+				if (stock) {
+					if (stock.trackInventory) {
+						trackAny = true;
+						totalStock += stock.availableQuantity;
+						if (stock.availableQuantity > 0) {
+							hasAvailable = true;
+						}
+					} else {
+						hasAvailable = true;
+					}
+				}
+			}
+
+			let stockStatus: 'available' | 'low-stock' | 'sold-out' = 'available';
+			if (trackAny) {
+				if (totalStock === 0) {
+					stockStatus = 'sold-out';
+				} else if (totalStock < 5) {
+					stockStatus = 'low-stock';
+				}
+			} else {
+				hasAvailable = true;
+			}
+
+			return {
+				...p,
+				stockStatus,
+				totalStock,
+				hasAvailable
+			};
+		});
+
+		const productsWithStock = {
+			...products,
+			items: mappedItems
+		};
+
 		return {
-			products,
+			products: productsWithStock,
 			categories,
 			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
@@ -95,3 +147,4 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		throwHttpFromAppError(error);
 	}
 };
+

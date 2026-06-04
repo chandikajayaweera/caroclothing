@@ -5,14 +5,9 @@
 	import EditorialBanner from '$lib/components/home/EditorialBanner.svelte';
 	import DropTeaser from '$lib/components/home/DropTeaser.svelte';
 	import InstagramStrip from '$lib/components/home/InstagramStrip.svelte';
+	import type { PageData } from './$types';
 
-	// Hardcoded next drop for demo purposes
-	const nextDrop = {
-		name: 'DROP 002',
-		tagline: 'Something heavier. Experimental fabrics. Coming June.',
-		date: new Date('2026-06-15T18:00:00'),
-		slug: 'drop-002'
-	};
+	let { data }: { data: PageData } = $props();
 </script>
 
 <svelte:head>
@@ -23,9 +18,17 @@
 	/>
 </svelte:head>
 
-<HeroSection />
-<NewInGrid />
-<SocialProofRail />
-<DropTeaser {nextDrop} />
-<InstagramStrip />
-<EditorialBanner />
+<HeroSection featuredDrop={data.featuredDrop} />
+<NewInGrid products={data.newArrivals} />
+<SocialProofRail reviews={data.recentReviews} />
+{#if data.featuredDrop && data.featuredDrop.status === 'teaser' && !data.featuredDrop.heroImageUrl}
+	<!-- Only render secondary teaser if it wasn't featured as the main visual hero drop -->
+	<DropTeaser nextDrop={{
+		name: data.featuredDrop.name,
+		tagline: data.featuredDrop.tagline || '',
+		date: data.featuredDrop.launchAt ? new Date(data.featuredDrop.launchAt) : new Date(),
+		slug: data.featuredDrop.slug
+	}} />
+{/if}
+<InstagramStrip products={data.newArrivals} />
+<EditorialBanner featuredProduct={data.featuredProduct} />

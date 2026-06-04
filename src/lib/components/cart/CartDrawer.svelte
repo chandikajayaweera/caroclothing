@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
 	import { uiStore, closeCartDrawer } from '$lib/client/modules/stores/ui';
-	import { cartStore, cartCount, subtotal } from '$lib/client/modules/stores/cart';
+	import { cart } from '$lib/client/modules/stores/cart.svelte';
 	import CartItem from './CartItem.svelte';
 	import Button from '../ui/Button.svelte';
 
 	const freeShippingThreshold = 10000;
-	let amountToFreeShipping = $derived(Math.max(0, freeShippingThreshold - $subtotal));
-	let freeShippingProgress = $derived(Math.min(100, ($subtotal / freeShippingThreshold) * 100));
+	let amountToFreeShipping = $derived(Math.max(0, freeShippingThreshold - cart.subtotal));
+	let freeShippingProgress = $derived(Math.min(100, (cart.subtotal / freeShippingThreshold) * 100));
 </script>
 
 {#if $uiStore.cartDrawerOpen}
@@ -31,7 +31,7 @@
 		<div class="flex items-center justify-between border-b border-charcoal px-6 py-5">
 			<div>
 				<span class="font-display text-3xl text-bone uppercase">Your Bag</span>
-				<span class="ml-2 font-mono text-xs text-ash">({$cartCount})</span>
+				<span class="ml-2 font-mono text-xs text-ash">({cart.count})</span>
 			</div>
 			<button class="text-2xl font-light text-ash hover:text-bone" onclick={closeCartDrawer}>
 				×
@@ -59,27 +59,27 @@
 
 		<!-- Item list -->
 		<div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
-			{#if $cartStore.items.length === 0}
+			{#if cart.items.length === 0}
 				<div class="flex h-full flex-col items-center justify-center text-center">
 					<span class="mb-2 font-display text-3xl text-bone">Your bag is empty.</span>
-					<span class="mb-6 font-mono text-xs tracking-widest text-ash uppercase">Fix that.</span>
+					<span class="mb-6 font-mono text-xs tracking-widest text-ash/50 uppercase">Fix that.</span>
 					<Button variant="primary" onclick={closeCartDrawer} href="/shop?sort=new">
 						Shop New In →
 					</Button>
 				</div>
 			{:else}
-				{#each $cartStore.items as item (item.id)}
+				{#each cart.items as item (item.id)}
 					<CartItem {item} />
 				{/each}
 			{/if}
 		</div>
 
 		<!-- Footer -->
-		{#if $cartStore.items.length > 0}
+		{#if cart.items.length > 0}
 			<div class="border-t border-charcoal px-6 py-5">
 				<div class="mb-4 flex justify-between font-mono text-sm uppercase">
 					<span class="text-ash">Subtotal</span>
-					<span class="text-bone">LKR {$subtotal.toLocaleString()}</span>
+					<span class="text-bone">LKR {cart.subtotal.toLocaleString()}</span>
 				</div>
 				<Button variant="primary" class="w-full" href="/checkout">Checkout</Button>
 				<a

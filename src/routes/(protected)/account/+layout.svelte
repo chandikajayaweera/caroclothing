@@ -8,7 +8,9 @@
 	const navLinks = [
 		{ label: 'Profile', href: '/account' },
 		{ label: 'Orders', href: '/account/orders' },
-		{ label: 'Addresses', href: '/account/addresses' }
+		{ label: 'Addresses', href: '/account/addresses' },
+		{ label: 'Wishlist', href: '/account/wishlist' },
+		{ label: 'Reviews', href: '/account/reviews' }
 	];
 
 	const isActive = (href: string) => page.url.pathname === href;

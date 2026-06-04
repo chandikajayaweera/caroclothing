@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { toggleCartDrawer } from '$lib/client/modules/stores/ui';
-	import { cartCount } from '$lib/client/modules/stores/cart';
+	import { toggleCartDrawer, toggleWishlistDrawer } from '$lib/client/modules/stores/ui';
+	import { cart } from '$lib/client/modules/stores/cart.svelte';
+	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
 	import { LayoutDashboard } from 'lucide-svelte';
@@ -17,6 +18,22 @@
 		{ label: 'Women', href: '/shop?gender=women' },
 		{ label: 'About', href: '/about' }
 	];
+
+	// Badge animation state
+	let count = $derived(cart.count);
+	let prevCount = $state(0);
+	let animateBadge = $state(false);
+
+	$effect(() => {
+		if (count > prevCount && prevCount > 0) {
+			animateBadge = true;
+			const timer = setTimeout(() => {
+				animateBadge = false;
+			}, 600);
+			return () => clearTimeout(timer);
+		}
+		prevCount = count;
+	});
 
 	onMount(() => {
 		const handleScroll = () => {
@@ -84,33 +101,38 @@
 
 		<!-- Right: Icons -->
 		<div class="flex items-center gap-4 md:gap-6">
-			<!-- Wishlist (Tablet/Desktop) - Auth Only -->
-			{#if $session.data}
-				<a
-					href="/wishlist"
-					class="relative hidden transition-colors md:block {isActive('/wishlist')
-						? 'text-volt'
-						: 'text-bone hover:text-volt'}"
-					aria-label="Wishlist"
+			<!-- Wishlist (Tablet/Desktop) -->
+			<button
+				class="relative hidden text-bone transition-colors hover:text-volt md:block cursor-pointer"
+				onclick={() => {
+					toggleWishlistDrawer();
+				}}
+				aria-label="Wishlist"
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="20"
+					height="20"
+					viewBox="0 0 24 24"
+					fill={wishlist.allIds.length > 0 ? 'var(--color-volt)' : 'none'}
+					stroke={wishlist.allIds.length > 0 ? 'var(--color-volt)' : 'currentColor'}
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					class="lucide lucide-heart transition-colors"
 				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						width="20"
-						height="20"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						class="lucide lucide-heart"
+					<path
+						d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+					/>
+				</svg>
+				{#if wishlist.allIds.length > 0}
+					<span
+						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void"
 					>
-						<path
-							d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
-						/>
-					</svg>
-				</a>
-			{/if}
+						{wishlist.allIds.length}
+					</span>
+				{/if}
+			</button>
 
 			<!-- Bag (Desktop only) -->
 			<button
@@ -136,11 +158,12 @@
 					<path d="M3 6h18" />
 					<path d="M16 10a4 4 0 0 1-8 0" />
 				</svg>
-				{#if $cartCount > 0}
+				{#if cart.count > 0}
 					<span
-						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void"
+						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void transition-all duration-300"
+						class:badge-bounce-anim={animateBadge}
 					>
-						{$cartCount}
+						{cart.count}
 					</span>
 				{/if}
 			</button>
@@ -204,3 +227,18 @@
 		</div>
 	</div>
 </nav>
+
+<style>
+	@keyframes badge-bounce {
+		0%, 100% {
+			transform: scale(1);
+		}
+		50% {
+			transform: scale(1.35);
+			background-color: var(--color-volt);
+		}
+	}
+	:global(.badge-bounce-anim) {
+		animation: badge-bounce 0.6s ease-in-out;
+	}
+</style>
