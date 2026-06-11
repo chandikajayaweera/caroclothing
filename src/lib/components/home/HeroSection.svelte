@@ -62,7 +62,10 @@
 
 		if (mode === 'drop-coming' && featuredDrop) {
 			const launchDateStr = featuredDrop.launchAt
-				? new Date(featuredDrop.launchAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+				? new Date(featuredDrop.launchAt).toLocaleDateString('en-US', {
+						month: 'long',
+						day: 'numeric'
+					})
 				: 'SOON';
 			return {
 				tag: `${featuredDrop.name} — COMING ${launchDateStr.toUpperCase()}`,
@@ -126,20 +129,28 @@
 		{#if mode === 'drop-coming' && featuredDrop?.launchAt}
 			<div class="mt-6 flex gap-4 font-mono text-bone">
 				<div class="flex flex-col">
-					<span class="text-2xl font-bold md:text-3xl">{timeLeft.days.toString().padStart(2, '0')}</span>
-					<span class="text-[8px] text-ash tracking-widest uppercase">Days</span>
+					<span class="text-2xl font-bold md:text-3xl"
+						>{timeLeft.days.toString().padStart(2, '0')}</span
+					>
+					<span class="text-[8px] tracking-widest text-ash uppercase">Days</span>
 				</div>
 				<div class="flex flex-col">
-					<span class="text-2xl font-bold md:text-3xl">{timeLeft.hours.toString().padStart(2, '0')}</span>
-					<span class="text-[8px] text-ash tracking-widest uppercase">Hrs</span>
+					<span class="text-2xl font-bold md:text-3xl"
+						>{timeLeft.hours.toString().padStart(2, '0')}</span
+					>
+					<span class="text-[8px] tracking-widest text-ash uppercase">Hrs</span>
 				</div>
 				<div class="flex flex-col">
-					<span class="text-2xl font-bold md:text-3xl">{timeLeft.minutes.toString().padStart(2, '0')}</span>
-					<span class="text-[8px] text-ash tracking-widest uppercase">Mins</span>
+					<span class="text-2xl font-bold md:text-3xl"
+						>{timeLeft.minutes.toString().padStart(2, '0')}</span
+					>
+					<span class="text-[8px] tracking-widest text-ash uppercase">Mins</span>
 				</div>
 				<div class="flex flex-col">
-					<span class="text-2xl font-bold md:text-3xl">{timeLeft.seconds.toString().padStart(2, '0')}</span>
-					<span class="text-[8px] text-ash tracking-widest uppercase">Secs</span>
+					<span class="text-2xl font-bold md:text-3xl"
+						>{timeLeft.seconds.toString().padStart(2, '0')}</span
+					>
+					<span class="text-[8px] tracking-widest text-ash uppercase">Secs</span>
 				</div>
 			</div>
 		{/if}

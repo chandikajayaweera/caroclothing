@@ -1,16 +1,7 @@
-import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { listMyOrders, listMyOrdersFormSchema } from '$lib/server/modules/orders';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-
-function requireAccountContext(locals: App.Locals, url: URL) {
-	if (!locals.user || locals.user.isAnonymous) {
-		const redirectTo = `${url.pathname}${url.search}`;
-		throw redirect(302, `/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`);
-	}
-
-	return { actor: locals.user };
-}
+import { requireAccountContext } from '../_account.server';
 
 function getListOptions(url: URL) {
 	const result = listMyOrdersFormSchema.safeParse({

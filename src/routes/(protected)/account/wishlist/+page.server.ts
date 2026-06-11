@@ -1,19 +1,9 @@
-import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { listWishlist, removeFromWishlist } from '$lib/server/modules/wishlist';
-import { listProductVariants } from '$lib/server/modules/products';
+import { clearWishlist, listWishlist, removeFromWishlist } from '$lib/server/modules/wishlist';
+import { listProductVariants, type ProductVariantDTO } from '$lib/server/modules/products';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-
-function requireAccountContext(locals: App.Locals, url: URL) {
-	if (!locals.user || locals.user.isAnonymous) {
-		const redirectTo = `${url.pathname}${url.search}`;
-		throw redirect(302, `/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`);
-	}
-
-	return { actor: locals.user };
-}
-
+import { requireAccountContext } from '../_account.server';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const ctx = requireAccountContext(locals, url);
@@ -23,7 +13,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		// Fetch variants for all products in wishlist
 		const uniqueProductIds = [...new Set(wishlist.items.map((item) => item.productId))];
-		const productVariantsMap = new Map<string, any[]>();
+		const productVariantsMap = new Map<string, ProductVariantDTO[]>();
 
 		await Promise.all(
 			uniqueProductIds.map(async (productId) => {
@@ -47,9 +37,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			}
 		}
 
-		const availability = variantIdsToQuery.length > 0
-			? await getInventoryAvailabilityByVariantIds(ctx, { variantIds: variantIdsToQuery })
-			: [];
+		const availability =
+			variantIdsToQuery.length > 0
+				? await getInventoryAvailabilityByVariantIds(ctx, { variantIds: variantIdsToQuery })
+				: [];
 		const availabilityMap = new Map(availability.map((a) => [a.variantId, a]));
 
 		// Compute stockStatus for each wishlist item
@@ -59,8 +50,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			let hasAvailable = false;
 
 			const vars = item.variantId
-				? (item.variant ? [item.variant] : [])
-				: (productVariantsMap.get(item.productId) || []);
+				? item.variant
+					? [item.variant]
+					: []
+				: productVariantsMap.get(item.productId) || [];
 
 			for (const v of vars) {
 				const stock = availabilityMap.get(v.id);
@@ -107,17 +100,27 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	}
 };
 
-
 export const actions: Actions = {
 	remove: async ({ locals, request, url }) => {
 		const ctx = requireAccountContext(locals, url);
 		const formData = await request.formData();
 		const productId = formData.get('productId') as string;
-		const variantId = formData.get('variantId') as string || null;
+		const variantId = (formData.get('variantId') as string) || null;
 
 		try {
 			await removeFromWishlist(ctx, { productId, variantId });
 			return { success: true };
+		} catch (error) {
+			throwHttpFromAppError(error);
+		}
+	},
+
+	clear: async ({ locals, url }) => {
+		const ctx = requireAccountContext(locals, url);
+
+		try {
+			await clearWishlist(ctx);
+			return { success: true, message: 'Wishlist cleared.' };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}

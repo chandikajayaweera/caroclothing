@@ -811,31 +811,23 @@
 		class="flex flex-col gap-4"
 	>
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Code *</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Code *</span>
 			<input
 				name="code"
 				bind:value={$createForm.code}
 				oninput={(e) =>
-					($createForm.code = e.currentTarget.value
-						.toUpperCase()
-						.replace(/[^A-Z0-9_-]/g, ''))}
+					($createForm.code = e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
 				placeholder="e.g. CARO20"
 				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 				required
 			/>
 			{#if $createErrors.code}
-				<span class="mt-0.5 font-sans text-xs text-red-400"
-					>{$createErrors.code[0]}</span
-				>
+				<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.code[0]}</span>
 			{/if}
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Description</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
 			<textarea
 				name="description"
 				bind:value={$createForm.description}
@@ -843,50 +835,38 @@
 				class="min-h-16 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 			></textarea>
 			{#if $createErrors.description}
-				<span class="mt-0.5 font-sans text-xs text-red-400"
-					>{$createErrors.description[0]}</span
-				>
+				<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.description[0]}</span>
 			{/if}
 		</label>
 
 		<div class="grid grid-cols-2 gap-4">
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Discount Type *</span
 				>
 				<select
 					name="discountType"
 					bind:value={$createForm.discountType}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt animate-none"
+					class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 					required
 				>
 					<option value="percentage">Percentage (%)</option>
 					<option value="fixed">Fixed (LKR)</option>
 				</select>
 				{#if $createErrors.discountType}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$createErrors.discountType[0]}</span
-					>
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.discountType[0]}</span>
 				{/if}
 			</label>
 
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Value *</span
-				>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
+				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Value *</span>
 				<input
 					name="discountValue"
 					type="number"
 					min="1"
 					max={$createForm.discountType === 'percentage' ? 100 : undefined}
 					bind:value={$createForm.discountValue}
-					placeholder={$createForm.discountType === 'percentage'
-						? 'e.g. 20'
-						: 'e.g. 1000'}
+					placeholder={$createForm.discountType === 'percentage' ? 'e.g. 20' : 'e.g. 1000'}
 					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 					required
 				/>
@@ -896,17 +876,14 @@
 					>
 				{/if}
 				{#if $createErrors.discountValue}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$createErrors.discountValue[0]}</span
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.discountValue[0]}</span
 					>
 				{/if}
 			</label>
 		</div>
 
 		<div class="grid grid-cols-2 gap-4">
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Min Order (LKR)</span
 				>
@@ -925,9 +902,7 @@
 				{/if}
 			</label>
 
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Max Discount (LKR)</span
 				>
@@ -949,12 +924,8 @@
 		</div>
 
 		<div class="grid grid-cols-2 gap-4">
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Usage Limit</span
-				>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
+				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Usage Limit</span>
 				<input
 					name="usageLimit"
 					type="number"
@@ -964,15 +935,11 @@
 					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 				/>
 				{#if $createErrors.usageLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$createErrors.usageLimit[0]}</span
-					>
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.usageLimit[0]}</span>
 				{/if}
 			</label>
 
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Per User Limit *</span
 				>
@@ -985,9 +952,7 @@
 					required
 				/>
 				{#if $createErrors.perUserLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$createErrors.perUserLimit[0]}</span
-					>
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.perUserLimit[0]}</span>
 				{/if}
 			</label>
 		</div>
@@ -1020,15 +985,12 @@
 		>
 			{#if $createSubmitting}Creating...{:else}Create Code{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (createPromoModalOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (createPromoModalOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}
-</AdminDrawer>			<!-- EDIT PROMO CODE DRAWER -->
+</AdminDrawer>
+<!-- EDIT PROMO CODE DRAWER -->
 <AdminDrawer
 	bind:open={editPromoModalOpen}
 	title="Edit Promo Code"
@@ -1044,9 +1006,7 @@
 		<input type="hidden" name="promoCodeId" bind:value={$updateForm.promoCodeId} />
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Code *</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Code *</span>
 			<input
 				name="code"
 				bind:value={$updateForm.code}
@@ -1054,16 +1014,12 @@
 				required
 			/>
 			{#if $updateErrors.code}
-				<span class="mt-0.5 font-sans text-xs text-red-400"
-					>{$updateErrors.code[0]}</span
-				>
+				<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.code[0]}</span>
 			{/if}
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Description</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
 			<textarea
 				class="min-h-16 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 				name="description"
@@ -1071,41 +1027,31 @@
 				placeholder="Internal campaign details..."
 			></textarea>
 			{#if $updateErrors.description}
-				<span class="mt-0.5 font-sans text-xs text-red-400"
-					>{$updateErrors.description[0]}</span
-				>
+				<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.description[0]}</span>
 			{/if}
 		</label>
 
 		<div class="grid grid-cols-2 gap-4">
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Discount Type *</span
 				>
 				<select
 					name="discountType"
 					bind:value={$updateForm.discountType}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt animate-none"
+					class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 					required
 				>
 					<option value="percentage">Percentage (%)</option>
 					<option value="fixed">Fixed (LKR)</option>
 				</select>
 				{#if $updateErrors.discountType}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$updateErrors.discountType[0]}</span
-					>
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.discountType[0]}</span>
 				{/if}
 			</label>
 
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Value *</span
-				>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
+				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Value *</span>
 				<input
 					name="discountValue"
 					type="number"
@@ -1121,17 +1067,14 @@
 					>
 				{/if}
 				{#if $updateErrors.discountValue}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$updateErrors.discountValue[0]}</span
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.discountValue[0]}</span
 					>
 				{/if}
 			</label>
 		</div>
 
 		<div class="grid grid-cols-2 gap-4">
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Min Order (LKR)</span
 				>
@@ -1150,9 +1093,7 @@
 				{/if}
 			</label>
 
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Max Discount (LKR)</span
 				>
@@ -1174,12 +1115,8 @@
 		</div>
 
 		<div class="grid grid-cols-2 gap-4">
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Usage Limit</span
-				>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
+				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Usage Limit</span>
 				<input
 					name="usageLimit"
 					type="number"
@@ -1189,15 +1126,11 @@
 					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 				/>
 				{#if $updateErrors.usageLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$updateErrors.usageLimit[0]}</span
-					>
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.usageLimit[0]}</span>
 				{/if}
 			</label>
 
-			<label
-				class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase"
-			>
+			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
 				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
 					>Per User Limit *</span
 				>
@@ -1210,9 +1143,7 @@
 					required
 				/>
 				{#if $updateErrors.perUserLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$updateErrors.perUserLimit[0]}</span
-					>
+					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.perUserLimit[0]}</span>
 				{/if}
 			</label>
 		</div>
@@ -1226,9 +1157,7 @@
 				error={$updateErrors.startsAt?.[0]}
 			/>
 			{#if isPromoStarted}
-				<span
-					class="mt-0.5 font-sans text-[10px] leading-snug text-yellow-400/80 italic"
-				>
+				<span class="mt-0.5 font-sans text-[10px] leading-snug text-yellow-400/80 italic">
 					Start date cannot be modified because this promotion has already started.
 				</span>
 			{/if}
@@ -1252,11 +1181,7 @@
 		>
 			{#if $updateSubmitting}Saving...{:else}Save Changes{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (editPromoModalOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (editPromoModalOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}

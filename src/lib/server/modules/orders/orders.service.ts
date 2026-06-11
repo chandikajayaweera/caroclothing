@@ -39,10 +39,10 @@ import { createAddressSnapshot, validateCheckoutAddress } from '../addresses/add
 import type { AddressSnapshot, CheckoutAddressDTO } from '../addresses/addresses.types';
 import { user as userTable } from '../auth/auth.drizzle';
 import {
-	deleteCartAfterOrderPlacementTx,
-	getCheckoutCartForOrderTx,
-	type CartTx
-} from '../cart/cart.service';
+	deleteBagAfterOrderPlacementTx,
+	getCheckoutBagForOrderTx,
+	type BagTx
+} from '../bag/bag.service';
 import {
 	recordInventorySaleTx,
 	releaseInventoryReservationTx,
@@ -61,11 +61,13 @@ import {
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
 import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
+import { getManualReviewReason } from '../payments/payments.logic';
 import {
 	recordPromoUsageTx,
-	validatePromoCodeForCartTx,
+	validatePromoCodeForBagTx,
 	type PromotionsTx
 } from '../promotions/promotions.service';
+import { promoCode } from '../promotions/promotions.drizzle';
 import {
 	calculateShippingQuoteTx,
 	createShippingMethodSnapshot
@@ -76,13 +78,13 @@ import {
 	insertOrderSchema,
 	insertOrderStatusHistorySchema,
 	insertPaymentSchema,
+	CHECKOUT_PAYMENT_METHODS,
 	ONLINE_PAYMENT_METHODS,
 	order,
 	orderItem,
 	orderStatusHistory,
 	payment,
 	updateOrderSchema,
-	updatePaymentSchema,
 	type InsertOrderItem,
 	type InsertOrderStatusHistory,
 	type NewOrder,
@@ -102,10 +104,8 @@ import type {
 	CancelOrderInput,
 	CheckoutShippingAddressInput,
 	GetOrderInput,
-	GetPaymentInput,
 	ListMyOrdersOptions,
 	ListOrdersOptions,
-	ListPaymentsOptions,
 	OrderDTO,
 	OrderItemDTO,
 	OrderListResult,
@@ -115,12 +115,8 @@ import type {
 	OrderStatusHistoryDTO,
 	OrderSummaryDTO,
 	PaymentDTO,
-	PaymentListResult,
-	PlaceOrderFromCartInput,
-	PreviewOrderFromCartInput,
-	RecordablePaymentStatus,
-	RecordPaymentInput,
-	RecordRefundInput,
+	PlaceOrderFromBagInput,
+	PreviewOrderFromBagInput,
 	TransitionOrderStatusInput,
 	UpdateOrderFulfillmentInput
 } from './orders.types';
@@ -149,9 +145,34 @@ const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 	refunded: []
 };
 
-export async function previewOrderFromCart(
+export async function anonymizeOrdersForAccountDeletionTx(
+	tx: OrdersTx,
+	input: { userId: string; now?: Date }
+): Promise<number> {
+	const userId = normalizeId(input.userId, 'userId');
+	const now = resolveNow(null, input.now);
+	const anonymized = await tx
+		.update(order)
+		.set({
+			userId: null,
+			shippingAddressId: null,
+			shippingAddressSnapshot: null,
+			trackingNumber: null,
+			trackingCarrier: null,
+			trackingUrl: null,
+			customerNote: null,
+			adminNote: null,
+			updatedAt: now
+		})
+		.where(eq(order.userId, userId))
+		.returning({ id: order.id });
+
+	return anonymized.length;
+}
+
+export async function previewOrderFromBag(
 	ctx: ServiceContext,
-	input: PreviewOrderFromCartInput
+	input: PreviewOrderFromBagInput
 ): Promise<OrderPreviewDTO> {
 	try {
 		return await getDb().transaction(async (tx) =>
@@ -165,15 +186,15 @@ export async function previewOrderFromCart(
 	}
 }
 
-export async function placeOrderFromCart(
+export async function placeOrderFromBag(
 	ctx: ServiceContext,
-	input: PlaceOrderFromCartInput
+	input: PlaceOrderFromBagInput
 ): Promise<OrderDTO> {
 	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
 		const placedOrder = await getDb().transaction(async (tx) => {
-			const orderDto = await placeOrderFromCartTx(tx, ctx, input);
+			const orderDto = await placeOrderFromBagTx(tx, ctx, input);
 			notificationsToPublish = await enqueueOrderConfirmationNotificationsTx(tx, orderDto);
 			return orderDto;
 		});
@@ -184,12 +205,19 @@ export async function placeOrderFromCart(
 	}
 }
 
-export async function placeOrderFromCartTx(
+export async function placeOrderFromBagTx(
 	tx: OrdersTx,
 	ctx: ServiceContext,
-	input: PlaceOrderFromCartInput
+	input: PlaceOrderFromBagInput
 ): Promise<OrderDTO> {
 	const now = resolveNow(ctx, input.now);
+	if (!checkoutPaymentMethodSet.has(input.paymentMethod)) {
+		throw new PaymentError(
+			'This payment method is not available at checkout.',
+			ErrorCode.INVALID_PAYMENT_METHOD,
+			{ method: input.paymentMethod }
+		);
+	}
 	const preview = await buildOrderPreviewTx(tx, ctx, { ...input, now });
 
 	assertCheckoutReady(preview);
@@ -202,7 +230,7 @@ export async function placeOrderFromCartTx(
 	const orderValues = parseNewOrder({
 		id: orderId,
 		orderNumber,
-		userId: preview.cart.userId,
+		userId: preview.bag.userId,
 		status: 'pending',
 		paymentExpiresAt,
 		subtotal: preview.subtotal,
@@ -247,7 +275,7 @@ export async function placeOrderFromCartTx(
 		const released = await releaseInventoryReservationTx(tx as InventoryTx, {
 			variantId: previewItem.variantId,
 			quantity: previewItem.quantity,
-			referenceId: previewItem.cartItemId,
+			referenceId: previewItem.bagItemId,
 			now
 		});
 
@@ -292,21 +320,32 @@ export async function placeOrderFromCartTx(
 		await recordPromoUsageTx(tx as PromotionsTx, {
 			promoCodeId: preview.promoValidation.promoCodeId,
 			orderId,
-			userId: preview.cart.userId,
+			userId: preview.bag.userId,
 			discountAmount: preview.discountAmount,
 			now
 		});
 	}
 
-	await deleteCartAfterOrderPlacementTx(tx as CartTx, { cartId: preview.cart.id });
+	await deleteBagAfterOrderPlacementTx(tx as BagTx, { bagId: preview.bag.id });
 
-	return toOrderDTO(createdOrder, {
+	const placedOrder = toOrderDTO(createdOrder, {
 		items: createdItems,
 		payments: [createdPayment],
 		statusHistory: [createdHistory],
 		includeItems: true,
 		includePayments: true,
 		includeStatusHistory: true
+	});
+
+	if (input.paymentMethod !== 'cash_on_delivery') {
+		return placedOrder;
+	}
+
+	return transitionOrderStatusTx(tx, ctx, {
+		orderId,
+		toStatus: 'confirmed',
+		note: 'Cash on delivery order confirmed at placement.',
+		now
 	});
 }
 
@@ -544,40 +583,52 @@ export async function insertOrderStatusHistoryTx(
 async function buildOrderPreviewTx(
 	tx: OrdersTx,
 	ctx: ServiceContext,
-	input: PreviewOrderFromCartInput & { now: Date }
+	input: PreviewOrderFromBagInput & { now: Date }
 ): Promise<OrderPreviewDTO> {
-	const cart = await getCheckoutCartForOrderTx(tx as CartTx, ctx, {
+	const bag = await getCheckoutBagForOrderTx(tx as BagTx, ctx, {
 		sessionToken: input.sessionToken,
 		now: input.now
 	});
-	const blockingReasons = [...cart.blockingReasons];
+	const blockingReasons = [...bag.blockingReasons];
 
-	if (cart.items.length === 0) {
-		throw new OrderError('Cart is empty.', ErrorCode.EMPTY_CART);
+	if (bag.items.length === 0) {
+		throw new OrderError('Bag is empty.', ErrorCode.EMPTY_BAG);
 	}
 
 	const shippingAddress = await resolveCheckoutShippingAddressTx(tx, ctx, input.shippingAddress);
 	const shippingQuote = await calculateShippingQuoteTx(tx as ShippingTx, {
 		shippingMethodId: input.shippingMethodId,
 		district: shippingAddress.address.district,
-		subtotal: cart.subtotal,
+		subtotal: bag.subtotal,
 		activeOnly: true
 	});
-	const promoValidation = input.promoCode
-		? await validatePromoCodeForCartTx(tx as PromotionsTx, {
-				code: input.promoCode,
-				userId: cart.userId,
-				subtotal: cart.subtotal,
+	let appliedPromoCode: string | null = input.promoCode ?? null;
+	if (!appliedPromoCode && bag.promoCodeId) {
+		const [promoRow] = await tx
+			.select({ code: promoCode.code })
+			.from(promoCode)
+			.where(eq(promoCode.id, bag.promoCodeId))
+			.limit(1);
+		if (promoRow) {
+			appliedPromoCode = promoRow.code;
+		}
+	}
+
+	const promoValidation = appliedPromoCode
+		? await validatePromoCodeForBagTx(tx as PromotionsTx, {
+				code: appliedPromoCode,
+				userId: bag.userId,
+				subtotal: bag.subtotal,
 				now: input.now
 			})
 		: null;
 	const discountAmount = promoValidation?.discountAmount ?? 0;
 	const shippingAmount = shippingQuote.price;
-	const totalAmount = cart.subtotal - discountAmount + shippingAmount;
-	const items = cart.items.map(toPreviewItemDTO);
+	const totalAmount = bag.subtotal - discountAmount + shippingAmount;
+	const items = bag.items.map(toPreviewItemDTO);
 
 	return {
-		cart,
+		bag,
 		items,
 		shippingAddressId: shippingAddress.addressId,
 		shippingAddress: shippingAddress.address,
@@ -585,7 +636,7 @@ async function buildOrderPreviewTx(
 		shippingQuote,
 		shippingMethodSnapshot: createShippingMethodSnapshot(shippingQuote),
 		promoValidation,
-		subtotal: cart.subtotal,
+		subtotal: bag.subtotal,
 		discountAmount,
 		shippingAmount,
 		totalAmount,
@@ -1121,6 +1172,7 @@ function toOrderItemDTO(row: OrderItem): OrderItemDTO {
 }
 
 function toPaymentDTO(row: Payment): PaymentDTO {
+	const reviewReason = getManualReviewReason(row.gatewayResponse);
 	return {
 		id: row.id,
 		orderId: row.orderId,
@@ -1133,6 +1185,8 @@ function toPaymentDTO(row: Payment): PaymentDTO {
 		refundAmount: row.refundAmount,
 		refundedAt: row.refundedAt,
 		paidAt: row.paidAt,
+		requiresManualReview: Boolean(reviewReason),
+		reviewReason,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt
 	};
@@ -1150,9 +1204,9 @@ function toOrderStatusHistoryDTO(row: OrderStatusHistory): OrderStatusHistoryDTO
 	};
 }
 
-function toPreviewItemDTO(item: OrderPreviewDTO['cart']['items'][number]): OrderPreviewItemDTO {
+function toPreviewItemDTO(item: OrderPreviewDTO['bag']['items'][number]): OrderPreviewItemDTO {
 	return {
-		cartItemId: item.id,
+		bagItemId: item.id,
 		productId: requireSnapshotString(item.productId, 'productId'),
 		variantId: requireSnapshotString(item.variantId, 'variantId'),
 		productName: requireSnapshotString(item.productName, 'productName'),
@@ -1282,34 +1336,6 @@ function parseOrderUpdate(
 	}) as Partial<NewOrder>;
 }
 
-function parsePaymentUpdate(
-	input: Partial<
-		NewPayment & {
-			refundedAt?: Date | null;
-			paidAt?: Date | null;
-		}
-	>
-): Partial<NewPayment> {
-	const result = updatePaymentSchema.safeParse({
-		...input,
-		refundedAt: dateToTimestampMs(input.refundedAt),
-		paidAt: dateToTimestampMs(input.paidAt)
-	});
-
-	if (!result.success) {
-		throw new PaymentError('Invalid payment update.', ErrorCode.VALIDATION_ERROR, {
-			issues: result.error.issues
-		});
-	}
-
-	return removeUndefinedValues({
-		...result.data,
-		refundedAt: timestampMsToDate(result.data.refundedAt),
-		paidAt: timestampMsToDate(result.data.paidAt),
-		updatedAt: input.updatedAt
-	}) as Partial<NewPayment>;
-}
-
 async function loadOrderByLookupTx(db: QueryExecutor, lookup: OrderLookup): Promise<Order> {
 	if ('id' in lookup && lookup.id) return loadOrderByIdTx(db, lookup.id);
 
@@ -1431,11 +1457,11 @@ function buildOrderListWhere(options: ListOrdersOptions, ctx: ServiceContext): S
 
 function assertCheckoutReady(preview: OrderPreviewDTO): void {
 	if (preview.items.length === 0) {
-		throw new OrderError('Cart is empty.', ErrorCode.EMPTY_CART);
+		throw new OrderError('Bag is empty.', ErrorCode.EMPTY_BAG);
 	}
 
 	if (!preview.canCheckout) {
-		throw new OrderError('Cart cannot be checked out.', ErrorCode.CANNOT_MODIFY_ORDER, {
+		throw new OrderError('Bag cannot be checked out.', ErrorCode.CANNOT_MODIFY_ORDER, {
 			blockingReasons: preview.blockingReasons
 		});
 	}
@@ -1494,20 +1520,12 @@ function requireOrderOwnerOrAdmin(ctx: ServiceContext, ownerUserId: string | nul
 function requireSnapshotString(value: string | null | undefined, field: string): string {
 	if (!value) {
 		throw new OrderError(
-			'Cart item is missing order snapshot data.',
+			'Bag item is missing order snapshot data.',
 			ErrorCode.CANNOT_MODIFY_ORDER,
 			{
 				field
 			}
 		);
-	}
-
-	return value;
-}
-
-function normalizeMoney(value: number, field: string): number {
-	if (!Number.isInteger(value) || value <= 0) {
-		throw new PaymentError(`Invalid ${field}.`, ErrorCode.VALIDATION_ERROR, { [field]: value });
 	}
 
 	return value;
@@ -1583,24 +1601,8 @@ function mapOrderPersistenceError(error: unknown): never {
 	throw error;
 }
 
-function mapPaymentPersistenceError(error: unknown): never {
-	if (isAppError(error)) throw error;
-
-	const message = getErrorMessage(error);
-	const normalized = message.toLowerCase();
-
-	if (isForeignKeyConstraintError(message)) {
-		throw new PaymentError('Related payment record not found.', ErrorCode.NOT_FOUND);
-	}
-
-	if (normalized.includes('check constraint failed')) {
-		throw new PaymentError('Invalid payment data.', ErrorCode.VALIDATION_ERROR);
-	}
-
-	throw error;
-}
-
 const onlinePaymentMethodSet = new Set<string>(ONLINE_PAYMENT_METHODS);
+const checkoutPaymentMethodSet = new Set<string>(CHECKOUT_PAYMENT_METHODS);
 
 export async function getOrderAnalytics(ctx: ServiceContext): Promise<{
 	totalSales: number;
@@ -1650,7 +1652,7 @@ export async function getOrderAnalytics(ctx: ServiceContext): Promise<{
 
 export async function bulkTransitionOrderStatus(
 	ctx: ServiceContext,
-	input: { orderIds: string[]; toStatus: string; note?: string }
+	input: { orderIds: string[]; toStatus: OrderStatus; note?: string }
 ): Promise<{
 	successCount: number;
 	failureCount: number;
@@ -1677,7 +1679,7 @@ export async function bulkTransitionOrderStatus(
 
 			await transitionOrderStatus(ctx, {
 				orderId,
-				toStatus: input.toStatus as any,
+				toStatus: input.toStatus,
 				note: input.note ?? 'Transitioned via bulk action.'
 			});
 

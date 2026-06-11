@@ -20,7 +20,8 @@ Review only unless explicitly asked to edit.
 - Expected business errors use existing `AppError`, `ErrorCode`, and domain error classes.
 - Multi-table writes use transactions.
 - Inventory writes create movement rows.
-- Cart writes respect exclusive owner and upsert behavior.
+- Bag writes respect exclusive owner and upsert behavior.
+- Bag writes do not reserve stock; checkout start reserves it for the timed hold.
 - Promo usage updates are atomic.
 - R2 upload/update/delete flows have compensation cleanup.
 - Form schemas are separate from DB schemas when files or UI-only fields exist.

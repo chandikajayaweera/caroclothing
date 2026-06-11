@@ -28,8 +28,8 @@ If the task touches notifications, also read email/SMS modules, `src/lib/server/
 
 ## Current state
 
-- Services exist for `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `inventory`, `orders`, and `reviews`.
-- `inventory` exposes curated admin stock APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` still support cart/order transaction workflows and should be imported directly only by server internals already inside a transaction.
+- Services exist for `auth`, `addresses`, `products`, `drops`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, and `reviews`.
+- `inventory` exposes curated admin stock APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and should be imported directly only by server internals already inside a transaction.
 - Foundation helpers exist in `src/lib/server/foundation`.
 - Route AppError helpers exist in `src/lib/server/infrastructure/errors/route-adapter.ts`.
 - Notification outbox, Queue, Cron recovery, DLQ config, and semantic email/SMS senders are implemented.

@@ -26,7 +26,7 @@
 				{@const primaryImage = product.primaryImageUrl ?? '/placeholder.png'}
 				<a
 					href="/shop/{product.slug}"
-					class="group flex aspect-square min-w-[200px] overflow-hidden items-center justify-center border border-charcoal bg-charcoal transition-all duration-500 hover:border-volt/40 md:min-w-0"
+					class="group flex aspect-square min-w-[200px] items-center justify-center overflow-hidden border border-charcoal bg-charcoal transition-all duration-500 hover:border-volt/40 md:min-w-0"
 				>
 					<img
 						src={primaryImage}

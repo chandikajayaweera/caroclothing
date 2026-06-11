@@ -2,7 +2,7 @@ import { createAccessControl } from 'better-auth/plugins';
 
 const statements = {
 	address: ['create', 'read', 'update', 'delete'],
-	cart: ['create', 'read', 'update', 'delete'],
+	bag: ['create', 'read', 'update', 'delete'],
 	category: ['create', 'read', 'update', 'delete'],
 	drop: ['create', 'read', 'update', 'delete'],
 	product: ['create', 'read', 'update', 'delete'],
@@ -26,7 +26,7 @@ export const accessControl = createAccessControl(statements);
 
 export const adminUser = accessControl.newRole({
 	address: ['create', 'read', 'update', 'delete'],
-	cart: ['create', 'read', 'update', 'delete'],
+	bag: ['create', 'read', 'update', 'delete'],
 	category: ['create', 'read', 'update', 'delete'],
 	drop: ['create', 'read', 'update', 'delete'],
 	product: ['create', 'read', 'update', 'delete'],
@@ -48,7 +48,7 @@ export const adminUser = accessControl.newRole({
 
 export const customerUser = accessControl.newRole({
 	address: ['create', 'read', 'update', 'delete'],
-	cart: ['create', 'read', 'update', 'delete'],
+	bag: ['create', 'read', 'update', 'delete'],
 	category: ['read'],
 	drop: ['read'],
 	product: ['read'],

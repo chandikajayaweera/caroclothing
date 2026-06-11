@@ -54,7 +54,7 @@ export type SetPromoCodeActiveInput = {
 	isActive: boolean;
 };
 
-export type ValidatePromoCodeForCartInput = {
+export type ValidatePromoCodeForBagInput = {
 	code: string;
 	userId?: string | null;
 	subtotal: number;

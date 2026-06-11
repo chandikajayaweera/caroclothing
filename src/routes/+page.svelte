@@ -23,12 +23,15 @@
 <SocialProofRail reviews={data.recentReviews} />
 {#if data.featuredDrop && data.featuredDrop.status === 'teaser' && !data.featuredDrop.heroImageUrl}
 	<!-- Only render secondary teaser if it wasn't featured as the main visual hero drop -->
-	<DropTeaser nextDrop={{
-		name: data.featuredDrop.name,
-		tagline: data.featuredDrop.tagline || '',
-		date: data.featuredDrop.launchAt ? new Date(data.featuredDrop.launchAt) : new Date(),
-		slug: data.featuredDrop.slug
-	}} />
+	<DropTeaser
+		nextDrop={{
+			id: data.featuredDrop.id,
+			name: data.featuredDrop.name,
+			tagline: data.featuredDrop.tagline || '',
+			date: data.featuredDrop.launchAt ? new Date(data.featuredDrop.launchAt) : new Date(),
+			slug: data.featuredDrop.slug
+		}}
+	/>
 {/if}
 <InstagramStrip products={data.newArrivals} />
 <EditorialBanner featuredProduct={data.featuredProduct} />

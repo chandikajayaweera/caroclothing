@@ -31,6 +31,12 @@ export const OFFLINE_PAYMENT_METHODS = [
 	'cash_on_delivery'
 ] as const satisfies readonly PaymentMethod[];
 
+export const CHECKOUT_PAYMENT_METHODS = [
+	'payhere',
+	'paypal',
+	'cash_on_delivery'
+] as const satisfies readonly PaymentMethod[];
+
 // ---------------------------------------------------------------------------
 // PAYMENT STATUSES
 // ---------------------------------------------------------------------------

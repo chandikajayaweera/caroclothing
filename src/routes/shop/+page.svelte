@@ -52,12 +52,14 @@
 <div class="min-h-screen bg-void pt-24 pb-20 text-bone">
 	<div class="mx-auto max-w-7xl px-4 md:px-8">
 		<!-- Header -->
-		<div class="mb-10 flex flex-col justify-between border-b border-charcoal pb-6 md:flex-row md:items-end">
+		<div
+			class="mb-10 flex flex-col justify-between border-b border-charcoal pb-6 md:flex-row md:items-end"
+		>
 			<div>
 				<h1 class="font-display text-5xl tracking-tight uppercase md:text-7xl">Shop</h1>
 				<p class="mt-2 font-mono text-xs tracking-widest text-ash uppercase">
 					{#if activeCategory}
-						{data.categories.find(c => c.id === activeCategory)?.name ?? 'Collection'}
+						{data.categories.find((c) => c.id === activeCategory)?.name ?? 'Collection'}
 					{:else}
 						All collections
 					{/if}
@@ -74,17 +76,25 @@
 			<aside class="space-y-8">
 				<!-- Category -->
 				<div>
-					<h3 class="mb-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Collections</h3>
+					<h3 class="mb-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
+						Collections
+					</h3>
 					<div class="flex flex-wrap gap-2 lg:flex-col lg:items-start lg:gap-3">
 						<button
-							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeCategory === '' ? 'text-volt font-bold' : 'text-ash'}"
+							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeCategory ===
+							''
+								? 'font-bold text-volt'
+								: 'text-ash'}"
 							onclick={() => updateFilter('categoryId', '')}
 						>
 							All Products
 						</button>
 						{#each data.categories as category (category.id)}
 							<button
-								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeCategory === category.id ? 'text-volt font-bold' : 'text-ash'}"
+								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeCategory ===
+								category.id
+									? 'font-bold text-volt'
+									: 'text-ash'}"
 								onclick={() => handleCategoryClick(category.id)}
 							>
 								{category.name}
@@ -98,14 +108,20 @@
 					<h3 class="mb-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Gender</h3>
 					<div class="flex flex-wrap gap-3 lg:flex-col lg:items-start">
 						<button
-							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeGender === '' ? 'text-volt font-bold' : 'text-ash'}"
+							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeGender ===
+							''
+								? 'font-bold text-volt'
+								: 'text-ash'}"
 							onclick={() => updateFilter('gender', '')}
 						>
 							All
 						</button>
 						{#each data.genderOptions as option (option.value)}
 							<button
-								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeGender === option.value ? 'text-volt font-bold' : 'text-ash'}"
+								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeGender ===
+								option.value
+									? 'font-bold text-volt'
+									: 'text-ash'}"
 								onclick={() => updateFilter('gender', option.value)}
 							>
 								{option.label}
@@ -116,17 +132,25 @@
 
 				<!-- Tier -->
 				<div>
-					<h3 class="mb-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Release Type</h3>
+					<h3 class="mb-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
+						Release Type
+					</h3>
 					<div class="flex flex-wrap gap-3 lg:flex-col lg:items-start">
 						<button
-							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeTier === '' ? 'text-volt font-bold' : 'text-ash'}"
+							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeTier ===
+							''
+								? 'font-bold text-volt'
+								: 'text-ash'}"
 							onclick={() => updateFilter('tier', '')}
 						>
 							All Releases
 						</button>
 						{#each data.tierOptions as option (option.value)}
 							<button
-								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeTier === option.value ? 'text-volt font-bold' : 'text-ash'}"
+								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeTier ===
+								option.value
+									? 'font-bold text-volt'
+									: 'text-ash'}"
 								onclick={() => updateFilter('tier', option.value)}
 							>
 								{option.label === 'drop' ? 'Limited Drop' : 'Core restock'}
@@ -141,7 +165,7 @@
 					<select
 						value={activeSort}
 						onchange={(e) => updateFilter('sort', e.currentTarget.value)}
-						class="w-full border border-charcoal bg-void py-2 px-3 font-mono text-xs tracking-wider text-bone uppercase outline-none focus:border-volt"
+						class="w-full border border-charcoal bg-void px-3 py-2 font-mono text-xs tracking-wider text-bone uppercase outline-none focus:border-volt"
 					>
 						<option value="">Default</option>
 						<option value="new">Newest First</option>
@@ -163,7 +187,7 @@
 					<!-- Pagination -->
 					<div class="mt-16 flex items-center justify-between border-t border-charcoal pt-6">
 						<button
-							class="font-mono text-xs tracking-widest text-ash hover:text-volt disabled:opacity-30 disabled:hover:text-ash uppercase"
+							class="font-mono text-xs tracking-widest text-ash uppercase hover:text-volt disabled:opacity-30 disabled:hover:text-ash"
 							disabled={data.products.offset === 0}
 							onclick={() => handlePageChange(-data.products.limit)}
 						>
@@ -173,7 +197,7 @@
 							{Math.floor(data.products.offset / data.products.limit) + 1}
 						</span>
 						<button
-							class="font-mono text-xs tracking-widest text-ash hover:text-volt disabled:opacity-30 disabled:hover:text-ash uppercase"
+							class="font-mono text-xs tracking-widest text-ash uppercase hover:text-volt disabled:opacity-30 disabled:hover:text-ash"
 							disabled={data.products.offset + products.length >= total}
 							onclick={() => handlePageChange(data.products.limit)}
 						>
@@ -183,10 +207,12 @@
 				{:else}
 					<div class="flex flex-col items-center justify-center py-24 text-center">
 						<span class="mb-2 font-display text-4xl text-bone">No styles found.</span>
-						<span class="mb-8 font-mono text-xs tracking-widest text-ash/50 uppercase">Try relaxing your filters.</span>
+						<span class="mb-8 font-mono text-xs tracking-widest text-ash/50 uppercase"
+							>Try relaxing your filters.</span
+						>
 						<a
 							href="/shop"
-							class="border border-bone py-3 px-6 font-mono text-xs tracking-widest text-bone uppercase hover:bg-bone hover:text-void transition-colors"
+							class="border border-bone px-6 py-3 font-mono text-xs tracking-widest text-bone uppercase transition-colors hover:bg-bone hover:text-void"
 						>
 							Reset Filters
 						</a>

@@ -1024,9 +1024,7 @@
 		/>
 
 		<label class="grid gap-1">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Description</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
 			<textarea
 				name="description"
 				bind:value={$createForm.description}
@@ -1125,11 +1123,7 @@
 		>
 			{#if $createSubmitting}Saving...{:else}Save Method{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (addMethodOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (addMethodOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}
@@ -1148,11 +1142,7 @@
 		use:updateEnhance
 		class="flex flex-col gap-5"
 	>
-		<input
-			type="hidden"
-			name="shippingMethodId"
-			value={$updateForm.shippingMethodId}
-		/>
+		<input type="hidden" name="shippingMethodId" value={$updateForm.shippingMethodId} />
 
 		<AdminInput
 			label="Method Name"
@@ -1163,9 +1153,7 @@
 		/>
 
 		<label class="grid gap-1">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Description</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
 			<textarea
 				name="description"
 				bind:value={$updateForm.description}
@@ -1264,11 +1252,7 @@
 		>
 			{#if $updateSubmitting}Saving...{:else}Update Method{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (editMethodOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (editMethodOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}
@@ -1303,11 +1287,7 @@
 			{/each}
 		</AdminSelect>
 		{#if $setZoneFormState.shippingMethodId}
-			<input
-				type="hidden"
-				name="shippingMethodId"
-				value={$setZoneFormState.shippingMethodId}
-			/>
+			<input type="hidden" name="shippingMethodId" value={$setZoneFormState.shippingMethodId} />
 		{/if}
 
 		<AdminSelect
@@ -1470,11 +1450,7 @@
 		>
 			{#if $createCarrierSubmitting}Saving...{:else}Save Carrier{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (addCarrierOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (addCarrierOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}
@@ -1555,11 +1531,7 @@
 		>
 			{#if $updateCarrierSubmitting}Saving...{:else}Update Carrier{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (editCarrierOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (editCarrierOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}

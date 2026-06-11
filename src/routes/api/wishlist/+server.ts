@@ -18,7 +18,10 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 		// 2. If guest, read ids from query parameter (comma-separated list of product IDs)
 		const idsParam = url.searchParams.get('ids') || '';
-		const ids = idsParam.split(',').map((id) => id.trim()).filter(Boolean);
+		const ids = idsParam
+			.split(',')
+			.map((id) => id.trim())
+			.filter(Boolean);
 
 		if (ids.length === 0) {
 			return json({ items: [] });
@@ -40,9 +43,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 							tier: prod.tier,
 							basePrice: prod.basePrice,
 							compareAtPrice: prod.compareAtPrice,
-							imageUrl: prod.primaryImageUrl || (prod.images?.[0]?.imageUrl) || null
+							imageUrl: prod.primaryImageUrl || prod.images?.[0]?.imageUrl || null
 						},
-						imageUrl: prod.primaryImageUrl || (prod.images?.[0]?.imageUrl) || null,
+						imageUrl: prod.primaryImageUrl || prod.images?.[0]?.imageUrl || null,
 						effectivePrice: prod.basePrice,
 						isAvailable: prod.isActive
 					};
@@ -66,7 +69,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
 
-	const actor = { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous };
+	const actor = {
+		id: locals.user.id,
+		role: locals.user.role,
+		isAnonymous: locals.user.isAnonymous
+	};
 	const ctx = { actor };
 
 	try {

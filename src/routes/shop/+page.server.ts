@@ -76,9 +76,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		// Map stock status to products list
 		const variantIds = products.items.flatMap((p) => p.variants.map((v) => v.id));
-		const availability = variantIds.length > 0
-			? await getInventoryAvailabilityByVariantIds(ctx, { variantIds })
-			: [];
+		const availability =
+			variantIds.length > 0 ? await getInventoryAvailabilityByVariantIds(ctx, { variantIds }) : [];
 		const availabilityMap = new Map(availability.map((a) => [a.variantId, a]));
 
 		const mappedItems = products.items.map((p) => {
@@ -147,4 +146,3 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		throwHttpFromAppError(error);
 	}
 };
-

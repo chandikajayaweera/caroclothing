@@ -1,24 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import {
-		AlertTriangle,
-		ArrowRight,
-		Boxes,
-		CheckCircle2,
-		ChevronRight,
-		Filter,
-		Info,
-		Plus,
-		RefreshCw,
-		Search,
-		Settings,
-		TrendingUp,
-		X
-	} from 'lucide-svelte';
+	import { Info, Plus, Settings, TrendingUp, X } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import { Dialog } from 'bits-ui';
-	import { fade, fly, slide } from 'svelte/transition';
+	import { fade, fly } from 'svelte/transition';
 	import type { PageData } from './$types';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
@@ -31,15 +18,25 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// Types
-	type InventoryItem = (typeof data.inventoryResult.items)[number];
+	const inventoryItems = $derived(
+		data.inventoryResult.items.map((item) => ({
+			...item,
+			id: item.variantId
+		}))
+	);
+
+	type InventoryItem = (typeof inventoryItems)[number];
+	type InventoryFilters = PageData['filters'];
+	type DrawerTab = 'restock' | 'adjust' | 'settings' | 'history';
+	const drawerTabs: DrawerTab[] = ['restock', 'adjust', 'settings', 'history'];
 
 	// Summary Cards Calculations
 	const stats = $derived(data.summary);
 
 	// Table Headers
 	const tableHeaders = [
-		{ label: 'Product / Variant' },
+		{ label: 'Product' },
+		{ label: 'Variant' },
 		{ label: 'Stock Status' },
 		{ label: 'Total Stock' },
 		{ label: 'Reserved' },
@@ -55,7 +52,7 @@
 	let allowBackorderFilter = $state(false);
 	let showFilters = $state(false);
 
-	let lastSyncedFilters = $state<any>(null);
+	let lastSyncedFilters = $state<InventoryFilters | null>(null);
 
 	$effect(() => {
 		const filters = data.filters;
@@ -70,7 +67,7 @@
 
 	// Drawer state
 	let drawerOpen = $state(false);
-	let drawerTab = $state<'restock' | 'adjust' | 'settings' | 'history'>('restock');
+	let drawerTab = $state<DrawerTab>('restock');
 
 	// Local state for stock adjustments (prevents negative entry input UX)
 	let adjustAmount = $state<number | undefined>(undefined);
@@ -80,7 +77,7 @@
 		if (adjustAmount !== undefined) {
 			$adjustForm.quantityDelta = adjustType === 'add' ? adjustAmount : -adjustAmount;
 		} else {
-			$adjustForm.quantityDelta = undefined as any;
+			$adjustForm.quantityDelta = undefined as unknown as number;
 		}
 	});
 
@@ -89,11 +86,42 @@
 		return getValue();
 	}
 
+	let toastMessage = $state<string | null>(null);
+	let toastType = $state<'success' | 'error'>('success');
+
+	let initializeHasError = $state(false);
+	let updateSettingsHasError = $state(false);
+	let restockHasError = $state(false);
+	let adjustHasError = $state(false);
+
 	const initializeSuperform = superForm(
 		initialForm(() => data.initializeForm),
 		{
 			resetForm: true,
-			id: 'initializeInventory'
+			id: 'initializeInventory',
+			onUpdated({ form }) {
+				if (form.valid) {
+					toastMessage = form.message ?? 'Inventory initialized.';
+					toastType = 'success';
+					initializeHasError = false;
+					closeDrawer();
+				} else {
+					const fieldErrors = Object.entries(form.errors)
+						.filter(([_, errs]) => errs && errs.length > 0)
+						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
+						.join('; ');
+					toastMessage =
+						form.message ??
+						(fieldErrors.length > 0 ? fieldErrors : 'Failed to initialize inventory.');
+					toastType = 'error';
+					initializeHasError = true;
+				}
+			},
+			onError({ result }) {
+				toastMessage = result.error.message ?? 'A server error occurred.';
+				toastType = 'error';
+				initializeHasError = true;
+			}
 		}
 	);
 	const {
@@ -112,7 +140,28 @@
 		initialForm(() => data.updateSettingsForm),
 		{
 			resetForm: false,
-			id: 'updateInventorySettings'
+			id: 'updateInventorySettings',
+			onUpdated({ form }) {
+				if (form.valid) {
+					toastMessage = form.message ?? 'Inventory settings updated.';
+					toastType = 'success';
+					updateSettingsHasError = false;
+				} else {
+					const fieldErrors = Object.entries(form.errors)
+						.filter(([_, errs]) => errs && errs.length > 0)
+						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
+						.join('; ');
+					toastMessage =
+						form.message ?? (fieldErrors.length > 0 ? fieldErrors : 'Failed to save settings.');
+					toastType = 'error';
+					updateSettingsHasError = true;
+				}
+			},
+			onError({ result }) {
+				toastMessage = result.error.message ?? 'A server error occurred.';
+				toastType = 'error';
+				updateSettingsHasError = true;
+			}
 		}
 	);
 	const {
@@ -131,7 +180,28 @@
 		initialForm(() => data.restockForm),
 		{
 			resetForm: true,
-			id: 'restockInventory'
+			id: 'restockInventory',
+			onUpdated({ form }) {
+				if (form.valid) {
+					toastMessage = form.message ?? 'Stock replenished.';
+					toastType = 'success';
+					restockHasError = false;
+				} else {
+					const fieldErrors = Object.entries(form.errors)
+						.filter(([_, errs]) => errs && errs.length > 0)
+						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
+						.join('; ');
+					toastMessage =
+						form.message ?? (fieldErrors.length > 0 ? fieldErrors : 'Failed to replenish stock.');
+					toastType = 'error';
+					restockHasError = true;
+				}
+			},
+			onError({ result }) {
+				toastMessage = result.error.message ?? 'A server error occurred.';
+				toastType = 'error';
+				restockHasError = true;
+			}
 		}
 	);
 	const {
@@ -146,7 +216,29 @@
 		initialForm(() => data.adjustForm),
 		{
 			resetForm: true,
-			id: 'adjustInventory'
+			id: 'adjustInventory',
+			onUpdated({ form }) {
+				if (form.valid) {
+					toastMessage = form.message ?? 'Stock level adjusted.';
+					toastType = 'success';
+					adjustHasError = false;
+				} else {
+					const fieldErrors = Object.entries(form.errors)
+						.filter(([_, errs]) => errs && errs.length > 0)
+						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
+						.join('; ');
+					toastMessage =
+						form.message ??
+						(fieldErrors.length > 0 ? fieldErrors : 'Failed to adjust stock level.');
+					toastType = 'error';
+					adjustHasError = true;
+				}
+			},
+			onError({ result }) {
+				toastMessage = result.error.message ?? 'A server error occurred.';
+				toastType = 'error';
+				adjustHasError = true;
+			}
 		}
 	);
 	const {
@@ -157,31 +249,23 @@
 		message: adjustMessage
 	} = adjustSuperform;
 
-	const actionMessage = $derived(
-		$initializeMessage || $updateSettingsMessage || $restockMessage || $adjustMessage
-	);
-
-	let toastMessage = $state<string | null>(null);
-	$effect(() => {
-		if (actionMessage) toastMessage = actionMessage;
-	});
-
 	// Sync active variant to drawer forms
 	$effect(() => {
 		if (data.activeDetail) {
 			const detail = data.activeDetail;
+			initializeHasError = false;
+			updateSettingsHasError = false;
+			restockHasError = false;
+			adjustHasError = false;
+
 			if (detail.inventory) {
-				$updateSettingsForm.variantId = detail.variantId;
 				$updateSettingsForm.lowStockThreshold = detail.inventory.lowStockThreshold;
 				$updateSettingsForm.trackInventory = detail.inventory.trackInventory;
 				$updateSettingsForm.allowBackorder = detail.inventory.allowBackorder;
 
-				$restockForm.variantId = detail.variantId;
-				$adjustForm.variantId = detail.variantId;
-
 				// Reset form inputs to avoid stale inputs when switching variants
-				$restockForm.quantity = undefined as any;
-				$adjustForm.quantityDelta = undefined as any;
+				$restockForm.quantity = undefined as unknown as number;
+				$adjustForm.quantityDelta = undefined as unknown as number;
 				$restockForm.note = '';
 				$adjustForm.note = '';
 
@@ -192,23 +276,20 @@
 				adjustAmount = undefined;
 				adjustType = 'add';
 
-				// Also sync initialize form fields to avoid undefined properties
-				$initializeForm.variantId = detail.variantId;
+				// Sync initialize form defaults from existing inventory
 				$initializeForm.quantity = 0;
 				$initializeForm.lowStockThreshold = detail.inventory.lowStockThreshold;
 				$initializeForm.trackInventory = detail.inventory.trackInventory;
 				$initializeForm.allowBackorder = detail.inventory.allowBackorder;
 				$initializeForm.note = '';
 			} else {
-				$initializeForm.variantId = detail.variantId;
 				$initializeForm.quantity = 0;
 				$initializeForm.lowStockThreshold = 5;
 				$initializeForm.trackInventory = true;
 				$initializeForm.allowBackorder = false;
 				$initializeForm.note = '';
 
-				// Also sync updateSettings form fields to avoid undefined properties
-				$updateSettingsForm.variantId = detail.variantId;
+				// Sync updateSettings defaults for uninitialized variants
 				$updateSettingsForm.lowStockThreshold = 5;
 				$updateSettingsForm.trackInventory = true;
 				$updateSettingsForm.allowBackorder = false;
@@ -217,28 +298,35 @@
 		drawerOpen = !!data.activeDetail;
 	});
 
-	function openDrawer(
-		variantId: string,
-		initialTab: 'restock' | 'adjust' | 'settings' | 'history' = 'restock'
-	) {
+	function openDrawer(variantId: string, initialTab: DrawerTab = 'restock') {
 		drawerTab = initialTab;
 		const url = new URL(page.url);
 		url.searchParams.set('open', variantId);
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		goto(`${resolve('/app/inventory')}${url.search}`, {
+			keepFocus: true,
+			noScroll: true,
+			invalidateAll: true
+		});
 	}
 
 	function closeDrawer() {
 		drawerOpen = false;
 		const url = new URL(page.url);
 		url.searchParams.delete('open');
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		goto(`${resolve('/app/inventory')}${url.search}`, {
+			keepFocus: true,
+			noScroll: true,
+			invalidateAll: true
+		});
 	}
 
 	function getStatusClass(item: InventoryItem): string {
 		if (!item.hasInventory) return 'text-ash/60 border border-ash/15 bg-ash/5';
 		if (!item.inventory?.trackInventory) return 'text-ash border border-ash/20 bg-ash/5';
 		if (item.inventory.availableQuantity <= 0)
-			return 'text-red-400 border border-red-400/20 bg-red-450/5';
+			return 'text-red-400 border border-red-400/20 bg-red-400/5';
 		if (item.inventory.isLowStock) return 'text-volt border border-volt/20 bg-volt/5';
 		return 'text-volt border border-volt/10 bg-volt/5';
 	}
@@ -252,9 +340,9 @@
 	}
 
 	function formatDateTime(date: Date | string | null | undefined): string {
-		if (!date) return '—';
+		if (!date) return '-';
 		const d = new Date(date);
-		if (isNaN(d.getTime())) return '—';
+		if (isNaN(d.getTime())) return '-';
 		return d.toLocaleDateString('en-US', {
 			month: 'short',
 			day: 'numeric',
@@ -294,21 +382,13 @@
 	);
 
 	function clearAllFilters() {
-		goto('/app/inventory');
+		goto(resolve('/app/inventory'));
 	}
 
 	// Pagination variables
 	const limit = $derived(data.filters.limit);
 	const offset = $derived(data.filters.offset);
 	const totalItems = $derived(data.inventoryResult.total);
-	const hasPreviousPage = $derived(offset > 0);
-	const hasNextPage = $derived(offset + limit < totalItems);
-
-	function getPageUrl(newOffset: number): string {
-		const url = new URL(page.url);
-		url.searchParams.set('offset', String(newOffset));
-		return url.pathname + url.search;
-	}
 </script>
 
 <svelte:head>
@@ -326,7 +406,8 @@
 	{limit}
 	{offset}
 	{tableHeaders}
-	items={data.inventoryResult.items}
+	items={inventoryItems}
+	tableClass="hidden overflow-x-auto xl:block"
 	onclearfilters={clearAllFilters}
 	searchPlaceholder="Search product variant name/slug..."
 >
@@ -402,8 +483,8 @@
 					{ value: 'available', label: 'Available' },
 					{ value: 'untracked', label: 'Untracked' }
 				]}
-				onchange={(e: any) => {
-					const form = (e.currentTarget as HTMLElement).closest('form');
+				onchange={(event: Event) => {
+					const form = (event.currentTarget as HTMLElement).closest('form');
 					if (form) form.requestSubmit();
 				}}
 			/>
@@ -412,8 +493,8 @@
 				label="Track Inventory Only"
 				name="trackInventory"
 				bind:checked={trackInventoryFilter}
-				onclick={(e: any) => {
-					const button = e.currentTarget as HTMLButtonElement;
+				onclick={(event: MouseEvent) => {
+					const button = event.currentTarget as HTMLButtonElement;
 					const form = button.closest('form');
 					if (form) {
 						setTimeout(() => {
@@ -427,8 +508,8 @@
 				label="Allow Backorders Only"
 				name="allowBackorder"
 				bind:checked={allowBackorderFilter}
-				onclick={(e: any) => {
-					const button = e.currentTarget as HTMLButtonElement;
+				onclick={(event: MouseEvent) => {
+					const button = event.currentTarget as HTMLButtonElement;
 					const form = button.closest('form');
 					if (form) {
 						setTimeout(() => {
@@ -440,22 +521,26 @@
 		</div>
 	{/snippet}
 
-	{#snippet card(item: any)}
+	{#snippet card(item: InventoryItem)}
 		<article class="flex flex-col justify-between border border-charcoal bg-void/50 p-4">
 			<div>
 				<div class="flex items-start justify-between gap-2">
-					<h4 class="truncate font-mono text-xs font-bold text-bone uppercase">
-						{item.product.name}
-					</h4>
+					<div class="min-w-0 flex-1">
+						<h4 class="truncate font-mono text-xs font-bold text-bone uppercase">
+							{item.product.name}
+						</h4>
+						<p class="mt-0.5 truncate font-mono text-[8px] text-ash/50">
+							{item.product.slug}
+						</p>
+					</div>
 					<span
-						class="rounded px-2 py-0.5 font-mono text-[8px] font-bold tracking-widest uppercase {getStatusClass(
+						class="shrink-0 rounded px-2 py-0.5 font-mono text-[8px] font-bold tracking-widest uppercase {getStatusClass(
 							item
 						)}"
 					>
 						{getStatusLabel(item)}
 					</span>
 				</div>
-				<p class="mt-0.5 font-mono text-[8px] text-ash/50">{item.product.slug}</p>
 
 				<div class="mt-3 flex items-center gap-2">
 					<span
@@ -463,7 +548,7 @@
 					>
 						{item.variant.size}
 					</span>
-					<span class="font-mono text-[9px] text-ash uppercase">
+					<span class="min-w-0 truncate font-mono text-[9px] text-ash uppercase">
 						{item.variant.color}
 					</span>
 				</div>
@@ -486,7 +571,7 @@
 						<div>
 							<p class="font-mono text-[7px] text-ash uppercase">Avail</p>
 							<p class="mt-0.5 font-mono text-xs font-bold text-volt">
-								{item.inventory?.trackInventory ? item.inventory.availableQuantity : '∞'}
+								{item.inventory?.trackInventory ? item.inventory.availableQuantity : 'Any'}
 							</p>
 						</div>
 					</div>
@@ -497,7 +582,7 @@
 				{#if !item.hasInventory}
 					<AdminButton
 						type="button"
-						onclick={() => openDrawer(item.variantId, 'restock')}
+						onclick={() => openDrawer(item.variantId)}
 						variant="volt"
 						size="sm"
 						class="w-full justify-center"
@@ -506,7 +591,7 @@
 						Initialize
 					</AdminButton>
 				{:else}
-					<div class="flex w-full gap-2">
+					<div class="grid w-full grid-cols-[1fr_auto] gap-2">
 						<AdminButton
 							type="button"
 							onclick={() => openDrawer(item.variantId, 'restock')}
@@ -530,10 +615,10 @@
 		</article>
 	{/snippet}
 
-	{#snippet row(item: any)}
+	{#snippet row(item: InventoryItem)}
 		<tr class="hover:bg-charcoal/10">
 			<!-- Product Info -->
-			<td class="min-w-[200px] px-5 py-3.5">
+			<td class="min-w-[220px] px-5 py-3.5">
 				<p class="truncate font-mono text-xs font-bold text-bone uppercase">
 					{item.product.name}
 				</p>
@@ -571,17 +656,17 @@
 			</td>
 			<!-- Total Qty / Reserved / Available -->
 			<td class="px-5 py-3.5 font-mono text-xs text-bone">
-				{item.hasInventory ? item.inventory?.quantity : '—'}
+				{item.hasInventory ? item.inventory?.quantity : '-'}
 			</td>
 			<td class="px-5 py-3.5 font-mono text-xs text-ash">
-				{item.hasInventory ? item.inventory?.reservedQuantity : '—'}
+				{item.hasInventory ? item.inventory?.reservedQuantity : '-'}
 			</td>
 			<td class="px-5 py-3.5 font-mono text-xs font-bold text-volt">
 				{item.hasInventory
 					? item.inventory?.trackInventory
 						? item.inventory.availableQuantity
-						: '∞'
-					: '—'}
+						: 'Any'
+					: '-'}
 			</td>
 			<!-- Flags (Track / Backorder) -->
 			<td class="px-5 py-3.5">
@@ -609,7 +694,7 @@
 				{#if !item.hasInventory}
 					<AdminButton
 						type="button"
-						onclick={() => openDrawer(item.variantId, 'restock')}
+						onclick={() => openDrawer(item.variantId)}
 						variant="volt"
 						size="sm"
 					>
@@ -669,443 +754,457 @@
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-y-0 right-0 z-50 flex max-w-full pl-10">
-				<Dialog.Content>
-					{#snippet child({ props })}
-						<div
-							{...props}
-							transition:fly={{ duration: 250, x: 400 }}
-							class="flex h-full w-screen max-w-md flex-col border-l border-charcoal bg-charcoal shadow-2xl outline-none"
-						>
-							<!-- Drawer Header -->
-							<div class="flex items-start justify-between border-b border-charcoal/50 p-5">
-								<div>
-									<span class="font-mono text-[8px] tracking-[0.25em] text-volt uppercase"
-										>Variant detail</span
-									>
-									<h2
-										class="mt-1 max-w-[280px] truncate font-display text-2xl leading-none text-bone uppercase"
-									>
-										{detail.product.name}
-									</h2>
-									<p class="mt-1 flex items-center gap-1.5 font-mono text-[9px] text-ash">
-										<span>Size {detail.variant.size}</span>
-										<span
-											class="inline-block h-2 w-2 rounded-full"
-											style="background-color: {detail.variant.colorHex ?? '#000'}"
-										></span>
-										<span class="uppercase">{detail.variant.color}</span>
-									</p>
-								</div>
-								<button
-									type="button"
-									onclick={closeDrawer}
-									class="text-ash transition-colors hover:text-bone"
-									aria-label="Close panel"
+			<Dialog.Content>
+				{#snippet child({ props })}
+					<div
+						{...props}
+						transition:fly={{ duration: 250, x: 400 }}
+						class="fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-charcoal bg-charcoal shadow-2xl outline-none sm:max-w-md"
+					>
+						<!-- Drawer Header -->
+						<div class="flex items-start justify-between border-b border-charcoal/50 p-5">
+							<div>
+								<span class="font-mono text-[8px] tracking-[0.25em] text-volt uppercase"
+									>Variant detail</span
 								>
-									<X size={18} />
-								</button>
+								<h2
+									class="mt-1 max-w-[280px] truncate font-display text-2xl leading-none text-bone uppercase"
+								>
+									{detail.product.name}
+								</h2>
+								<p class="mt-1 flex items-center gap-1.5 font-mono text-[9px] text-ash">
+									<span>Size {detail.variant.size}</span>
+									<span
+										class="inline-block h-2 w-2 rounded-full"
+										style="background-color: {detail.variant.colorHex ?? '#000'}"
+									></span>
+									<span class="uppercase">{detail.variant.color}</span>
+								</p>
 							</div>
+							<button
+								type="button"
+								onclick={closeDrawer}
+								class="text-ash transition-colors hover:text-bone"
+								aria-label="Close panel"
+							>
+								<X size={18} />
+							</button>
+						</div>
 
-							<!-- Drawer Scrollable Content -->
-							<div class="flex-1 space-y-6 overflow-y-auto p-5">
-								{#if !detail.hasInventory}
-									<!-- INITIALIZATION FORM -->
-									<form method="POST" action="?/initialize" use:initializeEnhance class="space-y-4">
-										<input type="hidden" name="variantId" value={$initializeForm.variantId} />
+						<!-- Drawer Scrollable Content -->
+						<div class="flex-1 space-y-6 overflow-y-auto p-5">
+							{#if !detail.hasInventory}
+								<!-- INITIALIZATION FORM -->
+								<form method="POST" action="?/initialize" use:initializeEnhance class="space-y-4">
+									<input type="hidden" name="variantId" value={detail.variantId} />
 
-										<div class="flex gap-3 border border-volt/20 bg-volt/5 p-4 text-volt">
-											<Info size={16} class="mt-0.5 shrink-0" />
-											<div>
-												<p class="font-mono text-[9px] font-bold tracking-wider uppercase">
-													Uninitialized Stock
-												</p>
-												<p class="mt-1 font-sans text-[11px] leading-relaxed text-volt/80">
-													This variant does not have an active inventory tracking row. Initialize
-													stock values to make it available for sale.
-												</p>
-											</div>
-										</div>
-
-										<AdminInput
-											label="Initial Quantity"
-											name="quantity"
-											type="number"
-											bind:value={$initializeForm.quantity}
-											error={$initializeErrors.quantity?.[0]}
-											required
-											placeholder="e.g. 100"
-										/>
-
-										<AdminInput
-											label="Low Stock Alert Threshold"
-											name="lowStockThreshold"
-											type="number"
-											bind:value={$initializeForm.lowStockThreshold}
-											error={$initializeErrors.lowStockThreshold?.[0]}
-											placeholder="Defaults to 5"
-										/>
-
-										<div class="grid gap-4 border border-charcoal bg-void/50 p-4">
-											<AdminToggle
-												label="Track Stock Levels"
-												name="trackInventory"
-												bind:checked={$initializeForm.trackInventory}
-											/>
-											<AdminToggle
-												label="Allow Backorder (Made-To-Order)"
-												name="allowBackorder"
-												bind:checked={$initializeForm.allowBackorder}
-											/>
-										</div>
-
-										<div class="flex flex-col gap-1.5">
-											<label for="init-note" class="font-sans text-xs text-ash">Audit note</label>
-											<textarea
-												id="init-note"
-												name="note"
-												bind:value={$initializeForm.note}
-												rows="3"
-												placeholder="Opening stock audit copy..."
-												class="w-full border border-ash/30 bg-void px-3.5 py-2.5 font-sans text-xs text-bone outline-none hover:border-ash/60 focus:border-volt"
-											></textarea>
-											{#if $initializeErrors.note?.[0]}
-												<p class="font-sans text-xs text-red-400">{$initializeErrors.note[0]}</p>
-											{/if}
-										</div>
-
-										<AdminButton
-											type="submit"
-											variant="volt"
-											class="mt-6 w-full justify-center"
-											disabled={$initializeSubmitting}
-										>
-											{$initializeSubmitting ? 'Initializing...' : 'Initialize Stock'}
-										</AdminButton>
-									</form>
-								{:else}
-									<!-- INITIALIZED STOCK CARD -->
-									<div
-										class="grid grid-cols-3 gap-3 border border-charcoal bg-void/50 p-4 text-center"
-									>
-										<div>
-											<p class="font-mono text-[8px] text-ash uppercase">Total Physical</p>
-											<p class="mt-1.5 font-display text-2xl leading-none text-bone">
-												{detail.inventory?.quantity}
-											</p>
-										</div>
-										<div>
-											<p class="font-mono text-[8px] text-ash uppercase">Hold / Reserved</p>
-											<p class="mt-1.5 font-display text-2xl leading-none text-ash">
-												{detail.inventory?.reservedQuantity}
-											</p>
-										</div>
-										<div>
-											<p class="font-mono text-[8px] text-ash uppercase">Available</p>
-											<p class="mt-1.5 font-display text-2xl leading-none text-volt">
-												{detail.inventory?.trackInventory
-													? detail.inventory.availableQuantity
-													: '∞'}
-											</p>
-										</div>
-									</div>
-
-									<!-- TAB HEADER SELECTORS -->
-									<div class="flex border-b border-charcoal/50">
-										{#each ['restock', 'adjust', 'settings', 'history'] as tab}
-											<button
-												type="button"
-												onclick={() => (drawerTab = tab as any)}
-												disabled={tab === 'adjust' && detail.inventory?.quantity === 0}
-												class="flex-1 border-b-2 py-2.5 font-mono text-[9px] tracking-widest uppercase transition-colors {drawerTab ===
-												tab
-													? 'border-volt bg-charcoal/20 text-volt'
-													: 'border-transparent text-ash hover:text-bone'} disabled:cursor-not-allowed disabled:opacity-30"
-												title={tab === 'adjust' && detail.inventory?.quantity === 0
-													? 'Cannot adjust stock when physical count is 0'
-													: ''}
-											>
-												{tab}
-											</button>
-										{/each}
-									</div>
-
-									<!-- TABS ACTIONS FORMS -->
-									{#if drawerTab === 'restock'}
-										<div
-											in:fly={{ y: 8, duration: 150, delay: 100 }}
-											out:fade={{ duration: 100 }}
-											class="space-y-4 pt-2"
-										>
-											<form method="POST" action="?/restock" use:restockEnhance class="space-y-4">
-												<input type="hidden" name="variantId" value={$restockForm.variantId} />
-												<p class="font-sans text-xs text-ash/70">
-													Increment physical stock levels. Quantity must be a positive integer.
-												</p>
-
-												<AdminInput
-													label="Replenish Quantity"
-													name="quantity"
-													type="number"
-													bind:value={$restockForm.quantity}
-													error={$restockErrors.quantity?.[0]}
-													required
-													placeholder="e.g. 50"
-												/>
-
-												<div class="flex flex-col gap-1.5">
-													<label for="restock-note" class="font-sans text-xs text-ash"
-														>Audit Log Note</label
-													>
-													<textarea
-														id="restock-note"
-														name="note"
-														bind:value={$restockForm.note}
-														rows="3"
-														placeholder="Supplier restock invoice #, box delivery..."
-														class="w-full border border-ash/30 bg-void px-3.5 py-2.5 font-sans text-xs text-bone outline-none hover:border-ash/60 focus:border-volt"
-													></textarea>
-													{#if $restockErrors.note?.[0]}
-														<p class="font-sans text-xs text-red-400">{$restockErrors.note[0]}</p>
-													{/if}
-												</div>
-
-												<AdminButton
-													type="submit"
-													variant="volt"
-													class="w-full justify-center pt-3"
-													disabled={$restockSubmitting}
-												>
-													{$restockSubmitting ? 'Updating...' : 'Replenish Inventory'}
-												</AdminButton>
-											</form>
-										</div>
-									{:else if drawerTab === 'adjust'}
-										<div
-											in:fly={{ y: 8, duration: 150, delay: 100 }}
-											out:fade={{ duration: 100 }}
-											class="space-y-4 pt-2"
-										>
-											<form method="POST" action="?/adjust" use:adjustEnhance class="space-y-4">
-												<input type="hidden" name="variantId" value={$adjustForm.variantId} />
-												<input
-													type="hidden"
-													name="quantityDelta"
-													value={$adjustForm.quantityDelta}
-												/>
-												<p class="font-sans text-xs text-ash/70">
-													Select the adjustment action and specify the quantity to change.
-												</p>
-
-												<div class="flex gap-1 rounded border border-charcoal bg-void p-1">
-													<button
-														type="button"
-														onclick={() => (adjustType = 'add')}
-														class="flex-1 py-1.5 text-center font-mono text-[9px] tracking-widest uppercase transition-colors {adjustType ===
-														'add'
-															? 'bg-volt font-bold text-void'
-															: 'text-ash hover:text-bone'}"
-													>
-														Add Stock (+)
-													</button>
-													<button
-														type="button"
-														onclick={() => (adjustType = 'remove')}
-														class="flex-1 py-1.5 text-center font-mono text-[9px] tracking-widest uppercase transition-colors {adjustType ===
-														'remove'
-															? 'bg-red-500 font-bold text-bone'
-															: 'text-ash hover:text-bone'}"
-													>
-														Remove Stock (-)
-													</button>
-												</div>
-
-												<AdminInput
-													label="Adjustment Quantity"
-													name="quantityDeltaDisplay"
-													type="number"
-													min="1"
-													bind:value={adjustAmount}
-													error={$adjustErrors.quantityDelta?.[0]}
-													required
-													placeholder="e.g. 5"
-												/>
-
-												<div class="flex flex-col gap-1.5">
-													<label for="adjust-note" class="font-sans text-xs text-ash"
-														>Reason / Note</label
-													>
-													<textarea
-														id="adjust-note"
-														name="note"
-														bind:value={$adjustForm.note}
-														rows="3"
-														required
-														placeholder="Damaged in transit, manual stocktake correction..."
-														class="w-full border border-ash/30 bg-void px-3.5 py-2.5 font-sans text-xs text-bone outline-none hover:border-ash/60 focus:border-volt"
-													></textarea>
-													{#if $adjustErrors.note?.[0]}
-														<p class="font-sans text-xs text-red-400">{$adjustErrors.note[0]}</p>
-													{/if}
-												</div>
-
-												<AdminButton
-													type="submit"
-													variant="volt"
-													class="w-full justify-center pt-3"
-													disabled={$adjustSubmitting}
-												>
-													{$adjustSubmitting ? 'Updating...' : 'Apply Adjustment'}
-												</AdminButton>
-											</form>
-										</div>
-									{:else if drawerTab === 'settings'}
-										<div
-											in:fly={{ y: 8, duration: 150, delay: 100 }}
-											out:fade={{ duration: 100 }}
-											class="space-y-4 pt-2"
-										>
-											<form
-												method="POST"
-												action="?/updateSettings"
-												use:updateSettingsEnhance
-												class="space-y-4"
-											>
-												<input
-													type="hidden"
-													name="variantId"
-													value={$updateSettingsForm.variantId}
-												/>
-												<p class="font-sans text-xs text-ash/70">
-													Configure stock tracking behavior and flash alert thresholds.
-												</p>
-
-												<AdminInput
-													label="Low Stock Threshold Warning"
-													name="lowStockThreshold"
-													type="number"
-													bind:value={$updateSettingsForm.lowStockThreshold}
-													error={$updateSettingsErrors.lowStockThreshold?.[0]}
-													placeholder="Defaults to 5"
-												/>
-
-												<div class="grid gap-4 border border-charcoal bg-void/50 p-4">
-													<AdminToggle
-														label="Enable Inventory Tracking"
-														name="trackInventory"
-														bind:checked={$updateSettingsForm.trackInventory}
-													/>
-													<AdminToggle
-														label="Allow Backorder Orders"
-														name="allowBackorder"
-														bind:checked={$updateSettingsForm.allowBackorder}
-													/>
-												</div>
-
-												<AdminButton
-													type="submit"
-													variant="volt"
-													class="w-full justify-center pt-3"
-													disabled={$updateSettingsSubmitting}
-												>
-													{$updateSettingsSubmitting ? 'Saving...' : 'Save Settings'}
-												</AdminButton>
-											</form>
-										</div>
-									{:else if drawerTab === 'history'}
-										<div
-											in:fly={{ y: 8, duration: 150, delay: 100 }}
-											out:fade={{ duration: 100 }}
-											class="space-y-4 pt-2"
-										>
-											<div
-												class="flex items-center gap-1.5 font-mono text-[9px] font-bold tracking-wider text-volt uppercase"
-											>
-												<TrendingUp size={12} />
-												<span>Stock Movement Audit Logs</span>
-											</div>
-
-											{#if detail.movements.length === 0}
-												<p class="py-5 text-center font-mono text-[10px] text-ash/40 uppercase">
-													No movements logged yet
-												</p>
-											{:else}
-												<!-- Timeline list -->
-												<div class="relative ml-2 space-y-4 border-l border-charcoal/80 py-2 pl-4">
-													{#each detail.movements as move (move.id)}
-														<div class="relative min-w-0">
-															<!-- Dot icon -->
-															<span
-																class="absolute top-1.5 -left-[21px] h-2.5 w-2.5 rounded-full border {getMovementDotClass(
-																	move
-																)}"
-															></span>
-
-															<div
-																class="flex items-start justify-between gap-2 font-mono text-[9px] tracking-wider"
-															>
-																<span class="font-bold text-bone uppercase">{move.type}</span>
-																<span class="shrink-0 text-ash/40"
-																	>{formatDateTime(move.createdAt)}</span
-																>
-															</div>
-
-															<div class="mt-1 flex items-center gap-2 font-mono text-xs">
-																{#if move.quantityDelta !== 0}
-																	<span
-																		class={move.quantityDelta > 0
-																			? 'font-semibold text-volt'
-																			: 'font-semibold text-red-400'}
-																	>
-																		{move.quantityDelta > 0 ? '+' : ''}{move.quantityDelta} qty
-																	</span>
-																	<span class="font-normal text-ash/40"
-																		>→ {move.quantityAfter} total</span
-																	>
-																{/if}
-																{#if move.reservedQuantityDelta !== 0}
-																	<span
-																		class={move.reservedQuantityDelta > 0
-																			? 'text-amber-300'
-																			: 'text-ash'}
-																	>
-																		{move.reservedQuantityDelta > 0
-																			? '+'
-																			: ''}{move.reservedQuantityDelta} res
-																	</span>
-																	<span class="font-normal text-ash/40"
-																		>→ {move.reservedQuantityAfter} reserved</span
-																	>
-																{/if}
-															</div>
-
-															{#if move.note}
-																<p
-																	class="mt-1.5 rounded border border-charcoal/30 bg-void/30 px-2 py-1.5 font-sans text-xs whitespace-pre-line text-ash"
-																>
-																	{move.note}
-																</p>
-															{/if}
-															{#if move.referenceId}
-																<div
-																	class="mt-1 flex items-center gap-1.5 font-mono text-[8px] text-ash/50"
-																>
-																	<span>Ref:</span>
-																	<span class="select-all">{move.referenceId}</span>
-																</div>
-															{/if}
-														</div>
-													{/each}
-												</div>
-											{/if}
+									{#if $initializeMessage && initializeHasError}
+										<div class="border border-red-400/20 bg-red-400/5 p-4 text-red-400">
+											<p class="font-sans text-xs">{$initializeMessage}</p>
 										</div>
 									{/if}
+
+									<div class="flex gap-3 border border-volt/20 bg-volt/5 p-4 text-volt">
+										<Info size={16} class="mt-0.5 shrink-0" />
+										<div>
+											<p class="font-mono text-[9px] font-bold tracking-wider uppercase">
+												Uninitialized Stock
+											</p>
+											<p class="mt-1 font-sans text-[11px] leading-relaxed text-volt/80">
+												This variant does not have an active inventory tracking row. Initialize
+												stock values to make it available for sale.
+											</p>
+										</div>
+									</div>
+
+									<AdminInput
+										label="Initial Quantity"
+										name="quantity"
+										type="number"
+										bind:value={$initializeForm.quantity}
+										error={$initializeErrors.quantity?.[0]}
+										required
+										placeholder="e.g. 100"
+									/>
+
+									<AdminInput
+										label="Low Stock Alert Threshold"
+										name="lowStockThreshold"
+										type="number"
+										bind:value={$initializeForm.lowStockThreshold}
+										error={$initializeErrors.lowStockThreshold?.[0]}
+										placeholder="Defaults to 5"
+									/>
+
+									<div class="grid gap-4 border border-charcoal bg-void/50 p-4">
+										<AdminToggle
+											label="Track Stock Levels"
+											name="trackInventory"
+											bind:checked={$initializeForm.trackInventory}
+										/>
+										<AdminToggle
+											label="Allow Backorder"
+											name="allowBackorder"
+											bind:checked={$initializeForm.allowBackorder}
+										/>
+									</div>
+
+									<div class="flex flex-col gap-1.5">
+										<label for="init-note" class="font-sans text-xs text-ash">Audit note</label>
+										<textarea
+											id="init-note"
+											name="note"
+											bind:value={$initializeForm.note}
+											rows="3"
+											placeholder="Opening stock audit copy..."
+											class="w-full border border-ash/30 bg-void px-3.5 py-2.5 font-sans text-xs text-bone outline-none hover:border-ash/60 focus:border-volt"
+										></textarea>
+										{#if $initializeErrors.note?.[0]}
+											<p class="font-sans text-xs text-red-400">{$initializeErrors.note[0]}</p>
+										{/if}
+									</div>
+
+									<AdminButton
+										type="submit"
+										variant="volt"
+										class="mt-6 w-full justify-center"
+										disabled={$initializeSubmitting}
+									>
+										{$initializeSubmitting ? 'Initializing...' : 'Initialize Stock'}
+									</AdminButton>
+								</form>
+							{:else}
+								<!-- INITIALIZED STOCK CARD -->
+								<div
+									class="grid grid-cols-3 gap-3 border border-charcoal bg-void/50 p-4 text-center"
+								>
+									<div>
+										<p class="font-mono text-[8px] text-ash uppercase">Total Physical</p>
+										<p class="mt-1.5 font-display text-2xl leading-none text-bone">
+											{detail.inventory?.quantity}
+										</p>
+									</div>
+									<div>
+										<p class="font-mono text-[8px] text-ash uppercase">Hold / Reserved</p>
+										<p class="mt-1.5 font-display text-2xl leading-none text-ash">
+											{detail.inventory?.reservedQuantity}
+										</p>
+									</div>
+									<div>
+										<p class="font-mono text-[8px] text-ash uppercase">Available</p>
+										<p class="mt-1.5 font-display text-2xl leading-none text-volt">
+											{detail.inventory?.trackInventory
+												? detail.inventory.availableQuantity
+												: 'Any'}
+										</p>
+									</div>
+								</div>
+
+								<!-- TAB HEADER SELECTORS -->
+								<div class="flex border-b border-charcoal/50">
+									{#each drawerTabs as tab (tab)}
+										<button
+											type="button"
+											onclick={() => (drawerTab = tab)}
+											disabled={tab === 'adjust' && detail.inventory?.quantity === 0}
+											class="flex-1 border-b-2 py-2.5 font-mono text-[9px] tracking-widest uppercase transition-colors {drawerTab ===
+											tab
+												? 'border-volt bg-charcoal/20 text-volt'
+												: 'border-transparent text-ash hover:text-bone'} disabled:cursor-not-allowed disabled:opacity-30"
+											title={tab === 'adjust' && detail.inventory?.quantity === 0
+												? 'Cannot adjust stock when physical count is 0'
+												: ''}
+										>
+											{tab}
+										</button>
+									{/each}
+								</div>
+
+								<!-- TABS ACTIONS FORMS -->
+								{#if drawerTab === 'restock'}
+									<div
+										in:fly={{ y: 8, duration: 150, delay: 100 }}
+										out:fade={{ duration: 100 }}
+										class="space-y-4 pt-2"
+									>
+										<form method="POST" action="?/restock" use:restockEnhance class="space-y-4">
+											<input type="hidden" name="variantId" value={detail.variantId} />
+
+											{#if $restockMessage && restockHasError}
+												<div class="border border-red-400/20 bg-red-400/5 p-3 text-red-400">
+													<p class="font-sans text-xs">{$restockMessage}</p>
+												</div>
+											{/if}
+											<p class="font-sans text-xs text-ash/70">
+												Increment physical stock levels. Quantity must be a positive integer.
+											</p>
+
+											<AdminInput
+												label="Replenish Quantity"
+												name="quantity"
+												type="number"
+												bind:value={$restockForm.quantity}
+												error={$restockErrors.quantity?.[0]}
+												required
+												placeholder="e.g. 50"
+											/>
+
+											<div class="flex flex-col gap-1.5">
+												<label for="restock-note" class="font-sans text-xs text-ash"
+													>Audit Log Note</label
+												>
+												<textarea
+													id="restock-note"
+													name="note"
+													bind:value={$restockForm.note}
+													rows="3"
+													placeholder="Supplier restock invoice #, box delivery..."
+													class="w-full border border-ash/30 bg-void px-3.5 py-2.5 font-sans text-xs text-bone outline-none hover:border-ash/60 focus:border-volt"
+												></textarea>
+												{#if $restockErrors.note?.[0]}
+													<p class="font-sans text-xs text-red-400">{$restockErrors.note[0]}</p>
+												{/if}
+											</div>
+
+											<AdminButton
+												type="submit"
+												variant="volt"
+												class="w-full justify-center pt-3"
+												disabled={$restockSubmitting}
+											>
+												{$restockSubmitting ? 'Updating...' : 'Replenish Inventory'}
+											</AdminButton>
+										</form>
+									</div>
+								{:else if drawerTab === 'adjust'}
+									<div
+										in:fly={{ y: 8, duration: 150, delay: 100 }}
+										out:fade={{ duration: 100 }}
+										class="space-y-4 pt-2"
+									>
+										<form method="POST" action="?/adjust" use:adjustEnhance class="space-y-4">
+											<input type="hidden" name="variantId" value={detail.variantId} />
+											<input type="hidden" name="quantityDelta" value={$adjustForm.quantityDelta} />
+
+											{#if $adjustMessage && adjustHasError}
+												<div class="border border-red-400/20 bg-red-400/5 p-3 text-red-400">
+													<p class="font-sans text-xs">{$adjustMessage}</p>
+												</div>
+											{/if}
+											<p class="font-sans text-xs text-ash/70">
+												Select the adjustment action and specify the quantity to change.
+											</p>
+
+											<div class="flex gap-1 rounded border border-charcoal bg-void p-1">
+												<button
+													type="button"
+													onclick={() => (adjustType = 'add')}
+													class="flex-1 py-1.5 text-center font-mono text-[9px] tracking-widest uppercase transition-colors {adjustType ===
+													'add'
+														? 'bg-volt font-bold text-void'
+														: 'text-ash hover:text-bone'}"
+												>
+													Add Stock (+)
+												</button>
+												<button
+													type="button"
+													onclick={() => (adjustType = 'remove')}
+													class="flex-1 py-1.5 text-center font-mono text-[9px] tracking-widest uppercase transition-colors {adjustType ===
+													'remove'
+														? 'bg-red-500 font-bold text-bone'
+														: 'text-ash hover:text-bone'}"
+												>
+													Remove Stock (-)
+												</button>
+											</div>
+
+											<AdminInput
+												label="Adjustment Quantity"
+												name="quantityDeltaDisplay"
+												type="number"
+												min="1"
+												bind:value={adjustAmount}
+												error={$adjustErrors.quantityDelta?.[0]}
+												required
+												placeholder="e.g. 5"
+											/>
+
+											<div class="flex flex-col gap-1.5">
+												<label for="adjust-note" class="font-sans text-xs text-ash"
+													>Reason / Note</label
+												>
+												<textarea
+													id="adjust-note"
+													name="note"
+													bind:value={$adjustForm.note}
+													rows="3"
+													required
+													placeholder="Damaged in transit, manual stocktake correction..."
+													class="w-full border border-ash/30 bg-void px-3.5 py-2.5 font-sans text-xs text-bone outline-none hover:border-ash/60 focus:border-volt"
+												></textarea>
+												{#if $adjustErrors.note?.[0]}
+													<p class="font-sans text-xs text-red-400">{$adjustErrors.note[0]}</p>
+												{/if}
+											</div>
+
+											<AdminButton
+												type="submit"
+												variant="volt"
+												class="w-full justify-center pt-3"
+												disabled={$adjustSubmitting}
+											>
+												{$adjustSubmitting ? 'Updating...' : 'Apply Adjustment'}
+											</AdminButton>
+										</form>
+									</div>
+								{:else if drawerTab === 'settings'}
+									<div
+										in:fly={{ y: 8, duration: 150, delay: 100 }}
+										out:fade={{ duration: 100 }}
+										class="space-y-4 pt-2"
+									>
+										<form
+											method="POST"
+											action="?/updateSettings"
+											use:updateSettingsEnhance
+											class="space-y-4"
+										>
+											<input type="hidden" name="variantId" value={detail.variantId} />
+
+											{#if $updateSettingsMessage && updateSettingsHasError}
+												<div class="border border-red-400/20 bg-red-400/5 p-3 text-red-400">
+													<p class="font-sans text-xs">{$updateSettingsMessage}</p>
+												</div>
+											{/if}
+											<p class="font-sans text-xs text-ash/70">
+												Configure stock tracking behavior and flash alert thresholds.
+											</p>
+
+											<AdminInput
+												label="Low Stock Threshold Warning"
+												name="lowStockThreshold"
+												type="number"
+												bind:value={$updateSettingsForm.lowStockThreshold}
+												error={$updateSettingsErrors.lowStockThreshold?.[0]}
+												placeholder="Defaults to 5"
+											/>
+
+											<div class="grid gap-4 border border-charcoal bg-void/50 p-4">
+												<AdminToggle
+													label="Enable Inventory Tracking"
+													name="trackInventory"
+													bind:checked={$updateSettingsForm.trackInventory}
+												/>
+												<AdminToggle
+													label="Allow Backorder Orders"
+													name="allowBackorder"
+													bind:checked={$updateSettingsForm.allowBackorder}
+												/>
+											</div>
+
+											<AdminButton
+												type="submit"
+												variant="volt"
+												class="w-full justify-center pt-3"
+												disabled={$updateSettingsSubmitting}
+											>
+												{$updateSettingsSubmitting ? 'Saving...' : 'Save Settings'}
+											</AdminButton>
+										</form>
+									</div>
+								{:else if drawerTab === 'history'}
+									<div
+										in:fly={{ y: 8, duration: 150, delay: 100 }}
+										out:fade={{ duration: 100 }}
+										class="space-y-4 pt-2"
+									>
+										<div
+											class="flex items-center gap-1.5 font-mono text-[9px] font-bold tracking-wider text-volt uppercase"
+										>
+											<TrendingUp size={12} />
+											<span>Stock Movement Audit Logs</span>
+										</div>
+
+										{#if detail.movements.length === 0}
+											<p class="py-5 text-center font-mono text-[10px] text-ash/40 uppercase">
+												No movements logged yet
+											</p>
+										{:else}
+											<!-- Timeline list -->
+											<div class="relative ml-2 space-y-4 border-l border-charcoal/80 py-2 pl-4">
+												{#each detail.movements as move (move.id)}
+													<div class="relative min-w-0">
+														<!-- Dot icon -->
+														<span
+															class="absolute top-1.5 -left-[21px] h-2.5 w-2.5 rounded-full border {getMovementDotClass(
+																move
+															)}"
+														></span>
+
+														<div
+															class="flex items-start justify-between gap-2 font-mono text-[9px] tracking-wider"
+														>
+															<span class="font-bold text-bone uppercase">{move.type}</span>
+															<span class="shrink-0 text-ash/40"
+																>{formatDateTime(move.createdAt)}</span
+															>
+														</div>
+
+														<div class="mt-1 flex items-center gap-2 font-mono text-xs">
+															{#if move.quantityDelta !== 0}
+																<span
+																	class={move.quantityDelta > 0
+																		? 'font-semibold text-volt'
+																		: 'font-semibold text-red-400'}
+																>
+																	{move.quantityDelta > 0 ? '+' : ''}{move.quantityDelta} qty
+																</span>
+																<span class="font-normal text-ash/40"
+																	>to {move.quantityAfter} total</span
+																>
+															{/if}
+															{#if move.reservedQuantityDelta !== 0}
+																<span
+																	class={move.reservedQuantityDelta > 0
+																		? 'text-amber-300'
+																		: 'text-ash'}
+																>
+																	{move.reservedQuantityDelta > 0
+																		? '+'
+																		: ''}{move.reservedQuantityDelta} res
+																</span>
+																<span class="font-normal text-ash/40"
+																	>to {move.reservedQuantityAfter} reserved</span
+																>
+															{/if}
+														</div>
+
+														{#if move.note}
+															<p
+																class="mt-1.5 rounded border border-charcoal/30 bg-void/30 px-2 py-1.5 font-sans text-xs whitespace-pre-line text-ash"
+															>
+																{move.note}
+															</p>
+														{/if}
+														{#if move.referenceId}
+															<div
+																class="mt-1 flex items-center gap-1.5 font-mono text-[8px] text-ash/50"
+															>
+																<span>Ref:</span>
+																<span class="select-all">{move.referenceId}</span>
+															</div>
+														{/if}
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
 								{/if}
-							</div>
+							{/if}
 						</div>
-					{/snippet}
-				</Dialog.Content>
-			</div>
+					</div>
+				{/snippet}
+			</Dialog.Content>
 		</Dialog.Portal>
 	{/if}
 </Dialog.Root>
@@ -1113,7 +1212,7 @@
 <!-- Global Toast message adapter -->
 <AdminToast
 	message={toastMessage}
-	type="success"
+	type={toastType}
 	duration={6000}
 	onclose={() => (toastMessage = null)}
 />

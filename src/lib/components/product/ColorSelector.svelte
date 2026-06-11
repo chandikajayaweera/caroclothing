@@ -12,17 +12,32 @@
 
 <div class="flex flex-col gap-2">
 	<span class="font-mono text-[9px] tracking-widest text-ash uppercase">
-		Color: {activeColor}
+		Color: <span class="text-bone">{activeColor}</span>
 	</span>
-	<div class="flex gap-2.5">
-		{#each colors as color}
+	<div class="flex gap-3">
+		{#each colors as color (color.name)}
+			{@const isActive = activeColor === color.name}
 			<button
-				class="h-6 w-6 rounded-full border-2 transition-all
-        {activeColor === color.name ? 'border-volt p-0.5' : 'border-ash/20 hover:border-ash/50'}"
+				class="group relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border transition-all duration-300 focus-visible:ring-1 focus-visible:ring-volt focus-visible:outline-none
+        {isActive
+					? 'scale-105 border-volt bg-void'
+					: 'border-ash/20 hover:scale-105 hover:border-ash/60'}"
 				onclick={() => onSelect(color.name)}
 				title={color.name}
+				aria-label="Select color {color.name}"
 			>
-				<div class="h-full w-full rounded-full" style="background-color: {color.hex}"></div>
+				<!-- Inner Color Circle -->
+				<div
+					class="h-4.5 w-4.5 rounded-full shadow-inner transition-transform duration-300 group-hover:scale-95"
+					style="background-color: {color.hex}; border: {color.hex.toLowerCase() === '#ffffff'
+						? '1px solid rgba(255,255,255,0.15)'
+						: 'none'}"
+				></div>
+
+				<!-- Active Glow ring -->
+				{#if isActive}
+					<span class="absolute inset-0 animate-pulse rounded-full border border-volt/20"></span>
+				{/if}
 			</button>
 		{/each}
 	</div>

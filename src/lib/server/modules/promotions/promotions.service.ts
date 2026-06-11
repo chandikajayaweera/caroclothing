@@ -51,7 +51,7 @@ import type {
 	RecordPromoUsageInput,
 	SetPromoCodeActiveInput,
 	UpdatePromoCodeInput,
-	ValidatePromoCodeForCartInput
+	ValidatePromoCodeForBagInput
 } from './promotions.types';
 
 type Db = ReturnType<typeof getDb>;
@@ -209,10 +209,10 @@ export async function setPromoCodeActive(
 	}
 }
 
-export async function validatePromoCodeForCart(
-	input: ValidatePromoCodeForCartInput
+export async function validatePromoCodeForBag(
+	input: ValidatePromoCodeForBagInput
 ): Promise<PromoValidationResult> {
-	return validatePromoCodeForCartTx(getDb(), input);
+	return validatePromoCodeForBagTx(getDb(), input);
 }
 
 export async function listPromoCodeUsages(
@@ -327,9 +327,9 @@ export function createPromoCodeSnapshot(input: { promoCode: PromoCodeDTO }): Pro
 	};
 }
 
-export async function validatePromoCodeForCartTx(
+export async function validatePromoCodeForBagTx(
 	tx: QueryExecutor,
-	input: ValidatePromoCodeForCartInput
+	input: ValidatePromoCodeForBagInput
 ): Promise<PromoValidationResult> {
 	const code = normalizePromoCode(input.code);
 	const subtotal = normalizeMoney(input.subtotal, 'subtotal');
@@ -341,7 +341,7 @@ export async function validatePromoCodeForCartTx(
 		throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND, { code });
 	}
 
-	return validatePromoCodeRowForCartTx(tx, row, { subtotal, userId, now });
+	return validatePromoCodeRowForBagTx(tx, row, { subtotal, userId, now });
 }
 
 export async function recordPromoUsageTx(
@@ -388,7 +388,7 @@ export async function recordPromoUsageTx(
 		});
 	}
 
-	const validation = await validatePromoCodeRowForCartTx(tx, promoRow, {
+	const validation = await validatePromoCodeRowForBagTx(tx, promoRow, {
 		subtotal: orderRow.subtotal,
 		userId: data.userId ?? orderRow.userId,
 		now: data.now
@@ -445,7 +445,7 @@ export async function reconcilePromoCodeUsageCountTx(
 	return result.promoCode;
 }
 
-async function validatePromoCodeRowForCartTx(
+async function validatePromoCodeRowForBagTx(
 	tx: QueryExecutor,
 	row: PromoCode,
 	input: { subtotal: number; userId: string | null | undefined; now: Date }

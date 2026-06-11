@@ -5,6 +5,9 @@ export type AuthRedirectPath =
 	| '/account'
 	| '/account/addresses'
 	| '/account/orders'
+	| '/account/reviews'
+	| '/account/security'
+	| '/account/wishlist'
 	| '/app'
 	| '/bag'
 	| '/checkout'
@@ -31,6 +34,7 @@ export type AuthMethodDTO = {
 export type AccountProfileDTO = {
 	id: string;
 	name: string;
+	needsNameCompletion: boolean;
 	email: string | null;
 	hasInternalEmail: boolean;
 	phoneNumber: string | null;
@@ -136,4 +140,9 @@ export type RevokeUserSessionsInput = {
 
 export type SessionRevokeResult = {
 	revokedCount: number;
+};
+
+export type AccountDeletionPreparation = {
+	reviewMediaKeys: string[];
+	anonymizedOrderCount: number;
 };

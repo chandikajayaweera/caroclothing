@@ -38,27 +38,26 @@ export const createPromoCodeFormSchema = insertPromoCodeBaseSchema
 		}
 	});
 
-export const updatePromoCodeFormSchema = z.intersection(
-	z.object({
-		promoCodeId: idSchema
-	}),
-	updatePromoCodeBaseSchema
-		.omit({
-			isActive: true,
-			usedCount: true
-		})
-		.safeExtend({
-			code: codeSchema.optional()
-		})
-		.superRefine(validatePromoCodeWindowAndValue)
-);
+export const updatePromoCodeFormSchema = updatePromoCodeBaseSchema
+	.omit({
+		isActive: true,
+		usedCount: true
+	})
+	.extend({
+		promoCodeId: idSchema,
+		code: codeSchema.optional()
+	})
+	.superRefine(validatePromoCodeWindowAndValue);
 
 export const setPromoCodeActiveFormSchema = z.object({
 	promoCodeId: idSchema,
-	isActive: z.boolean()
+	isActive: z.preprocess(
+		(val) => (val === 'true' ? true : val === 'false' ? false : val),
+		z.boolean()
+	)
 });
 
-export const validatePromoCodeForCartFormSchema = z.object({
+export const validatePromoCodeForBagFormSchema = z.object({
 	code: codeSchema,
 	subtotal: z.coerce.number().int().min(0)
 });

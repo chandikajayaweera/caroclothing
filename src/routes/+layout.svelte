@@ -3,25 +3,45 @@
 	import favicon from '$lib/assets/favicon.png';
 	import Navbar from '$lib/components/layout/Navbar.svelte';
 	import Footer from '$lib/components/layout/Footer.svelte';
-	import CartDrawer from '$lib/components/cart/CartDrawer.svelte';
+	import BagDrawer from '$lib/components/bag/BagDrawer.svelte';
 	import WishlistDrawer from '$lib/components/layout/WishlistDrawer.svelte';
 	import Toast from '$lib/components/shared/Toast.svelte';
 	import BottomNav from '$lib/components/layout/BottomNav.svelte';
 	import { page } from '$app/state';
 	import { fly } from 'svelte/transition';
+	import { onMount } from 'svelte';
 	import { onNavigate } from '$app/navigation';
 
-	import { cart } from '$lib/client/modules/stores/cart.svelte';
+	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 
 	let { children, data } = $props();
 
 	$effect(() => {
-		cart.setCart(data?.cart);
+		bag.setBag(data?.bag);
 		wishlist.setProductIds(data?.wishlistProductIds || []);
 		if (data?.user) {
 			wishlist.syncLocalWishlist();
 		}
+	});
+
+	onMount(() => {
+		const refreshBagAvailability = () => {
+			if (document.visibilityState === 'visible' && bag.items.length > 0) {
+				void bag.refresh();
+			}
+		};
+		const availabilityPoll = setInterval(refreshBagAvailability, 3000);
+
+		refreshBagAvailability();
+		window.addEventListener('focus', refreshBagAvailability);
+		document.addEventListener('visibilitychange', refreshBagAvailability);
+
+		return () => {
+			clearInterval(availabilityPoll);
+			window.removeEventListener('focus', refreshBagAvailability);
+			document.removeEventListener('visibilitychange', refreshBagAvailability);
+		};
 	});
 
 	onNavigate((navigation) => {
@@ -63,7 +83,7 @@
 	{/if}
 
 	{#if !isAppRoute}
-		<CartDrawer />
+		<BagDrawer />
 		<WishlistDrawer />
 	{/if}
 	<Toast />

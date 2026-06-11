@@ -18,7 +18,7 @@ Before proposing changes:
 - Read src/lib/shared/modules/access-control.ts and src/lib/server/foundation/guards.ts before proposing permission checks.
 - Identify business invariants from schema comments.
 - Verify whether the target module already has *.service.ts, *.types.ts, and *.forms.ts files.
-- Treat inventory as a public admin stock service module. Keep inventory *Tx helpers as direct-import server internals for cart/order transaction workflows.
+- Treat inventory as a public admin stock service module. Keep inventory *Tx helpers as direct-import server internals for bag/order transaction workflows.
 - Treat errors/route-adapter.ts and foundation/utils.ts as existing helpers.
 - Curate APIs from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, and notification needs before implementation.
 

@@ -22,6 +22,11 @@ import { AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
 import { getEnv } from '$lib/server/infrastructure/env';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import type { UserRole } from '$lib/shared/modules/access-control';
+import {
+	MAX_DISPLAY_NAME_LENGTH,
+	isPhoneDerivedDisplayName,
+	isValidDisplayName
+} from '$lib/shared/modules/auth-profile';
 
 import {
 	account as accountTable,
@@ -30,7 +35,22 @@ import {
 } from './auth.drizzle';
 import { repairTempUserEmailFromLinkedGoogleAccount } from './database-hook';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
+import { deleteUserBagForAccountDeletionTx, type BagTx } from '../bag/bag.service';
+import {
+	deleteDropWaitlistEntriesForAccountDeletionTx,
+	type DropsTx
+} from '../drops/drops.service';
+import {
+	cancelNotificationsForAccountDeletionTx,
+	type NotificationOutboxTx
+} from '../notifications/outbox/outbox.service';
+import { anonymizeOrdersForAccountDeletionTx, type OrdersTx } from '../orders/orders.service';
+import {
+	listReviewMediaKeysForAccountDeletionTx,
+	type ReviewsTx
+} from '../reviews/reviews.service';
 import type {
+	AccountDeletionPreparation,
 	AccountProfileDTO,
 	AuthMethodDTO,
 	AuthMethodType,
@@ -81,7 +101,6 @@ const ANONYMOUS_EMAIL_DOMAIN = '@anon.caroclothing.lk';
 const DEFAULT_AUTH_REDIRECT = '/account' satisfies AuthRedirectPath;
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
-const MAX_DISPLAY_NAME_LENGTH = 80;
 const MAX_BAN_REASON_LENGTH = 500;
 
 const ALLOWED_REDIRECT_PATHS = new Set<AuthRedirectPath>([
@@ -89,6 +108,9 @@ const ALLOWED_REDIRECT_PATHS = new Set<AuthRedirectPath>([
 	'/account',
 	'/account/addresses',
 	'/account/orders',
+	'/account/reviews',
+	'/account/security',
+	'/account/wishlist',
 	'/app',
 	'/bag',
 	'/checkout',
@@ -170,6 +192,31 @@ export async function updateMyDisplayName(
 	}
 
 	return loadAccountProfile(getDb(), actor.id, ctx);
+}
+
+export async function prepareAccountDeletion(input: {
+	userId: string;
+	now?: Date;
+}): Promise<AccountDeletionPreparation> {
+	const userId = normalizeId(input.userId, 'userId');
+	const now = input.now ?? new Date();
+
+	return getDb().transaction(async (tx) => {
+		const reviewMediaKeys = await listReviewMediaKeysForAccountDeletionTx(tx as ReviewsTx, userId);
+
+		await deleteUserBagForAccountDeletionTx(tx as BagTx, userId, now);
+		await deleteDropWaitlistEntriesForAccountDeletionTx(tx as DropsTx, userId);
+		await cancelNotificationsForAccountDeletionTx(tx as NotificationOutboxTx, {
+			userId,
+			now
+		});
+		const anonymizedOrderCount = await anonymizeOrdersForAccountDeletionTx(tx as OrdersTx, {
+			userId,
+			now
+		});
+
+		return { reviewMediaKeys, anonymizedOrderCount };
+	});
 }
 
 export async function repairMyTempEmailFromLinkedGoogle(
@@ -693,6 +740,7 @@ function toAccountProfileDTO(
 	return {
 		id: user.id,
 		name: user.name,
+		needsNameCompletion: isPhoneDerivedDisplayName(user.name, user.phoneNumber),
 		email: resolvePublicEmail(user.email),
 		hasInternalEmail: isInternalTempEmail(user.email),
 		phoneNumber: user.phoneNumber,
@@ -797,8 +845,8 @@ function normalizeUserRole(role: UserRole): UserRole {
 function normalizeDisplayName(value: string): string {
 	const normalized = normalizeText(value, 'displayName', MAX_DISPLAY_NAME_LENGTH);
 
-	if (!normalized) {
-		throw new AuthError('Display name is required.', ErrorCode.VALIDATION_ERROR);
+	if (!isValidDisplayName(normalized)) {
+		throw new AuthError('Enter your name, not a phone number.', ErrorCode.VALIDATION_ERROR);
 	}
 
 	return normalized;

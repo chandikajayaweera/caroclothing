@@ -44,7 +44,7 @@
 
 		<div class="flex flex-col gap-8 md:gap-12">
 			{#if data.drops.length === 0}
-				<div class="py-20 border border-dashed border-charcoal text-center">
+				<div class="border border-dashed border-charcoal py-20 text-center">
 					<p class="font-mono text-xs text-ash uppercase">No drops released yet.</p>
 				</div>
 			{:else}

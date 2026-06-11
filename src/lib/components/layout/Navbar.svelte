@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { toggleCartDrawer, toggleWishlistDrawer } from '$lib/client/modules/stores/ui';
-	import { cart } from '$lib/client/modules/stores/cart.svelte';
+	import { toggleBagDrawer, toggleWishlistDrawer } from '$lib/client/modules/stores/ui';
+	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
@@ -13,6 +13,7 @@
 
 	const navLinks = [
 		{ label: 'Shop', href: '/shop' },
+		{ label: 'Drops', href: '/drops' },
 		{ label: 'New In', href: '/shop?sort=new' },
 		{ label: 'Men', href: '/shop?gender=men' },
 		{ label: 'Women', href: '/shop?gender=women' },
@@ -20,7 +21,7 @@
 	];
 
 	// Badge animation state
-	let count = $derived(cart.count);
+	let count = $derived(bag.count);
 	let prevCount = $state(0);
 	let animateBadge = $state(false);
 
@@ -103,7 +104,7 @@
 		<div class="flex items-center gap-4 md:gap-6">
 			<!-- Wishlist (Tablet/Desktop) -->
 			<button
-				class="relative hidden text-bone transition-colors hover:text-volt md:block cursor-pointer"
+				class="relative hidden cursor-pointer text-bone transition-colors hover:text-volt md:block"
 				onclick={() => {
 					toggleWishlistDrawer();
 				}}
@@ -138,7 +139,7 @@
 			<button
 				class="relative hidden text-bone transition-colors hover:text-volt md:block"
 				onclick={() => {
-					toggleCartDrawer();
+					toggleBagDrawer();
 				}}
 				aria-label="Bag"
 			>
@@ -158,12 +159,12 @@
 					<path d="M3 6h18" />
 					<path d="M16 10a4 4 0 0 1-8 0" />
 				</svg>
-				{#if cart.count > 0}
+				{#if bag.count > 0}
 					<span
 						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void transition-all duration-300"
 						class:badge-bounce-anim={animateBadge}
 					>
-						{cart.count}
+						{bag.count}
 					</span>
 				{/if}
 			</button>
@@ -230,7 +231,8 @@
 
 <style>
 	@keyframes badge-bounce {
-		0%, 100% {
+		0%,
+		100% {
 			transform: scale(1);
 		}
 		50% {

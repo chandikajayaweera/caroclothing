@@ -26,7 +26,7 @@ addresses
 products
 drops
 wishlist
-cart
+bag
 shipping
 promotions
 inventory
@@ -34,7 +34,11 @@ orders
 reviews
 ```
 
-`inventory` exposes curated admin inventory APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` continue to support cart/order-style transaction workflows and should be imported directly only by server internals that are already inside a transaction.
+`inventory` exposes curated admin inventory APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` continue to support bag/order-style transaction workflows and should be imported directly only by server internals that are already inside a transaction.
+
+Bag stock rule: bag writes never reserve inventory. `startCheckout` owns the 10-minute reservation transaction. When shoppers contend for the last stock, one reservation wins; later shoppers see the active hold countdown instead of out-of-stock when those held units could satisfy their quantity. Bag items and the selected product-detail variant refresh continuously so new holds appear, abandoned holds become available, and completed purchases become out of stock. Bag mutations or checkout exit cancel active holds; expiry releases stock while preserving bag items.
+
+Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must release checkout inventory, remove profile-owned waitlist state, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
 
 Current server layers:
 
@@ -165,7 +169,7 @@ Project custom agents live in `.gemini/agents`. Each TOML file must keep `name`,
 Recommended usage:
 
 ```txt
-schema-cartographer       read schemas, relations, comments, invariants
+schema-cartographer      read schemas, relations, comments, invariants
 service-api-curator       plan public service APIs from product surfaces
 service-architect         turn accepted APIs into implementation plan
 service-builder           implement approved service-layer plan

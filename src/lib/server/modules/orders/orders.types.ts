@@ -3,7 +3,7 @@ import type {
 	CheckoutAddressDTO,
 	CheckoutAddressInput
 } from '../addresses/addresses.types';
-import type { CheckoutOrderCartDTO } from '../cart/cart.types';
+import type { CheckoutOrderBagDTO } from '../bag/bag.types';
 import type { PromoCodeSnapshot, PromoValidationResult } from '../promotions/promotions.types';
 import type { ShippingMethodSnapshot, ShippingQuoteDTO } from '../shipping/shipping.types';
 import type {
@@ -53,6 +53,8 @@ export type PaymentDTO = {
 	refundAmount: number | null;
 	refundedAt: Date | null;
 	paidAt: Date | null;
+	requiresManualReview: boolean;
+	reviewReason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 };
@@ -108,7 +110,7 @@ export type OrderSummaryDTO = Omit<OrderDTO, 'items' | 'payments' | 'statusHisto
 };
 
 export type OrderPreviewItemDTO = {
-	cartItemId: string;
+	bagItemId: string;
 	productId: string;
 	variantId: string;
 	productName: string;
@@ -124,7 +126,7 @@ export type OrderPreviewItemDTO = {
 };
 
 export type OrderPreviewDTO = {
-	cart: CheckoutOrderCartDTO;
+	bag: CheckoutOrderBagDTO;
 	items: OrderPreviewItemDTO[];
 	shippingAddressId: string | null;
 	shippingAddress: CheckoutAddressDTO;
@@ -140,7 +142,7 @@ export type OrderPreviewDTO = {
 	blockingReasons: string[];
 };
 
-export type PreviewOrderFromCartInput = {
+export type PreviewOrderFromBagInput = {
 	sessionToken?: string | null;
 	shippingAddress: CheckoutShippingAddressInput;
 	shippingMethodId: string;
@@ -148,7 +150,7 @@ export type PreviewOrderFromCartInput = {
 	now?: Date;
 };
 
-export type PlaceOrderFromCartInput = PreviewOrderFromCartInput & {
+export type PlaceOrderFromBagInput = PreviewOrderFromBagInput & {
 	paymentMethod: PaymentMethod;
 	customerNote?: string | null;
 	bankSlipR2Key?: string | null;

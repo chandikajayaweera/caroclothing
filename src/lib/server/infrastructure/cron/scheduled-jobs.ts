@@ -1,4 +1,4 @@
-import { deleteExpiredGuestCarts } from '$lib/server/modules/cart/cart.service';
+import { deleteExpiredGuestBags, expireDueBagCheckouts } from '$lib/server/modules/bag/bag.service';
 import { transitionDueDropsToLive } from '$lib/server/modules/drops/drops.service';
 import { processDueNotificationOutbox } from '$lib/server/infrastructure/notifications/outbox.dispatcher';
 import { cancelExpiredPendingOrders } from '$lib/server/modules/orders/orders.service';
@@ -7,13 +7,15 @@ import type { ServiceContext, SystemActor } from '$lib/server/foundation/context
 
 const DROP_LAUNCH_AND_NOTIFICATION_CRON = '*/5 * * * *';
 const ORDER_PAYMENT_EXPIRY_CRON = '*/10 * * * *';
-const CART_CLEANUP_CRON = '0 * * * *';
+const BAG_CHECKOUT_EXPIRY_CRON = '* * * * *';
+const BAG_CLEANUP_CRON = '0 * * * *';
 const PROMO_RECONCILE_CRON = '17 20 * * *';
 
 const NOTIFICATION_OUTBOX_LIMIT = 50;
 const DROP_LAUNCH_LIMIT = 50;
 const ORDER_CANCEL_LIMIT = 50;
-const CART_CLEANUP_LIMIT = 100;
+const BAG_CHECKOUT_EXPIRY_LIMIT = 100;
+const BAG_CLEANUP_LIMIT = 100;
 const PROMO_RECONCILE_LIMIT = 100;
 const PROMO_RECONCILE_MAX_PAGES = 100;
 
@@ -48,8 +50,10 @@ export async function runScheduledJobs(
 			]);
 		case ORDER_PAYMENT_EXPIRY_CRON:
 			return runCronJobs([() => cancelExpiredOrderPayments(serviceCtx, now)]);
-		case CART_CLEANUP_CRON:
-			return runCronJobs([() => cleanupExpiredGuestCarts(serviceCtx, now)]);
+		case BAG_CHECKOUT_EXPIRY_CRON:
+			return runCronJobs([() => expireBagCheckouts(serviceCtx, now)]);
+		case BAG_CLEANUP_CRON:
+			return runCronJobs([() => cleanupExpiredGuestBags(serviceCtx, now)]);
 		case PROMO_RECONCILE_CRON:
 			return runCronJobs([() => reconcilePromoUsageCounts(serviceCtx)]);
 		default:
@@ -150,20 +154,35 @@ async function cancelExpiredOrderPayments(
 	};
 }
 
-async function cleanupExpiredGuestCarts(
+async function cleanupExpiredGuestBags(
 	ctx: ServiceContext,
 	now: Date
 ): Promise<ScheduledJobResult> {
-	const result = await deleteExpiredGuestCarts(ctx, {
+	const result = await deleteExpiredGuestBags(ctx, {
 		now,
-		limit: CART_CLEANUP_LIMIT
+		limit: BAG_CLEANUP_LIMIT
 	});
 
 	return {
-		job: 'cart.deleteExpiredGuestCarts',
+		job: 'bag.deleteExpiredGuestBags',
 		count: result.deletedCount,
 		details: {
 			itemCount: result.itemCount,
+			releasedQuantity: result.releasedQuantity
+		}
+	};
+}
+
+async function expireBagCheckouts(ctx: ServiceContext, now: Date): Promise<ScheduledJobResult> {
+	const result = await expireDueBagCheckouts(ctx, {
+		now,
+		limit: BAG_CHECKOUT_EXPIRY_LIMIT
+	});
+
+	return {
+		job: 'bag.expireDueCheckouts',
+		count: result.expiredCount,
+		details: {
 			releasedQuantity: result.releasedQuantity
 		}
 	};

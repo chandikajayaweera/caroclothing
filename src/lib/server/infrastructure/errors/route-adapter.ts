@@ -1,9 +1,9 @@
-import { error as kitError, fail } from '@sveltejs/kit';
+import { error as kitError, fail, json } from '@sveltejs/kit';
 import { message } from 'sveltekit-superforms/server';
 import type { SuperValidated } from 'sveltekit-superforms/server';
-import { isAppError, toErrorResponseBody } from './index';
+import { getErrorStatusCode, isAppError, toErrorResponseBody } from './index';
 
-type ErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 410 | 429 | 500;
+type ErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 410 | 429 | 500 | 503;
 
 function toErrorStatus(statusCode: number): ErrorStatus {
 	if (statusCode >= 400 && statusCode <= 599) return statusCode as ErrorStatus;
@@ -23,6 +23,19 @@ export function throwHttpFromAppError(error: unknown): never {
 
 	const body = toErrorResponseBody(error, { includeDetails: error.statusCode < 500 });
 	throw kitError(error.statusCode, body.message);
+}
+
+export function jsonFromRouteError(error: unknown): Response {
+	const statusCode = getErrorStatusCode(error);
+	const body = toErrorResponseBody(error, { includeDetails: statusCode < 500 });
+
+	return json(
+		{
+			...body,
+			error: body.message
+		},
+		{ status: toErrorStatus(statusCode) }
+	);
 }
 
 export function formFailFromAppError<

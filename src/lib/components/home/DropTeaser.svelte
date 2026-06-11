@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import CountdownTimer from '../drops/CountdownTimer.svelte';
 	import Button from '../ui/Button.svelte';
 
 	interface Props {
 		nextDrop?: {
+			id: string;
 			name: string;
 			tagline: string;
 			date: Date;
@@ -13,14 +16,33 @@
 
 	let { nextDrop }: Props = $props();
 
-	let email = $state('');
-	let subscribed = $state(false);
+	let contact = $state('');
+	let loading = $state(false);
+	let successMessage = $state('');
+	let errorMessage = $state('');
 
-	function handleNotify(e: Event) {
-		e.preventDefault();
-		if (!email) return;
-		subscribed = true;
-	}
+	const enhanceWaitlist: SubmitFunction = () => {
+		loading = true;
+		successMessage = '';
+		errorMessage = '';
+
+		return async ({ result, update }) => {
+			if (result.type === 'success') {
+				const resultData = result.data as { message?: string } | undefined;
+				successMessage = resultData?.message ?? 'Drop alert locked.';
+				contact = '';
+				await update({ reset: false, invalidateAll: false });
+			} else if (result.type === 'failure') {
+				const resultData = result.data as { message?: string } | undefined;
+				errorMessage = resultData?.message ?? 'Could not join. Try again.';
+				await update({ reset: false, invalidateAll: false });
+			} else {
+				await update();
+			}
+
+			loading = false;
+		};
+	};
 </script>
 
 {#if nextDrop}
@@ -45,34 +67,49 @@
 				<CountdownTimer targetDate={nextDrop.date} />
 
 				<div class="mt-4">
-					{#if subscribed}
+					{#if successMessage}
 						<div class="flex max-w-md flex-col gap-1 border border-volt/20 bg-volt/5 p-6">
 							<span class="font-display text-2xl text-volt uppercase">YOU'RE ON THE LIST.</span>
-							<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
-								We'll text you when it drops.
+							<p class="font-mono text-[10px] tracking-widest text-volt uppercase">
+								{successMessage}
 							</p>
 						</div>
 					{:else}
-						<form class="flex max-w-md flex-col gap-3" onsubmit={handleNotify}>
+						<form
+							method="POST"
+							action="?/joinWaitlist"
+							use:enhance={enhanceWaitlist}
+							class="flex max-w-md flex-col gap-3"
+						>
+							<input type="hidden" name="dropId" value={nextDrop.id} />
 							<div class="flex flex-col gap-1">
 								<div class="flex border-b border-ash/30 transition-colors focus-within:border-volt">
 									<input
 										type="text"
-										bind:value={email}
+										name="contact"
+										bind:value={contact}
 										placeholder="PHONE OR EMAIL"
 										class="flex-1 bg-transparent py-3 font-mono text-[10px] tracking-widest text-bone uppercase outline-none placeholder:text-ash/40"
 										required
+										disabled={loading}
 									/>
 									<button
 										type="submit"
-										class="px-4 font-mono text-[10px] tracking-widest text-volt uppercase transition-colors hover:text-bone"
+										class="px-4 font-mono text-[10px] tracking-widest text-volt uppercase transition-colors hover:text-bone disabled:text-ash"
+										disabled={loading}
 									>
-										NOTIFY ME
+										{loading ? 'WAITING...' : 'NOTIFY ME'}
 									</button>
 								</div>
-								<span class="mt-2 font-mono text-[9px] tracking-widest text-ash/40 uppercase">
-									No spam. First access. Unsubscribe anytime.
-								</span>
+								{#if errorMessage}
+									<p class="mt-2 font-mono text-[10px] tracking-widest text-red-400 uppercase">
+										{errorMessage}
+									</p>
+								{:else}
+									<span class="mt-2 font-mono text-[9px] tracking-widest text-ash/40 uppercase">
+										No spam. First access. Unsubscribe anytime.
+									</span>
+								{/if}
 							</div>
 						</form>
 					{/if}

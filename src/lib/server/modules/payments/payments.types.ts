@@ -1,8 +1,10 @@
+import type { OrderStatus } from '../orders/orders.drizzle';
 import type { PaymentMethod, PaymentStatus } from './payments.drizzle';
 
 export type PaymentDTO = {
 	id: string;
 	orderId: string;
+	orderStatus: OrderStatus | null;
 	amount: number;
 	currency: string;
 	method: PaymentMethod;
@@ -14,13 +16,35 @@ export type PaymentDTO = {
 	paidAt: Date | null;
 	bankSlipR2Key: string | null;
 	bankReference: string | null;
+	requiresManualReview: boolean;
+	reviewReason: string | null;
 	createdAt: Date;
 	updatedAt: Date;
+};
+
+export type CheckoutPaymentMethodDTO = {
+	id: Extract<PaymentMethod, 'payhere' | 'paypal' | 'cash_on_delivery'>;
+	title: string;
+	description: string;
+	kind: 'online' | 'offline';
+	badge?: string;
+	requiresBillingEmail: boolean;
+};
+
+export type ValidateCheckoutPaymentSelectionInput = {
+	method: PaymentMethod;
+	billingEmail?: string | null;
+};
+
+export type ValidatedCheckoutPaymentSelection = {
+	method: CheckoutPaymentMethodDTO['id'];
+	billingEmail: string | null;
 };
 
 export type CreatePaymentSessionInput = {
 	orderId: string;
 	method: PaymentMethod;
+	billingEmail?: string | null;
 	bankSlipR2Key?: string | null;
 	bankReference?: string | null;
 };
@@ -32,17 +56,22 @@ export type CreatePaymentSessionResult = {
 	paymentData?: Record<string, string>; // Extra form parameters if needed (e.g. PayHere form parameters)
 };
 
-export type ProcessWebhookInput = {
-	gateway: string;
+export type ProcessPayHereWebhookInput = {
 	payload: Record<string, unknown>;
 	headers: Record<string, string>;
 };
 
-export type ProcessWebhookResult = {
+export type CapturePayPalReturnInput = {
+	paypalOrderId: string;
+	payerId?: string | null;
+};
+
+export type PaymentGatewayResult = {
 	success: boolean;
 	paymentId?: string;
 	orderId?: string;
 	status: PaymentStatus;
+	requiresManualReview?: boolean;
 	errorMessage?: string;
 };
 
@@ -59,6 +88,14 @@ export type PaymentListResult = {
 	total: number;
 	limit: number;
 	offset: number;
+};
+
+export type PaymentDashboardSummaryDTO = {
+	totalVolume: number;
+	totalCaptured: number;
+	totalPending: number;
+	totalRefunded: number;
+	manualReviewCount: number;
 };
 
 export type RecordPaymentInput = {

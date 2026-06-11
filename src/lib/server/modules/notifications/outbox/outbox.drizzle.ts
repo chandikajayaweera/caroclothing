@@ -31,7 +31,7 @@ export const NOTIFICATION_AGGREGATE_TYPES = [
 	'product',
 	'promotion',
 	'review',
-	'cart',
+	'bag',
 	'auth',
 	'campaign',
 	'system'

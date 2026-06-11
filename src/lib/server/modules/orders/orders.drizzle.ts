@@ -43,6 +43,7 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 // ---------------------------------------------------------------------------
 
 export {
+	CHECKOUT_PAYMENT_METHODS,
 	PAYMENT_METHODS,
 	PAYMENT_STATUSES,
 	ONLINE_PAYMENT_METHODS,

@@ -19,8 +19,8 @@ Plan only unless the user explicitly asks to implement.
 
 ## Current state
 
-- Existing services: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
-- Inventory exposes curated admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` remain direct-import server internals for cart/order transaction workflows.
+- Existing services: `auth`, `addresses`, `products`, `drops`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
+- Inventory exposes curated admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` remain direct-import server internals for bag/order transaction workflows.
 - Schema-only modules needing service plans: none in current core service rollout.
 - Existing foundations: `foundation/context.ts`, `foundation/guards.ts`, `foundation/utils.ts`.
 - Existing route helper: `infrastructure/errors/route-adapter.ts`.

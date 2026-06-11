@@ -293,6 +293,7 @@ export type NotificationDispatchResult = {
 	id: string;
 	outcome: 'sent' | 'failed' | 'skipped' | 'invalid';
 	message?: string;
+	retryAt?: Date;
 };
 
 export type NotificationQueueBatchResult = {

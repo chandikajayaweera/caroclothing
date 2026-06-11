@@ -3,7 +3,7 @@
 	import { superForm } from 'sveltekit-superforms';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { CreditCard, Eye, ArrowUpRight } from 'lucide-svelte';
+	import { AlertTriangle, CreditCard, Eye, ArrowUpRight } from 'lucide-svelte';
 	import { Dialog } from 'bits-ui';
 	import { fade, scale } from 'svelte/transition';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
@@ -216,8 +216,22 @@
 	searchPlaceholder="Search order ID or reference..."
 >
 	{#snippet statsSnippet()}
+		{#if data.stats.manualReviewCount > 0}
+			<div class="mt-8 flex items-start gap-3 border border-amber-400/40 bg-amber-400/5 p-4">
+				<AlertTriangle size={18} class="mt-0.5 shrink-0 text-amber-300" />
+				<div>
+					<p class="font-mono text-[10px] tracking-[0.14em] text-bone uppercase">
+						{data.stats.manualReviewCount} payment{data.stats.manualReviewCount === 1 ? '' : 's'}
+						require review
+					</p>
+					<p class="mt-1 font-sans text-xs text-ash">
+						These captures arrived after their order could no longer be completed.
+					</p>
+				</div>
+			</div>
+		{/if}
 		<!-- Metrics Cards -->
-		<div class="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+		<div class="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
 			<AdminCard class="min-w-0" padding="p-4 sm:p-5">
 				<p class="truncate font-mono text-[8px] tracking-[0.2em] text-ash uppercase">
 					Total Volume
@@ -225,21 +239,15 @@
 				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
 					{formatMoney(data.stats.totalVolume)}
 				</p>
-				<p class="mt-1 font-mono text-[9px] text-ash/60">
-					All attempted checkouts
-				</p>
+				<p class="mt-1 font-mono text-[9px] text-ash/60">All attempted checkouts</p>
 			</AdminCard>
 
 			<AdminCard class="min-w-0" padding="p-4 sm:p-5">
-				<p class="truncate font-mono text-[8px] tracking-[0.2em] text-ash uppercase">
-					Captured
-				</p>
+				<p class="truncate font-mono text-[8px] tracking-[0.2em] text-ash uppercase">Captured</p>
 				<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
 					{formatMoney(data.stats.totalCaptured)}
 				</p>
-				<p class="mt-1 font-mono text-[9px] text-volt/60">
-					Successful payments
-				</p>
+				<p class="mt-1 font-mono text-[9px] text-volt/60">Successful payments</p>
 			</AdminCard>
 
 			<AdminCard class="min-w-0" padding="p-4 sm:p-5">
@@ -249,21 +257,25 @@
 				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
 					{formatMoney(data.stats.totalPending)}
 				</p>
-				<p class="mt-1 font-mono text-[9px] text-ash/60">
-					Awaiting verification
+				<p class="mt-1 font-mono text-[9px] text-ash/60">Awaiting verification</p>
+			</AdminCard>
+
+			<AdminCard class="min-w-0" padding="p-4 sm:p-5">
+				<p class="truncate font-mono text-[8px] tracking-[0.2em] text-ash uppercase">Refunded</p>
+				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
+					{formatMoney(data.stats.totalRefunded)}
 				</p>
+				<p class="mt-1 font-mono text-[9px] text-ash/60">Manual registered refunds</p>
 			</AdminCard>
 
 			<AdminCard class="min-w-0" padding="p-4 sm:p-5">
 				<p class="truncate font-mono text-[8px] tracking-[0.2em] text-ash uppercase">
-					Refunded
+					Manual review
 				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
-					{formatMoney(data.stats.totalRefunded)}
+				<p class="mt-2 font-display text-3xl leading-none text-amber-300 uppercase sm:text-4xl">
+					{data.stats.manualReviewCount}
 				</p>
-				<p class="mt-1 font-mono text-[9px] text-ash/60">
-					Manual registered refunds
-				</p>
+				<p class="mt-1 font-mono text-[9px] text-amber-300/60">Refund decision required</p>
 			</AdminCard>
 		</div>
 	{/snippet}
@@ -323,13 +335,23 @@
 			>
 			<td class="px-5 py-4 font-mono text-[11px] text-bone/85">{methodLabel(payment.method)}</td>
 			<td class="px-5 py-4 font-mono text-[11px]">
-				<span
-					class="inline-flex border px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase {statusClass(
-						payment.status
-					)}"
-				>
-					{payment.status.replace('_', ' ')}
-				</span>
+				<div class="flex flex-wrap gap-1">
+					<span
+						class="inline-flex border px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase {statusClass(
+							payment.status
+						)}"
+					>
+						{payment.status.replace('_', ' ')}
+					</span>
+					{#if payment.requiresManualReview}
+						<span
+							class="inline-flex border border-amber-400/30 bg-amber-400/5 px-2 py-0.5 text-[9px] font-bold tracking-wider text-amber-300 uppercase"
+							title={payment.reviewReason ?? 'Manual review required'}
+						>
+							Review
+						</span>
+					{/if}
+				</div>
 			</td>
 			<td
 				class="truncate px-5 py-4 pr-4 font-mono text-[11px] text-ash/80"
@@ -382,14 +404,29 @@
 					<p class="font-mono text-[8px] tracking-[0.08em] text-ash uppercase">Payment ID</p>
 					<p class="max-w-[150px] truncate font-mono text-xs text-bone/60">{payment.id}</p>
 				</div>
-				<span
-					class="inline-flex border px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase {statusClass(
-						payment.status
-					)}"
-				>
-					{payment.status.replace('_', ' ')}
-				</span>
+				<div class="flex flex-col items-end gap-1">
+					<span
+						class="inline-flex border px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase {statusClass(
+							payment.status
+						)}"
+					>
+						{payment.status.replace('_', ' ')}
+					</span>
+					{#if payment.requiresManualReview}
+						<span class="font-mono text-[8px] tracking-wider text-amber-300 uppercase">
+							Manual review
+						</span>
+					{/if}
+				</div>
 			</div>
+
+			{#if payment.requiresManualReview}
+				<p
+					class="mt-3 border border-amber-400/20 bg-amber-400/5 p-3 font-sans text-xs text-amber-100"
+				>
+					{payment.reviewReason}
+				</p>
+			{/if}
 
 			<div class="mt-4 grid grid-cols-2 gap-4">
 				<div>
@@ -457,7 +494,7 @@
 	{/snippet}
 
 	{#snippet emptyState()}
-		<div class="flex flex-col items-center justify-center py-6 px-4 text-center sm:py-12 sm:px-6">
+		<div class="flex flex-col items-center justify-center px-4 py-6 text-center sm:px-6 sm:py-12">
 			<CreditCard size={36} class="mb-4 text-charcoal" />
 			<h3 class="mb-1 font-display text-xl tracking-tight text-bone uppercase">
 				No payments found

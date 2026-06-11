@@ -140,7 +140,7 @@ export const shippingZoneRelations = relations(shippingZone, ({ one }) => ({
 
 const idSchema = z.string().min(1).max(64);
 
-function validateDeliveryEstimate(
+export function validateDeliveryEstimate(
 	data: { estimatedDaysMin?: number; estimatedDaysMax?: number },
 	ctx: z.RefinementCtx
 ) {
@@ -234,7 +234,7 @@ export const updateCarrierSchema = createUpdateSchema(carrier, {
 }).omit({ id: true, createdAt: true, updatedAt: true });
 
 // SHIPPING METHOD
-const insertShippingMethodBaseSchema = createInsertSchema(shippingMethod, {
+export const insertShippingMethodBaseSchema = createInsertSchema(shippingMethod, {
 	name: z
 		.string()
 		.min(1, { message: 'Method Name is required' })
@@ -276,7 +276,7 @@ export const insertShippingMethodSchema =
 
 export const selectShippingMethodSchema = createSelectSchema(shippingMethod);
 
-export const updateShippingMethodSchema = createUpdateSchema(shippingMethod, {
+export const updateShippingMethodBaseSchema = createUpdateSchema(shippingMethod, {
 	name: z
 		.string()
 		.min(1, { message: 'Method Name is required' })
@@ -315,12 +315,13 @@ export const updateShippingMethodSchema = createUpdateSchema(shippingMethod, {
 		.min(0, { message: 'Sort order cannot be negative' })
 		.optional(),
 	carrierId: idSchema.optional().nullable()
-})
-	.omit({ id: true, createdAt: true, updatedAt: true })
-	.superRefine(validateDeliveryEstimate);
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const updateShippingMethodSchema =
+	updateShippingMethodBaseSchema.superRefine(validateDeliveryEstimate);
 
 // SHIPPING ZONE
-const insertShippingZoneBaseSchema = createInsertSchema(shippingZone, {
+export const insertShippingZoneBaseSchema = createInsertSchema(shippingZone, {
 	shippingMethodId: idSchema,
 	district: z.enum(SRI_LANKA_DISTRICTS),
 	priceOverride: z

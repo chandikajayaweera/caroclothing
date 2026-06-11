@@ -14,6 +14,7 @@ import {
 	buildMediaKey,
 	deleteObjectSafe,
 	getMediaBucket,
+	getMediaBucketOptional,
 	uploadMedia
 } from '$lib/server/infrastructure/media/r2';
 import { mediaUrl } from '$lib/server/infrastructure/media';
@@ -77,7 +78,7 @@ import {
 } from './reviews.types';
 
 type Db = ReturnType<typeof getDb>;
-type ReviewsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type ReviewsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type QueryExecutor = Db | ReviewsTx;
 type User = typeof user.$inferSelect;
 type AnyActor = ServiceActor | SystemActor;
@@ -188,13 +189,19 @@ export async function createReview(
 	const db = getDb();
 
 	await assertProductExistsTx(db, data.productId, { activeOnly: true });
-	if (data.orderId) {
-		await assertVerifiedPurchaseEligibleTx(db, {
-			userId: actor.id,
-			productId: data.productId,
-			orderId: data.orderId
-		});
+
+	const eligibleOrders = await listEligibleReviewOrdersTx(db, actor.id, data.productId);
+	if (eligibleOrders.length === 0) {
+		throw new ReviewError('Verified purchase required to review.', ErrorCode.VALIDATION_ERROR);
 	}
+	data.orderId = data.orderId || eligibleOrders[0].orderId;
+	data.isVerifiedPurchase = true;
+
+	await assertVerifiedPurchaseEligibleTx(db, {
+		userId: actor.id,
+		productId: data.productId,
+		orderId: data.orderId
+	});
 	await assertNoExistingReviewTx(db, actor.id, data.productId);
 
 	const uploadedMedia =
@@ -203,13 +210,19 @@ export async function createReview(
 	try {
 		const createdId = await db.transaction(async (tx) => {
 			await assertProductExistsTx(tx, data.productId, { activeOnly: true });
-			if (data.orderId) {
-				await assertVerifiedPurchaseEligibleTx(tx, {
-					userId: actor.id,
-					productId: data.productId,
-					orderId: data.orderId
-				});
+
+			const txEligibleOrders = await listEligibleReviewOrdersTx(tx, actor.id, data.productId);
+			if (txEligibleOrders.length === 0) {
+				throw new ReviewError('Verified purchase required to review.', ErrorCode.VALIDATION_ERROR);
 			}
+			data.orderId = data.orderId || txEligibleOrders[0].orderId;
+			data.isVerifiedPurchase = true;
+
+			await assertVerifiedPurchaseEligibleTx(tx, {
+				userId: actor.id,
+				productId: data.productId,
+				orderId: data.orderId
+			});
 			await assertNoExistingReviewTx(tx, actor.id, data.productId);
 
 			const [created] = await tx.insert(review).values(data).returning();
@@ -292,9 +305,11 @@ export async function getReviewEligibility(
 		? 'already_reviewed'
 		: !productRow.isActive
 			? 'product_unavailable'
-			: !orderIsEligible
+			: !hasPurchased
 				? 'order_not_eligible'
-				: null;
+				: !orderIsEligible
+					? 'order_not_eligible'
+					: null;
 
 	return {
 		productId,
@@ -581,6 +596,40 @@ export async function deleteReview(ctx: ServiceContext, input: DeleteReviewInput
 	if (bucket) {
 		await Promise.all(existingMedia.map((media) => deleteObjectSafe(bucket, media.r2Key)));
 	}
+}
+
+export async function listReviewMediaKeysForAccountDeletionTx(
+	tx: ReviewsTx,
+	userId: string
+): Promise<string[]> {
+	const rows = await tx
+		.select({ r2Key: reviewMedia.r2Key })
+		.from(reviewMedia)
+		.innerJoin(review, eq(reviewMedia.reviewId, review.id))
+		.where(eq(review.userId, normalizeId(userId, 'userId')));
+
+	return uniqueStrings(rows.map((row) => row.r2Key));
+}
+
+export async function deleteReviewMediaObjectsForAccountDeletion(
+	ctx: ServiceContext,
+	keys: string[]
+): Promise<void> {
+	const uniqueKeys = uniqueStrings(keys);
+	if (uniqueKeys.length === 0) return;
+
+	if (!ctx.event) {
+		console.error('[reviews] Cannot clean deleted account media without a request event.');
+		return;
+	}
+
+	const bucket = getMediaBucketOptional(ctx.event);
+	if (!bucket) {
+		console.error('[reviews] Cannot clean deleted account media because R2 is not configured.');
+		return;
+	}
+
+	await Promise.all(uniqueKeys.map((key) => deleteObjectSafe(bucket, key)));
 }
 
 async function listPublicReviewsByWhere(

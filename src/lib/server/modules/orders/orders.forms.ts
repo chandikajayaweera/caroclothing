@@ -78,19 +78,69 @@ export const checkoutShippingAddressFormSchema = z.union([
 	checkoutAddressFormSchema
 ]);
 
+export const checkoutPlaceOrderFormSchema = z
+	.object({
+		useSavedAddress: z.enum(['true', 'false']).transform((value) => value === 'true'),
+		addressId: optionalIdSchema,
+		recipientName: z.preprocess(emptyStringToUndefined, z.string().trim().max(150).optional()),
+		phone: z.preprocess(
+			emptyStringToUndefined,
+			z
+				.string()
+				.trim()
+				.regex(/^(?:\+94|0)7[0-9]{8}$/, 'Must be a valid Sri Lankan mobile number')
+				.optional()
+		),
+		addressLine1: z.preprocess(emptyStringToUndefined, z.string().trim().max(255).optional()),
+		addressLine2: optionalNullableStringSchema(255),
+		city: z.preprocess(emptyStringToUndefined, z.string().trim().max(100).optional()),
+		district: z.preprocess(emptyStringToUndefined, z.enum(SRI_LANKA_DISTRICTS).optional()),
+		postalCode: optionalNullableStringSchema(10),
+		shippingMethodId: idSchema,
+		paymentMethod: z.enum(PAYMENT_METHODS),
+		billingEmail: z.preprocess(emptyStringToUndefined, z.email().optional()),
+		customerNote: optionalNullableStringSchema(1000)
+	})
+	.superRefine((value, ctx) => {
+		if (value.useSavedAddress) {
+			if (!value.addressId) {
+				ctx.addIssue({
+					code: 'custom',
+					path: ['addressId'],
+					message: 'Select a saved address'
+				});
+			}
+			return;
+		}
+
+		const requiredFields = [
+			['recipientName', value.recipientName, 'Enter the recipient name'],
+			['phone', value.phone, 'Enter a mobile number'],
+			['addressLine1', value.addressLine1, 'Enter the delivery address'],
+			['city', value.city, 'Enter the city'],
+			['district', value.district, 'Select a district']
+		] as const;
+
+		for (const [path, fieldValue, message] of requiredFields) {
+			if (!fieldValue) {
+				ctx.addIssue({ code: 'custom', path: [path], message });
+			}
+		}
+	});
+
 export const orderLookupFormSchema = z.union([
 	z.object({ id: idSchema }),
 	z.object({ orderNumber: z.string().min(1).max(50) })
 ]);
 
-export const previewOrderFromCartFormSchema = z.object({
+export const previewOrderFromBagFormSchema = z.object({
 	sessionToken: z.preprocess(emptyStringToUndefined, idSchema.optional().nullable()),
 	shippingAddress: checkoutShippingAddressFormSchema,
 	shippingMethodId: idSchema,
 	promoCode: promoCodeSchema
 });
 
-export const placeOrderFromCartFormSchema = previewOrderFromCartFormSchema.safeExtend({
+export const placeOrderFromBagFormSchema = previewOrderFromBagFormSchema.safeExtend({
 	paymentMethod: z.enum(PAYMENT_METHODS),
 	customerNote: optionalNullableStringSchema(1000),
 	bankSlipR2Key: optionalNullableStringSchema(500),

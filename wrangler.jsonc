@@ -7,7 +7,10 @@
 	"name": "caroclothing",
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"compatibility_date": "2026-04-15",
-	"compatibility_flags": ["nodejs_compat", "nodejs_als"],
+	"compatibility_flags": [
+		"nodejs_compat",
+		"nodejs_als"
+	],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
@@ -42,11 +45,13 @@
 	"preview_urls": true,
 	"triggers": {
 		"crons": [
+			// Timed checkout stock reservation expiry.
+			"* * * * *",
 			// Drop launch + waitlist notifications.
 			"*/5 * * * *",
 			// Pending online payment order auto-cancel.
 			"*/10 * * * *",
-			// Expired guest cart cleanup + inventory reservation release.
+			// Expired guest bag cleanup + inventory reservation release.
 			"0 * * * *",
 			// Daily promo usedCount reconciliation. Cron times are UTC.
 			"17 20 * * *"
@@ -90,7 +95,6 @@
 			"TEXT_LK_API_KEY"
 		]
 	},
-
 	"kv_namespaces": [
 		{
 			"binding": "OTP_COOLDOWNS",
@@ -98,7 +102,6 @@
 			"remote": true
 		}
 	],
-
 	"env": {
 		"staging": {
 			"name": "caroclothing-staging",
@@ -138,7 +141,13 @@
 				}
 			],
 			"triggers": {
-				"crons": ["*/5 * * * *", "*/10 * * * *", "0 * * * *", "17 20 * * *"]
+				"crons": [
+					"* * * * *",
+					"*/5 * * * *",
+					"*/10 * * * *",
+					"0 * * * *",
+					"17 20 * * *"
+				]
 			},
 			"queues": {
 				"producers": [

@@ -1,26 +1,36 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import {
+		ArrowLeft,
+		CheckCircle2,
+		Circle,
+		CreditCard,
+		ExternalLink,
+		MapPin,
+		Package,
+		Truck
+	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	const order = $derived(data.order);
 	const address = $derived(order.shippingAddressSnapshot);
-	const timeline = $derived([
-		{ label: 'Order Placed', done: true, date: order.createdAt },
-		{ label: 'Confirmed', done: order.confirmedAt !== null, date: order.confirmedAt },
-		{
-			label: 'Processing',
-			done: ['processing', 'shipped', 'delivered'].includes(order.status),
-			date: null
-		},
-		{ label: 'Shipped', done: order.shippedAt !== null, date: order.shippedAt },
-		{ label: 'Delivered', done: order.deliveredAt !== null, date: order.deliveredAt }
-	]);
-	const currentStepIndex = $derived(Math.max(timeline.findIndex((step) => !step.done) - 1, 0));
+	const history = $derived(
+		order.statusHistory?.length
+			? order.statusHistory
+			: [
+					{
+						id: 'created',
+						toStatus: order.status,
+						note: null,
+						createdAt: order.createdAt
+					}
+				]
+	);
 
 	function formatDate(value: Date | string | null): string {
-		if (!value) return '';
+		if (!value) return 'Not available';
 		return new Intl.DateTimeFormat('en-LK', {
 			dateStyle: 'medium',
 			timeStyle: 'short'
@@ -28,7 +38,15 @@
 	}
 
 	function formatMoney(value: number): string {
-		return `LKR ${value.toLocaleString()}`;
+		return `LKR ${value.toLocaleString('en-LK')}`;
+	}
+
+	function formatLabel(value: string): string {
+		return value.replace(/_/g, ' ');
+	}
+
+	function openTrackingUrl(url: string): void {
+		window.open(url, '_blank', 'noopener,noreferrer');
 	}
 </script>
 
@@ -37,127 +55,192 @@
 	<meta name="description" content="Order details for {order.orderNumber}" />
 </svelte:head>
 
-<div class="flex flex-col gap-10">
-	<div class="flex flex-col gap-2">
+<div class="space-y-10">
+	<header class="border-b border-charcoal pb-6">
 		<a
 			href={resolve('/account/orders')}
-			class="mb-4 block font-mono text-[9px] tracking-widest text-ash uppercase hover:text-bone"
+			class="inline-flex min-h-11 items-center gap-2 font-mono text-[9px] tracking-widest text-ash uppercase hover:text-volt"
 		>
-			Back to Orders
+			<ArrowLeft size={14} aria-hidden="true" />
+			All orders
 		</a>
-		<h1 class="font-display text-4xl text-bone uppercase">Order {order.orderNumber}</h1>
-		<span class="font-mono text-[9px] tracking-widest text-ash uppercase">
-			{formatDate(order.createdAt)}
-		</span>
-	</div>
+		<div class="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+			<div>
+				<p class="font-mono text-[9px] tracking-[0.22em] text-volt uppercase">Order details</p>
+				<h1 class="mt-2 font-display text-4xl leading-none uppercase sm:text-5xl">
+					{order.orderNumber}
+				</h1>
+				<p class="mt-3 font-mono text-[9px] text-ash">{formatDate(order.createdAt)}</p>
+			</div>
+			<span
+				class="w-fit border border-volt/30 px-3 py-2 font-mono text-[9px] tracking-widest text-volt uppercase"
+			>
+				{formatLabel(order.status)}
+			</span>
+		</div>
+	</header>
 
-	<div class="lg:grid lg:grid-cols-2 lg:gap-16">
-		<div class="flex flex-col gap-10">
-			<section class="flex flex-col gap-6">
-				<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Items</h2>
-				<div class="flex flex-col gap-4">
+	<div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
+		<div class="space-y-10">
+			<section>
+				<div class="flex items-center gap-3">
+					<Package size={18} class="text-volt" aria-hidden="true" />
+					<h2 class="font-display text-3xl uppercase">Items</h2>
+				</div>
+				<div class="mt-5 divide-y divide-charcoal border-y border-charcoal">
 					{#each order.items ?? [] as item (item.id)}
-						<div class="flex gap-4">
+						<div
+							class="grid grid-cols-[64px_1fr] gap-4 py-5 sm:grid-cols-[72px_1fr_auto] sm:items-center"
+						>
 							{#if item.imageUrl}
-								<img src={item.imageUrl} alt="" class="h-20 w-16 object-cover" />
+								<img
+									src={item.imageUrl}
+									alt=""
+									class="h-20 w-16 bg-charcoal object-cover sm:h-24 sm:w-18"
+								/>
 							{:else}
-								<div class="h-20 w-16 bg-charcoal"></div>
+								<div class="h-20 w-16 bg-charcoal/40 sm:h-24 sm:w-18"></div>
 							{/if}
-							<div class="flex flex-col justify-center">
-								<span class="font-sans text-sm font-medium text-bone uppercase">
-									{item.productName}
-								</span>
-								<span class="font-mono text-[9px] tracking-widest text-ash uppercase">
-									{item.variantSize} / {item.variantColor} / QTY {item.quantity}
-								</span>
+							<div>
+								<h3 class="text-sm font-medium text-bone uppercase">{item.productName}</h3>
+								<p class="mt-2 font-mono text-[9px] tracking-widest text-ash uppercase">
+									{item.variantColor} / {item.variantSize} / Qty {item.quantity}
+								</p>
+								<p class="mt-1 font-mono text-[9px] text-ash">
+									{formatMoney(item.unitPrice)} each
+								</p>
 							</div>
-							<span class="ml-auto self-center font-mono text-xs text-bone">
+							<p class="col-start-2 font-mono text-sm text-bone sm:col-auto">
 								{formatMoney(item.totalPrice)}
-							</span>
+							</p>
 						</div>
 					{/each}
 				</div>
 			</section>
 
-			<section class="flex flex-col gap-6 border-t border-charcoal pt-8">
-				<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Shipping Address</h2>
-				{#if address}
-					<div class="font-sans text-sm leading-relaxed text-bone">
-						<p class="font-medium">{address.recipientName}</p>
-						<p>{address.addressLine1}</p>
-						{#if address.addressLine2}
-							<p>{address.addressLine2}</p>
-						{/if}
-						<p>{address.city}, {address.district}</p>
-						<p>{address.country}</p>
+			<section class="grid gap-8 border-t border-charcoal pt-8 md:grid-cols-2">
+				<div>
+					<div class="flex items-center gap-3">
+						<MapPin size={18} class="text-volt" aria-hidden="true" />
+						<h2 class="font-display text-2xl uppercase">Delivery address</h2>
 					</div>
-				{:else}
-					<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
-						Shipping address unavailable.
-					</p>
-				{/if}
-			</section>
-
-			<section class="flex flex-col gap-4 border-t border-charcoal pt-8">
-				<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Summary</h2>
-				<div class="flex flex-col gap-2">
-					<div class="flex justify-between font-mono text-[10px] uppercase">
-						<span class="text-ash">Subtotal</span>
-						<span class="text-bone">{formatMoney(order.subtotal)}</span>
-					</div>
-					{#if order.discountAmount > 0}
-						<div class="flex justify-between font-mono text-[10px] uppercase">
-							<span class="text-ash">Discount</span>
-							<span class="text-volt">-{formatMoney(order.discountAmount)}</span>
+					{#if address}
+						<div class="mt-4 text-sm leading-relaxed text-ash">
+							<p class="font-medium text-bone">{address.recipientName}</p>
+							<p>{address.addressLine1}</p>
+							{#if address.addressLine2}<p>{address.addressLine2}</p>{/if}
+							<p>{address.city}, {address.district}</p>
+							<p>{address.postalCode ?? ''} {address.country}</p>
+							<p class="mt-2 font-mono text-[10px]">{address.phone}</p>
 						</div>
+					{:else}
+						<p class="mt-4 text-sm text-ash">Shipping address unavailable.</p>
 					{/if}
-					<div class="flex justify-between font-mono text-[10px] uppercase">
-						<span class="text-ash">Shipping</span>
-						<span class="text-bone">{formatMoney(order.shippingAmount)}</span>
+				</div>
+
+				<div>
+					<div class="flex items-center gap-3">
+						<Truck size={18} class="text-volt" aria-hidden="true" />
+						<h2 class="font-display text-2xl uppercase">Shipping</h2>
 					</div>
-					<div class="mt-2 flex justify-between font-mono text-sm font-bold uppercase">
-						<span class="text-bone">Total</span>
-						<span class="text-bone">{formatMoney(order.totalAmount)}</span>
+					<div class="mt-4 space-y-2 text-sm text-ash">
+						<p class="text-bone">{order.shippingMethodSnapshot?.name ?? 'Delivery method'}</p>
+						{#if order.trackingCarrier}<p>{order.trackingCarrier}</p>{/if}
+						{#if order.trackingNumber}<p class="font-mono text-[10px]">
+								{order.trackingNumber}
+							</p>{/if}
+						{#if order.trackingUrl}
+							<button
+								type="button"
+								onclick={() => openTrackingUrl(order.trackingUrl!)}
+								class="inline-flex min-h-11 items-center gap-2 font-mono text-[9px] tracking-widest text-volt uppercase hover:text-bone"
+							>
+								Track shipment
+								<ExternalLink size={13} aria-hidden="true" />
+							</button>
+						{/if}
 					</div>
 				</div>
 			</section>
-		</div>
 
-		<div class="mt-12 lg:mt-0">
-			<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase">Order Status</h2>
-			<div class="mt-8 flex flex-col gap-0">
-				{#each timeline as step, i (step.label)}
-					<div class="relative flex items-start gap-4 pb-8 last:pb-0">
-						{#if i < timeline.length - 1}
-							<div class="absolute top-4 left-[5.5px] h-full w-px bg-charcoal">
-								<div
-									class="w-full bg-volt transition-all duration-500"
-									style="height: {step.done && timeline[i + 1].done ? '100%' : '0%'}"
-								></div>
-							</div>
-						{/if}
-
-						<div
-							class="z-10 mt-0.5 h-3 w-3 flex-shrink-0 rounded-full transition-all duration-300
-							{step.done ? 'bg-volt' : i === currentStepIndex + 1 ? 'bg-volt ring-4 ring-volt/20' : 'bg-ash/20'}"
-						></div>
-
-						<div class="flex flex-col gap-0.5">
-							<span
-								class="font-mono text-xs tracking-widest uppercase
-								{step.done ? 'text-bone' : 'text-ash/40'}"
-							>
-								{step.label}
-							</span>
-							{#if step.date}
-								<span class="font-mono text-[9px] tracking-widest text-ash/60 uppercase">
-									{formatDate(step.date)}
-								</span>
-							{/if}
-						</div>
+			{#if order.payments?.length}
+				<section class="border-t border-charcoal pt-8">
+					<div class="flex items-center gap-3">
+						<CreditCard size={18} class="text-volt" aria-hidden="true" />
+						<h2 class="font-display text-2xl uppercase">Payment</h2>
 					</div>
-				{/each}
-			</div>
+					<div class="mt-4 divide-y divide-charcoal border-y border-charcoal">
+						{#each order.payments as payment (payment.id)}
+							<div class="grid gap-2 py-4 sm:grid-cols-3 sm:items-center">
+								<p class="font-mono text-[10px] tracking-widest text-bone uppercase">
+									{formatLabel(payment.method)}
+								</p>
+								<p class="font-mono text-[9px] text-ash uppercase">{formatLabel(payment.status)}</p>
+								<p class="font-mono text-sm text-bone sm:text-right">
+									{formatMoney(payment.amount)}
+								</p>
+							</div>
+						{/each}
+					</div>
+				</section>
+			{/if}
 		</div>
+
+		<aside class="space-y-8">
+			<section class="border border-charcoal p-5 lg:sticky lg:top-24">
+				<h2 class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Order total</h2>
+				<dl class="mt-5 space-y-3 font-mono text-[10px] uppercase">
+					<div class="flex justify-between gap-4">
+						<dt class="text-ash">Subtotal</dt>
+						<dd>{formatMoney(order.subtotal)}</dd>
+					</div>
+					{#if order.discountAmount > 0}
+						<div class="flex justify-between gap-4">
+							<dt class="text-ash">Discount</dt>
+							<dd class="text-volt">-{formatMoney(order.discountAmount)}</dd>
+						</div>
+					{/if}
+					<div class="flex justify-between gap-4">
+						<dt class="text-ash">Shipping</dt>
+						<dd>{formatMoney(order.shippingAmount)}</dd>
+					</div>
+					<div class="flex justify-between gap-4 border-t border-charcoal pt-4 text-sm">
+						<dt>Total</dt>
+						<dd>{formatMoney(order.totalAmount)}</dd>
+					</div>
+				</dl>
+			</section>
+
+			<section>
+				<h2 class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">Status history</h2>
+				<ol class="mt-5 space-y-0">
+					{#each history as event, index (event.id)}
+						<li class="relative flex gap-4 pb-7 last:pb-0">
+							{#if index < history.length - 1}
+								<span class="absolute top-4 left-[7px] h-full w-px bg-charcoal"></span>
+							{/if}
+							{#if index === history.length - 1}
+								<CheckCircle2
+									size={16}
+									class="z-10 shrink-0 bg-void text-volt"
+									aria-hidden="true"
+								/>
+							{:else}
+								<Circle size={16} class="z-10 shrink-0 bg-void text-ash/50" aria-hidden="true" />
+							{/if}
+							<div>
+								<p class="font-mono text-[10px] tracking-widest text-bone uppercase">
+									{formatLabel(event.toStatus)}
+								</p>
+								<p class="mt-1 font-mono text-[8px] text-ash">{formatDate(event.createdAt)}</p>
+								{#if event.note}<p class="mt-2 text-xs leading-relaxed text-ash">
+										{event.note}
+									</p>{/if}
+							</div>
+						</li>
+					{/each}
+				</ol>
+			</section>
+		</aside>
 	</div>
 </div>

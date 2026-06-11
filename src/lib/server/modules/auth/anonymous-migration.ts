@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
-import { mergeUserCartIntoUserCartTx, type CartTx } from '$lib/server/modules/cart/cart.service';
+import { mergeUserBagIntoUserBagTx, type BagTx } from '$lib/server/modules/bag/bag.service';
 import {
 	linkDropWaitlistEntriesFromUserToUserTx,
 	type DropsTx
@@ -41,7 +41,7 @@ export async function migrateAnonymousUserData(anonymousUserId: string, targetUs
 				targetUserId: destinationUserId
 			});
 
-			await mergeUserCartIntoUserCartTx(tx as CartTx, ctx, { sourceUserId });
+			await mergeUserBagIntoUserBagTx(tx as BagTx, ctx, { sourceUserId });
 			await mergeWishlistIntoUserTx(tx as WishlistTx, ctx, { sourceUserId });
 			await linkDropWaitlistEntriesFromUserToUserTx(tx as DropsTx, ctx, {
 				sourceUserId,

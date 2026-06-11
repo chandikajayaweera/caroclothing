@@ -12,12 +12,20 @@
 	import { onDestroy } from 'svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import { getClientEnv } from '$lib/client/modules/env';
+	import {
+		MAX_DISPLAY_NAME_LENGTH,
+		MIN_DISPLAY_NAME_LENGTH,
+		isPhoneDerivedDisplayName,
+		isValidDisplayName
+	} from '$lib/shared/modules/auth-profile';
 
 	type RedirectPath =
 		| '/'
 		| '/account'
 		| '/account/addresses'
 		| '/account/orders'
+		| '/account/reviews'
+		| '/account/security'
 		| '/account/wishlist'
 		| '/app'
 		| '/bag'
@@ -31,6 +39,8 @@
 		'/account',
 		'/account/addresses',
 		'/account/orders',
+		'/account/reviews',
+		'/account/security',
 		'/account/wishlist',
 		'/app',
 		'/bag',
@@ -40,7 +50,6 @@
 	]);
 	const PHONE_DIGITS_PATTERN = /^7\d{8}$/;
 	const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
-	const MAX_DISPLAY_NAME_LENGTH = 80;
 	const env = getClientEnv();
 	type RedirectTarget = {
 		pathname: RedirectPath;
@@ -69,10 +78,6 @@
 		return { pathname: pathname as RedirectPath, suffix, href: `${pathname}${suffix}` };
 	}
 
-	function resolveRedirectTarget(target: RedirectTarget): string {
-		return `${resolve(target.pathname)}${target.suffix}`;
-	}
-
 	function getOtpCooldownSeconds(): number {
 		return Math.max(1, Math.ceil(Number(env.PUBLIC_OTP_COOLDOWN_SECONDS) || 30));
 	}
@@ -89,7 +94,6 @@
 	let rawDigits = $state('');
 	let otpCode = $state('');
 	let displayName = $state('');
-	let pendingAuthMethod = $state<'google' | 'phone' | null>(null);
 
 	// ─── Async state ─────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -162,28 +166,6 @@
 	});
 
 	// ─── Helpers ─────────────────────────────────────────────────────────────────
-	function isNewUser(createdAt: string | Date): boolean {
-		return Date.now() - new Date(createdAt).getTime() < 300_000;
-	}
-
-	function normalizeDigits(value: string | null | undefined): string {
-		return value?.replace(/\D/g, '') ?? '';
-	}
-
-	function shouldSeedDisplayName(user: {
-		email?: string | null;
-		name?: string | null;
-		phoneNumber?: string | null;
-	}): boolean {
-		if (pendingAuthMethod === 'phone') return false;
-		if (user.email?.includes(PHONE_EMAIL_DOMAIN)) return false;
-
-		const nameDigits = normalizeDigits(user.name);
-		const phoneDigits = normalizeDigits(user.phoneNumber);
-
-		return !nameDigits || !phoneDigits || nameDigits !== phoneDigits;
-	}
-
 	function formatCountdown(seconds: number): string {
 		const minutes = Math.floor(seconds / 60);
 		const remainingSeconds = seconds % 60;
@@ -197,11 +179,17 @@
 		name?: string | null;
 		phoneNumber?: string | null;
 	}) {
-		if (isNewUser(user.createdAt)) {
-			displayName = shouldSeedDisplayName(user) ? (user.name?.trim() ?? '') : '';
+		const hasPhoneAccount = Boolean(
+			user.phoneNumber || user.email?.toLowerCase().endsWith(PHONE_EMAIL_DOMAIN)
+		);
+
+		if (hasPhoneAccount && isPhoneDerivedDisplayName(user.name, user.phoneNumber)) {
+			displayName = '';
 			view = 'name-prompt';
+			redirecting = false;
 		} else {
-			await goto(resolveRedirectTarget(redirectTarget));
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(`${resolve(redirectTarget.pathname)}${redirectTarget.suffix}`);
 		}
 	}
 
@@ -209,7 +197,6 @@
 		if (loading) return;
 		clearErrorMessage();
 		loading = true;
-		pendingAuthMethod = 'google';
 		try {
 			const callbackURL =
 				redirectTarget.href === DEFAULT_REDIRECT_TO
@@ -265,7 +252,6 @@
 		if (loading || otpCode.length !== 6) return;
 		clearErrorMessage();
 		loading = true;
-		pendingAuthMethod = 'phone';
 		try {
 			const { data, error: err } = await authClient.phoneNumber.verify({
 				phoneNumber: '+94' + rawDigits,
@@ -302,18 +288,19 @@
 		loading = true;
 		try {
 			const trimmed = displayName.trim();
-			if (trimmed.length > MAX_DISPLAY_NAME_LENGTH) {
-				setErrorMessage(`Name must be ${MAX_DISPLAY_NAME_LENGTH} characters or less.`);
+			if (!isValidDisplayName(trimmed)) {
+				setErrorMessage(
+					`Enter your name using ${MIN_DISPLAY_NAME_LENGTH}-${MAX_DISPLAY_NAME_LENGTH} characters.`
+				);
 				return;
 			}
-			if (trimmed) {
-				const { error: err } = await authClient.updateUser({ name: trimmed });
-				if (err) {
-					setErrorMessage(parseAuthError(err));
-					return;
-				}
+			const { error: err } = await authClient.updateUser({ name: trimmed });
+			if (err) {
+				setErrorMessage(parseAuthError(err));
+				return;
 			}
-			await goto(resolveRedirectTarget(redirectTarget));
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(`${resolve(redirectTarget.pathname)}${redirectTarget.suffix}`);
 		} catch (e) {
 			setErrorMessage(parseUnknownError(e));
 		} finally {
@@ -525,12 +512,13 @@
 				<div class="space-y-10">
 					<div class="space-y-4">
 						<label for="name-input" class="font-mono text-[10px] tracking-widest text-ash uppercase"
-							>Your Name (Optional)</label
+							>Full Name</label
 						>
 						<input
 							id="name-input"
 							type="text"
-							placeholder="AMARA"
+							autocomplete="name"
+							placeholder="AMARA PERERA"
 							maxlength={MAX_DISPLAY_NAME_LENGTH}
 							bind:value={displayName}
 							class="font-bebas w-full border-b-2 border-charcoal bg-transparent px-0 py-4 text-4xl tracking-widest text-bone uppercase transition-colors placeholder:text-charcoal focus:border-volt focus:ring-0"
@@ -542,17 +530,10 @@
 							variant="primary"
 							class="h-16 w-full text-xl"
 							onclick={handleSaveName}
-							disabled={loading}
+							disabled={loading || !isValidDisplayName(displayName)}
 						>
 							Start Shopping
 						</Button>
-						<button
-							type="button"
-							onclick={() => goto(resolveRedirectTarget(redirectTarget))}
-							class="w-full text-center font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:text-bone"
-						>
-							Skip
-						</button>
 					</div>
 				</div>
 			{/if}

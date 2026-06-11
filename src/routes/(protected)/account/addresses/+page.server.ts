@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import type { Actions, PageServerLoad } from './$types';
@@ -10,30 +10,26 @@ import {
 	listMyAddresses,
 	listSriLankaDistrictOptions,
 	setDefaultAddress,
-	setDefaultAddressFormSchema
+	setDefaultAddressFormSchema,
+	updateAddress,
+	updateMyAddressFormSchema
 } from '$lib/server/modules/addresses';
 import { formFailFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-
-function requireAccountContext(locals: App.Locals, url: URL) {
-	if (!locals.user || locals.user.isAnonymous) {
-		const redirectTo = `${url.pathname}${url.search}`;
-		throw redirect(302, `/sign-in?redirectTo=${encodeURIComponent(redirectTo)}`);
-	}
-
-	return { actor: locals.user };
-}
+import { requireAccountContext } from '../_account.server';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const ctx = requireAccountContext(locals, url);
-	const [addresses, form] = await Promise.all([
+	const [addresses, form, updateForm] = await Promise.all([
 		listMyAddresses(ctx),
-		superValidate(zod4(createAddressFormSchema), { id: 'createAddress' })
+		superValidate(zod4(createAddressFormSchema), { id: 'createAddress', errors: false }),
+		superValidate(zod4(updateMyAddressFormSchema), { id: 'updateAddress', errors: false })
 	]);
 
 	return {
 		addresses,
 		districts: listSriLankaDistrictOptions(),
-		form
+		form,
+		updateForm
 	};
 };
 
@@ -49,6 +45,22 @@ export const actions: Actions = {
 		try {
 			await createAddress(ctx, form.data);
 			return message(form, 'Address saved.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+
+	update: async ({ locals, request, url }) => {
+		const ctx = requireAccountContext(locals, url);
+		const form = await superValidate(request, zod4(updateMyAddressFormSchema), {
+			id: 'updateAddress'
+		});
+
+		if (!form.valid) return fail(400, { form });
+
+		try {
+			await updateAddress(ctx, form.data);
+			return message(form, 'Address updated.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

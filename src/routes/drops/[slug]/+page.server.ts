@@ -14,9 +14,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			.map((p) => p.product)
 			.filter((p): p is NonNullable<typeof p> => p !== null);
 		const variantIds = productsToMap.flatMap((p) => p.variants.map((v) => v.id));
-		const availability = variantIds.length > 0
-			? await getInventoryAvailabilityByVariantIds(ctx, { variantIds })
-			: [];
+		const availability =
+			variantIds.length > 0 ? await getInventoryAvailabilityByVariantIds(ctx, { variantIds }) : [];
 		const availabilityMap = new Map(availability.map((a) => [a.variantId, a]));
 
 		for (const dp of drop.products) {
@@ -65,13 +64,12 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	}
 };
 
-
 export const actions: Actions = {
 	joinWaitlist: async ({ request, locals }) => {
 		const ctx = { actor: locals.user ?? null };
 		const formData = await request.formData();
 		const dropId = formData.get('dropId') as string;
-		const contact = (formData.get('contact') as string || '').trim();
+		const contact = ((formData.get('contact') as string) || '').trim();
 
 		if (!contact) {
 			return { success: false, message: 'Contact details are required' };

@@ -1,5 +1,29 @@
 import { z } from 'zod';
 import { userRoleIds } from '$lib/shared/modules/access-control';
+import {
+	MAX_DISPLAY_NAME_LENGTH,
+	MIN_DISPLAY_NAME_LENGTH,
+	isValidDisplayName
+} from '$lib/shared/modules/auth-profile';
+
+export const updateMyDisplayNameFormSchema = z.object({
+	name: z
+		.string()
+		.trim()
+		.min(MIN_DISPLAY_NAME_LENGTH, {
+			message: `Name must be at least ${MIN_DISPLAY_NAME_LENGTH} characters`
+		})
+		.max(MAX_DISPLAY_NAME_LENGTH, {
+			message: `Name cannot exceed ${MAX_DISPLAY_NAME_LENGTH} characters`
+		})
+		.refine(isValidDisplayName, {
+			message: 'Enter your name, not a phone number'
+		})
+});
+
+export const revokeMySessionFormSchema = z.object({
+	sessionId: z.string().min(1, { message: 'Session ID is required' })
+});
 
 export const setUserRoleFormSchema = z.object({
 	userId: z.string().min(1, { message: 'User ID is required' }),

@@ -3,14 +3,14 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import {
-	deleteExpiredGuestCarts,
-	deleteExpiredGuestCartsFormSchema,
-	listCarts,
-	deleteCart,
-	getCartSummary,
-	type CartOwnerType,
-	type ListCartsOptions
-} from '$lib/server/modules/cart';
+	deleteExpiredGuestBags,
+	deleteExpiredGuestBagsFormSchema,
+	listBags,
+	deleteBag,
+	getBagSummary,
+	type BagOwnerType,
+	type ListBagsOptions
+} from '$lib/server/modules/bag';
 import {
 	formFailFromAppError,
 	throwHttpFromAppError
@@ -20,7 +20,7 @@ function getAdminContext(locals: App.Locals) {
 	return { actor: locals.user };
 }
 
-function getListOptions(url: URL): ListCartsOptions {
+function getListOptions(url: URL): ListBagsOptions {
 	const ownerType = getOwnerType(url.searchParams.get('ownerType'));
 	const userId = url.searchParams.get('userId')?.trim() || undefined;
 	const limit = getIntegerParam(url.searchParams.get('limit'));
@@ -48,7 +48,7 @@ function getListOptions(url: URL): ListCartsOptions {
 	};
 }
 
-function getOwnerType(value: string | null): CartOwnerType | undefined {
+function getOwnerType(value: string | null): BagOwnerType | undefined {
 	if (value === 'user' || value === 'guest') return value;
 	return undefined;
 }
@@ -64,16 +64,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const ctx = getAdminContext(locals);
 
 	try {
-		const [carts, summary, cleanupForm] = await Promise.all([
-			listCarts(ctx, getListOptions(url)),
-			getCartSummary(ctx),
-			superValidate(zod4(deleteExpiredGuestCartsFormSchema), {
-				id: 'deleteExpiredGuestCarts'
+		const [bags, summary, cleanupForm] = await Promise.all([
+			listBags(ctx, getListOptions(url)),
+			getBagSummary(ctx),
+			superValidate(zod4(deleteExpiredGuestBagsFormSchema), {
+				id: 'deleteExpiredGuestBags'
 			})
 		]);
 
 		return {
-			carts,
+			bags,
 			summary,
 			filters: {
 				ownerType: getOwnerType(url.searchParams.get('ownerType')) ?? '',
@@ -82,8 +82,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				includeExpired:
 					url.searchParams.get('includeExpired') === 'true' ||
 					url.searchParams.get('includeInactive') === 'true',
-				limit: getIntegerParam(url.searchParams.get('limit')) ?? carts.limit,
-				offset: getIntegerParam(url.searchParams.get('offset')) ?? carts.offset
+				limit: getIntegerParam(url.searchParams.get('limit')) ?? bags.limit,
+				offset: getIntegerParam(url.searchParams.get('offset')) ?? bags.offset
 			},
 			cleanupForm
 		};
@@ -95,17 +95,17 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 export const actions: Actions = {
 	deleteExpired: async ({ locals, request }) => {
 		const ctx = getAdminContext(locals);
-		const form = await superValidate(request, zod4(deleteExpiredGuestCartsFormSchema), {
-			id: 'deleteExpiredGuestCarts'
+		const form = await superValidate(request, zod4(deleteExpiredGuestBagsFormSchema), {
+			id: 'deleteExpiredGuestBags'
 		});
 
 		if (!form.valid) return fail(400, { form });
 
 		try {
-			const result = await deleteExpiredGuestCarts(ctx, { limit: form.data.limit });
+			const result = await deleteExpiredGuestBags(ctx, { limit: form.data.limit });
 			return message(
 				form,
-				`Deleted ${result.deletedCount} expired carts and released ${result.releasedQuantity} reserved items.`
+				`Deleted ${result.deletedCount} expired bags and released ${result.releasedQuantity} reserved items.`
 			);
 		} catch (error) {
 			return formFailFromAppError(form, error);
@@ -114,21 +114,21 @@ export const actions: Actions = {
 	delete: async ({ locals, request }) => {
 		const ctx = getAdminContext(locals);
 		const data = await request.formData();
-		const cartId = data.get('cartId') as string;
+		const bagId = data.get('bagId') as string;
 
-		if (!cartId) {
-			return fail(400, { message: 'Cart ID is required.' });
+		if (!bagId) {
+			return fail(400, { message: 'Bag ID is required.' });
 		}
 
 		try {
-			const result = await deleteCart(ctx, { cartId });
+			const result = await deleteBag(ctx, { bagId });
 			return {
 				success: true,
-				message: `Deleted cart successfully. Released ${result.releasedQuantity} reserved items.`
+				message: `Deleted bag successfully. Released ${result.releasedQuantity} reserved items.`
 			};
 		} catch (error) {
 			return fail(400, {
-				message: error instanceof Error ? error.message : 'Failed to delete cart.'
+				message: error instanceof Error ? error.message : 'Failed to delete bag.'
 			});
 		}
 	}

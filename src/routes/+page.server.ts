@@ -1,9 +1,13 @@
-import type { PageServerLoad } from './$types';
+import type { PageServerLoad, Actions } from './$types';
+import { fail } from '@sveltejs/kit';
 import { listProducts } from '$lib/server/modules/products';
-import { listDrops } from '$lib/server/modules/drops';
+import { listDrops, joinDropWaitlist, joinDropWaitlistFormSchema } from '$lib/server/modules/drops';
 import { listRecentApprovedReviews } from '$lib/server/modules/reviews';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
-import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import {
+	throwHttpFromAppError,
+	failFromAppError
+} from '$lib/server/infrastructure/errors/route-adapter';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const actor = locals.user
@@ -22,7 +26,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// Fallback to active/live drop if no upcoming drops exist
 		let featuredDrop = dropsResult.items[0] || null;
 		if (!featuredDrop) {
-			const activeDrops = await listDrops(ctx, { status: 'live', limit: 1, includeArchived: false });
+			const activeDrops = await listDrops(ctx, {
+				status: 'live',
+				limit: 1,
+				includeArchived: false
+			});
 			featuredDrop = activeDrops.items[0] || null;
 		}
 
@@ -38,9 +46,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 
 		const variantIds = allProducts.flatMap((p) => p.variants.map((v) => v.id));
-		const availability = variantIds.length > 0
-			? await getInventoryAvailabilityByVariantIds(ctx, { variantIds })
-			: [];
+		const availability =
+			variantIds.length > 0 ? await getInventoryAvailabilityByVariantIds(ctx, { variantIds }) : [];
 		const availabilityMap = new Map(availability.map((a) => [a.variantId, a]));
 
 		const mapStockStatus = (p: any) => {
@@ -96,3 +103,32 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 };
 
+export const actions: Actions = {
+	joinWaitlist: async ({ request, locals }) => {
+		const actor = locals.user
+			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
+			: null;
+		const ctx = { actor };
+		const formData = await request.formData();
+		const contact = String(formData.get('contact') ?? '').trim();
+		const result = joinDropWaitlistFormSchema.safeParse({
+			dropId: formData.get('dropId'),
+			contact,
+			contactType: contact.includes('@') ? 'email' : 'phone'
+		});
+
+		if (!result.success) {
+			return fail(400, {
+				success: false,
+				message: 'Use an email or +94 phone number.'
+			});
+		}
+
+		try {
+			await joinDropWaitlist(ctx, result.data);
+			return { success: true, message: 'Drop alert locked.' };
+		} catch (error) {
+			return failFromAppError(error);
+		}
+	}
+};

@@ -1,5 +1,5 @@
 import type { LayoutServerLoad } from './$types';
-import { getOrCreateCart, mergeGuestCartIntoUserCart } from '$lib/server/modules/cart/cart.service';
+import { getOrCreateBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
 import { listWishlist } from '$lib/server/modules/wishlist';
 import { nanoid } from 'nanoid';
 
@@ -14,20 +14,20 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
 	const ctx = { actor };
 
-	let sessionToken = cookies.get('cart_session_token');
+	let sessionToken = cookies.get('bag_session_token');
 	let wishlistProductIds: string[] = [];
 
 	if (actor) {
 		if (sessionToken) {
 			try {
-				await mergeGuestCartIntoUserCart(ctx, { sessionToken });
+				await mergeGuestBagIntoUserBag(ctx, { sessionToken });
 			} catch (err) {
-				console.error('Failed to merge guest cart into user cart:', err);
+				console.error('Failed to merge guest bag into user bag:', err);
 			}
-			cookies.delete('cart_session_token', { path: '/' });
+			cookies.delete('bag_session_token', { path: '/' });
 		}
-		const [cart, wishlistRes] = await Promise.all([
-			getOrCreateCart(ctx),
+		const [bag, wishlistRes] = await Promise.all([
+			getOrCreateBag(ctx),
 			!actor.isAnonymous ? listWishlist(ctx, { limit: 100 }) : Promise.resolve({ items: [] })
 		]);
 		wishlistProductIds = wishlistRes.items.map((item) => item.productId);
@@ -35,13 +35,13 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 		return {
 			user: locals.user,
 			session: locals.session,
-			cart,
+			bag,
 			wishlistProductIds
 		};
 	} else {
 		if (!sessionToken) {
 			sessionToken = nanoid(32);
-			cookies.set('cart_session_token', sessionToken, {
+			cookies.set('bag_session_token', sessionToken, {
 				path: '/',
 				maxAge: 7 * 24 * 60 * 60, // 7 days
 				httpOnly: true,
@@ -49,13 +49,12 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				secure: true
 			});
 		}
-		const cart = await getOrCreateCart(ctx, { sessionToken });
+		const bag = await getOrCreateBag(ctx, { sessionToken });
 		return {
 			user: null,
 			session: null,
-			cart,
+			bag,
 			wishlistProductIds
 		};
 	}
 };
-

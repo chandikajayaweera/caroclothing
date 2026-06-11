@@ -9,7 +9,7 @@ import { productVariant } from '../products/products.drizzle';
 // INVENTORY
 //
 // One row per variant. Tracks total stock and how much is currently reserved
-// by active carts / pending orders.
+// by active checkouts / pending orders.
 //
 // available stock (at query time) = quantity - reservedQuantity
 //
@@ -17,7 +17,7 @@ import { productVariant } from '../products/products.drizzle';
 // and always log a matching `inventoryMovement` row for auditability.
 //
 // BACKORDER BEHAVIOUR — reservedQuantity contract:
-//   reservedQuantity tracks physical stock held for in-progress carts/orders.
+//   reservedQuantity tracks physical stock held for active checkouts/pending orders.
 //   It is ONLY incremented when actual stock exists to reserve against.
 //
 //   When allowBackorder = true and quantity = 0:
@@ -40,8 +40,8 @@ export const inventory = sqliteTable(
 			.unique()
 			.references(() => productVariant.id, { onDelete: 'cascade' }),
 		quantity: integer('quantity').default(0).notNull(),
-		// Items currently held in active carts or pending orders.
-		// Decrement on cart expiry / order cancellation; increment on add-to-cart.
+		// Items currently held in active checkouts or pending orders.
+		// Increment on checkout start; decrement on checkout expiry/cancellation.
 		// Never incremented for backorder items (see note above).
 		reservedQuantity: integer('reserved_quantity').default(0).notNull(),
 		// Alert threshold — surface low-stock warnings in the admin panel
@@ -80,7 +80,7 @@ export const inventory = sqliteTable(
 //
 // Every stock or reservation change MUST produce a movement row.
 // quantity* fields track physical stock; reservedQuantity* fields track holds
-// for active carts / pending orders. This preserves full reservation auditability.
+// for active checkouts / pending orders. This preserves full reservation auditability.
 // ---------------------------------------------------------------------------
 
 export const inventoryMovement = sqliteTable(
@@ -98,8 +98,8 @@ export const inventoryMovement = sqliteTable(
 				'sale', // order confirmed → stock decremented
 				'return', // refund/return → stock restored
 				'adjustment', // manual admin correction
-				'reserved', // added to active cart → reservedQuantity ++
-				'released', // cart expired/item removed → reservedQuantity --
+				'reserved', // checkout started or pending order created
+				'released', // checkout/order hold expired or was cancelled
 				'cancelled' // order cancelled → stock released back
 			]
 		}).notNull(),
@@ -112,7 +112,7 @@ export const inventoryMovement = sqliteTable(
 		reservedQuantityDelta: integer('reserved_quantity_delta').default(0).notNull(),
 		// Snapshot of reservedQuantity AFTER this movement applied.
 		reservedQuantityAfter: integer('reserved_quantity_after').notNull(),
-		// Causal reference: orderId, cartItemId, etc.
+		// Causal reference: orderItemId, bagItemId during checkout, etc.
 		referenceId: text('reference_id'),
 		note: text('note'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })

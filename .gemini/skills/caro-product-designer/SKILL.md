@@ -72,7 +72,7 @@ The homepage has one job: convert a new visitor into a believer and a returning 
 
 Structure should reflect the two-tier model and Caro's drop-culture identity:
 
-- **Primary nav**: Shop All · New In · Men · Women · Drops · About — plus utility icons (Search, Wishlist, Cart, Account)
+- **Primary nav**: Shop All · New In · Men · Women · Drops · About — plus utility icons (Search, Wishlist, Bag, Account)
 - **Drops deserves its own nav item** — it signals that drops are events, not just products. The drops section shows both teaser and live drops.
 - **Core Essentials** is surfaced through "Shop All" and the standard catalog, not through a dedicated nav item. Core is the default; drops are the moment.
 - **Mobile**: Bottom tab bar prioritizing the highest-frequency actions — Home, Shop, Bag, and Account. Thumbzone-first.
@@ -85,7 +85,7 @@ Structure should reflect the two-tier model and Caro's drop-culture identity:
 
 Ranked by impact for Caro's specific context:
 
-1. **Free shipping progress bar** — "Add LKR X more for free shipping" in cart. Highest-ROI single pattern in e-commerce. Implement before anything else.
+1. **Free shipping progress bar** — "Add LKR X more for free shipping" in bag. Highest-ROI single pattern in e-commerce. Implement before anything else.
 2. **Real low-stock signals** — "Only 3 left" tied to actual inventory. Never fake this — the brand is "raw and honest" and fake scarcity destroys trust permanently.
 3. **Post-purchase account creation** — on the confirmation page, not at checkout. Phone is already captured; minimal friction.
 4. **Wishlist as CRM** — guest wishlist (optimistic) → save prompt on auth → low-stock notification hook.
@@ -124,7 +124,7 @@ AWARENESS → CONSIDERATION → PURCHASE → POST-PURCHASE → LOYALTY
 
 - **Awareness**: Social / word of mouth / drop announcement → homepage or drop page. Goal: make them feel Caro in < 3 seconds.
 - **Consideration**: Catalog, product pages, reviews. Goal: answer "is this worth it?" quickly.
-- **Purchase**: Cart → checkout → confirmation. Goal: zero friction. Guest-first. One CTA per screen.
+- **Purchase**: Bag → checkout → confirmation. Goal: zero friction. Guest-first. One CTA per screen.
 - **Post-Purchase**: Confirmation page, SMS/email updates. Goal: build confidence, invite return.
 - **Loyalty**: Wishlist alerts, drop waitlist, order history. Goal: make them feel like insiders.
 

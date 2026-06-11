@@ -18,6 +18,7 @@ import {
 	type NotificationOutboxTx
 } from '$lib/server/modules/notifications/outbox/outbox.service';
 import type { ServiceContext } from '$lib/server/foundation/context';
+import { isValidDisplayName } from '$lib/shared/modules/auth-profile';
 
 const GOOGLE_PROVIDER_ID = 'google';
 const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
@@ -326,6 +327,15 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 		update: {
 			before: async (user, context) => {
 				try {
+					if ('name' in user && user.name !== undefined) {
+						if (typeof user.name !== 'string' || !isValidDisplayName(user.name)) {
+							throw new AuthError(
+								'Enter your name, not a phone number.',
+								ErrorCode.VALIDATION_ERROR
+							);
+						}
+					}
+
 					if (!('phoneNumber' in user) || user.phoneNumber === undefined) return;
 
 					const userId = getSessionUserId(context);

@@ -8,7 +8,9 @@
 	let { data }: { data: PageData } = $props();
 
 	const drop = $derived(data.drop);
-	const products = $derived(data.drop.products.map((p) => p.product).filter((p): p is NonNullable<typeof p> => p !== null));
+	const products = $derived(
+		data.drop.products.map((p) => p.product).filter((p): p is NonNullable<typeof p> => p !== null)
+	);
 	const launchDate = $derived(drop.launchAt ? new Date(drop.launchAt) : null);
 
 	let contactVal = $state('');
@@ -25,7 +27,9 @@
 
 {#if drop.status === 'teaser'}
 	<!-- Upcoming countdown view -->
-	<div class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-void">
+	<div
+		class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-void"
+	>
 		<!-- Background -->
 		<div class="absolute inset-0">
 			{#if drop.heroImageUrl}
@@ -40,12 +44,14 @@
 				Upcoming Drop
 			</span>
 
-			<h1 class="max-w-4xl font-display text-[60px] leading-[0.88] text-bone uppercase md:text-[100px] lg:text-[140px]">
+			<h1
+				class="max-w-4xl font-display text-[60px] leading-[0.88] text-bone uppercase md:text-[100px] lg:text-[140px]"
+			>
 				{drop.name}
 			</h1>
 
 			{#if drop.tagline}
-				<p class="mt-4 max-w-md font-sans text-sm text-ash md:text-base uppercase tracking-wider">
+				<p class="mt-4 max-w-md font-sans text-sm tracking-wider text-ash uppercase md:text-base">
 					{drop.tagline}
 				</p>
 			{/if}
@@ -57,7 +63,7 @@
 			{/if}
 
 			{#if waitlistSuccess}
-				<div class="mt-12 border border-volt/20 bg-volt/5 px-6 py-4 max-w-sm">
+				<div class="mt-12 max-w-sm border border-volt/20 bg-volt/5 px-6 py-4">
 					<p class="font-mono text-xs text-volt uppercase">{waitlistMessage}</p>
 				</div>
 			{:else}
@@ -82,7 +88,7 @@
 						bind:value={contactVal}
 						required
 						placeholder="PHONE OR EMAIL"
-						class="flex-1 border border-ash/40 bg-transparent px-4 py-3 font-mono text-sm text-bone transition-colors outline-none placeholder:text-ash/40 focus:border-volt uppercase"
+						class="flex-1 border border-ash/40 bg-transparent px-4 py-3 font-mono text-sm text-bone uppercase transition-colors outline-none placeholder:text-ash/40 focus:border-volt"
 					/>
 					<Button variant="primary" type="submit" class="px-8 py-3">Notify Me</Button>
 				</form>
@@ -91,10 +97,12 @@
 	</div>
 {:else}
 	<!-- Live / Archived drop catalog view -->
-	<div class="min-h-screen bg-void text-bone pt-24 pb-20">
+	<div class="min-h-screen bg-void pt-24 pb-20 text-bone">
 		<div class="mx-auto max-w-7xl px-4 md:px-8">
 			<!-- Hero Header -->
-			<div class="relative overflow-hidden bg-charcoal/30 border border-charcoal p-8 md:p-12 lg:p-16 mb-16">
+			<div
+				class="relative mb-16 overflow-hidden border border-charcoal bg-charcoal/30 p-8 md:p-12 lg:p-16"
+			>
 				{#if drop.heroImageUrl}
 					<div class="absolute inset-0 z-0">
 						<img src={drop.heroImageUrl} alt="" class="h-full w-full object-cover opacity-15" />
@@ -103,7 +111,7 @@
 				{/if}
 
 				<div class="relative z-10 max-w-2xl">
-					<div class="flex items-center gap-3 mb-4">
+					<div class="mb-4 flex items-center gap-3">
 						<span class="font-mono text-[9px] tracking-widest text-volt uppercase">
 							{drop.status === 'live' ? 'Live Drop Release' : 'Archived Drop'}
 						</span>
@@ -111,15 +119,17 @@
 							<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-volt"></span>
 						{/if}
 					</div>
-					<h1 class="font-display text-5xl md:text-7xl lg:text-8xl leading-none uppercase">{drop.name}</h1>
-					<p class="font-sans text-sm md:text-base text-ash mt-4 leading-relaxed">
+					<h1 class="font-display text-5xl leading-none uppercase md:text-7xl lg:text-8xl">
+						{drop.name}
+					</h1>
+					<p class="mt-4 font-sans text-sm leading-relaxed text-ash md:text-base">
 						{drop.description ?? drop.tagline ?? ''}
 					</p>
 				</div>
 			</div>
 
 			<!-- Product List -->
-			<h2 class="font-mono text-xs tracking-[0.2em] text-ash uppercase mb-8">
+			<h2 class="mb-8 font-mono text-xs tracking-[0.2em] text-ash uppercase">
 				Released items ({products.length})
 			</h2>
 
@@ -130,7 +140,7 @@
 					{/each}
 				</div>
 			{:else}
-				<div class="py-20 border border-dashed border-charcoal text-center">
+				<div class="border border-dashed border-charcoal py-20 text-center">
 					<p class="font-mono text-xs text-ash uppercase">No products released in this drop yet.</p>
 				</div>
 			{/if}

@@ -1,14 +1,12 @@
 import { fail } from '@sveltejs/kit';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
-import { sql } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
 import type { Actions, PageServerLoad } from './$types';
 import {
+	getPaymentDashboardSummary,
 	listPayments,
 	recordPayment,
-	recordRefund,
-	payment as paymentTable
+	recordRefund
 } from '$lib/server/modules/payments';
 import {
 	recordPaymentFormSchema,
@@ -44,19 +42,11 @@ function getListOptions(url: URL) {
 export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const ctx = getAdminContext(locals, platform);
 	const options = getListOptions(url);
-	const db = getDb();
 
 	try {
-		const [payments, statsResult, recordPaymentForm, recordRefundForm] = await Promise.all([
+		const [payments, stats, recordPaymentForm, recordRefundForm] = await Promise.all([
 			listPayments(ctx, options),
-			db
-				.select({
-					totalVolume: sql<number>`sum(amount)`,
-					totalCaptured: sql<number>`sum(case when status = 'captured' then amount else 0 end)`,
-					totalPending: sql<number>`sum(case when status = 'pending' then amount else 0 end)`,
-					totalRefunded: sql<number>`sum(case when status = 'refunded' or status = 'partially_refunded' then coalesce(refund_amount, 0) else 0 end)`
-				})
-				.from(paymentTable),
+			getPaymentDashboardSummary(ctx),
 			superValidate(zod4(recordPaymentFormSchema), {
 				id: 'recordPayment'
 			}),
@@ -64,19 +54,6 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				id: 'recordRefund'
 			})
 		]);
-
-		const rawStats = statsResult[0] || {
-			totalVolume: 0,
-			totalCaptured: 0,
-			totalPending: 0,
-			totalRefunded: 0
-		};
-		const stats = {
-			totalVolume: Number(rawStats.totalVolume ?? 0),
-			totalCaptured: Number(rawStats.totalCaptured ?? 0),
-			totalPending: Number(rawStats.totalPending ?? 0),
-			totalRefunded: Number(rawStats.totalRefunded ?? 0)
-		};
 
 		const query = url.searchParams.get('query') || url.searchParams.get('orderId') || '';
 

@@ -654,6 +654,18 @@ export async function linkDropWaitlistEntriesFromUserToUserTx(
 	};
 }
 
+export async function deleteDropWaitlistEntriesForAccountDeletionTx(
+	tx: DropsTx,
+	userId: string
+): Promise<number> {
+	const deleted = await tx
+		.delete(dropWaitlist)
+		.where(eq(dropWaitlist.userId, normalizeUserId(userId, 'userId')))
+		.returning({ id: dropWaitlist.id });
+
+	return deleted.length;
+}
+
 export async function listDropWaitlistEntries(
 	ctx: ServiceContext,
 	input: ListDropWaitlistEntriesInput

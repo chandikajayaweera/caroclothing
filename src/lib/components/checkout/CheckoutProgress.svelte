@@ -1,53 +1,52 @@
 <script lang="ts">
-	let { currentStep = 1 }: { currentStep: number } = $props();
-	const steps = ['Contact', 'Address', 'Shipping', 'Payment'];
+	let {
+		currentStep = 1,
+		steps = ['Delivery', 'Shipping', 'Payment']
+	}: {
+		currentStep?: number;
+		steps?: string[];
+	} = $props();
 </script>
 
-<div class="py-6 md:py-8 lg:py-10">
-	<!-- Mobile Dots -->
-	<div class="flex justify-center gap-2 md:hidden">
-		{#each Array(4) as _, i}
-			<div
-				class="h-2 rounded-full transition-all duration-300
-        {currentStep === i + 1
-					? 'w-4 bg-volt'
-					: currentStep > i + 1
-						? 'w-2 bg-bone'
-						: 'w-2 bg-charcoal'}"
-			></div>
-		{/each}
-	</div>
+<nav aria-label="Checkout progress" class="py-5 md:py-7">
+	<p class="mb-3 font-mono text-[10px] tracking-[0.18em] text-ash uppercase md:hidden">
+		Step {currentStep} of {steps.length}: {steps[currentStep - 1]}
+	</p>
 
-	<!-- Desktop Steps -->
-	<div class="mx-auto hidden max-w-2xl items-center justify-center gap-0 px-4 md:flex">
-		{#each steps as step, i}
-			<div class="group flex flex-1 items-center last:flex-none">
-				<div class="relative flex flex-col items-center">
+	<ol class="flex items-start">
+		{#each steps as step, index (step)}
+			<li
+				class="flex min-w-0 flex-1 items-start last:flex-none"
+				aria-current={currentStep === index + 1 ? 'step' : undefined}
+			>
+				<div class="flex min-w-0 flex-col gap-2">
 					<div
-						class="h-2.5 w-2.5 rounded-full transition-all duration-300
-            {currentStep === i + 1
-							? 'bg-volt ring-4 ring-volt/10'
-							: currentStep > i + 1
-								? 'bg-bone'
-								: 'bg-charcoal'}"
-					></div>
+						class="flex h-7 w-7 items-center justify-center border font-mono text-[10px] font-bold transition-colors
+						{currentStep > index + 1
+							? 'border-bone bg-bone text-void'
+							: currentStep === index + 1
+								? 'border-volt bg-volt text-void'
+								: 'border-charcoal text-ash'}"
+					>
+						{currentStep > index + 1 ? 'OK' : index + 1}
+					</div>
 					<span
-						class="absolute top-6 font-mono text-[9px] tracking-widest whitespace-nowrap uppercase
-            {currentStep === i + 1 ? 'font-bold text-bone' : 'text-ash'}"
+						class="hidden font-mono text-[9px] tracking-[0.16em] uppercase md:block
+						{currentStep === index + 1 ? 'text-bone' : 'text-ash'}"
 					>
 						{step}
 					</span>
 				</div>
 
-				{#if i < steps.length - 1}
-					<div class="mx-4 h-px flex-1 bg-charcoal">
+				{#if index < steps.length - 1}
+					<div class="mx-3 mt-3 h-px min-w-8 flex-1 bg-charcoal md:mx-5">
 						<div
-							class="h-full bg-bone transition-all duration-500"
-							style="width: {currentStep > i + 1 ? '100%' : '0%'}"
+							class="h-full bg-bone transition-[width] duration-300"
+							style:width={currentStep > index + 1 ? '100%' : '0%'}
 						></div>
 					</div>
 				{/if}
-			</div>
+			</li>
 		{/each}
-	</div>
-</div>
+	</ol>
+</nav>

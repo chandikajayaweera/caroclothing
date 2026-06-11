@@ -372,11 +372,6 @@
 		window.open(resolve('/app/orders/export') + params.search, '_blank');
 	}
 
-	// Sync superform with selectedOrderIds when it changes
-	$effect(() => {
-		$bulkForm.orderIds = selectedOrderIds.join(',');
-	});
-
 	const tableHeaders = [
 		{ label: '', class: 'w-10 text-center' },
 		{ label: 'Order' },
@@ -639,7 +634,6 @@
 	{/snippet}
 </AdminListLayout>
 
-
 <!-- Bulk Transition Drawer -->
 {#if selectedOrderIds.length > 0}
 	<div class="fixed bottom-6 left-1/2 z-40 w-full max-w-4xl -translate-x-1/2 px-4">
@@ -674,7 +668,7 @@
 				use:bulkEnhance
 				class="flex flex-wrap items-center gap-3 border-b border-charcoal pb-3 md:border-b-0 md:pb-0"
 			>
-				<input type="hidden" name="orderIds" bind:value={$bulkForm.orderIds} />
+				<input type="hidden" name="orderIds" value={selectedOrderIds.join(',')} />
 
 				<select
 					name="toStatus"
@@ -747,9 +741,7 @@
 		class="flex flex-col gap-5"
 	>
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Order ID *</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Order ID *</span>
 			<input
 				name="orderId"
 				bind:value={$fulfillmentForm.orderId}
@@ -765,9 +757,7 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Tracking Number</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Tracking Number</span>
 			<input
 				name="trackingNumber"
 				bind:value={$fulfillmentForm.trackingNumber}
@@ -782,9 +772,7 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Carrier</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Carrier</span>
 			<input
 				name="trackingCarrier"
 				bind:value={$fulfillmentForm.trackingCarrier}
@@ -799,9 +787,7 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Tracking URL</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Tracking URL</span>
 			<input
 				name="trackingUrl"
 				bind:value={$fulfillmentForm.trackingUrl}
@@ -826,11 +812,7 @@
 		>
 			{#if $fulfillmentSubmitting}Saving...{:else}Save Tracking{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (fulfillmentModalOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (fulfillmentModalOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}
@@ -850,9 +832,7 @@
 		class="flex flex-col gap-5"
 	>
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Order ID *</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Order ID *</span>
 			<input
 				name="orderId"
 				bind:value={$paymentForm.orderId}
@@ -868,13 +848,12 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Payment Status *</span
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Payment Status *</span
 			>
 			<select
 				name="status"
 				bind:value={$paymentForm.status}
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt animate-none"
+				class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 				required
 			>
 				{#each paymentStatuses as status (status)}
@@ -889,13 +868,11 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Method</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Method</span>
 			<select
 				name="method"
 				bind:value={$paymentForm.method}
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt animate-none"
+				class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 			>
 				<option value="">Existing payment method</option>
 				{#each paymentMethods as method (method)}
@@ -929,9 +906,7 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Transaction ID</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Transaction ID</span>
 			<input
 				name="transactionId"
 				bind:value={$paymentForm.transactionId}
@@ -956,11 +931,7 @@
 		>
 			{#if $paymentSubmitting}Recording...{:else}Record Payment{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (paymentModalOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (paymentModalOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}
@@ -980,9 +951,7 @@
 		class="flex flex-col gap-5"
 	>
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Payment ID *</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Payment ID *</span>
 			<input
 				name="paymentId"
 				bind:value={$refundForm.paymentId}
@@ -998,9 +967,7 @@
 		</label>
 
 		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Refund Amount *</span
-			>
+			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Refund Amount *</span>
 			<input
 				name="refundAmount"
 				type="number"
@@ -1028,11 +995,7 @@
 		>
 			{#if $refundSubmitting}Refunding...{:else}Record Refund{/if}
 		</AdminButton>
-		<AdminButton
-			type="button"
-			variant="outline"
-			onclick={() => (refundModalOpen = false)}
-		>
+		<AdminButton type="button" variant="outline" onclick={() => (refundModalOpen = false)}>
 			Cancel
 		</AdminButton>
 	{/snippet}

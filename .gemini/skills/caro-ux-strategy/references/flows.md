@@ -48,9 +48,9 @@ Product Detail (tier-aware)
 │   ├── qty-reserved > lowStockThreshold → no badge
 │   ├── 0 < qty-reserved ≤ lowStockThreshold → "LOW STOCK"
 │   ├── qty-reserved ≤ 2 → "ALMOST GONE"
-│   └── qty-reserved = 0, allowBackorder = false → "SOLD OUT" (disable Add to Cart)
+│   └── qty-reserved = 0, allowBackorder = false → "SOLD OUT" (disable Add to Bag)
 ├── CTA:
-│   ├── In stock → [Add to Cart]
+│   ├── In stock → [Add to Bag]
 │   ├── Backorder → [Pre-Order]
 │   └── Sold out → [Sold Out — disabled] (keep visible as cultural proof)
 ├── [Save to Wishlist] (heart icon, always visible on mobile)
@@ -95,7 +95,7 @@ Phase 2: LIVE (drop.status = 'live')
 ├── Drop products become purchasable
 │   ├── isNewArrival = true, isFeatured = true set on linked products
 │   └── Full PDP live with live stock signals
-└── Cart reservations begin (reservedQuantity increments on add-to-cart)
+└── Bag additions do not reserve stock; reservation starts only when checkout begins
 
 Phase 3: During Drop (still 'live')
 ├── Live stock signals on PDP and catalog cards:
@@ -127,13 +127,13 @@ Phase 5: ARCHIVED (drop.status = 'archived')
 
 ### Entry Points
 
-- Cart icon → Cart drawer (desktop) or Cart page
-- "Add to Cart" on product page → Cart drawer opens
+- Bag icon → Bag drawer (desktop) or Bag page
+- "Add to Bag" on product page → Bag drawer opens
 
-### Cart
+### Bag
 
 ```
-Cart (Drawer or Full Page)
+Bag (Drawer or Full Page)
 ├── Item list:
 │   ├── Thumbnail, name, size, color (Space Mono for metadata)
 │   ├── Locked unit price in LKR
@@ -147,8 +147,11 @@ Cart (Drawer or Full Page)
 │   ├── subtotal < threshold → "Add LKR X more for free shipping"
 │   └── subtotal ≥ threshold → "Free shipping unlocked" (Volt)
 ├── Subtotal / Discount / Shipping (TBD at checkout) / Total
-└── [Checkout] → Step 1: Contact
+└── [Checkout] → reserve stock for 10 minutes → Step 1: Contact
 ```
+
+During checkout, show remaining reservation time. On expiry, return to bag, release
+reserved stock, and keep every bag item.
 
 ### Checkout Steps (linear — no accordion)
 
@@ -235,7 +238,7 @@ View: name-prompt
 ```
 Checkout entry (guest path)
 ├── Google One Tap overlay (if FedCM supported)
-│   ├── Accepted → merge guest cart → continue as authenticated user
+│   ├── Accepted → merge guest bag → continue as authenticated user
 │   └── Dismissed → continue as guest
 ├── "Sign in for faster checkout" — subtle link, never blocking
 └── Continue as guest → collect contact inline in Step 1
@@ -272,7 +275,7 @@ Account Dashboard
 └── Wishlist
     ├── Product cards with live stock status
     ├── variantId = '' → "Choose your size" nudge
-    ├── [Move to Cart] (requires variant selected + in stock)
+    ├── [Move to Bag] (requires variant selected + in stock)
     └── [Remove]
 ```
 
@@ -282,12 +285,12 @@ Account Dashboard
 
 | Scenario                                      | UX Response                                                                                    |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Cart item OOS at checkout start               | "X is sold out. Remove it to continue." — block checkout until resolved                        |
-| Price changed since add-to-cart               | Warning banner: "Price updated for [item]." — don't block, but make it visible                 |
+| Bag item OOS at checkout start                | "X is sold out. Remove it to continue." — block checkout until resolved                        |
+| Price changed since add-to-bag                | Warning banner: "Price updated for [item]." — don't block, but make it visible                 |
 | Promo code expired                            | Inline: "Code expired." — clear discount, don't block                                          |
-| Guest cart expired                            | Toast on return: "Your cart cleared. Start fresh." — not framed as an error                    |
+| Guest bag expired                             | Toast on return: "Your bag cleared. Start fresh." — not framed as an error                     |
 | Account banned                                | Page: "Account suspended. Contact support." — block all actions                                |
 | Drop accessed during teaser (before launchAt) | Show teaser state — countdown + notify-me. Never show purchasable product early.               |
 | All drop products OOS, no backorder           | "Sold Out" product state. Waitlist capture for next drop. Never hide — this is cultural proof. |
-| Network error on add-to-cart                  | Toast: "Didn't add. Try again." — preserve cart state                                          |
+| Network error on add-to-bag                   | Toast: "Didn't add. Try again." — preserve bag state                                           |
 | OTP rate limited                              | Show remaining cooldown in the resend button. "Resend (28s)" — never show a generic error      |

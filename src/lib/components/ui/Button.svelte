@@ -40,7 +40,7 @@
 </script>
 
 {#if href}
-	<a {href} class={combinedClasses} {...rest as HTMLAnchorAttributes}>
+	<a {href} {onclick} class={combinedClasses} {...rest as HTMLAnchorAttributes}>
 		{@render children()}
 	</a>
 {:else}

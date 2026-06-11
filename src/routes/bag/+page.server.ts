@@ -1,13 +1,16 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import {
-	getOrCreateCart,
-	addItemToCart,
-	updateCartItemQuantity,
-	removeCartItem,
-	applyPromoCodeToCart,
-	removePromoCodeFromCart,
-	clearCart
-} from '$lib/server/modules/cart';
+	getOrCreateBag,
+	addItemToBag,
+	updateBagItemQuantity,
+	removeBagItem,
+	applyPromoCodeToBag,
+	removePromoCodeFromBag,
+	clearBag,
+	startCheckout
+} from '$lib/server/modules/bag';
+import { ErrorCode, isAppError } from '$lib/server/infrastructure/errors';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
@@ -15,30 +18,63 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
 	const ctx = { actor };
-	const sessionToken = cookies.get('cart_session_token');
+	const sessionToken = cookies.get('bag_session_token');
 
 	try {
-		const cart = await getOrCreateCart(ctx, { sessionToken });
-		return { cart };
+		const bag = await getOrCreateBag(ctx, { sessionToken });
+		return { bag };
 	} catch (error) {
 		throwHttpFromAppError(error);
 	}
 };
 
 export const actions: Actions = {
-	addToCart: async ({ request, locals, cookies }) => {
+	startCheckout: async ({ locals, cookies }) => {
+		const actor = locals.user
+			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
+			: null;
+		if (!actor) {
+			const redirectTo = encodeURIComponent('/bag?checkout=start');
+			throw redirect(303, `/sign-in?redirectTo=${redirectTo}`);
+		}
+		const ctx = { actor };
+		const sessionToken = cookies.get('bag_session_token');
+
+		try {
+			await startCheckout(ctx, { sessionToken });
+			throw redirect(303, '/checkout');
+		} catch (error) {
+			if (isAppError(error)) {
+				const message =
+					error.code === ErrorCode.INSUFFICIENT_STOCK
+						? 'An item in your bag was just reserved by another customer. Review your bag and try again.'
+						: error.code === ErrorCode.CANNOT_MODIFY_ORDER
+							? 'Some items cannot be checked out yet. Review their availability and try again.'
+							: error.code === ErrorCode.EMPTY_BAG
+								? 'Your bag is empty.'
+								: null;
+
+				if (message) {
+					throw redirect(303, `/bag?error=${encodeURIComponent(message)}`);
+				}
+			}
+
+			throwHttpFromAppError(error);
+		}
+	},
+	addToBag: async ({ request, locals, cookies }) => {
 		const actor = locals.user
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 		const formData = await request.formData();
 		const variantId = formData.get('variantId') as string;
 		const quantity = formData.get('quantity') ? Number(formData.get('quantity')) : 1;
 
 		try {
-			const cart = await addItemToCart(ctx, { sessionToken, variantId, quantity });
-			return { success: true, cart };
+			const bag = await addItemToBag(ctx, { sessionToken, variantId, quantity });
+			return { success: true, bag };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}
@@ -48,14 +84,14 @@ export const actions: Actions = {
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 		const formData = await request.formData();
-		const cartItemId = formData.get('cartItemId') as string;
+		const bagItemId = formData.get('bagItemId') as string;
 		const quantity = Number(formData.get('quantity'));
 
 		try {
-			const cart = await updateCartItemQuantity(ctx, { sessionToken, cartItemId, quantity });
-			return { success: true, cart };
+			const bag = await updateBagItemQuantity(ctx, { sessionToken, bagItemId, quantity });
+			return { success: true, bag };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}
@@ -65,13 +101,13 @@ export const actions: Actions = {
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 		const formData = await request.formData();
-		const cartItemId = formData.get('cartItemId') as string;
+		const bagItemId = formData.get('bagItemId') as string;
 
 		try {
-			const cart = await removeCartItem(ctx, { sessionToken, cartItemId });
-			return { success: true, cart };
+			const bag = await removeBagItem(ctx, { sessionToken, bagItemId });
+			return { success: true, bag };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}
@@ -81,13 +117,13 @@ export const actions: Actions = {
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 		const formData = await request.formData();
 		const code = formData.get('code') as string;
 
 		try {
-			const cart = await applyPromoCodeToCart(ctx, { sessionToken, code });
-			return { success: true, cart };
+			const bag = await applyPromoCodeToBag(ctx, { sessionToken, code });
+			return { success: true, bag };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}
@@ -97,25 +133,25 @@ export const actions: Actions = {
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 
 		try {
-			const cart = await removePromoCodeFromCart(ctx, { sessionToken });
-			return { success: true, cart };
+			const bag = await removePromoCodeFromBag(ctx, { sessionToken });
+			return { success: true, bag };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}
 	},
-	clearCart: async ({ locals, cookies }) => {
+	clearBag: async ({ locals, cookies }) => {
 		const actor = locals.user
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 
 		try {
-			const cart = await clearCart(ctx, { sessionToken });
-			return { success: true, cart };
+			const bag = await clearBag(ctx, { sessionToken });
+			return { success: true, bag };
 		} catch (error) {
 			throwHttpFromAppError(error);
 		}

@@ -13,5 +13,5 @@ export {
 	recordPromoUsage,
 	setPromoCodeActive,
 	updatePromoCode,
-	validatePromoCodeForCart
+	validatePromoCodeForBag
 } from './promotions.service';

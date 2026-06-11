@@ -69,7 +69,14 @@ export async function processNotificationQueueBatch(
 
 	for (const message of batch.messages) {
 		try {
-			results.push(await processQueueMessage(batch.queue, message));
+			const result = await processQueueMessage(batch.queue, message);
+			results.push(result);
+			if (result.outcome === 'failed' && result.retryAt) {
+				const delaySeconds = Math.max(1, Math.ceil((result.retryAt.getTime() - Date.now()) / 1000));
+				message.retry({ delaySeconds });
+			} else {
+				message.ack();
+			}
 		} catch (error) {
 			console.error('[notification-outbox] Unexpected queue message failure:', {
 				queue: batch.queue,
@@ -81,8 +88,7 @@ export async function processNotificationQueueBatch(
 				outcome: 'failed',
 				message: error instanceof Error ? error.message : 'UNKNOWN_QUEUE_PROCESSING_ERROR'
 			});
-		} finally {
-			message.ack();
+			message.retry({ delaySeconds: 60 });
 		}
 	}
 
@@ -167,8 +173,11 @@ async function dispatchClaimedNotification(
 	now: Date,
 	actor: SystemActor
 ): Promise<NotificationDispatchResult> {
+	const startedAt = Date.now();
+	const queueDelayMs = Math.max(0, startedAt - notification.createdAt.getTime());
 	try {
 		const result = await sendClaimedNotification(notification);
+		const providerDurationMs = Date.now() - startedAt;
 
 		if (result.ok) {
 			await markNotificationSent(
@@ -182,11 +191,12 @@ async function dispatchClaimedNotification(
 				}
 			);
 			await markDropLaunchWaitlistEntryNotified(notification, now, actor);
+			logDispatchTiming(notification, 'sent', queueDelayMs, providerDurationMs);
 
 			return { id: notification.id, outcome: 'sent' };
 		}
 
-		await markNotificationFailed(
+		const failed = await markNotificationFailed(
 			{ actor, now },
 			{
 				id: notification.id,
@@ -196,17 +206,23 @@ async function dispatchClaimedNotification(
 				now
 			}
 		);
+		logDispatchTiming(notification, 'failed', queueDelayMs, providerDurationMs);
 
 		return {
 			id: notification.id,
 			outcome: 'failed',
-			message: result.error
+			message: result.error,
+			retryAt:
+				failed.attemptCount < failed.maxAttempts && isRetryableSendFailure(result.error)
+					? failed.nextAttemptAt
+					: undefined
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'UNKNOWN_DISPATCH_ERROR';
+		let retryAt: Date | undefined;
 
 		try {
-			await markNotificationFailed(
+			const failed = await markNotificationFailed(
 				{ actor, now },
 				{
 					id: notification.id,
@@ -216,17 +232,20 @@ async function dispatchClaimedNotification(
 					now
 				}
 			);
+			if (failed.attemptCount < failed.maxAttempts) retryAt = failed.nextAttemptAt;
 		} catch (markError) {
 			console.error('[notification-outbox] Failed to mark dispatch failure:', {
 				id: notification.id,
 				error: markError
 			});
 		}
+		logDispatchTiming(notification, 'failed', queueDelayMs, Date.now() - startedAt);
 
 		return {
 			id: notification.id,
 			outcome: 'failed',
-			message
+			message,
+			retryAt
 		};
 	}
 }
@@ -391,4 +410,21 @@ function parseQueueMessageBody(body: unknown): NotificationQueueMessage | null {
 		outboxId,
 		idempotencyKey
 	};
+}
+
+function logDispatchTiming(
+	notification: ClaimedNotificationDTO,
+	outcome: 'sent' | 'failed',
+	queueDelayMs: number,
+	providerDurationMs: number
+): void {
+	console.info('[notification-outbox] Dispatch timing:', {
+		id: notification.id,
+		type: notification.type,
+		channel: notification.channel,
+		outcome,
+		queueDelayMs,
+		providerDurationMs,
+		attempt: notification.attemptCount
+	});
 }

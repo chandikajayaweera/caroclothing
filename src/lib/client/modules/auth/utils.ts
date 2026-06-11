@@ -17,9 +17,10 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 	GOOGLE_ACCOUNT_ALREADY_LINKED: 'Google account is already linked to another account.',
 	GOOGLE_ACCOUNT_ALREADY_LINKED_TO_USER: 'Only one Google account can be linked.',
 	LAST_AUTH_METHOD_REQUIRED: 'At least one sign-in method must remain linked.',
+	SESSION_EXPIRED: 'Your session expired. Sign in again to continue.',
 	OTP_RATE_LIMITED: 'Please wait before requesting another OTP code.',
 	OTP_SEND_FAILED: 'Unable to send OTP code. Please try again.',
-	ANONYMOUS_MIGRATION_FAILED: 'Unable to move your cart to this account. Please try again.'
+	ANONYMOUS_MIGRATION_FAILED: 'Unable to move your bag to this account. Please try again.'
 };
 
 export const OTP_RATE_LIMITED_MESSAGE = AUTH_ERROR_MESSAGES.OTP_RATE_LIMITED;

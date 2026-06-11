@@ -36,8 +36,12 @@ For notification work, also inspect:
 
 ## Current Service Status
 
-- Implemented service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `cart`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
-- Inventory exposes public admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` still support cart/order transaction workflows and should be imported directly only by server internals already inside a transaction.
+- Implemented service modules: `auth`, `addresses`, `products`, `drops`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
+- Inventory exposes public admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and should be imported directly only by server internals already inside a transaction.
+- Bag mutations do not reserve stock. Starting checkout reserves available stock for 10 minutes.
+- Leaving checkout without placing an order cancels checkout and releases its reservation.
+- Any bag mutation cancels an active checkout and releases its reservation. Expiry releases reservations without clearing bag items.
+- Successful order placement transfers the checkout reservation to order-item reservation references, then deletes the bag.
 - Implemented foundations: `context.ts`, `guards.ts`, `utils.ts`, and `errors/route-adapter.ts`.
 - Schema-only business modules needing service plans: none in current core service rollout.
 - Implemented notification state: `src/lib/server/modules/notifications/outbox` owns `notification_outbox` schema, types, idempotency, retry/audit state, and claim/mark/cancel APIs.
@@ -57,6 +61,7 @@ For notification work, also inspect:
 - Multi-table writes must use transactions.
 - Cross-module transaction helpers should remain internal unless a public export is intentionally approved.
 - Inventory module APIs may manage variant stock rows; `inventoryMovement` remains append-only audit state and is not generic CRUD.
+- Bag DTOs distinguish active competing checkout holds from true unavailability and may expose only hold expiry timing, never competing shopper identity.
 - Product create/update workflows may curate product tags, draft variants, product images, and non-archived drop assignment through `products.service.ts`; routes must not write product junction/media tables directly.
 - Product image uploads must pass through product services with validated image metadata, draft-variant client ID mapping where needed, and R2 compensation cleanup.
 - R2 uploads must use compensation cleanup.

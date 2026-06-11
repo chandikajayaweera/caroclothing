@@ -54,7 +54,7 @@ Caro operates two distinct product tiers. Every product decision, pricing decisi
 - Products, variants, categories, tags — with `tier` field (`'drop' | 'core'`) ✅
 - Drops — `drop`, `dropProduct`, `dropWaitlist` tables for the full launch ritual ✅
 - Inventory with reservation + backorder support ✅
-- Cart (guest + auth + merge strategy documented) ✅
+- Bag (guest + auth + merge strategy documented) ✅
 - Orders, order items, payments, status history ✅
 - Reviews + review media ✅
 - Promotions / promo codes ✅
@@ -66,7 +66,7 @@ Caro operates two distinct product tiers. Every product decision, pricing decisi
 
 - Payment gateway not yet integrated — checkout flow is mocked end-to-end
 - Reviews moderation pipeline not built (schema ready, admin UI needed)
-- Cart is client-side (localStorage) — not yet synced to DB
+- Bag is client-side (localStorage) — not yet synced to DB
 - Search not implemented
 - Drop waitlist captures exist in UI but are not yet persisted to the `dropWaitlist` DB table
 - Drop status transitions (teaser → live → sold_out) are manual — no automated cron job yet
@@ -80,8 +80,8 @@ Caro operates two distinct product tiers. Every product decision, pricing decisi
 
 ## Metrics That Matter (when instrumented)
 
-- Add-to-cart rate (product page → cart)
-- Cart abandonment rate (cart → checkout completion)
+- Add-to-bag rate (product page → bag)
+- Bag abandonment rate (bag → checkout completion)
 - Checkout conversion (checkout start → order placed)
 - Free shipping attachment rate (% of orders over LKR 10,000)
 - Drop sell-through time (hours from launch to sold out)

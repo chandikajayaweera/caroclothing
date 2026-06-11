@@ -33,7 +33,7 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-y-0 right-0 z-50 flex h-full w-full sm:max-w-lg flex-col justify-between overflow-y-auto border-l border-charcoal bg-charcoal p-6 shadow-2xl outline-none"
+						class="fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col justify-between overflow-y-auto border-l border-charcoal bg-charcoal p-6 shadow-2xl outline-none sm:max-w-lg"
 					>
 						<div>
 							<div class="flex items-center justify-between border-b border-ash/10 pb-4">

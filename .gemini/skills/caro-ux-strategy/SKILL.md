@@ -66,7 +66,7 @@ The Drop vs Core distinction produces genuinely different experiences. Design fo
 ### Drop Products
 
 - **Before launch (teaser)**: Product silhouette (not full reveal) + countdown timer + notify-me CTA. No price shown until live.
-- **At launch (live)**: Full product reveal, live inventory count, Volt urgency signals. The "Add to Cart" moment is the climax of a ritual.
+- **At launch (live)**: Full product reveal, live inventory count, Volt urgency signals. The "Add to Bag" moment is the climax of a ritual.
 - **Low stock signals**: Surface "LOW STOCK" and "ALMOST GONE" as real signals — tied to actual inventory. Never fake these.
 - **After sell-out**: Product remains visible with "Sold Out" status — this is the proof of cultural moment, not a failure state.
 - **The sold-out story**: Post "sold out" content within 48 hours. Who bought it. The numbers. This is marketing for the next drop.
@@ -99,16 +99,16 @@ These are principles, not routes. Apply them wherever the relevant experience li
 - Color selector uses hex swatches
 - Price always in LKR, Space Mono. Strike through the "was" price when set.
 - Low stock signal ("Only 3 left") pulls from live inventory — never estimated or faked
-- Add to cart → immediate feedback, no page reload
+- Add to bag → immediate feedback, no page reload
 - Product detail (material, care) is below the fold, collapsed
 
-### Cart
+### Bag
 
 - Upsell to free shipping threshold: "Add LKR X more for free shipping" with progress bar — implement before anything else
-- Promo code field is inline in the cart, not buried
-- Locked unit price at add-to-cart time — show a price-change warning if the live price has changed, don't silently update
-- Guest carts persist via session token; authenticated carts persist indefinitely
-- On login, merge guest cart into authenticated cart
+- Promo code field is inline in the bag, not buried
+- Locked unit price at add-to-bag time — show a price-change warning if the live price has changed, don't silently update
+- Guest bags persist via session token; authenticated bags persist indefinitely
+- On login, merge guest bag into authenticated bag
 
 ### Checkout
 
@@ -138,15 +138,15 @@ Think in terms of user intent, not specific routes (routes can change; intent do
 - **Primary catalog access**: Shop All, New In, gender-filtered views
 - **Drop-specific access**: Dedicated drops section — teaser and live drops — signals drops are events, not just products
 - **Account access**: Orders, Addresses, Wishlist — auth-gated
-- **Desktop**: Top bar with catalog links + utility icons (Search, Wishlist, Cart, Account)
+- **Desktop**: Top bar with catalog links + utility icons (Search, Wishlist, Bag, Account)
 - **Mobile**: Bottom tab bar prioritizing highest-frequency actions — thumbzone-first
-- **Cart indicator**: Always visible with item count badge — it's a conversion reminder
+- **Bag indicator**: Always visible with item count badge — it's a conversion reminder
 
 ---
 
 ## Micro-Copy Library
 
-**Add to Cart states**: Add to Cart → Adding… → Added (brief, then resets) → Out of Stock / Pre-Order
+**Add to Bag states**: Add to Bag → Adding… → Added (brief, then resets) → Out of Stock / Pre-Order
 
 **Stock badges** (Volt background, Void text):
 
@@ -157,7 +157,7 @@ Think in terms of user intent, not specific routes (routes can change; intent do
 
 **Empty states**:
 
-- Empty cart: "Your bag is empty. Fix that." → [Shop Now]
+- Empty bag: "Your bag is empty. Fix that." → [Shop Now]
 - Empty wishlist: "Nothing saved yet." → [Browse New In]
 - No search results: "Nothing for that. Try a color or size." → [Clear search]
 

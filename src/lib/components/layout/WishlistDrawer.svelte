@@ -54,7 +54,7 @@
 
 	<!-- Drawer -->
 	<div
-		class="fixed top-0 right-0 z-[55] flex h-full w-full sm:w-[420px] flex-col border-l border-charcoal bg-void"
+		class="fixed top-0 right-0 z-[55] flex h-full w-full flex-col border-l border-charcoal bg-void sm:w-[420px]"
 		transition:fly={{ x: 420, duration: 250 }}
 	>
 		<!-- Header -->
@@ -64,7 +64,7 @@
 				<span class="ml-2 font-mono text-xs text-ash">({wishlist.allIds.length})</span>
 			</div>
 			<button
-				class="text-2xl font-light text-ash hover:text-bone cursor-pointer"
+				class="cursor-pointer text-2xl font-light text-ash hover:text-bone"
 				onclick={closeWishlistDrawer}
 			>
 				×
@@ -107,7 +107,7 @@
 									<a
 										href="/shop/{item.product.slug}"
 										onclick={closeWishlistDrawer}
-										class="font-sans text-sm font-medium text-bone hover:text-volt line-clamp-1"
+										class="line-clamp-1 font-sans text-sm font-medium text-bone hover:text-volt"
 									>
 										{item.product.name}
 									</a>
@@ -117,7 +117,7 @@
 								</div>
 								<button
 									onclick={() => handleRemove(item.productId)}
-									class="w-fit font-mono text-[9px] tracking-widest text-ash/60 uppercase hover:text-volt cursor-pointer"
+									class="w-fit cursor-pointer font-mono text-[9px] tracking-widest text-ash/60 uppercase hover:text-volt"
 								>
 									Remove
 								</button>

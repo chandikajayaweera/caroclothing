@@ -11,7 +11,9 @@
 		wishlist.toggle(product.id);
 	}
 
-	const primaryImage = $derived(product.primaryImageUrl ?? product.primaryImage ?? '/placeholder.png');
+	const primaryImage = $derived(
+		product.primaryImageUrl ?? product.primaryImage ?? '/placeholder.png'
+	);
 	const hoverImage = $derived(product.images?.[1]?.imageUrl ?? product.hoverImage ?? primaryImage);
 	const price = $derived(product.basePrice ?? product.price ?? 0);
 
@@ -56,36 +58,34 @@
 			<div class="absolute top-2 left-2 z-10 flex flex-col gap-1">
 				{#if product.stockStatus === 'sold-out'}
 					<span
-						class="bg-charcoal border border-ash/20 px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
+						class="border border-ash/20 bg-charcoal px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-ash uppercase"
 					>
 						SOLD OUT
 					</span>
 				{:else if product.stockStatus === 'low-stock'}
 					<span
-						class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void font-bold uppercase"
+						class="bg-volt px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.15em] text-void uppercase"
 					>
 						LOW STOCK
 					</span>
-				{:else}
-					{#if product.tier === 'drop'}
-						<span
-							class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
-						>
-							DROP
-						</span>
-					{:else if product.isNewArrival || product.badge === 'NEW'}
-						<span
-							class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
-						>
-							NEW
-						</span>
-					{:else if product.badge}
-						<span
-							class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
-						>
-							{product.badge}
-						</span>
-					{/if}
+				{:else if product.tier === 'drop'}
+					<span
+						class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+					>
+						DROP
+					</span>
+				{:else if product.isNewArrival || product.badge === 'NEW'}
+					<span
+						class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+					>
+						NEW
+					</span>
+				{:else if product.badge}
+					<span
+						class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
+					>
+						{product.badge}
+					</span>
 				{/if}
 			</div>
 

@@ -219,6 +219,34 @@ export async function cancelNotification(
 	return toNotificationOutboxDTO(updated);
 }
 
+export async function cancelNotificationsForAccountDeletionTx(
+	tx: NotificationOutboxTx,
+	input: { userId: string; now?: Date }
+): Promise<number> {
+	const now = resolveNow(null, input.now);
+	const userId = normalizeId(input.userId, 'userId');
+	const updated = await tx
+		.update(notificationOutbox)
+		.set({
+			status: 'cancelled',
+			cancelledAt: now,
+			lockedAt: null,
+			lockedBy: null,
+			lockToken: null,
+			lastError: 'Account deleted before delivery.',
+			updatedAt: now
+		})
+		.where(
+			and(
+				eq(notificationOutbox.recipientUserId, userId),
+				inArray(notificationOutbox.status, ['pending', 'processing', 'failed'])
+			)
+		)
+		.returning({ id: notificationOutbox.id });
+
+	return updated.length;
+}
+
 export async function claimNotification(
 	ctx: ServiceContext,
 	input: ClaimNotificationInput
@@ -653,8 +681,18 @@ export async function publishNotificationQueueMessages(
 	if (rows.length === 0) return;
 
 	const queue = ctx.notificationQueue ?? ctx.event?.platform?.env?.NOTIFICATION_QUEUE ?? null;
-	if (!queue) return;
+	if (!queue) {
+		console.warn(
+			'[notification-outbox] Queue binding unavailable; Cron will deliver notifications.',
+			{
+				count: rows.length,
+				requestId: ctx.requestId
+			}
+		);
+		return;
+	}
 
+	const startedAt = Date.now();
 	try {
 		await queue.sendBatch(
 			rows.map((row) => ({
@@ -662,6 +700,11 @@ export async function publishNotificationQueueMessages(
 				contentType: 'json' as const
 			}))
 		);
+		console.info('[notification-outbox] Queue wakeups published:', {
+			count: rows.length,
+			durationMs: Date.now() - startedAt,
+			requestId: ctx.requestId
+		});
 	} catch (error) {
 		console.error('[notification-outbox] Failed to publish queue wakeups:', {
 			count: rows.length,

@@ -18,6 +18,9 @@ import {
 } from '$lib/server/infrastructure/errors';
 
 import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
+import { TEMPORARY_ACCOUNT_NAME } from '$lib/shared/modules/auth-profile';
+import { prepareAccountDeletion } from './auth.service';
+import { deleteReviewMediaObjectsForAccountDeletion } from '../reviews/reviews.service';
 
 export * from './auth.types';
 export * from './auth.forms';
@@ -60,13 +63,15 @@ function throwForBetterAuth(error: unknown): never {
 function createAuth() {
 	const env = getEnv();
 	const db = getDb();
+	const pendingReviewMediaCleanup = new WeakMap<Request, string[]>();
+	const pendingReviewMediaCleanupFallback = new Map<string, string[]>();
 
 	return betterAuth({
 		baseURL: env.PUBLIC_APP_URL,
 		secret: env.BETTER_AUTH_SECRET,
 		onAPIError: {
 			throw: true,
-			onError: (error, ctx) => {
+			onError: (error) => {
 				if (isAppError(error)) {
 					console.error(`[auth] API error [${error.code}]: ${error.message}`);
 				} else {
@@ -80,6 +85,41 @@ function createAuth() {
 
 		emailAndPassword: {
 			enabled: false
+		},
+
+		session: {
+			freshAge: 60 * 5
+		},
+
+		user: {
+			deleteUser: {
+				enabled: true,
+				beforeDelete: async (user, request) => {
+					const preparation = await prepareAccountDeletion({ userId: user.id });
+					if (request) {
+						pendingReviewMediaCleanup.set(request, preparation.reviewMediaKeys);
+					} else {
+						pendingReviewMediaCleanupFallback.set(user.id, preparation.reviewMediaKeys);
+					}
+				},
+				afterDelete: async (user, request) => {
+					const keys = request
+						? (pendingReviewMediaCleanup.get(request) ?? [])
+						: (pendingReviewMediaCleanupFallback.get(user.id) ?? []);
+					if (request) pendingReviewMediaCleanup.delete(request);
+					pendingReviewMediaCleanupFallback.delete(user.id);
+
+					try {
+						const event = getRequestEvent();
+						await deleteReviewMediaObjectsForAccountDeletion({ event }, keys);
+					} catch (error) {
+						console.error('[auth] Failed to clean review media for deleted account:', {
+							userId: user.id,
+							error
+						});
+					}
+				}
+			}
 		},
 
 		socialProviders: {
@@ -131,6 +171,9 @@ function createAuth() {
 					getTempEmail(phoneNumber) {
 						// Required because BetterAuth internally expects an email field
 						return getPhoneTempEmail(phoneNumber);
+					},
+					getTempName() {
+						return TEMPORARY_ACCOUNT_NAME;
 					}
 				},
 

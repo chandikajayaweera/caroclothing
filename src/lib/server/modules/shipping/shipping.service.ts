@@ -26,7 +26,6 @@ import {
 	insertShippingMethodSchema,
 	updateShippingMethodSchema,
 	insertShippingZoneSchema,
-	updateShippingZoneSchema,
 	type Carrier,
 	type ShippingMethod,
 	type ShippingZone,
@@ -861,8 +860,10 @@ function toShippingQuoteDTO(
 	resolvedCarrierName: string | null
 ): ShippingQuoteDTO {
 	const priceBeforeFreeShipping = zone?.priceOverride ?? method.price;
+	const hasFreeShipping =
+		method.freeShippingThreshold !== null && method.freeShippingThreshold !== 0;
 	const freeShippingThresholdMet =
-		method.freeShippingThreshold !== null && subtotal >= method.freeShippingThreshold;
+		hasFreeShipping && subtotal >= (method.freeShippingThreshold as number);
 	const price = freeShippingThresholdMet ? 0 : priceBeforeFreeShipping;
 	const estimatedDaysMin = zone?.estimatedDaysMin ?? method.estimatedDaysMin;
 	const estimatedDaysMax = zone?.estimatedDaysMax ?? method.estimatedDaysMax;
@@ -877,13 +878,12 @@ function toShippingQuoteDTO(
 		zonePriceOverride: zone?.priceOverride ?? null,
 		priceBeforeFreeShipping,
 		price,
-		freeShippingThreshold: method.freeShippingThreshold,
+		freeShippingThreshold: hasFreeShipping ? method.freeShippingThreshold : null,
 		freeShippingThresholdMet,
 		isFreeShipping: price === 0,
-		amountToFreeShipping:
-			method.freeShippingThreshold === null
-				? null
-				: Math.max(method.freeShippingThreshold - subtotal, 0),
+		amountToFreeShipping: hasFreeShipping
+			? Math.max((method.freeShippingThreshold as number) - subtotal, 0)
+			: null,
 		estimatedDaysMin,
 		estimatedDaysMax,
 		etaText: formatEtaText(estimatedDaysMin, estimatedDaysMax),

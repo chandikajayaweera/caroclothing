@@ -14,7 +14,7 @@ addresses
 products
 drops
 wishlist
-cart
+bag
 shipping
 promotions
 inventory
@@ -22,7 +22,32 @@ orders
 reviews
 ```
 
-`inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Internal `*Tx` helpers in `inventory.service.ts` still support cart/order transaction workflows and are imported directly by server internals when needed.
+`inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and are imported directly by server internals when needed.
+
+Bag and checkout inventory lifecycle:
+
+- Adding, removing, or changing bag items does not reserve stock.
+- `startCheckout` validates the bag and reserves available stock in one transaction for 10 minutes.
+- When shoppers contend for the last stock, the first successful checkout reservation wins.
+- Later shoppers see a temporary checkout-hold status and countdown when active holds could satisfy their requested quantity.
+- Bag availability refreshes while items remain in the bag, including available-to-reserved, abandoned/expired-to-available, and completed-purchase-to-out-of-stock transitions.
+- The selected product-detail variant refreshes continuously and uses the same checkout-aware status and hold countdown as the bag.
+- Re-entering an active checkout keeps its original deadline.
+- Navigating away from checkout without placing an order cancels the checkout and releases its reservation.
+- Any bag mutation cancels the active checkout and releases its reservation.
+- Checkout expiry releases reserved stock and clears only checkout timestamps; bag items remain.
+- Successful order placement transfers reservation references from bag items to order items before deleting the bag.
+- Cron expires due checkout holds every minute; bag reads also lazily release an expired hold.
+
+Customer account lifecycle:
+
+- Phone sign-up uses a neutral temporary display name and requires the customer to enter a real name before continuing.
+- Existing phone-derived display names are treated as incomplete and redirected to account profile completion.
+- A customer must always retain at least one sign-in method: verified phone or Google.
+- Self-service account deletion requires a fresh Better Auth session.
+- Before account deletion, the auth workflow releases checkout reservations, deletes the bag, removes user-linked drop waitlist entries, cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one transaction.
+- User deletion cascades profile-owned data while anonymized order/payment history remains with a null user reference.
+- Review media keys are collected before deletion and removed from R2 after the database deletion succeeds.
 
 Implemented foundations:
 
@@ -112,7 +137,7 @@ Orchestration:
 Domain modules:
   src/lib/server/modules/auth
   src/lib/server/modules/addresses
-  src/lib/server/modules/cart
+  src/lib/server/modules/bag
   src/lib/server/modules/drops
   src/lib/server/modules/inventory
   src/lib/server/modules/notifications/outbox
@@ -170,6 +195,7 @@ Service rules:
 - Business writes must go through `*.service.ts`.
 - Multi-table writes must use transactions.
 - Cross-module transaction workflows should use internal `*Tx` helpers imported directly by server internals, not exported as public module CRUD.
+- Account deletion may use narrowly scoped internal bag, drop waitlist, review media, and notification outbox helpers; these are not generic public CRUD APIs.
 - Inventory APIs may manage variant inventory rows, but `inventoryMovement` remains append-only audit state and must not be exposed as generic CRUD.
 - Services return DTOs when UI needs derived fields or public URLs.
 - Public reads default to public-safe filtering.
@@ -261,7 +287,7 @@ Queue:
 Cron:
 
 - Cron scans pending due rows, due failed rows, and stale locked rows.
-- Cron also routes configured scheduled service jobs such as due drop launch, pending-payment cancellation, guest-cart cleanup, and promo usage reconciliation.
+- Cron also routes configured scheduled service jobs such as due drop launch, pending-payment cancellation, guest-bag cleanup, and promo usage reconciliation.
 - Cron/job code must be idempotent, limit-aware, retry-safe, explicit about `now`, and free of `$lib/client/*` imports.
 
 Sender rules:

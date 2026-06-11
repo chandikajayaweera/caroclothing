@@ -1117,4 +1117,3 @@ export async function getInventoryAvailabilityByVariantIds(
 ): Promise<InventoryAvailabilityDTO[]> {
 	return getInventoryAvailabilityByVariantIdsTx(getDb(), input);
 }
-

@@ -1,41 +1,60 @@
-import { redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { getCheckoutCart } from '$lib/server/modules/cart';
-import { listMyAddresses, getMyDefaultAddress } from '$lib/server/modules/addresses';
+import { getCheckoutBag } from '$lib/server/modules/bag';
+import {
+	createAddress,
+	getMyDefaultAddress,
+	listMyAddresses,
+	saveCheckoutAddressFormSchema
+} from '$lib/server/modules/addresses';
+import { getCheckoutCustomer } from '$lib/server/modules/auth';
 import { listShippingDistrictOptions, listShippingQuotes } from '$lib/server/modules/shipping';
-import { placeOrderFromCart } from '$lib/server/modules/orders';
-import { createPaymentSession } from '$lib/server/modules/payments';
-import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-import type { SriLankaDistrict } from '$lib/server/modules/addresses';
-import type { PaymentMethod } from '$lib/server/modules/orders';
+import { checkoutPlaceOrderFormSchema, placeOrderFromBag } from '$lib/server/modules/orders';
+import {
+	createPaymentSession,
+	listAvailableCheckoutPaymentMethods,
+	validateCheckoutPaymentSelection
+} from '$lib/server/modules/payments';
+import {
+	failFromAppError,
+	throwHttpFromAppError
+} from '$lib/server/infrastructure/errors/route-adapter';
+import { ErrorCode, isAppError } from '$lib/server/infrastructure/errors';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
-	const sessionToken = cookies.get('cart_session_token');
+	const now = new Date();
+	const sessionToken = cookies.get('bag_session_token');
 	const actor = locals.user
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
-	const ctx = { actor };
-
-	const isFullUser = locals.user && !locals.user.isAnonymous;
+	const ctx = { actor, now };
 
 	try {
-		const cart = await getCheckoutCart(ctx, { sessionToken });
+		const bag = await getCheckoutBag(ctx, { sessionToken, now });
+		if (!bag.canCheckout) {
+			throw redirect(302, '/bag?error=' + encodeURIComponent(bag.blockingReasons.join(' ')));
+		}
+		const customer = await getCheckoutCustomer(ctx);
+		const isFullUser = !customer.isAnonymous;
 		const addresses = isFullUser ? await listMyAddresses(ctx) : { items: [] };
 		const defaultAddress = isFullUser ? await getMyDefaultAddress(ctx) : null;
 		const districtOptions = listShippingDistrictOptions();
 
 		const defaultDistrict = defaultAddress?.district || null;
 		const shippingQuotes = defaultDistrict
-			? await listShippingQuotes({ district: defaultDistrict, subtotal: cart.subtotal })
+			? await listShippingQuotes({ district: defaultDistrict, subtotal: bag.subtotal })
 			: [];
 
 		return {
-			cart,
+			bag,
 			addresses: addresses.items,
 			defaultAddress,
 			districtOptions,
 			shippingQuotes,
-			user: locals.user
+			paymentMethods: listAvailableCheckoutPaymentMethods(ctx),
+			serverNow: now,
+			user: customer,
+			canSaveAddress: isFullUser
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -43,74 +62,125 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 };
 
 export const actions: Actions = {
-	placeOrder: async ({ request, locals, cookies }) => {
-		const sessionToken = cookies.get('cart_session_token');
+	saveAddress: async ({ request, locals }) => {
 		const actor = locals.user
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
 
+		if (!actor || actor.isAnonymous) {
+			return fail(403, {
+				saveAddressError: 'Sign in to save delivery addresses.'
+			});
+		}
+
 		const formData = await request.formData();
-		const shippingMethodId = formData.get('shippingMethodId') as string;
-		const paymentMethod = formData.get('paymentMethod') as PaymentMethod;
-		const customerNote = (formData.get('customerNote') as string) || null;
+		const parsed = saveCheckoutAddressFormSchema.safeParse(Object.fromEntries(formData));
 
-		const useSavedAddress = formData.get('useSavedAddress') === 'true';
-		const addressId = formData.get('addressId') as string;
-
-		let shippingAddress;
-
-		if (useSavedAddress && addressId) {
-			shippingAddress = { addressId };
-		} else {
-			const recipientName = formData.get('recipientName') as string;
-			const phone = formData.get('phone') as string;
-			const addressLine1 = formData.get('addressLine1') as string;
-			const addressLine2 = (formData.get('addressLine2') as string) || null;
-			const city = formData.get('city') as string;
-			const district = formData.get('district') as SriLankaDistrict;
-			const postalCode = (formData.get('postalCode') as string) || null;
-
-			shippingAddress = {
-				recipientName,
-				phone,
-				addressLine1,
-				addressLine2,
-				city,
-				district,
-				postalCode
-			};
+		if (!parsed.success) {
+			const saveAddressFieldErrors = Object.fromEntries(
+				parsed.error.issues.map((issue) => [String(issue.path[0] ?? 'form'), issue.message])
+			);
+			return fail(400, {
+				saveAddressError: 'Review the delivery address and try again.',
+				saveAddressFieldErrors
+			});
 		}
 
 		try {
-			const order = await placeOrderFromCart(ctx, {
+			const savedAddress = await createAddress(ctx, parsed.data);
+			return { saveAddressSuccess: true, savedAddress };
+		} catch (error) {
+			return failFromAppError(error);
+		}
+	},
+	placeOrder: async ({ request, locals, cookies, platform }) => {
+		const sessionToken = cookies.get('bag_session_token');
+		const actor = locals.user
+			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
+			: null;
+		const ctx = {
+			actor,
+			notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+		};
+
+		const formData = await request.formData();
+		const parsed = checkoutPlaceOrderFormSchema.safeParse(Object.fromEntries(formData));
+
+		if (!parsed.success) {
+			const fieldErrors = Object.fromEntries(
+				parsed.error.issues.map((issue) => [String(issue.path[0] ?? 'form'), issue.message])
+			);
+			return fail(400, {
+				message: 'Review the highlighted checkout details.',
+				fieldErrors
+			});
+		}
+
+		const values = parsed.data;
+		let paymentSelection;
+		try {
+			paymentSelection = await validateCheckoutPaymentSelection(ctx, {
+				method: values.paymentMethod,
+				billingEmail: values.billingEmail
+			});
+		} catch (error) {
+			return failFromAppError(error);
+		}
+		const shippingAddress = values.useSavedAddress
+			? { addressId: values.addressId! }
+			: {
+					recipientName: values.recipientName!,
+					phone: values.phone!,
+					addressLine1: values.addressLine1!,
+					addressLine2: values.addressLine2,
+					city: values.city!,
+					district: values.district!,
+					postalCode: values.postalCode
+				};
+
+		let order;
+		try {
+			order = await placeOrderFromBag(ctx, {
 				sessionToken,
 				shippingAddress,
-				shippingMethodId,
-				paymentMethod,
-				customerNote
+				shippingMethodId: values.shippingMethodId,
+				paymentMethod: paymentSelection.method,
+				customerNote: values.customerNote
 			});
-
-			const sessionResult = await createPaymentSession(ctx, {
-				orderId: order.id,
-				method: paymentMethod
-			});
-
-			if (paymentMethod === 'cash_on_delivery' || paymentMethod === 'bank_transfer') {
-				throw redirect(302, `/checkout/confirmation/${order.id}`);
-			}
-
-			if (sessionResult.redirectUrl && !sessionResult.paymentData) {
-				throw redirect(302, sessionResult.redirectUrl);
-			}
-
-			return {
-				success: true,
-				order,
-				paymentSession: sessionResult
-			};
 		} catch (error) {
-			throwHttpFromAppError(error);
+			if (isAppError(error) && error.code === ErrorCode.CHECKOUT_SESSION_EXPIRED) {
+				throw redirect(
+					303,
+					`/bag?error=${encodeURIComponent('Checkout expired. Start checkout again when you are ready.')}`
+				);
+			}
+			return failFromAppError(error);
 		}
+
+		if (paymentSelection.method === 'cash_on_delivery') {
+			throw redirect(303, `/checkout/confirmation/${order.id}`);
+		}
+
+		let sessionResult;
+		try {
+			sessionResult = await createPaymentSession(ctx, {
+				orderId: order.id,
+				method: paymentSelection.method,
+				billingEmail: paymentSelection.billingEmail
+			});
+		} catch (error) {
+			console.error('Payment session setup failed after order placement.', {
+				orderId: order.id,
+				error
+			});
+			throw redirect(303, `/checkout/confirmation/${order.id}?payment=setup_failed`);
+		}
+
+		return {
+			success: true,
+			order,
+			paymentSession: sessionResult
+		};
 	}
 };

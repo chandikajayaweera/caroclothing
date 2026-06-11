@@ -90,42 +90,46 @@ Read this before making any UX decision that touches real data. All fields descr
 
 **Critical business rules:**
 
-- `reservedQuantity` is incremented when an item is added to cart (only when stock physically exists)
+- Adding an item to a bag does not change `reservedQuantity`
+- `reservedQuantity` is incremented only when checkout starts, and only for stock physically available
 - `reservedQuantity` is NEVER incremented for backorder items — do not design UX that implies stock is held for pre-orders
 - Every stock change has an `inventoryMovement` audit row — supports admin reconciliation
 - Movement types: restock, sale, return, adjustment, reserved, released, cancelled
 
 **UX gotchas:**
 
-- Stock can change while the user is on the product page — validate again at add-to-cart, not just page load
+- Stock can change while an item sits in the bag — validate and reserve again when checkout starts
 - "Only X left" signals must query live data, not rely on cached page values
 - For drop products: when the drop goes `sold_out`, surface the sold-out state prominently — it's a cultural milestone, not a failure
 
 ---
 
-## Cart
+## Bag
 
-**Tables**: `cart`, `cartItem`
+**Tables**: `bag`, `bagItem`
 
 **What UX can do:**
 
-- Guest carts: identified by `sessionToken` (httpOnly cookie) — no login needed
-- Authenticated carts: identified by `userId` — persists indefinitely (no `expiresAt`)
-- Guest carts expire after 7 days — show "Your cart has cleared" gracefully if a user returns after expiry
-- `unitPrice` is locked at add-to-cart time — show a price-change warning if the product price has since changed; do not silently update
-- Promo codes: `promoCodeId` + `discountAmount` on cart — one promo per cart at a time
-- On login: merge guest cart into the authenticated cart (app logic, not DB)
+- Guest bags: identified by `sessionToken` (httpOnly cookie) — no login needed
+- Authenticated bags: identified by `userId` — persists indefinitely (no `expiresAt`)
+- Guest bags expire after 7 days — show "Your bag has cleared" gracefully if a user returns after expiry
+- `unitPrice` is locked at add-to-bag time — show a price-change warning if the product price has since changed; do not silently update
+- Promo codes: `promoCodeId` + `discountAmount` on bag — one promo per bag at a time
+- On login: merge guest bag into the authenticated bag (app logic, not DB)
+- `checkoutStartedAt` + `checkoutExpiresAt` define one active 10-minute stock hold per bag
+- Expired checkout releases stock but preserves bag items
+- Any bag mutation cancels active checkout and releases its stock hold
 
-**Cart item constraints:**
+**Bag item constraints:**
 
 - Max quantity per item: 10 (Zod-enforced, not a DB CHECK)
-- Unique per (cartId, variantId) — duplicate adds must INCREMENT quantity via upsert, not insert a second row
+- Unique per (bagId, variantId) — duplicate adds must INCREMENT quantity via upsert, not insert a second row
 
 **UX gotchas:**
 
-- Cart total = `SUM(unitPrice × quantity) - discountAmount` — compute from locked prices, not live catalog prices
-- If price changed since add-to-cart, surface a warning ("Price updated") — never silently change what the customer expected to pay
-- Guest cart cleanup is a cron job — handle expired sessions with graceful "cart cleared" messaging
+- Bag total = `SUM(unitPrice × quantity) - discountAmount` — compute from locked prices, not live catalog prices
+- If price changed since add-to-bag, surface a warning ("Price updated") — never silently change what the customer expected to pay
+- Guest bag cleanup is a cron job — handle expired sessions with graceful "bag cleared" messaging
 
 ---
 
@@ -184,7 +188,7 @@ Read this before making any UX decision that touches real data. All fields descr
 - Show available methods per district — use zone override price if a `shippingZone` row exists for (methodId, district), else fall back to `shippingMethod.price`
 - Show estimated delivery range: `estimatedDaysMin`–`estimatedDaysMax` business days
 - Show free shipping when `subtotal ≥ freeShippingThreshold` (null = never free via this method)
-- Show progress toward free shipping in cart
+- Show progress toward free shipping in bag
 
 **Lookup logic** (apply in order):
 
@@ -207,7 +211,7 @@ Read this before making any UX decision that touches real data. All fields descr
 
 **What UX can do:**
 
-- Single promo code per cart
+- Single promo code per bag
 - Two types: `percentage` (0–100%) or `fixed` (LKR amount off)
 - `maxDiscountAmount` caps percentage discounts — show the capped amount if it's reached
 - `minOrderAmount` threshold — validate before applying, display the requirement clearly if not met

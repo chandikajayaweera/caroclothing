@@ -1,16 +1,129 @@
 import type { PageServerLoad, Actions } from './$types';
-import { redirect } from '@sveltejs/kit';
-import { getProduct } from '$lib/server/modules/products';
-import { getProductReviewSummary, listProductReviews, getReviewEligibility, createReview } from '$lib/server/modules/reviews';
+import { fail, redirect } from '@sveltejs/kit';
+import { getProduct, listProducts, type ProductDTO } from '$lib/server/modules/products';
+import {
+	createReview,
+	createReviewFormSchema,
+	getProductReviewSummary,
+	getReviewEligibility,
+	listProductReviews
+} from '$lib/server/modules/reviews';
 import { isWishlisted, addToWishlist, removeFromWishlist } from '$lib/server/modules/wishlist';
-import { addItemToCart } from '$lib/server/modules/cart';
-import { getInventoryAvailabilityByVariantIdsTx } from '$lib/server/modules/inventory/inventory.service';
-import { getDb } from '$lib/server/db';
+import {
+	addBagItemFormSchema,
+	addItemToBag,
+	getStorefrontVariantAvailability
+} from '$lib/server/modules/bag';
+import {
+	getInventoryAvailabilityByVariantIds,
+	type InventoryAvailabilityDTO
+} from '$lib/server/modules/inventory';
+import { joinDropWaitlist, joinDropWaitlistFormSchema } from '$lib/server/modules/drops';
+import { listShippingQuotes } from '$lib/server/modules/shipping';
 import type { ServiceContext } from '$lib/server/foundation/context';
-import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import {
+	failFromAppError,
+	throwHttpFromAppError
+} from '$lib/server/infrastructure/errors/route-adapter';
+
+type StockStatus = 'available' | 'low-stock' | 'sold-out';
+type ProductWithStockStatus = ProductDTO & {
+	stockStatus: StockStatus;
+	totalStock: number;
+	hasAvailable: boolean;
+};
 
 function getStorefrontContext(locals: App.Locals): ServiceContext {
 	return { actor: locals.user ?? null };
+}
+
+async function withStockStatus(
+	ctx: ServiceContext,
+	products: ProductDTO[]
+): Promise<ProductWithStockStatus[]> {
+	const variantIds = products.flatMap((product) => product.variants.map((variant) => variant.id));
+	const availability =
+		variantIds.length > 0 ? await getInventoryAvailabilityByVariantIds(ctx, { variantIds }) : [];
+	const availabilityMap = new Map(availability.map((row) => [row.variantId, row]));
+
+	return products.map((product) => {
+		const stock = deriveProductStockStatus(product, availabilityMap);
+
+		return {
+			...product,
+			...stock
+		};
+	});
+}
+
+function deriveProductStockStatus(
+	product: ProductDTO,
+	availabilityMap: Map<string, InventoryAvailabilityDTO>
+): { stockStatus: StockStatus; totalStock: number; hasAvailable: boolean } {
+	let totalStock = 0;
+	let hasTrackedStock = false;
+	let hasKnownInventory = false;
+	let hasAvailable = false;
+	let hasBackorder = false;
+	let isLowStock = false;
+
+	for (const variant of product.variants) {
+		const stock = availabilityMap.get(variant.id);
+		if (!stock) continue;
+
+		hasKnownInventory = true;
+
+		if (!stock.trackInventory) {
+			hasAvailable = true;
+			continue;
+		}
+
+		hasTrackedStock = true;
+		totalStock += stock.availableQuantity;
+		hasBackorder ||= stock.allowBackorder;
+
+		if (stock.availableQuantity > 0) {
+			hasAvailable = true;
+			isLowStock ||= stock.isLowStock;
+		}
+	}
+
+	if (!hasKnownInventory) {
+		return { stockStatus: 'sold-out', totalStock, hasAvailable: false };
+	}
+
+	if (!hasAvailable && !hasBackorder) {
+		return { stockStatus: 'sold-out', totalStock, hasAvailable: false };
+	}
+
+	return {
+		stockStatus: hasTrackedStock && isLowStock ? 'low-stock' : 'available',
+		totalStock,
+		hasAvailable: true
+	};
+}
+
+async function loadRelatedProducts(
+	ctx: ServiceContext,
+	product: ProductDTO
+): Promise<ProductWithStockStatus[]> {
+	const related = await listProducts(ctx, {
+		categoryId: product.categoryId ?? undefined,
+		tier: product.tier,
+		limit: 8,
+		includeInactive: false
+	});
+	const candidates = related.items.filter((item) => item.id !== product.id).slice(0, 4);
+
+	if (candidates.length > 0) return withStockStatus(ctx, candidates);
+
+	const fallback = await listProducts(ctx, {
+		tier: product.tier,
+		limit: 8,
+		includeInactive: false
+	});
+
+	return withStockStatus(ctx, fallback.items.filter((item) => item.id !== product.id).slice(0, 4));
 }
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -18,27 +131,34 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	try {
 		const product = await getProduct(ctx, { slug: params.slug });
-		const reviewsSummary = await getProductReviewSummary(ctx, { productId: product.id });
-		const reviews = await listProductReviews(ctx, { productId: product.id, limit: 6 });
-
 		const variantIds = product.variants.map((v) => v.id);
-		const availability = variantIds.length > 0
-			? await getInventoryAvailabilityByVariantIdsTx(getDb(), { variantIds })
-			: [];
-
 		let isWishlistedVal = false;
 		let reviewEligibility = null;
 
-		if (locals.user && !locals.user.isAnonymous) {
-			isWishlistedVal = await isWishlisted(ctx, { productId: product.id });
-			reviewEligibility = await getReviewEligibility(ctx, { productId: product.id });
-		}
+		const [reviewsSummary, reviews, availability, shippingQuotes, relatedProducts] =
+			await Promise.all([
+				getProductReviewSummary(ctx, { productId: product.id }),
+				listProductReviews(ctx, { productId: product.id, limit: 100 }),
+				variantIds.length > 0
+					? getStorefrontVariantAvailability(ctx, { variantIds })
+					: Promise.resolve([]),
+				listShippingQuotes({ subtotal: 0 }),
+				loadRelatedProducts(ctx, product)
+			]);
+
+		if (locals.user && !locals.user.isAnonymous)
+			[isWishlistedVal, reviewEligibility] = await Promise.all([
+				isWishlisted(ctx, { productId: product.id }),
+				getReviewEligibility(ctx, { productId: product.id })
+			]);
 
 		return {
 			product,
 			reviewsSummary,
 			reviews,
 			availability,
+			shippingQuotes,
+			relatedProducts,
 			isWishlisted: isWishlistedVal,
 			reviewEligibility
 		};
@@ -48,31 +168,48 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 };
 
 export const actions: Actions = {
-	addToCart: async ({ request, locals, cookies }) => {
+	addToBag: async ({ request, locals, cookies }) => {
 		const actor = locals.user
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('cart_session_token');
+		const sessionToken = cookies.get('bag_session_token');
 		const formData = await request.formData();
-		const variantId = formData.get('variantId') as string;
-		const quantity = formData.get('quantity') ? Number(formData.get('quantity')) : 1;
+		const result = addBagItemFormSchema.safeParse(Object.fromEntries(formData));
+
+		if (!result.success) {
+			return fail(400, {
+				success: false,
+				message: 'Select an available size.'
+			});
+		}
 
 		try {
-			const cart = await addItemToCart(ctx, { sessionToken, variantId, quantity });
-			return { success: true, cart };
+			const bag = await addItemToBag(ctx, { sessionToken, ...result.data });
+			return { success: true, bag };
 		} catch (error) {
-			throwHttpFromAppError(error);
+			return failFromAppError(error);
 		}
 	},
 	toggleWishlist: async ({ request, locals }) => {
 		if (!locals.user || locals.user.isAnonymous) {
-			throw redirect(302, `/sign-in`);
+			redirect(302, `/sign-in`);
 		}
-		const actor = { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous };
+		const actor = {
+			id: locals.user.id,
+			role: locals.user.role,
+			isAnonymous: locals.user.isAnonymous
+		};
 		const ctx = { actor };
 		const formData = await request.formData();
-		const productId = formData.get('productId') as string;
+		const productId = String(formData.get('productId') ?? '').trim();
+
+		if (!productId) {
+			return fail(400, {
+				success: false,
+				message: 'Product is required.'
+			});
+		}
 
 		try {
 			const wishlisted = await isWishlisted(ctx, { productId });
@@ -83,32 +220,77 @@ export const actions: Actions = {
 			}
 			return { success: true };
 		} catch (error) {
-			throwHttpFromAppError(error);
+			return failFromAppError(error);
 		}
 	},
-	submitReview: async ({ request, locals }) => {
-		if (!locals.user || locals.user.isAnonymous) {
-			throw redirect(302, `/sign-in`);
-		}
-		const actor = { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous };
-		const ctx = { actor };
+	joinDropWaitlist: async ({ request, locals }) => {
+		const ctx = getStorefrontContext(locals);
 		const formData = await request.formData();
-		const productId = formData.get('productId') as string;
-		const rating = Number(formData.get('rating'));
-		const body = formData.get('body') as string;
-		const title = (formData.get('title') as string) || null;
+		const contact = String(formData.get('contact') ?? '').trim();
+		const result = joinDropWaitlistFormSchema.safeParse({
+			dropId: formData.get('dropId'),
+			contact,
+			contactType: contact.includes('@') ? 'email' : 'phone'
+		});
+
+		if (!result.success) {
+			return fail(400, {
+				success: false,
+				message: 'Use an email or +94 phone number.'
+			});
+		}
 
 		try {
+			await joinDropWaitlist(ctx, result.data);
+			return { success: true, message: 'Drop alert locked.' };
+		} catch (error) {
+			return failFromAppError(error);
+		}
+	},
+	submitReview: async ({ request, locals, platform }) => {
+		if (!locals.user || locals.user.isAnonymous) {
+			redirect(302, `/sign-in`);
+		}
+		const actor = {
+			id: locals.user.id,
+			role: locals.user.role,
+			isAnonymous: locals.user.isAnonymous
+		};
+		const ctx: ServiceContext = { actor, event: { platform } };
+		const formData = await request.formData();
+		const files = formData
+			.getAll('files')
+			.filter((file): file is File => file instanceof File && file.size > 0);
+		const result = createReviewFormSchema.safeParse({
+			productId: formData.get('productId'),
+			rating: Number(formData.get('rating')),
+			title: String(formData.get('title') ?? '').trim() || null,
+			body: String(formData.get('body') ?? '').trim(),
+			files: files.length > 0 ? files : undefined
+		});
+
+		if (!result.success) {
+			return fail(400, {
+				success: false,
+				message: 'Review needs a rating and at least 10 characters.'
+			});
+		}
+
+		try {
+			const eligibility = await getReviewEligibility(ctx, { productId: result.data.productId });
+			const orderId = eligibility.eligibleOrders[0]?.orderId || null;
+
 			await createReview(ctx, {
-				productId,
-				rating,
-				title,
-				body,
-				orderId: null
+				productId: result.data.productId,
+				rating: result.data.rating,
+				title: result.data.title ?? null,
+				body: result.data.body ?? null,
+				orderId,
+				files: result.data.files ?? null
 			});
 			return { success: true };
 		} catch (error) {
-			throwHttpFromAppError(error);
+			return failFromAppError(error);
 		}
 	}
 };
