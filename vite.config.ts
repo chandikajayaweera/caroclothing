@@ -27,5 +27,8 @@ export default defineConfig({
 		sveltekit(),
 		cloudflareAppendWorkerHandlers()
 	],
+	resolve: {
+		dedupe: ['svelte']
+	},
 	define: { __APP_VERSION__: JSON.stringify(pkg.version) }
 });
