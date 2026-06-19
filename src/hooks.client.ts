@@ -18,9 +18,6 @@ export const init: ClientInit = () => {
 				maskAllText: true,
 				maskAllInputs: true,
 				blockAllMedia: true
-			}),
-			Sentry.feedbackIntegration({
-				colorScheme: 'system'
 			})
 		]
 	});
