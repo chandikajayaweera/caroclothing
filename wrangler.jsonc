@@ -7,10 +7,7 @@
 	"name": "caroclothing",
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"compatibility_date": "2026-04-15",
-	"compatibility_flags": [
-		"nodejs_compat",
-		"nodejs_als"
-	],
+	"compatibility_flags": ["nodejs_compat", "nodejs_als"],
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
@@ -35,6 +32,10 @@
 	"vars": {
 		"PUBLIC_APP_NAME": "Caro Clothing",
 		"PUBLIC_APP_URL": "https://caroclothing.lk",
+		"PUBLIC_SENTRY_ENVIRONMENT": "production",
+		"PUBLIC_SENTRY_TRACES_SAMPLE_RATE": "0.1",
+		"PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE": "0.05",
+		"PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE": "1",
 		"EMAIL_FROM_ADDRESS": "noreply@caroclothing.lk",
 		"TEXT_LK_OTP_SENDER_ID": "Caro OTP",
 		"TEXT_LK_TRANSACTIONAL_SENDER_ID": "Caro",
@@ -91,6 +92,7 @@
 			"BETTER_AUTH_SECRET",
 			"PUBLIC_GOOGLE_CLIENT_ID",
 			"GOOGLE_CLIENT_SECRET",
+			"PUBLIC_SENTRY_DSN",
 			"RESEND_API_KEY",
 			"TEXT_LK_API_KEY"
 		]
@@ -128,6 +130,10 @@
 			"vars": {
 				"PUBLIC_APP_NAME": "Caro Clothing",
 				"PUBLIC_APP_URL": "https://staging.caroclothing.lk",
+				"PUBLIC_SENTRY_ENVIRONMENT": "staging",
+				"PUBLIC_SENTRY_TRACES_SAMPLE_RATE": "0.2",
+				"PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE": "0.1",
+				"PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE": "1",
 				"EMAIL_FROM_ADDRESS": "noreply@staging.caroclothing.lk",
 				"TEXT_LK_OTP_SENDER_ID": "Caro OTP",
 				"TEXT_LK_TRANSACTIONAL_SENDER_ID": "Caro",
@@ -141,13 +147,7 @@
 				}
 			],
 			"triggers": {
-				"crons": [
-					"* * * * *",
-					"*/5 * * * *",
-					"*/10 * * * *",
-					"0 * * * *",
-					"17 20 * * *"
-				]
+				"crons": ["* * * * *", "*/5 * * * *", "*/10 * * * *", "0 * * * *", "17 20 * * *"]
 			},
 			"queues": {
 				"producers": [
@@ -174,6 +174,7 @@
 					"BETTER_AUTH_SECRET",
 					"PUBLIC_GOOGLE_CLIENT_ID",
 					"GOOGLE_CLIENT_SECRET",
+					"PUBLIC_SENTRY_DSN",
 					"RESEND_API_KEY",
 					"TEXT_LK_API_KEY"
 				]

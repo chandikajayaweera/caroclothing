@@ -25,6 +25,7 @@
 
 	let showCreate = $state(initialShowCreate());
 	let editingId = $state<string | null>(null);
+	let deleteOpen = $state(false);
 	let deleteTarget = $state<{ id: string; label: string } | null>(null);
 	let pendingMutation = $state<string | null>(null);
 
@@ -78,14 +79,27 @@
 		editingId = address.id;
 	}
 
+	function openDeleteDialog(address: PageData['addresses']['items'][number]) {
+		deleteTarget = { id: address.id, label: address.label || 'address' };
+		deleteOpen = true;
+	}
+
+	function closeDeleteDialog() {
+		deleteOpen = false;
+		deleteTarget = null;
+	}
+
 	function enhanceMutation(key: string, closeDelete = false): SubmitFunction {
 		return () => {
 			pendingMutation = key;
 
 			return async ({ result, update }) => {
-				await update({ reset: false });
-				if (closeDelete && result.type === 'success') deleteTarget = null;
-				pendingMutation = null;
+				try {
+					await update({ reset: false });
+					if (closeDelete && result.type === 'success') closeDeleteDialog();
+				} finally {
+					pendingMutation = null;
+				}
 			};
 		};
 	}
@@ -342,7 +356,7 @@
 					{/if}
 					<button
 						type="button"
-						onclick={() => (deleteTarget = { id: address.id, label: address.label || 'address' })}
+						onclick={() => openDeleteDialog(address)}
 						class="col-span-2 flex min-h-11 items-center justify-center gap-2 px-3 font-mono text-[9px] tracking-widest text-red-300 uppercase hover:text-red-200 sm:ml-auto"
 					>
 						<Trash2 size={13} aria-hidden="true" />
@@ -520,8 +534,8 @@
 	</div>
 </div>
 
-<Dialog.Root open={deleteTarget !== null} onOpenChange={(open) => !open && (deleteTarget = null)}>
-	{#if deleteTarget}
+<Dialog.Root bind:open={deleteOpen} onOpenChange={(open) => !open && (deleteTarget = null)}>
+	{#if deleteOpen && deleteTarget}
 		<Dialog.Portal>
 			<Dialog.Overlay class="fixed inset-0 z-50 bg-void/90" />
 			<div class="fixed inset-0 z-50 grid place-items-center overflow-y-auto px-4 py-6">
@@ -550,7 +564,7 @@
 						</button>
 						<button
 							type="button"
-							onclick={() => (deleteTarget = null)}
+							onclick={closeDeleteDialog}
 							disabled={pendingMutation === `delete:${deleteTarget.id}`}
 							class="min-h-11 border border-ash/30 px-4 font-mono text-[9px] tracking-widest text-ash uppercase hover:border-bone hover:text-bone disabled:opacity-50"
 						>

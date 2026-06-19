@@ -62,3 +62,36 @@ export function parseUnknownError(err: unknown): string {
 	if (import.meta.env.DEV) console.error('[auth] caught:', err);
 	return 'An unexpected error occurred.';
 }
+
+export function isCredentialApiUnsupportedError(error: unknown): boolean {
+	const { name, message } = normalizeClientError(error);
+	const normalizedMessage = message.toLowerCase();
+
+	return (
+		normalizedMessage.includes('user agent does not support public key credentials') ||
+		(name === 'NotSupportedError' && normalizedMessage.includes('public key credentials'))
+	);
+}
+
+function normalizeClientError(error: unknown) {
+	if (error instanceof Error) {
+		return {
+			name: error.name,
+			message: error.message
+		};
+	}
+
+	if (typeof error === 'object' && error !== null) {
+		const entry = error as { name?: unknown; message?: unknown };
+
+		return {
+			name: typeof entry.name === 'string' ? entry.name : '',
+			message: typeof entry.message === 'string' ? entry.message : String(error)
+		};
+	}
+
+	return {
+		name: '',
+		message: String(error)
+	};
+}

@@ -15,7 +15,7 @@
 		Trash2,
 		Unlink
 	} from 'lucide-svelte';
-	import { authClient } from '$lib/client/modules/auth';
+	import { authClient, signOutSession } from '$lib/client/modules/auth';
 	import {
 		getAuthErrorRetryAfterSeconds,
 		OTP_RATE_LIMITED_MESSAGE,
@@ -172,7 +172,11 @@
 	}
 
 	async function signOutCurrent() {
-		await authClient.signOut();
+		const result = await signOutSession();
+		if (!result.ok) {
+			providerError = parseUnknownError(result.error);
+			return;
+		}
 		await goto(resolve('/'), { invalidateAll: true });
 	}
 

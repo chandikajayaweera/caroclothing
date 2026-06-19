@@ -20,6 +20,7 @@
 
 	let editingId = $state<string | null>(null);
 	let deleting = $state(false);
+	let deleteOpen = $state(false);
 	let deleteTarget = $state<
 		| { type: 'review'; id: string; label: string }
 		| { type: 'media'; id: string; label: string }
@@ -79,12 +80,25 @@
 		$updateErrors = {};
 	}
 
+	function openDeleteDialog(target: NonNullable<typeof deleteTarget>) {
+		deleteTarget = target;
+		deleteOpen = true;
+	}
+
+	function closeDeleteDialog() {
+		deleteOpen = false;
+		deleteTarget = null;
+	}
+
 	const enhanceDelete: SubmitFunction = () => {
 		deleting = true;
 		return async ({ result, update }) => {
-			await update();
-			if (result.type === 'success') deleteTarget = null;
-			deleting = false;
+			try {
+				await update();
+				if (result.type === 'success') closeDeleteDialog();
+			} finally {
+				deleting = false;
+			}
 		};
 	};
 
@@ -180,7 +194,7 @@
 							<button
 								type="button"
 								onclick={() =>
-									(deleteTarget = {
+									openDeleteDialog({
 										type: 'review',
 										id: review.id,
 										label: review.product?.name ?? 'review'
@@ -378,7 +392,7 @@
 										<button
 											type="button"
 											onclick={() =>
-												(deleteTarget = {
+												openDeleteDialog({
 													type: 'media',
 													id: media.id,
 													label: `media ${index + 1}`
@@ -409,8 +423,8 @@
 	</div>
 </div>
 
-<Dialog.Root open={deleteTarget !== null} onOpenChange={(open) => !open && (deleteTarget = null)}>
-	{#if deleteTarget}
+<Dialog.Root bind:open={deleteOpen} onOpenChange={(open) => !open && (deleteTarget = null)}>
+	{#if deleteOpen && deleteTarget}
 		<Dialog.Portal>
 			<Dialog.Overlay class="fixed inset-0 z-50 bg-void/90" />
 			<div class="fixed inset-0 z-50 grid place-items-center overflow-y-auto px-4 py-6">
@@ -444,7 +458,7 @@
 						>
 						<button
 							type="button"
-							onclick={() => (deleteTarget = null)}
+							onclick={closeDeleteDialog}
 							disabled={deleting}
 							class="min-h-11 border border-ash/30 px-4 font-mono text-[9px] tracking-widest text-ash uppercase hover:text-bone"
 							>Cancel</button

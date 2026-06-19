@@ -4,6 +4,18 @@ export const envSchema = z.object({
 	// APP
 	PUBLIC_APP_NAME: z.string().min(1, 'PUBLIC_APP_NAME is required'),
 	PUBLIC_APP_URL: z.url('PUBLIC_APP_URL must be a valid URL'),
+	PUBLIC_SENTRY_DSN: z
+		.union([z.url('PUBLIC_SENTRY_DSN must be a valid URL'), z.literal('')])
+		.default(''),
+	PUBLIC_SENTRY_ENVIRONMENT: z.string().optional().default('development'),
+	PUBLIC_SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional().default(0.1),
+	PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE: z.coerce
+		.number()
+		.min(0)
+		.max(1)
+		.optional()
+		.default(0.05),
+	PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional().default(1),
 
 	// Database
 	DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),

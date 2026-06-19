@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { authClient } from '$lib/client/modules/auth';
+	import { signOutSession } from '$lib/client/modules/auth';
 	import { BookOpen, Heart, House, LogOut, MapPin, Package, ShieldCheck } from 'lucide-svelte';
 	import type { LayoutData } from './$types';
 
@@ -24,7 +24,11 @@
 	}
 
 	async function signOut() {
-		await authClient.signOut();
+		const result = await signOutSession();
+		if (!result.ok) {
+			console.error('[auth] Failed to sign out:', result.error);
+			return;
+		}
 		await goto(resolve('/'), { invalidateAll: true });
 	}
 </script>

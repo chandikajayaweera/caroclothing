@@ -11,6 +11,8 @@ import type { NotificationQueueMessage } from './lib/server/modules/notification
  */
 
 declare global {
+	const __APP_VERSION__: string;
+
 	namespace App {
 		interface Platform {
 			env: {

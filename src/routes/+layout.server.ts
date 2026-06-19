@@ -1,6 +1,10 @@
 import type { LayoutServerLoad } from './$types';
-import { getOrCreateBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
+import { getBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
 import { listWishlist } from '$lib/server/modules/wishlist';
+import {
+	isTransientDatabaseTransportError,
+	withTransientDatabaseRetry
+} from '$lib/server/infrastructure/errors/transient-database';
 import { nanoid } from 'nanoid';
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
@@ -15,22 +19,23 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	const ctx = { actor };
 
 	let sessionToken = cookies.get('bag_session_token');
-	let wishlistProductIds: string[] = [];
 
 	if (actor) {
 		if (sessionToken) {
+			const guestSessionToken = sessionToken;
 			try {
-				await mergeGuestBagIntoUserBag(ctx, { sessionToken });
+				await withTransientDatabaseRetry(() =>
+					mergeGuestBagIntoUserBag(ctx, { sessionToken: guestSessionToken })
+				);
+				cookies.delete('bag_session_token', { path: '/' });
 			} catch (err) {
 				console.error('Failed to merge guest bag into user bag:', err);
 			}
-			cookies.delete('bag_session_token', { path: '/' });
 		}
-		const [bag, wishlistRes] = await Promise.all([
-			getOrCreateBag(ctx),
-			!actor.isAnonymous ? listWishlist(ctx, { limit: 100 }) : Promise.resolve({ items: [] })
+		const [bag, wishlistProductIds] = await Promise.all([
+			loadGlobalBag(ctx),
+			!actor.isAnonymous ? loadGlobalWishlistProductIds(ctx) : Promise.resolve([])
 		]);
-		wishlistProductIds = wishlistRes.items.map((item) => item.productId);
 
 		return {
 			user: locals.user,
@@ -49,12 +54,42 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				secure: true
 			});
 		}
-		const bag = await getOrCreateBag(ctx, { sessionToken });
+		const bag = await loadGlobalBag(ctx, { sessionToken });
 		return {
 			user: null,
 			session: null,
 			bag,
-			wishlistProductIds
+			wishlistProductIds: []
 		};
 	}
 };
+
+async function loadGlobalBag(
+	ctx: Parameters<typeof getBag>[0],
+	input: Parameters<typeof getBag>[1] = {}
+) {
+	try {
+		return await withTransientDatabaseRetry(() => getBag(ctx, input));
+	} catch (error) {
+		if (!isGlobalLoadTransientDbError(error)) throw error;
+
+		console.warn('Transient database error while loading global bag state.');
+		return null;
+	}
+}
+
+async function loadGlobalWishlistProductIds(ctx: Parameters<typeof listWishlist>[0]) {
+	try {
+		const wishlistRes = await withTransientDatabaseRetry(() => listWishlist(ctx, { limit: 100 }));
+		return wishlistRes.items.map((item) => item.productId);
+	} catch (error) {
+		if (!isGlobalLoadTransientDbError(error)) throw error;
+
+		console.warn('Transient database error while loading global wishlist state.');
+		return [];
+	}
+}
+
+function isGlobalLoadTransientDbError(error: unknown) {
+	return isTransientDatabaseTransportError(error);
+}
