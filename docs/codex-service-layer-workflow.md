@@ -86,6 +86,7 @@ Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` u
 3. Design implementation
    - Use `$caro-service-layer` after the API plan is accepted.
    - Decide transaction boundaries, internal Tx helper use, DTO mapping, validation source, authorization checks, R2 compensation, notification outbox behavior, and test commands before coding.
+   - Background/cleanup tasks that process multiple items must NOT run the entire batch under a single monolithic transaction; use individual transactions per record.
 
 4. Build
    - Keep edits scoped to the module and necessary foundations.

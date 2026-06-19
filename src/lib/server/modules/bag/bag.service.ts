@@ -613,36 +613,43 @@ export async function deleteExpiredGuestBags(
 	const limit = normalizeLimit(input.limit, CLEANUP_DEFAULT_LIMIT, CLEANUP_MAX_LIMIT);
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const rows = await tx
-				.select()
-				.from(bagTable)
-				.where(
-					and(
-						isNotNull(bagTable.sessionToken),
-						isNotNull(bagTable.expiresAt),
-						lte(bagTable.expiresAt, now)
-					)
+		const db = getDb();
+		const rows = await db
+			.select()
+			.from(bagTable)
+			.where(
+				and(
+					isNotNull(bagTable.sessionToken),
+					isNotNull(bagTable.expiresAt),
+					lte(bagTable.expiresAt, now)
 				)
-				.orderBy(asc(bagTable.expiresAt), asc(bagTable.createdAt))
-				.limit(limit);
+			)
+			.orderBy(asc(bagTable.expiresAt), asc(bagTable.createdAt))
+			.limit(limit);
 
-			let itemCount = 0;
-			let releasedQuantity = 0;
+		let itemCount = 0;
+		let releasedQuantity = 0;
+		const bagIds: string[] = [];
 
-			for (const row of rows) {
-				const result = await deleteBagByIdTx(tx, row.id, now);
+		for (const row of rows) {
+			try {
+				const result = await db.transaction(async (tx) => {
+					return deleteBagByIdTx(tx, row.id, now);
+				});
 				itemCount += result.itemCount;
 				releasedQuantity += result.releasedQuantity;
+				bagIds.push(row.id);
+			} catch (err) {
+				console.error(`Failed to delete expired guest bag ${row.id}:`, err);
 			}
+		}
 
-			return {
-				deletedCount: rows.length,
-				bagIds: rows.map((row) => row.id),
-				itemCount,
-				releasedQuantity
-			};
-		});
+		return {
+			deletedCount: bagIds.length,
+			bagIds,
+			itemCount,
+			releasedQuantity
+		};
 	} catch (error) {
 		throw mapBagPersistenceError(error);
 	}
@@ -658,32 +665,40 @@ export async function expireDueBagCheckouts(
 	const limit = normalizeLimit(input.limit, CLEANUP_DEFAULT_LIMIT, CLEANUP_MAX_LIMIT);
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const rows = await tx
-				.select()
-				.from(bagTable)
-				.where(
-					and(
-						isNotNull(bagTable.checkoutStartedAt),
-						isNotNull(bagTable.checkoutExpiresAt),
-						lte(bagTable.checkoutExpiresAt, now)
-					)
+		const db = getDb();
+		const rows = await db
+			.select()
+			.from(bagTable)
+			.where(
+				and(
+					isNotNull(bagTable.checkoutStartedAt),
+					isNotNull(bagTable.checkoutExpiresAt),
+					lte(bagTable.checkoutExpiresAt, now)
 				)
-				.orderBy(asc(bagTable.checkoutExpiresAt), asc(bagTable.createdAt))
-				.limit(limit);
+			)
+			.orderBy(asc(bagTable.checkoutExpiresAt), asc(bagTable.createdAt))
+			.limit(limit);
 
-			let releasedQuantity = 0;
-			for (const row of rows) {
-				const result = await releaseCheckoutReservationsTx(tx, row, now);
+		let releasedQuantity = 0;
+		const bagIds: string[] = [];
+
+		for (const row of rows) {
+			try {
+				const result = await db.transaction(async (tx) => {
+					return releaseCheckoutReservationsTx(tx, row, now);
+				});
 				releasedQuantity += result.releasedQuantity;
+				bagIds.push(row.id);
+			} catch (err) {
+				console.error(`Failed to expire checkout for bag ${row.id}:`, err);
 			}
+		}
 
-			return {
-				expiredCount: rows.length,
-				bagIds: rows.map((row) => row.id),
-				releasedQuantity
-			};
-		});
+		return {
+			expiredCount: bagIds.length,
+			bagIds,
+			releasedQuantity
+		};
 	} catch (error) {
 		throw mapBagPersistenceError(error);
 	}

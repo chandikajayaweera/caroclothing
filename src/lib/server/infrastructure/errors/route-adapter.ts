@@ -1,4 +1,5 @@
 import { error as kitError, fail, json } from '@sveltejs/kit';
+import * as Sentry from '@sentry/sveltekit';
 import { message } from 'sveltekit-superforms/server';
 import type { SuperValidated } from 'sveltekit-superforms/server';
 import { getErrorStatusCode, isAppError, toErrorResponseBody } from './index';
@@ -11,7 +12,14 @@ function toErrorStatus(statusCode: number): ErrorStatus {
 }
 
 export function failFromAppError(error: unknown) {
-	if (!isAppError(error)) throw error;
+	if (!isAppError(error)) {
+		Sentry.captureException(error);
+		throw error;
+	}
+
+	if (error.statusCode >= 500) {
+		Sentry.captureException(error);
+	}
 
 	return fail(error.statusCode, {
 		error: toErrorResponseBody(error, { includeDetails: error.statusCode < 500 })
@@ -19,22 +27,33 @@ export function failFromAppError(error: unknown) {
 }
 
 export function throwHttpFromAppError(error: unknown): never {
-	if (!isAppError(error)) throw error;
+	if (!isAppError(error)) {
+		Sentry.captureException(error);
+		throw error;
+	}
 
 	const body = toErrorResponseBody(error, { includeDetails: error.statusCode < 500 });
+	if (error.statusCode >= 500) {
+		Sentry.captureException(error);
+	}
 	throw kitError(error.statusCode, body.message);
 }
 
 export function jsonFromRouteError(error: unknown): Response {
 	const statusCode = getErrorStatusCode(error);
 	const body = toErrorResponseBody(error, { includeDetails: statusCode < 500 });
+	const status = toErrorStatus(statusCode);
+
+	if (status >= 500 || !isAppError(error)) {
+		Sentry.captureException(error);
+	}
 
 	return json(
 		{
 			...body,
 			error: body.message
 		},
-		{ status: toErrorStatus(statusCode) }
+		{ status }
 	);
 }
 
@@ -43,8 +62,17 @@ export function formFailFromAppError<
 	M = string,
 	In extends Record<string, unknown> = T
 >(form: SuperValidated<T, M, In>, error: unknown) {
-	if (!isAppError(error)) throw error;
+	if (!isAppError(error)) {
+		Sentry.captureException(error);
+		throw error;
+	}
 
 	const body = toErrorResponseBody(error, { includeDetails: error.statusCode < 500 });
-	return message(form, body.message as M, { status: toErrorStatus(error.statusCode) });
+	const status = toErrorStatus(error.statusCode);
+
+	if (status >= 500) {
+		Sentry.captureException(error);
+	}
+
+	return message(form, body.message as M, { status });
 }

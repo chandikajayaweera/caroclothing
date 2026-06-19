@@ -195,6 +195,7 @@ Service rules:
 - Business writes must go through `*.service.ts`.
 - Multi-table writes must use transactions.
 - Cross-module transaction workflows should use internal `*Tx` helpers imported directly by server internals, not exported as public module CRUD.
+- Background/cron/cleanup tasks that process multiple items must NOT run the entire batch under a single monolithic transaction. Instead, select the targeted rows first, then process each record individually within its own transaction. This prevents database timeouts, lock contention, and worker runtime termination on Cloudflare.
 - Account deletion may use narrowly scoped internal bag, drop waitlist, review media, and notification outbox helpers; these are not generic public CRUD APIs.
 - Inventory APIs may manage variant inventory rows, but `inventoryMovement` remains append-only audit state and must not be exposed as generic CRUD.
 - Services return DTOs when UI needs derived fields or public URLs.

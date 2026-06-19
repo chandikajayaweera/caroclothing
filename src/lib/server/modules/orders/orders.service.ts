@@ -526,41 +526,48 @@ export async function cancelExpiredPendingOrders(
 	const now = resolveNow(ctx, input.now);
 	const limit = normalizeLimit(input.limit, CLEANUP_DEFAULT_LIMIT, CLEANUP_MAX_LIMIT);
 	const notificationsToPublish: NotificationOutboxDTO[] = [];
+	const orders: OrderDTO[] = [];
+	const orderIds: string[] = [];
 
 	try {
-		const result = await getDb().transaction(async (tx) => {
-			const rows = await tx
-				.select()
-				.from(order)
-				.where(and(eq(order.status, 'pending'), lte(order.paymentExpiresAt, now)))
-				.orderBy(asc(order.paymentExpiresAt), asc(order.createdAt))
-				.limit(limit);
-			const orders: OrderDTO[] = [];
+		const db = getDb();
+		const rows = await db
+			.select()
+			.from(order)
+			.where(and(eq(order.status, 'pending'), lte(order.paymentExpiresAt, now)))
+			.orderBy(asc(order.paymentExpiresAt), asc(order.createdAt))
+			.limit(limit);
 
-			for (const row of rows) {
-				orders.push(
-					await transitionOrderStatusTx(tx, ctx, {
+		for (const row of rows) {
+			try {
+				const result = await db.transaction(async (tx) => {
+					const cancelledOrder = await transitionOrderStatusTx(tx, ctx, {
 						orderId: row.id,
 						toStatus: 'cancelled',
 						note: 'Payment window expired.',
 						now
-					})
-				);
-				const notification = await enqueueOrderStatusUpdateNotificationTx(
-					tx,
-					orders[orders.length - 1]
-				);
-				if (notification) notificationsToPublish.push(notification);
-			}
+					});
+					const notification = await enqueueOrderStatusUpdateNotificationTx(tx, cancelledOrder);
+					return { cancelledOrder, notification };
+				});
 
-			return {
-				cancelledCount: orders.length,
-				orderIds: orders.map((item) => item.id),
-				orders
-			};
-		});
+				orders.push(result.cancelledOrder);
+				orderIds.push(row.id);
+				if (result.notification) {
+					notificationsToPublish.push(result.notification);
+				}
+			} catch (err) {
+				console.error(`Failed to cancel expired order ${row.id}:`, err);
+			}
+		}
+
 		await publishNotificationQueueMessages(ctx, notificationsToPublish);
-		return result;
+
+		return {
+			cancelledCount: orders.length,
+			orderIds,
+			orders
+		};
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
