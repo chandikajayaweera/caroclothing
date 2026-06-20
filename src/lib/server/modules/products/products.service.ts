@@ -1040,13 +1040,23 @@ export async function createProductVariant(
 	const [colorRow] = await getDb()
 		.select()
 		.from(productVariantColor)
-		.where(eq(productVariantColor.id, data.variantColorId))
+		.where(
+			and(
+				eq(productVariantColor.id, data.variantColorId),
+				eq(productVariantColor.productId, data.productId)
+			)
+		)
 		.limit(1);
 
 	if (!colorRow) {
-		throw new ProductError('Product variant color not found.', ErrorCode.VALIDATION_ERROR, {
-			variantColorId: data.variantColorId
-		});
+		throw new ProductError(
+			'Product variant color not found for this product.',
+			ErrorCode.VALIDATION_ERROR,
+			{
+				productId: data.productId,
+				variantColorId: data.variantColorId
+			}
+		);
 	}
 
 	try {
