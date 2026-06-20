@@ -1,6 +1,11 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertSafeR2Key, getMediaBucket } from '$lib/server/infrastructure/media/r2';
+import {
+	isMediaImagePreset,
+	mediaUrl,
+	type MediaImagePreset
+} from '$lib/server/infrastructure/media';
 /*
  * R2Object is not imported here. Wrangler-generated runtime types are loaded
  * globally from src/worker-configuration.d.ts, avoiding duplicate Cloudflare
@@ -57,23 +62,147 @@ function setHeader(headers: Headers, name: string, value: string | undefined): v
 	}
 }
 
+function parseMediaParam(param: string): { key: string; preset: MediaImagePreset | null } {
+	const segments = param.split('/');
+
+	if (segments[0] !== '_preset') {
+		return { key: param, preset: null };
+	}
+
+	const preset = segments[1];
+	const key = segments.slice(2).join('/');
+
+	if (!preset || !isMediaImagePreset(preset) || !key) {
+		throw error(400, 'Invalid media preset.');
+	}
+
+	return { key, preset };
+}
+
+function isImageObject(obj: R2Object): boolean {
+	return Boolean(obj.httpMetadata?.contentType?.startsWith('image/'));
+}
+
+function isTransformableImageObject(obj: R2Object): boolean {
+	return isImageObject(obj) && obj.httpMetadata?.contentType !== 'image/gif';
+}
+
+function presetToImageOptions(
+	preset: MediaImagePreset,
+	acceptHeader: string | null
+): RequestInitCfPropertiesImage {
+	const base = (() => {
+		if (preset === 'thumb') return { width: 240, fit: 'scale-down', quality: 78 } as const;
+		if (preset === 'card') return { width: 640, fit: 'scale-down', quality: 80 } as const;
+		if (preset === 'pdp') return { width: 1200, fit: 'scale-down', quality: 84 } as const;
+		return { width: 2400, fit: 'scale-down', quality: 84 } as const;
+	})();
+	const format = preferredImageFormat(acceptHeader);
+
+	return format ? { ...base, format } : base;
+}
+
+function preferredImageFormat(
+	acceptHeader: string | null
+): RequestInitCfPropertiesImage['format'] | undefined {
+	if (!acceptHeader) return 'webp';
+	if (acceptHeader.includes('image/avif')) return 'avif';
+	if (acceptHeader.includes('image/webp')) return 'webp';
+	return undefined;
+}
+
+function withMediaHeaders(response: Response): Response {
+	const headers = new Headers(response.headers);
+
+	if (!headers.has('Cache-Control')) {
+		headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+	}
+	headers.set('X-Content-Type-Options', 'nosniff');
+
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers
+	});
+}
+
+async function getOriginalObject(bucket: R2Bucket, key: string): Promise<R2ObjectBody> {
+	const obj = await bucket.get(key);
+	if (!obj) throw error(404, 'Not found.');
+	return obj;
+}
+
+async function serveOriginalObject(
+	bucket: R2Bucket,
+	key: string,
+	request: Request
+): Promise<Response> {
+	const obj = await getOriginalObject(bucket, key);
+	const headers = buildHeaders(obj);
+	const ifNoneMatch = request.headers.get('If-None-Match');
+
+	if (ifNoneMatch && (ifNoneMatch === obj.httpEtag || ifNoneMatch === '*')) {
+		return new Response(null, { status: 304, headers });
+	}
+
+	return new Response(obj.body, { status: 200, headers });
+}
+
+async function servePresetObject(
+	event: Parameters<RequestHandler>[0],
+	key: string,
+	preset: MediaImagePreset,
+	sourceHead: R2Object
+): Promise<Response> {
+	if (!isTransformableImageObject(sourceHead)) {
+		const bucket = getMediaBucket(event);
+		return serveOriginalObject(bucket, key, event.request);
+	}
+
+	const sourceUrl = new URL(mediaUrl(key), event.url.origin);
+	const response = await fetch(new Request(sourceUrl, { headers: event.request.headers }), {
+		cf: {
+			image: presetToImageOptions(preset, event.request.headers.get('Accept'))
+		}
+	});
+
+	if (response.ok || response.status === 304) {
+		return withMediaHeaders(response);
+	}
+
+	console.warn(`[Media] preset transform failed for "${key}" (${preset}): ${response.status}`);
+	const bucket = getMediaBucket(event);
+	return serveOriginalObject(bucket, key, event.request);
+}
+
 /**
  * HEAD - metadata only, no body.
  * Uses `bucket.head()` which is cheaper than `bucket.get()` as R2 does not
  * transfer the object body.
  */
 export const HEAD: RequestHandler = async (event) => {
-	const { key } = event.params;
+	const parsed = parseMediaParam(event.params.key);
 
 	try {
-		assertSafeR2Key(key);
+		assertSafeR2Key(parsed.key);
 	} catch {
 		throw error(400, 'Invalid media key.');
 	}
 
 	const bucket = getMediaBucket(event);
-	const obj = await bucket.head(key);
+	const obj = await bucket.head(parsed.key);
 	if (!obj) throw error(404, 'Not found.');
+
+	if (parsed.preset) {
+		const response = await servePresetObject(event, parsed.key, parsed.preset, obj);
+		await response.body?.cancel().catch(() => undefined);
+
+		return new Response(null, {
+			status: response.status,
+			statusText: response.statusText,
+			headers: response.headers
+		});
+	}
 
 	return new Response(null, { status: 200, headers: buildHeaders(obj) });
 };
@@ -92,27 +221,21 @@ export const HEAD: RequestHandler = async (event) => {
  * negligible (R2-to-Worker egress is free).
  */
 export const GET: RequestHandler = async (event) => {
-	const { key } = event.params;
+	const parsed = parseMediaParam(event.params.key);
 
 	try {
-		assertSafeR2Key(key);
+		assertSafeR2Key(parsed.key);
 	} catch {
 		throw error(400, 'Invalid media key.');
 	}
 
 	const bucket = getMediaBucket(event);
-	const obj = await bucket.get(key);
-	if (!obj) throw error(404, 'Not found.');
+	const head = await bucket.head(parsed.key);
+	if (!head) throw error(404, 'Not found.');
 
-	const headers = buildHeaders(obj);
-
-	// Conditional GET: honour If-None-Match for cache revalidation (RFC 7232).
-	// For GET/HEAD, a matching ETag must return 304, not 412.
-	const ifNoneMatch = event.request.headers.get('If-None-Match');
-	if (ifNoneMatch && (ifNoneMatch === obj.httpEtag || ifNoneMatch === '*')) {
-		// 304 must still carry caching headers so the client can refresh its TTL.
-		return new Response(null, { status: 304, headers });
+	if (parsed.preset) {
+		return servePresetObject(event, parsed.key, parsed.preset, head);
 	}
 
-	return new Response(obj.body, { status: 200, headers });
+	return serveOriginalObject(bucket, parsed.key, event.request);
 };

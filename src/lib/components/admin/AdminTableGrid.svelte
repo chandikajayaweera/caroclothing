@@ -11,14 +11,14 @@
 	}: {
 		items: T[];
 		headers: { label: string; class?: string }[];
-		row: Snippet<[T]>;
-		card: Snippet<[T]>;
+		row?: Snippet<[T]>;
+		card?: Snippet<[T]>;
 		gridClass?: string;
 		tableClass?: string;
 	} = $props();
 </script>
 
-{#if items.length > 0}
+{#if items.length > 0 && card && row}
 	<!-- Mobile/Tablet Card Grid -->
 	<div class={gridClass}>
 		{#each items as item (item.id)}
@@ -31,7 +31,7 @@
 		<table class="w-full text-left">
 			<thead class="border-b border-charcoal">
 				<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
-					{#each headers as header}
+					{#each headers as header (header.label)}
 						<th class="px-5 py-4 font-normal {header.class || ''}">{header.label}</th>
 					{/each}
 				</tr>

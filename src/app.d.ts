@@ -17,6 +17,7 @@ declare global {
 		interface Platform {
 			env: {
 				MEDIA: R2Bucket;
+				IMAGES: ImagesBinding;
 				OTP_COOLDOWNS: KVNamespace;
 				NOTIFICATION_QUEUE: Queue<NotificationQueueMessage>;
 			};

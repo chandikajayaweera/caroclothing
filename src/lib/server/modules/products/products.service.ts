@@ -26,6 +26,7 @@ import {
 import {
 	buildMediaKey,
 	deleteObjectSafe,
+	getImagesBindingOptional,
 	getMediaBucket,
 	getMediaBucketOptional,
 	uploadImage
@@ -3292,7 +3293,10 @@ async function uploadCategoryImage(
 			variant: 'image',
 			contentType: image.type
 		});
-		await uploadImage(bucket, key, image);
+		await uploadImage(bucket, key, image, {
+			images: getImagesBindingOptional(ctx.event),
+			profile: 'category'
+		});
 	} catch (error) {
 		if (isAppError(error)) throw error;
 
@@ -3321,7 +3325,10 @@ async function uploadProductImage(
 			variant: variantId ? `variant-${variantId}` : 'main',
 			contentType: image.type
 		});
-		await uploadImage(bucket, key, image);
+		await uploadImage(bucket, key, image, {
+			images: getImagesBindingOptional(ctx.event),
+			profile: 'product'
+		});
 	} catch (error) {
 		if (isAppError(error)) throw error;
 

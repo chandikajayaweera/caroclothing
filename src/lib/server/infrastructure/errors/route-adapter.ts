@@ -1,4 +1,4 @@
-import { error as kitError, fail, json } from '@sveltejs/kit';
+import { error as kitError, fail, isRedirect, json } from '@sveltejs/kit';
 import * as Sentry from '@sentry/sveltekit';
 import { message } from 'sveltekit-superforms/server';
 import type { SuperValidated } from 'sveltekit-superforms/server';
@@ -12,6 +12,8 @@ function toErrorStatus(statusCode: number): ErrorStatus {
 }
 
 export function failFromAppError(error: unknown) {
+	if (isRedirect(error)) throw error;
+
 	if (!isAppError(error)) {
 		Sentry.captureException(error);
 		throw error;
@@ -27,6 +29,8 @@ export function failFromAppError(error: unknown) {
 }
 
 export function throwHttpFromAppError(error: unknown): never {
+	if (isRedirect(error)) throw error;
+
 	if (!isAppError(error)) {
 		Sentry.captureException(error);
 		throw error;
@@ -40,6 +44,8 @@ export function throwHttpFromAppError(error: unknown): never {
 }
 
 export function jsonFromRouteError(error: unknown): Response {
+	if (isRedirect(error)) throw error;
+
 	const statusCode = getErrorStatusCode(error);
 	const body = toErrorResponseBody(error, { includeDetails: statusCode < 500 });
 	const status = toErrorStatus(statusCode);
@@ -62,6 +68,8 @@ export function formFailFromAppError<
 	M = string,
 	In extends Record<string, unknown> = T
 >(form: SuperValidated<T, M, In>, error: unknown) {
+	if (isRedirect(error)) throw error;
+
 	if (!isAppError(error)) {
 		Sentry.captureException(error);
 		throw error;

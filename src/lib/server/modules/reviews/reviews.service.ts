@@ -13,6 +13,7 @@ import {
 import {
 	buildMediaKey,
 	deleteObjectSafe,
+	getImagesBindingOptional,
 	getMediaBucket,
 	getMediaBucketOptional,
 	uploadMedia
@@ -1078,6 +1079,7 @@ async function uploadReviewMediaFiles(
 	startPosition: number
 ): Promise<UploadedReviewMedia[]> {
 	const bucket = requireMediaBucket(ctx);
+	const images = getImagesBindingOptional(ctx.event);
 	const uploaded: UploadedReviewMedia[] = [];
 
 	try {
@@ -1089,7 +1091,10 @@ async function uploadReviewMediaFiles(
 				variant: `media-${position}`,
 				contentType: file.type
 			});
-			const result = await uploadMedia(bucket, key, file);
+			const result = await uploadMedia(bucket, key, file, {
+				images,
+				profile: 'review'
+			});
 
 			uploaded.push({
 				bucket,

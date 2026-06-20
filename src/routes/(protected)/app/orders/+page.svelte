@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import { superForm } from 'sveltekit-superforms';
 	import { goto } from '$app/navigation';
-	import { Download, Printer, X, Truck, Clock } from 'lucide-svelte';
+	import { Download, Printer, X, Clock } from 'lucide-svelte';
 	import { Dialog } from 'bits-ui';
 	import { fade } from 'svelte/transition';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
@@ -254,8 +254,9 @@
 		}
 		url.searchParams.set('limit', String(data.filters?.limit ?? 50));
 		url.searchParams.delete('offset');
+		const search = url.searchParams.toString();
 
-		goto(resolve('/app/orders') + '?' + url.searchParams.toString(), {
+		goto(resolve(search ? `/app/orders?${search}` : '/app/orders'), {
 			keepFocus: true,
 			replaceState: true
 		});
@@ -280,7 +281,8 @@
 		url.searchParams.delete('status');
 		url.searchParams.delete('paymentExpiredOnly');
 		url.searchParams.delete('offset');
-		goto(resolve('/app/orders') + '?' + url.searchParams.toString(), { noScroll: true });
+		const search = url.searchParams.toString();
+		goto(resolve(search ? `/app/orders?${search}` : '/app/orders'), { noScroll: true });
 	}
 
 	function triggerFormSubmit(event: Event) {
@@ -475,6 +477,7 @@
 	{/snippet}
 
 	{#snippet row(order)}
+		{@const availableTransitions = order.availableTransitions ?? []}
 		<tr class="border-b border-charcoal/70 last:border-b-0 hover:bg-charcoal/5">
 			<td class="w-10 px-5 py-4 text-center">
 				<input
@@ -519,18 +522,19 @@
 			</td>
 			<td class="px-5 py-4 text-right">
 				<div class="flex items-center justify-end gap-3">
-					{#if order.availableTransitions.length > 0}
+					{#if availableTransitions.length > 0}
 						<form method="POST" action="?/transitionStatus" class="flex items-center gap-2">
 							<input type="hidden" name="orderId" value={order.id} />
 							<select
 								name="toStatus"
 								class="border border-charcoal bg-void px-2 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
 							>
-								{#each order.availableTransitions as status (status)}
+								{#each availableTransitions as status (status)}
 									<option value={status}>{formatStatus(status)}</option>
 								{/each}
 							</select>
 							<button
+								type="submit"
 								class="font-mono text-[10px] tracking-widest text-volt uppercase transition-colors hover:text-bone"
 							>
 								Apply
@@ -553,6 +557,7 @@
 	{/snippet}
 
 	{#snippet card(order)}
+		{@const availableTransitions = order.availableTransitions ?? []}
 		<AdminCard>
 			<div class="flex items-start justify-between gap-4">
 				<div class="flex items-center gap-2">
@@ -604,18 +609,19 @@
 			<div class="mt-4 flex items-center justify-between border-t border-charcoal/50 pt-3">
 				<span class="font-mono text-[9px] text-ash/60">{formatDate(order.createdAt)}</span>
 				<div class="flex items-center gap-2">
-					{#if order.availableTransitions.length > 0}
+					{#if availableTransitions.length > 0}
 						<form method="POST" action="?/transitionStatus" class="flex items-center gap-1.5">
 							<input type="hidden" name="orderId" value={order.id} />
 							<select
 								name="toStatus"
 								class="border border-charcoal bg-void px-1.5 py-1 font-mono text-[9px] text-bone outline-none focus:border-volt"
 							>
-								{#each order.availableTransitions as status (status)}
+								{#each availableTransitions as status (status)}
 									<option value={status}>{formatStatus(status)}</option>
 								{/each}
 							</select>
 							<button
+								type="submit"
 								class="font-mono text-[9px] tracking-widest text-volt uppercase hover:text-bone"
 							>
 								Apply

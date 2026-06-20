@@ -12,6 +12,9 @@
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
 	},
+	"images": {
+		"binding": "IMAGES"
+	},
 	"upload_source_maps": true,
 	"observability": {
 		"logs": {
@@ -146,6 +149,9 @@
 					"bucket_name": "caroclothing-media-preview"
 				}
 			],
+			"images": {
+				"binding": "IMAGES"
+			},
 			"triggers": {
 				"crons": ["* * * * *", "*/5 * * * *", "*/10 * * * *", "0 * * * *", "17 20 * * *"]
 			},

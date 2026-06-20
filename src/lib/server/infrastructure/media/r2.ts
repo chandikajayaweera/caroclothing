@@ -35,6 +35,19 @@ const SEGMENT_RE = /^[a-zA-Z0-9_-]+$/;
 
 export type MediaScope = 'categories' | 'products' | 'reviews' | 'banners';
 export type MediaType = 'photo' | 'video';
+export type ImageUploadProfile = 'category' | 'product' | 'dropHero' | 'review';
+
+type ImageUploadOptions = {
+	images?: ImagesBinding | null;
+	profile?: ImageUploadProfile;
+};
+
+type PreparedUpload = {
+	body: ArrayBuffer;
+	contentType: string;
+	sourceContentType: string;
+	optimized: boolean;
+};
 
 // ── Bucket access ──────────────────────────────────────────────────────────
 
@@ -53,6 +66,12 @@ export function getMediaBucket(event: Pick<RequestEvent, 'platform'>): R2Bucket 
 	const bucket = getMediaBucketOptional(event);
 	if (!bucket) throw error(500, 'R2 bucket binding "MEDIA" is not configured.');
 	return bucket;
+}
+
+export function getImagesBindingOptional(
+	event: Pick<RequestEvent, 'platform'> | null | undefined
+): ImagesBinding | null {
+	return event?.platform?.env?.IMAGES ?? null;
 }
 
 // ── Key helpers ────────────────────────────────────────────────────────────
@@ -162,30 +181,112 @@ export function validateMediaFile(file: File): MediaType {
 	return mediaType;
 }
 
+const IMAGE_OPTIMIZATION_PROFILES: Record<ImageUploadProfile, { width: number; quality: number }> =
+	{
+		category: { width: 1600, quality: 82 },
+		product: { width: 1600, quality: 82 },
+		dropHero: { width: 2400, quality: 84 },
+		review: { width: 1600, quality: 82 }
+	};
+
+function shouldSkipImageOptimization(file: File): boolean {
+	return file.type === 'image/gif';
+}
+
+async function originalUpload(file: File): Promise<PreparedUpload> {
+	return {
+		body: await file.arrayBuffer(),
+		contentType: file.type,
+		sourceContentType: file.type,
+		optimized: false
+	};
+}
+
+async function prepareImageUpload(
+	file: File,
+	options: ImageUploadOptions = {}
+): Promise<PreparedUpload> {
+	if (!options.images || shouldSkipImageOptimization(file)) {
+		return originalUpload(file);
+	}
+
+	const profile = IMAGE_OPTIMIZATION_PROFILES[options.profile ?? 'product'];
+
+	try {
+		const result = await options.images
+			.input(file.stream())
+			.transform({
+				width: profile.width,
+				fit: 'scale-down'
+			})
+			.output({
+				format: 'image/webp',
+				quality: profile.quality
+			});
+		const response = result.response();
+		const body = await response.arrayBuffer();
+		const contentType =
+			result.contentType() || response.headers.get('Content-Type') || 'image/webp';
+
+		if (body.byteLength === 0) {
+			throw new Error('Optimized image output was empty.');
+		}
+
+		return {
+			body,
+			contentType,
+			sourceContentType: file.type,
+			optimized: true
+		};
+	} catch (err) {
+		console.warn(`[Media] image optimization failed for "${file.name}", uploading original.`, err);
+		return originalUpload(file);
+	}
+}
+
+function sanitizedOriginalName(fileName: string): string {
+	return fileName.replace(/[^\w.\- ]/g, '_').slice(0, 255);
+}
+
+async function putPreparedFile(
+	bucket: R2Bucket,
+	key: string,
+	file: File,
+	prepared: PreparedUpload
+): Promise<void> {
+	await bucket.put(key, prepared.body, {
+		httpMetadata: {
+			contentType: prepared.contentType,
+			cacheControl: 'public, max-age=31536000, immutable'
+		},
+		customMetadata: {
+			originalName: sanitizedOriginalName(file.name),
+			sourceContentType: prepared.sourceContentType,
+			optimized: prepared.optimized ? 'true' : 'false'
+		}
+	});
+}
+
 // ── Low-level R2 primitives ────────────────────────────────────────────────
 
 /** Shared low-level put — call only after validation and key assertion. */
 export async function putFile(bucket: R2Bucket, key: string, file: File): Promise<void> {
-	await bucket.put(key, await file.arrayBuffer(), {
-		httpMetadata: {
-			contentType: file.type,
-			cacheControl: 'public, max-age=31536000, immutable'
-		},
-		customMetadata: {
-			// Sanitize: strip non-printable / special characters, cap length.
-			originalName: file.name.replace(/[^\w.\- ]/g, '_').slice(0, 255)
-		}
-	});
+	await putPreparedFile(bucket, key, file, await originalUpload(file));
 }
 
 /**
  * Validates and uploads an image file to R2.
  * Returns the stored key on success.
  */
-export async function uploadImage(bucket: R2Bucket, key: string, file: File): Promise<void> {
+export async function uploadImage(
+	bucket: R2Bucket,
+	key: string,
+	file: File,
+	options: ImageUploadOptions = {}
+): Promise<void> {
 	validateImageFile(file);
 	assertSafeR2Key(key);
-	await putFile(bucket, key, file);
+	await putPreparedFile(bucket, key, file, await prepareImageUpload(file, options));
 }
 
 /**
@@ -195,11 +296,16 @@ export async function uploadImage(bucket: R2Bucket, key: string, file: File): Pr
 export async function uploadMedia(
 	bucket: R2Bucket,
 	key: string,
-	file: File
+	file: File,
+	options: ImageUploadOptions = {}
 ): Promise<{ key: string; mediaType: MediaType }> {
 	const mediaType = validateMediaFile(file);
 	assertSafeR2Key(key);
-	await putFile(bucket, key, file);
+	if (mediaType === 'photo') {
+		await putPreparedFile(bucket, key, file, await prepareImageUpload(file, options));
+	} else {
+		await putFile(bucket, key, file);
+	}
 	return { key, mediaType };
 }
 

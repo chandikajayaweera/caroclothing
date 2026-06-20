@@ -14,6 +14,7 @@ import {
 import {
 	buildMediaKey,
 	deleteObjectSafe,
+	getImagesBindingOptional,
 	getMediaBucket,
 	uploadImage
 } from '$lib/server/infrastructure/media/r2';
@@ -1300,7 +1301,10 @@ async function uploadDropHeroImage(
 			variant: 'hero',
 			contentType: image.type
 		});
-		await uploadImage(bucket, key, image);
+		await uploadImage(bucket, key, image, {
+			images: getImagesBindingOptional(ctx.event),
+			profile: 'dropHero'
+		});
 	} catch (error) {
 		if (isAppError(error)) throw error;
 

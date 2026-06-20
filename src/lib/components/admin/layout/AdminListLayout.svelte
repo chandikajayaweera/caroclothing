@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { Filter, Search } from 'lucide-svelte';
 	import { slide, fade } from 'svelte/transition';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminTableGrid from '$lib/components/admin/AdminTableGrid.svelte';
+
+	// Intentionally loose: each route owns its DTO shape through row/card snippets.
+	type AdminListItem = ReturnType<typeof JSON.parse>;
 
 	let {
 		title,
@@ -48,13 +51,13 @@
 		limit?: number;
 		offset?: number;
 		tableHeaders: { label: string; class?: string }[];
-		items?: any[];
+		items?: AdminListItem[];
 		gridClass?: string;
 		tableClass?: string;
 		headerActions?: Snippet;
 		advancedFilters?: Snippet;
-		card: Snippet<[any]>;
-		row: Snippet<[any]>;
+		card?: Snippet<[AdminListItem]>;
+		row?: Snippet<[AdminListItem]>;
 		skeleton?: Snippet;
 		emptyState?: Snippet;
 		statsSnippet?: Snippet;
@@ -75,11 +78,12 @@
 
 	const hasPreviousPage = $derived(offset > 0);
 	const hasNextPage = $derived(offset + limit < totalItems);
+	const skeletonRows = [0, 1, 2, 3, 4];
 
-	function getPageUrl(newOffset: number): string {
+	function getPageSearch(newOffset: number): string {
 		const url = new URL(page.url);
 		url.searchParams.set('offset', String(newOffset));
-		return url.pathname + url.search;
+		return url.search;
 	}
 </script>
 
@@ -266,7 +270,7 @@
 				{@render skeleton()}
 			{:else}
 				<div class="animate-pulse space-y-4 p-5">
-					{#each Array(5) as _}
+					{#each skeletonRows as skeletonRow (skeletonRow)}
 						<div
 							class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
 						>
@@ -283,7 +287,7 @@
 					{/each}
 				</div>
 			{/if}
-		{:else if items.length > 0}
+		{:else if items.length > 0 && card && row}
 			<div transition:fade={{ duration: 150 }}>
 				<AdminTableGrid {items} headers={tableHeaders} {card} {row} {gridClass} {tableClass} />
 
@@ -297,7 +301,7 @@
 					<div class="flex gap-2">
 						{#if hasPreviousPage}
 							<a
-								href={getPageUrl(offset - limit)}
+								href={resolve(`${page.url.pathname}${getPageSearch(offset - limit)}` as '/')}
 								class="border border-ash/30 px-4 py-2 transition-colors hover:border-volt hover:text-volt"
 							>
 								Previous
@@ -305,7 +309,7 @@
 						{/if}
 						{#if hasNextPage}
 							<a
-								href={getPageUrl(offset + limit)}
+								href={resolve(`${page.url.pathname}${getPageSearch(offset + limit)}` as '/')}
 								class="border border-ash/30 px-4 py-2 transition-colors hover:border-volt hover:text-volt"
 							>
 								Next
@@ -314,7 +318,7 @@
 					</div>
 				</div>
 			</div>
-		{:else}
+		{:else if items.length === 0}
 			<div class="p-12 text-center" transition:fade={{ duration: 150 }}>
 				{#if emptyState}
 					{@render emptyState()}
@@ -324,6 +328,13 @@
 						Adjust filters or query parameters.
 					</p>
 				{/if}
+			</div>
+		{:else}
+			<div class="p-12 text-center" transition:fade={{ duration: 150 }}>
+				<p class="font-display text-4xl text-bone uppercase">List template unavailable</p>
+				<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
+					Refresh the page to restore the admin list.
+				</p>
 			</div>
 		{/if}
 	</AdminCard>

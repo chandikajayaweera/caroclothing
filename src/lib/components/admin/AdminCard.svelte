@@ -20,7 +20,7 @@
 		kicker?: string;
 		titleSize?: string;
 		headerActions?: Snippet;
-		children: Snippet;
+		children?: Snippet;
 	} = $props();
 </script>
 
@@ -46,5 +46,5 @@
 			{/if}
 		</div>
 	{/if}
-	{@render children()}
+	{@render children?.()}
 </div>

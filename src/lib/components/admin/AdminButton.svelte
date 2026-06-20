@@ -20,8 +20,8 @@
 		href?: string;
 		onclick?: (event: MouseEvent) => void;
 		class?: string;
-		children: Snippet;
-		[key: string]: any;
+		children?: Snippet;
+		[key: string]: unknown;
 	} = $props();
 
 	// Style Maps
@@ -51,11 +51,21 @@
 </script>
 
 {#if href}
-	<Button.Root {href} {disabled} {onclick} class={combinedClasses} {...rest}>
-		{@render children()}
+	{#if onclick}
+		<Button.Root {href} {disabled} {onclick} class={combinedClasses} {...rest}>
+			{@render children?.()}
+		</Button.Root>
+	{:else}
+		<Button.Root {href} {disabled} class={combinedClasses} {...rest}>
+			{@render children?.()}
+		</Button.Root>
+	{/if}
+{:else if onclick}
+	<Button.Root {type} {disabled} {onclick} class={combinedClasses} {...rest}>
+		{@render children?.()}
 	</Button.Root>
 {:else}
-	<Button.Root {type} {disabled} {onclick} class={combinedClasses} {...rest}>
-		{@render children()}
+	<Button.Root {type} {disabled} class={combinedClasses} {...rest}>
+		{@render children?.()}
 	</Button.Root>
 {/if}
