@@ -10,17 +10,19 @@ import type { NotificationQueueMessage } from './lib/server/modules/notification
  * Keeping these types ambient avoids duplicate Cloudflare type identities.
  */
 
+type PlatformEnv = Cloudflare.Env & {
+	MEDIA: R2Bucket;
+	IMAGES: ImagesBinding;
+	OTP_COOLDOWNS: KVNamespace;
+	NOTIFICATION_QUEUE: Queue<NotificationQueueMessage>;
+};
+
 declare global {
 	const __APP_VERSION__: string;
 
 	namespace App {
 		interface Platform {
-			env: {
-				MEDIA: R2Bucket;
-				IMAGES: ImagesBinding;
-				OTP_COOLDOWNS: KVNamespace;
-				NOTIFICATION_QUEUE: Queue<NotificationQueueMessage>;
-			};
+			env: PlatformEnv;
 			cf: CfProperties;
 			context: ExecutionContext;
 			caches: CacheStorage & { default: Cache };
@@ -31,7 +33,11 @@ declare global {
 			session?: Session;
 		}
 
-		// interface Error {}
+		interface Error {
+			message: string;
+			sentryEventId?: string;
+		}
+
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

@@ -1,6 +1,7 @@
 import type { ErrorEvent as SentryErrorEvent } from '@sentry/sveltekit';
 
 type PublicSentryEnv = Record<string, string | undefined>;
+type SentryRuntimeEnvSource = object | null | undefined;
 type SentryFetchNoiseEvent = Pick<SentryErrorEvent, 'breadcrumbs' | 'exception' | 'request'>;
 
 const DEFAULT_TRACES_SAMPLE_RATE = 0.1;
@@ -8,8 +9,53 @@ const DEFAULT_REPLAYS_SESSION_SAMPLE_RATE = 0.05;
 const DEFAULT_REPLAYS_ON_ERROR_SAMPLE_RATE = 1;
 const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//;
 const SVELTEKIT_DATA_RE = /\/__data\.json(?:\?|$)/;
+const PUBLIC_SENTRY_ENV_KEYS = [
+	'PUBLIC_SENTRY_DSN',
+	'PUBLIC_SENTRY_ENVIRONMENT',
+	'PUBLIC_SENTRY_TRACES_SAMPLE_RATE',
+	'PUBLIC_SENTRY_REPLAYS_SESSION_SAMPLE_RATE',
+	'PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE'
+] as const;
 
 export const SENTRY_RELEASE = `caroclothing@${__APP_VERSION__}`;
+
+function stringEnvValue(source: object, key: string): string | undefined {
+	if (!(key in source)) return undefined;
+
+	const value = (source as Record<string, unknown>)[key];
+	return typeof value === 'string' ? value : undefined;
+}
+
+export function getSentryPublicRuntimeEnv(...sources: SentryRuntimeEnvSource[]): PublicSentryEnv {
+	const env: PublicSentryEnv = {};
+
+	for (const source of sources) {
+		if (!source) continue;
+
+		for (const key of PUBLIC_SENTRY_ENV_KEYS) {
+			const value = stringEnvValue(source, key);
+			if (value !== undefined) {
+				env[key] = value;
+			}
+		}
+	}
+
+	return env;
+}
+
+export function getSentryServerRuntimeEnv({
+	isDev,
+	dynamicPublicEnv,
+	platformEnv
+}: {
+	isDev: boolean;
+	dynamicPublicEnv: SentryRuntimeEnvSource;
+	platformEnv: SentryRuntimeEnvSource;
+}): PublicSentryEnv {
+	return isDev
+		? getSentryPublicRuntimeEnv(platformEnv, dynamicPublicEnv)
+		: getSentryPublicRuntimeEnv(dynamicPublicEnv, platformEnv);
+}
 
 function optionalValue(value: string | undefined) {
 	const normalized = value?.trim();
