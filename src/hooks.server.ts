@@ -8,13 +8,15 @@ import type { NotificationQueueMessage } from '$lib/server/modules/notifications
 import { processQueueBatch } from '$lib/server/infrastructure/queue';
 import { getSentryRuntimeOptions } from '$lib/shared/sentry';
 
-const sentryOptions = getSentryRuntimeOptions(dynamicPublicEnv);
+let _handle: Handle | null = null;
 
-export const handle: Handle = sequence(
-	Sentry.initCloudflareSentryHandle(sentryOptions),
-	Sentry.sentryHandle(),
-	Auth
-);
+export const handle: Handle = (input) => {
+	if (!_handle) {
+		const sentryOptions = getSentryRuntimeOptions(dynamicPublicEnv);
+		_handle = sequence(Sentry.initCloudflareSentryHandle(sentryOptions), Sentry.sentryHandle(), Auth);
+	}
+	return _handle(input);
+};
 
 export const handleError = Sentry.handleErrorWithSentry();
 
