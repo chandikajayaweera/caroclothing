@@ -2,7 +2,9 @@ import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
+import { and, eq, ne } from 'drizzle-orm';
+import { user as userTable } from '$lib/server/db/schema';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
@@ -79,6 +81,31 @@ function createAuth() {
 				}
 			},
 			errorURL: '/auth/error'
+		},
+		hooks: {
+			before: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== '/phone-number/send-otp') return;
+
+				const session = await getSessionFromCtx(ctx);
+				const userId = session?.user?.id;
+				if (!userId) return;
+
+				const phoneNumber = ctx.body?.phoneNumber;
+				if (typeof phoneNumber !== 'string' || !phoneNumber.trim()) return;
+
+				const [existing] = await db
+					.select({ id: userTable.id })
+					.from(userTable)
+					.where(and(eq(userTable.phoneNumber, phoneNumber.trim()), ne(userTable.id, userId)))
+					.limit(1);
+
+				if (existing) {
+					throw new APIError('CONFLICT', {
+						message: 'Phone number is already linked to another account.',
+						code: 'PHONE_NUMBER_ALREADY_LINKED'
+					});
+				}
+			})
 		},
 
 		database: drizzleAdapter(db, { provider: 'sqlite' }),

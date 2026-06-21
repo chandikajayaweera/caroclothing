@@ -4,7 +4,6 @@
 	import { page } from '$app/state';
 	import { authClient, signOutSession } from '$lib/client/modules/auth';
 	import { Tooltip } from 'bits-ui';
-	import { scale, slide, fade } from 'svelte/transition';
 	import {
 		Archive,
 		BadgePercent,
@@ -253,7 +252,7 @@
 										>
 											<Icon size={18} aria-hidden="true" />
 											{#if !collapsed}
-												<span transition:fade={{ duration: 150 }}>{item.label}</span>
+												<span>{item.label}</span>
 											{/if}
 										</a>
 									{/snippet}
@@ -266,7 +265,7 @@
 										class="z-[100] border border-charcoal bg-void px-3 py-1.5 font-mono text-[9px] tracking-widest text-bone uppercase shadow-lg shadow-black/40"
 									>
 										{#snippet child({ props })}
-											<div {...props} transition:scale={{ duration: 100, start: 0.95 }}>
+											<div {...props}>
 												{item.label}
 											</div>
 										{/snippet}
@@ -322,7 +321,6 @@
 
 		{#if profileOpen}
 			<div
-				transition:scale={{ duration: 120, start: 0.96 }}
 				class="absolute bottom-full left-3 z-50 mb-3 w-[min(320px,calc(100vw-68px))] border border-charcoal bg-void shadow-2xl shadow-black/50 outline-none lg:w-80"
 			>
 				<div class="flex items-start justify-between gap-4 border-b border-charcoal p-4">
@@ -440,7 +438,6 @@
 		{#if mobileProfileExpanded}
 			<div
 				class="mt-2 space-y-1.5 border border-charcoal bg-void p-2"
-				transition:slide={{ duration: 150 }}
 			>
 				<div class="flex items-center gap-3 border border-charcoal bg-charcoal/20 p-2.5">
 					<ShieldCheck size={14} class="text-volt" aria-hidden="true" />

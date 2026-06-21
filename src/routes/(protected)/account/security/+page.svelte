@@ -26,6 +26,13 @@
 
 	let { data, form }: { data: PageData; form?: ActionData } = $props();
 
+	$effect(() => {
+		if (data.oauthError) {
+			providerError = data.oauthError;
+			goto('/account/security', { replaceState: true, noScroll: true, keepFocus: true });
+		}
+	});
+
 	let providerBusy = $state(false);
 	let providerMessage = $state('');
 	let providerError = $state('');
@@ -59,7 +66,8 @@
 		try {
 			const result = await authClient.linkSocial({
 				provider: 'google',
-				callbackURL: '/account/security'
+				callbackURL: '/account/security',
+				errorCallbackURL: '/account/security'
 			});
 			if (result?.error) providerError = parseAuthError(result.error);
 		} catch (error) {

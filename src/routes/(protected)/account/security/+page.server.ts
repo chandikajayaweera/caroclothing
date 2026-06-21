@@ -9,6 +9,7 @@ import {
 } from '$lib/server/modules/auth';
 import { formFailFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 import { requireAccountContext } from '../_account.server';
+import { mapOAuthErrorToMessage } from '$lib/shared/modules/auth-errors';
 
 export const load: PageServerLoad = async ({ locals, url, parent }) => {
 	const ctx = requireAccountContext(locals, url);
@@ -23,10 +24,14 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		})
 	]);
 
+	const oauthError = url.searchParams.get('error');
+	const oauthErrorMessage = oauthError ? mapOAuthErrorToMessage(oauthError) : null;
+
 	return {
 		account,
 		sessions,
-		revokeSessionForm
+		revokeSessionForm,
+		oauthError: oauthErrorMessage
 	};
 };
 
