@@ -629,17 +629,26 @@ export async function deleteExpiredGuestBags(
 
 		let itemCount = 0;
 		let releasedQuantity = 0;
+		let skippedCount = 0;
+		let failedCount = 0;
 		const bagIds: string[] = [];
+		const failedBagIds: string[] = [];
 
 		for (const row of rows) {
 			try {
 				const result = await db.transaction(async (tx) => {
-					return deleteBagByIdTx(tx, row.id, now);
+					return deleteExpiredGuestBagByIdTx(tx, row.id, now);
 				});
+				if (result.skipped) {
+					skippedCount += 1;
+					continue;
+				}
 				itemCount += result.itemCount;
 				releasedQuantity += result.releasedQuantity;
 				bagIds.push(row.id);
 			} catch (err) {
+				failedCount += 1;
+				failedBagIds.push(row.id);
 				console.error(`Failed to delete expired guest bag ${row.id}:`, err);
 			}
 		}
@@ -648,7 +657,10 @@ export async function deleteExpiredGuestBags(
 			deletedCount: bagIds.length,
 			bagIds,
 			itemCount,
-			releasedQuantity
+			releasedQuantity,
+			skippedCount,
+			failedCount,
+			failedBagIds
 		};
 	} catch (error) {
 		throw mapBagPersistenceError(error);
@@ -680,16 +692,25 @@ export async function expireDueBagCheckouts(
 			.limit(limit);
 
 		let releasedQuantity = 0;
+		let skippedCount = 0;
+		let failedCount = 0;
 		const bagIds: string[] = [];
+		const failedBagIds: string[] = [];
 
 		for (const row of rows) {
 			try {
 				const result = await db.transaction(async (tx) => {
-					return releaseCheckoutReservationsTx(tx, row, now);
+					return expireDueBagCheckoutByIdTx(tx, row.id, now);
 				});
+				if (result.skipped) {
+					skippedCount += 1;
+					continue;
+				}
 				releasedQuantity += result.releasedQuantity;
 				bagIds.push(row.id);
 			} catch (err) {
+				failedCount += 1;
+				failedBagIds.push(row.id);
 				console.error(`Failed to expire checkout for bag ${row.id}:`, err);
 			}
 		}
@@ -697,7 +718,10 @@ export async function expireDueBagCheckouts(
 		return {
 			expiredCount: bagIds.length,
 			bagIds,
-			releasedQuantity
+			releasedQuantity,
+			skippedCount,
+			failedCount,
+			failedBagIds
 		};
 	} catch (error) {
 		throw mapBagPersistenceError(error);
@@ -953,6 +977,32 @@ async function releaseCheckoutReservationsTx(
 	return { bag, releasedQuantity };
 }
 
+async function expireDueBagCheckoutByIdTx(
+	tx: Tx,
+	bagId: string,
+	now: Date
+): Promise<{ skipped: boolean; releasedQuantity: number }> {
+	const [row] = await tx
+		.select()
+		.from(bagTable)
+		.where(
+			and(
+				eq(bagTable.id, bagId),
+				isNotNull(bagTable.checkoutStartedAt),
+				isNotNull(bagTable.checkoutExpiresAt),
+				lte(bagTable.checkoutExpiresAt, now)
+			)
+		)
+		.limit(1);
+
+	if (!row) {
+		return { skipped: true, releasedQuantity: 0 };
+	}
+
+	const result = await releaseCheckoutReservationsTx(tx, row, now);
+	return { skipped: false, releasedQuantity: result.releasedQuantity };
+}
+
 async function clearBagItemsTx(tx: Tx, bagId: string, now: Date): Promise<BagDeleteResult> {
 	const items = await tx.select().from(bagItemTable).where(eq(bagItemTable.bagId, bagId));
 	let releasedQuantity = 0;
@@ -979,6 +1029,32 @@ async function deleteBagByIdTx(tx: Tx, bagId: string, now: Date): Promise<BagDel
 	const result = await clearBagItemsTx(tx, bagId, now);
 	await tx.delete(bagTable).where(eq(bagTable.id, bagId));
 	return result;
+}
+
+async function deleteExpiredGuestBagByIdTx(
+	tx: Tx,
+	bagId: string,
+	now: Date
+): Promise<BagDeleteResult & { skipped: boolean }> {
+	const [row] = await tx
+		.select({ id: bagTable.id })
+		.from(bagTable)
+		.where(
+			and(
+				eq(bagTable.id, bagId),
+				isNotNull(bagTable.sessionToken),
+				isNotNull(bagTable.expiresAt),
+				lte(bagTable.expiresAt, now)
+			)
+		)
+		.limit(1);
+
+	if (!row) {
+		return { skipped: true, itemCount: 0, releasedQuantity: 0 };
+	}
+
+	const result = await deleteBagByIdTx(tx, row.id, now);
+	return { ...result, skipped: false };
 }
 
 export async function deleteUserBagForAccountDeletionTx(

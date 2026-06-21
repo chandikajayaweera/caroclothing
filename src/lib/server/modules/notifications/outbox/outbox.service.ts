@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, lte, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/foundation/guards';
@@ -276,7 +276,6 @@ export async function claimPendingNotifications(
 		const notification = await claimNotificationTx(db, ctx, {
 			outboxId: row.id,
 			workerId: input.workerId,
-			lockTimeoutMs: input.lockTimeoutMs,
 			now
 		});
 
@@ -402,7 +401,7 @@ export async function releaseStaleNotificationLocks(
 		.limit(limit);
 
 	if (staleRows.length === 0) {
-		return { releasedCount: 0, notificationIds: [] };
+		return { releasedCount: 0, skippedCount: 0, notificationIds: [] };
 	}
 
 	const ids = staleRows.map((row) => row.id);
@@ -417,11 +416,21 @@ export async function releaseStaleNotificationLocks(
 			lastError: 'Processing lock expired.',
 			updatedAt: now
 		})
-		.where(inArray(notificationOutbox.id, ids))
+		.where(
+			and(
+				inArray(notificationOutbox.id, ids),
+				eq(notificationOutbox.status, 'processing'),
+				isNotNull(notificationOutbox.lockedAt),
+				isNotNull(notificationOutbox.lockedBy),
+				isNotNull(notificationOutbox.lockToken),
+				lte(notificationOutbox.lockedAt, staleBefore)
+			)
+		)
 		.returning({ id: notificationOutbox.id });
 
 	return {
 		releasedCount: released.length,
+		skippedCount: ids.length - released.length,
 		notificationIds: released.map((row) => row.id)
 	};
 }

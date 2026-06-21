@@ -19,7 +19,9 @@ describe('notification queue messages', () => {
 		expect(parseNotificationQueueMessageBody(null)).toBeNull();
 		expect(parseNotificationQueueMessageBody({ outboxId: 'outbox_1' })).toBeNull();
 		expect(parseNotificationQueueMessageBody({ outboxId: '', idempotencyKey: 'key' })).toBeNull();
-		expect(parseNotificationQueueMessageBody({ outboxId: 'outbox_1', idempotencyKey: '' })).toBeNull();
+		expect(
+			parseNotificationQueueMessageBody({ outboxId: 'outbox_1', idempotencyKey: '' })
+		).toBeNull();
 	});
 
 	it('rounds retry delays up to at least one second', () => {

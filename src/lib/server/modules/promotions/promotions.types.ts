@@ -127,11 +127,19 @@ export type PromoUsageReconciliationItem = {
 	promoCode: PromoCodeDTO;
 };
 
+export type PromoUsageReconciliationFailure = {
+	promoCodeId: string;
+	code: string;
+	error: string;
+};
+
 export type PromoUsageReconciliationResult = {
 	items: PromoUsageReconciliationItem[];
+	failedItems: PromoUsageReconciliationFailure[];
 	checkedCount: number;
 	changedCount: number;
 	unchangedCount: number;
+	failedCount: number;
 	limit: number;
 	offset: number;
 	hasMore: boolean;

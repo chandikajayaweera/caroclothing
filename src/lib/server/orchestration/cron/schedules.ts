@@ -7,3 +7,11 @@ export const CRON_SCHEDULES = {
 } as const;
 
 export type CronSchedule = (typeof CRON_SCHEDULES)[keyof typeof CRON_SCHEDULES];
+
+export const CONFIGURED_CRON_SCHEDULES = [
+	CRON_SCHEDULES.bagCheckoutExpiry,
+	CRON_SCHEDULES.dropLaunchAndNotifications,
+	CRON_SCHEDULES.orderPaymentExpiry,
+	CRON_SCHEDULES.bagCleanup,
+	CRON_SCHEDULES.promoReconcile
+] as const satisfies readonly CronSchedule[];

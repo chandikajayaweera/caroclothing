@@ -97,6 +97,7 @@ export async function processDueNotificationOutbox(
 
 	return {
 		releasedCount: released.releasedCount,
+		releaseSkippedCount: released.skippedCount,
 		claimedCount: claimed.length,
 		results
 	};

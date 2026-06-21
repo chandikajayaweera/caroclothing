@@ -255,6 +255,9 @@ export type CancelExpiredPendingOrdersResult = {
 	cancelledCount: number;
 	orderIds: string[];
 	orders: OrderDTO[];
+	skippedCount: number;
+	failedCount: number;
+	failedOrderIds: string[];
 };
 
 export type OrderPlacementRecord = {

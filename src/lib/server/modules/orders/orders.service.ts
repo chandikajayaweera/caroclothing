@@ -419,11 +419,19 @@ export async function transitionOrderStatusTx(
 	const [updated] = await tx
 		.update(order)
 		.set(parseOrderUpdate({ status: toStatus, ...statusTimestampValues(toStatus, now) }))
-		.where(eq(order.id, orderId))
+		.where(and(eq(order.id, orderId), eq(order.status, existing.status)))
 		.returning();
 
 	if (!updated) {
-		throw new OrderError('Order not found.', ErrorCode.ORDER_NOT_FOUND, { orderId });
+		throw new OrderError(
+			'Order status changed before the transition completed.',
+			ErrorCode.CONFLICT,
+			{
+				orderId,
+				expectedStatus: existing.status,
+				toStatus
+			}
+		);
 	}
 
 	await insertOrderStatusHistoryTx(tx, {
@@ -528,6 +536,9 @@ export async function cancelExpiredPendingOrders(
 	const notificationsToPublish: NotificationOutboxDTO[] = [];
 	const orders: OrderDTO[] = [];
 	const orderIds: string[] = [];
+	const failedOrderIds: string[] = [];
+	let skippedCount = 0;
+	let failedCount = 0;
 
 	try {
 		const db = getDb();
@@ -541,15 +552,16 @@ export async function cancelExpiredPendingOrders(
 		for (const row of rows) {
 			try {
 				const result = await db.transaction(async (tx) => {
-					const cancelledOrder = await transitionOrderStatusTx(tx, ctx, {
-						orderId: row.id,
-						toStatus: 'cancelled',
-						note: 'Payment window expired.',
-						now
-					});
+					const cancelledOrder = await cancelExpiredPendingOrderByIdTx(tx, ctx, row.id, now);
+					if (!cancelledOrder) return null;
 					const notification = await enqueueOrderStatusUpdateNotificationTx(tx, cancelledOrder);
 					return { cancelledOrder, notification };
 				});
+
+				if (!result) {
+					skippedCount += 1;
+					continue;
+				}
 
 				orders.push(result.cancelledOrder);
 				orderIds.push(row.id);
@@ -557,6 +569,14 @@ export async function cancelExpiredPendingOrders(
 					notificationsToPublish.push(result.notification);
 				}
 			} catch (err) {
+				if (isAppError(err) && err.code === ErrorCode.CONFLICT) {
+					skippedCount += 1;
+					console.warn(`Skipped stale expired order ${row.id}:`, err);
+					continue;
+				}
+
+				failedCount += 1;
+				failedOrderIds.push(row.id);
 				console.error(`Failed to cancel expired order ${row.id}:`, err);
 			}
 		}
@@ -566,7 +586,10 @@ export async function cancelExpiredPendingOrders(
 		return {
 			cancelledCount: orders.length,
 			orderIds,
-			orders
+			orders,
+			skippedCount,
+			failedCount,
+			failedOrderIds
 		};
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
@@ -650,6 +673,30 @@ async function buildOrderPreviewTx(
 		canCheckout: blockingReasons.length === 0,
 		blockingReasons
 	};
+}
+
+async function cancelExpiredPendingOrderByIdTx(
+	tx: OrdersTx,
+	ctx: ServiceContext,
+	orderId: string,
+	now: Date
+): Promise<OrderDTO | null> {
+	const [row] = await tx
+		.select({ id: order.id })
+		.from(order)
+		.where(
+			and(eq(order.id, orderId), eq(order.status, 'pending'), lte(order.paymentExpiresAt, now))
+		)
+		.limit(1);
+
+	if (!row) return null;
+
+	return transitionOrderStatusTx(tx, ctx, {
+		orderId: row.id,
+		toStatus: 'cancelled',
+		note: 'Payment window expired.',
+		now
+	});
 }
 
 async function applyInventoryForStatusTransitionTx(

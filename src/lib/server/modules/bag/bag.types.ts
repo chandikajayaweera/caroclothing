@@ -145,10 +145,16 @@ export type ExpiredGuestBagCleanupResult = {
 	bagIds: string[];
 	itemCount: number;
 	releasedQuantity: number;
+	skippedCount: number;
+	failedCount: number;
+	failedBagIds: string[];
 };
 
 export type ExpiredBagCheckoutCleanupResult = {
 	expiredCount: number;
 	bagIds: string[];
 	releasedQuantity: number;
+	skippedCount: number;
+	failedCount: number;
+	failedBagIds: string[];
 };

@@ -8,7 +8,7 @@ import type {
 	SystemActor
 } from '$lib/server/foundation/context';
 import { processDueNotificationOutbox } from '$lib/server/orchestration/notifications';
-import { CRON_SCHEDULES } from './schedules';
+import { CRON_SCHEDULES, type CronSchedule } from './schedules';
 
 const NOTIFICATION_OUTBOX_LIMIT = 50;
 const DROP_LAUNCH_LIMIT = 50;
@@ -37,36 +37,65 @@ export type RunScheduledJobsInput = {
 	notificationWakeups?: NotificationWakeupPublisher | null;
 };
 
+type ScheduledJobContext = {
+	now: Date;
+	serviceCtx: ServiceContext;
+};
+
+export type ScheduledJobDefinition = {
+	schedule: CronSchedule;
+	jobs: (context: ScheduledJobContext) => Array<() => Promise<ScheduledJobResult>>;
+};
+
+export const SCHEDULED_JOB_REGISTRY = [
+	{
+		schedule: CRON_SCHEDULES.bagCheckoutExpiry,
+		jobs: ({ now, serviceCtx }) => [() => expireBagCheckouts(serviceCtx, now)]
+	},
+	{
+		schedule: CRON_SCHEDULES.dropLaunchAndNotifications,
+		jobs: ({ now, serviceCtx }) => [
+			() => processDueNotificationOutboxJob(now),
+			() => launchDueDrops(serviceCtx, now)
+		]
+	},
+	{
+		schedule: CRON_SCHEDULES.orderPaymentExpiry,
+		jobs: ({ now, serviceCtx }) => [() => cancelExpiredOrderPayments(serviceCtx, now)]
+	},
+	{
+		schedule: CRON_SCHEDULES.bagCleanup,
+		jobs: ({ now, serviceCtx }) => [() => cleanupExpiredGuestBags(serviceCtx, now)]
+	},
+	{
+		schedule: CRON_SCHEDULES.promoReconcile,
+		jobs: ({ serviceCtx }) => [() => reconcilePromoUsageCounts(serviceCtx)]
+	}
+] as const satisfies readonly ScheduledJobDefinition[];
+
+const scheduledJobsByCron = new Map<CronSchedule, ScheduledJobDefinition>(
+	SCHEDULED_JOB_REGISTRY.map((definition) => [definition.schedule, definition])
+);
+
 export async function runScheduledJobs(
 	input: RunScheduledJobsInput
 ): Promise<ScheduledJobResult[]> {
 	const now = new Date(input.scheduledTime);
 	const serviceCtx = createCronServiceContext(now, input.notificationWakeups);
+	const definition = scheduledJobsByCron.get(input.cron as CronSchedule);
 
-	switch (input.cron) {
-		case CRON_SCHEDULES.dropLaunchAndNotifications:
-			return runCronJobs([
-				() => processDueNotificationOutboxJob(now),
-				() => launchDueDrops(serviceCtx, now)
-			]);
-		case CRON_SCHEDULES.orderPaymentExpiry:
-			return runCronJobs([() => cancelExpiredOrderPayments(serviceCtx, now)]);
-		case CRON_SCHEDULES.bagCheckoutExpiry:
-			return runCronJobs([() => expireBagCheckouts(serviceCtx, now)]);
-		case CRON_SCHEDULES.bagCleanup:
-			return runCronJobs([() => cleanupExpiredGuestBags(serviceCtx, now)]);
-		case CRON_SCHEDULES.promoReconcile:
-			return runCronJobs([() => reconcilePromoUsageCounts(serviceCtx)]);
-		default:
-			console.warn('[cron] Unknown schedule ignored:', { cron: input.cron });
-			return [
-				{
-					job: 'cron.unknown',
-					count: 0,
-					details: { cron: input.cron }
-				}
-			];
+	if (!definition) {
+		console.warn('[cron] Unknown schedule ignored:', { cron: input.cron });
+		return [
+			{
+				job: 'cron.unknown',
+				count: 0,
+				details: { cron: input.cron }
+			}
+		];
 	}
+
+	return runCronJobs(definition.jobs({ now, serviceCtx }));
 }
 
 function createCronServiceContext(
@@ -116,6 +145,7 @@ async function processDueNotificationOutboxJob(now: Date): Promise<ScheduledJobR
 		count: result.claimedCount,
 		details: {
 			releasedCount: result.releasedCount,
+			releasedSkippedCount: result.releaseSkippedCount,
 			sentCount: countNotificationOutcomes(result, 'sent'),
 			failedCount: countNotificationOutcomes(result, 'failed'),
 			skippedCount: countNotificationOutcomes(result, 'skipped'),
@@ -151,7 +181,11 @@ async function cancelExpiredOrderPayments(
 
 	return {
 		job: 'orders.cancelExpiredPendingOrders',
-		count: result.cancelledCount
+		count: result.cancelledCount,
+		details: {
+			skippedCount: result.skippedCount,
+			failedCount: result.failedCount
+		}
 	};
 }
 
@@ -169,7 +203,9 @@ async function cleanupExpiredGuestBags(
 		count: result.deletedCount,
 		details: {
 			itemCount: result.itemCount,
-			releasedQuantity: result.releasedQuantity
+			releasedQuantity: result.releasedQuantity,
+			skippedCount: result.skippedCount,
+			failedCount: result.failedCount
 		}
 	};
 }
@@ -184,7 +220,9 @@ async function expireBagCheckouts(ctx: ServiceContext, now: Date): Promise<Sched
 		job: 'bag.expireDueCheckouts',
 		count: result.expiredCount,
 		details: {
-			releasedQuantity: result.releasedQuantity
+			releasedQuantity: result.releasedQuantity,
+			skippedCount: result.skippedCount,
+			failedCount: result.failedCount
 		}
 	};
 }
@@ -193,6 +231,7 @@ async function reconcilePromoUsageCounts(ctx: ServiceContext): Promise<Scheduled
 	let offset = 0;
 	let checkedCount = 0;
 	let changedCount = 0;
+	let failedCount = 0;
 	let pageCount = 0;
 	let hasMore = false;
 
@@ -204,6 +243,7 @@ async function reconcilePromoUsageCounts(ctx: ServiceContext): Promise<Scheduled
 
 		checkedCount += result.checkedCount;
 		changedCount += result.changedCount;
+		failedCount += result.failedCount;
 		hasMore = result.hasMore;
 		offset += PROMO_RECONCILE_LIMIT;
 		pageCount += 1;
@@ -221,6 +261,7 @@ async function reconcilePromoUsageCounts(ctx: ServiceContext): Promise<Scheduled
 		count: checkedCount,
 		details: {
 			changedCount,
+			failedCount,
 			pageCount,
 			truncated: hasMore
 		}

@@ -43,6 +43,7 @@ import type {
 	PromoCodeSummaryDTO,
 	PromoCodeUsageDTO,
 	PromoCodeUsageListResult,
+	PromoUsageReconciliationFailure,
 	PromoUsageReconciliationItem,
 	PromoUsageReconciliationResult,
 	PromoValidationResult,
@@ -267,7 +268,7 @@ export async function reconcilePromoCodeUsageCount(
 	input: ReconcilePromoCodeUsageCountInput
 ): Promise<PromoCodeDTO> {
 	requireAdmin(ctx.actor);
-	const now = resolveNow(ctx);
+	const now = resolveNow(ctx, input.now);
 
 	try {
 		return await getDb().transaction((tx) => reconcilePromoCodeUsageCountTx(tx, { ...input, now }));
@@ -287,33 +288,46 @@ export async function reconcilePromoCodeUsageCounts(
 	const offset = normalizeOffset(input.offset);
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const rows = await tx
-				.select()
-				.from(promoCode)
-				.orderBy(asc(promoCode.code))
-				.limit(limit)
-				.offset(offset);
-			const totalRows = await tx.select({ total: count() }).from(promoCode);
-			const items: PromoUsageReconciliationItem[] = [];
+		const db = getDb();
+		const rows = await db
+			.select()
+			.from(promoCode)
+			.orderBy(asc(promoCode.code), asc(promoCode.id))
+			.limit(limit)
+			.offset(offset);
+		const totalRows = await db.select({ total: count() }).from(promoCode);
+		const items: PromoUsageReconciliationItem[] = [];
+		const failedItems: PromoUsageReconciliationFailure[] = [];
 
-			for (const row of rows) {
-				items.push(await reconcilePromoCodeUsageCountForRowTx(tx, row, now));
+		for (const row of rows) {
+			try {
+				items.push(
+					await db.transaction(async (tx) => reconcilePromoCodeUsageCountByIdTx(tx, row.id, now))
+				);
+			} catch (error) {
+				failedItems.push({
+					promoCodeId: row.id,
+					code: row.code,
+					error: getErrorMessage(error)
+				});
+				console.error(`Failed to reconcile promo code ${row.id}:`, error);
 			}
+		}
 
-			const changedCount = items.filter((item) => item.changed).length;
-			const total = Number(totalRows[0]?.total ?? 0);
+		const changedCount = items.filter((item) => item.changed).length;
+		const total = Number(totalRows[0]?.total ?? 0);
 
-			return {
-				items,
-				checkedCount: items.length,
-				changedCount,
-				unchangedCount: items.length - changedCount,
-				limit,
-				offset,
-				hasMore: offset + rows.length < total
-			};
-		});
+		return {
+			items,
+			failedItems,
+			checkedCount: rows.length,
+			changedCount,
+			unchangedCount: items.length - changedCount,
+			failedCount: failedItems.length,
+			limit,
+			offset,
+			hasMore: offset + rows.length < total
+		};
 	} catch (error) {
 		throw mapPromotionPersistenceError(error);
 	}
@@ -584,6 +598,21 @@ async function reconcilePromoCodeUsageCountForRowTx(
 		changed,
 		promoCode: toPromoCodeDTO(promoCodeRow, now)
 	};
+}
+
+async function reconcilePromoCodeUsageCountByIdTx(
+	tx: PromotionsTx,
+	promoCodeId: string,
+	now: Date
+): Promise<PromoUsageReconciliationItem> {
+	const row = await loadPromoCodeByLookupTx(tx, { id: promoCodeId });
+	if (!row) {
+		throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND, {
+			promoCodeId
+		});
+	}
+
+	return reconcilePromoCodeUsageCountForRowTx(tx, row, now);
 }
 
 async function updatePromoCodeUsedCountTx(

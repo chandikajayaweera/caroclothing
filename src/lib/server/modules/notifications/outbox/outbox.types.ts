@@ -236,21 +236,18 @@ export type ClaimNotificationInput =
 			outboxId: string;
 			idempotencyKey?: never;
 			workerId?: string;
-			lockTimeoutMs?: number;
 			now?: Date;
 	  }
 	| {
 			outboxId?: never;
 			idempotencyKey: string;
 			workerId?: string;
-			lockTimeoutMs?: number;
 			now?: Date;
 	  };
 
 export type ClaimPendingNotificationsInput = {
 	limit?: number;
 	workerId?: string;
-	lockTimeoutMs?: number;
 	now?: Date;
 };
 
@@ -278,6 +275,7 @@ export type ReleaseStaleNotificationLocksInput = {
 
 export type ReleaseStaleNotificationLocksResult = {
 	releasedCount: number;
+	skippedCount: number;
 	notificationIds: string[];
 };
 
@@ -302,6 +300,7 @@ export type NotificationQueueBatchResult = {
 
 export type NotificationCronProcessResult = {
 	releasedCount: number;
+	releaseSkippedCount: number;
 	claimedCount: number;
 	results: NotificationDispatchResult[];
 };
