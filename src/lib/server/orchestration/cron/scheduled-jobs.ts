@@ -1,15 +1,14 @@
 import { deleteExpiredGuestBags, expireDueBagCheckouts } from '$lib/server/modules/bag/bag.service';
 import { transitionDueDropsToLive } from '$lib/server/modules/drops/drops.service';
-import { processDueNotificationOutbox } from '$lib/server/infrastructure/notifications/outbox.dispatcher';
 import { cancelExpiredPendingOrders } from '$lib/server/modules/orders/orders.service';
 import { reconcilePromoCodeUsageCounts } from '$lib/server/modules/promotions/promotions.service';
-import type { ServiceContext, SystemActor } from '$lib/server/foundation/context';
-
-const DROP_LAUNCH_AND_NOTIFICATION_CRON = '*/5 * * * *';
-const ORDER_PAYMENT_EXPIRY_CRON = '*/10 * * * *';
-const BAG_CHECKOUT_EXPIRY_CRON = '* * * * *';
-const BAG_CLEANUP_CRON = '0 * * * *';
-const PROMO_RECONCILE_CRON = '17 20 * * *';
+import type {
+	NotificationWakeupPublisher,
+	ServiceContext,
+	SystemActor
+} from '$lib/server/foundation/context';
+import { processDueNotificationOutbox } from '$lib/server/orchestration/notifications';
+import { CRON_SCHEDULES } from './schedules';
 
 const NOTIFICATION_OUTBOX_LIMIT = 50;
 const DROP_LAUNCH_LIMIT = 50;
@@ -32,37 +31,39 @@ export type ScheduledJobResult = {
 	details?: Record<string, ScheduledJobDetail>;
 };
 
+export type RunScheduledJobsInput = {
+	cron: string;
+	scheduledTime: number;
+	notificationWakeups?: NotificationWakeupPublisher | null;
+};
+
 export async function runScheduledJobs(
-	controller: ScheduledController,
-	env: App.Platform['env'],
-	ctx: ExecutionContext
+	input: RunScheduledJobsInput
 ): Promise<ScheduledJobResult[]> {
-	void ctx;
+	const now = new Date(input.scheduledTime);
+	const serviceCtx = createCronServiceContext(now, input.notificationWakeups);
 
-	const now = new Date(controller.scheduledTime);
-	const serviceCtx = createCronServiceContext(now, env.NOTIFICATION_QUEUE);
-
-	switch (controller.cron) {
-		case DROP_LAUNCH_AND_NOTIFICATION_CRON:
+	switch (input.cron) {
+		case CRON_SCHEDULES.dropLaunchAndNotifications:
 			return runCronJobs([
 				() => processDueNotificationOutboxJob(now),
 				() => launchDueDrops(serviceCtx, now)
 			]);
-		case ORDER_PAYMENT_EXPIRY_CRON:
+		case CRON_SCHEDULES.orderPaymentExpiry:
 			return runCronJobs([() => cancelExpiredOrderPayments(serviceCtx, now)]);
-		case BAG_CHECKOUT_EXPIRY_CRON:
+		case CRON_SCHEDULES.bagCheckoutExpiry:
 			return runCronJobs([() => expireBagCheckouts(serviceCtx, now)]);
-		case BAG_CLEANUP_CRON:
+		case CRON_SCHEDULES.bagCleanup:
 			return runCronJobs([() => cleanupExpiredGuestBags(serviceCtx, now)]);
-		case PROMO_RECONCILE_CRON:
+		case CRON_SCHEDULES.promoReconcile:
 			return runCronJobs([() => reconcilePromoUsageCounts(serviceCtx)]);
 		default:
-			console.warn('[cron] Unknown schedule ignored:', { cron: controller.cron });
+			console.warn('[cron] Unknown schedule ignored:', { cron: input.cron });
 			return [
 				{
 					job: 'cron.unknown',
 					count: 0,
-					details: { cron: controller.cron }
+					details: { cron: input.cron }
 				}
 			];
 	}
@@ -70,11 +71,11 @@ export async function runScheduledJobs(
 
 function createCronServiceContext(
 	now: Date,
-	notificationQueue: App.Platform['env']['NOTIFICATION_QUEUE']
+	notificationWakeups: NotificationWakeupPublisher | null | undefined
 ): ServiceContext {
 	return {
 		actor: cronActor,
-		notificationQueue,
+		notificationWakeups,
 		now
 	};
 }

@@ -62,9 +62,9 @@ Implemented notification infrastructure:
 
 ```txt
 src/lib/server/modules/notifications/outbox
-src/lib/server/infrastructure/notifications/outbox.dispatcher.ts
-src/lib/server/infrastructure/queue
-src/lib/server/infrastructure/cron/scheduled-jobs.ts
+src/lib/server/orchestration/notifications
+src/lib/server/orchestration/cron
+src/lib/server/infrastructure/cloudflare
 ```
 
 `notification_outbox` is the durable source of truth for async notification state. Cloudflare Queues are wakeups only. Cron retries pending, due failed, and stale locked outbox rows. DLQ is operational review only.
@@ -128,11 +128,11 @@ Infrastructure:
   src/lib/server/infrastructure/media
   src/lib/server/infrastructure/email
   src/lib/server/infrastructure/sms
+  src/lib/server/infrastructure/cloudflare
 
 Orchestration:
-  src/lib/server/infrastructure/queue
-  src/lib/server/infrastructure/cron
-  src/lib/server/infrastructure/notifications/outbox.dispatcher.ts
+  src/lib/server/orchestration/notifications
+  src/lib/server/orchestration/cron
 
 Domain modules:
   src/lib/server/modules/auth
@@ -152,12 +152,13 @@ Domain modules:
 Layer rules:
 
 - Domain modules own business state, Drizzle schemas, service functions, DTOs, and domain validation.
-- Infrastructure modules wrap technical providers such as env, errors, R2, Resend, and Text.lk.
+- Infrastructure modules wrap technical providers and runtime adapters such as env, errors, R2, Resend, Text.lk, and Cloudflare Queue/Cron bindings.
 - Foundation modules hold cross-cutting service context, guards, and utilities.
-- Orchestration modules translate Cloudflare runtime events into service or notification work.
+- Cloudflare infrastructure adapters translate Worker runtime events and bindings into plain orchestration calls.
+- Orchestration modules run Queue/Cron/job workflows without depending on Cloudflare runtime message/controller types.
 - `modules/auth` is intentionally mixed because Better Auth runtime/config and auth domain behavior live together.
 - `modules/notifications/outbox` is a domain state module because it owns `notification_outbox`, idempotency, retry/audit state, payload validation, and claim/mark/cancel APIs.
-- `infrastructure/notifications/outbox.dispatcher.ts` is orchestration because it claims rows through the outbox service and calls semantic senders.
+- `src/lib/server/orchestration/notifications` is orchestration because it claims rows through the outbox service and calls semantic senders.
 
 Do not invent alternate layer paths or legacy shims.
 
@@ -237,13 +238,13 @@ Service context:
 type ServiceContext = {
 	actor?: ServiceActor | SystemActor | null;
 	event?: Pick<RequestEvent, 'platform'>;
-	notificationQueue?: Queue<NotificationQueueMessage> | null;
+	notificationWakeups?: NotificationWakeupPublisher | null;
 	now?: Date;
 	requestId?: string;
 };
 ```
 
-Use only the context fields a service needs. R2 uploads need `ctx.event`. Queue wakeups may use `ctx.notificationQueue` or `ctx.event.platform.env.NOTIFICATION_QUEUE`. Cron passes a `SystemActor` and explicit `now`.
+Use only the context fields a service needs. R2 uploads need `ctx.event`. Queue wakeups use `ctx.notificationWakeups`, a publisher interface created by the Cloudflare adapter. Cron passes a `SystemActor`, explicit `now`, and a wakeup publisher when available.
 
 Environment:
 
@@ -280,6 +281,7 @@ Queue:
 
 - Queue publish is best-effort after commit.
 - Queue messages contain only `outboxId` and/or `idempotencyKey`.
+- Domain services receive a notification wakeup publisher interface, not a raw Cloudflare Queue binding.
 - Queue consumers must claim the outbox row before sending.
 - Duplicate Queue delivery must not duplicate notification sends when the outbox row is already terminal or locked.
 - Queue processing marks records sent only after `EmailResult.ok` or `SmsResult.ok`.

@@ -53,6 +53,7 @@ Infrastructure:
   src/lib/server/infrastructure/media
   src/lib/server/infrastructure/email
   src/lib/server/infrastructure/sms
+  src/lib/server/infrastructure/cloudflare
 
 Foundation:
   src/lib/server/foundation/context.ts
@@ -61,9 +62,8 @@ Foundation:
   src/lib/shared/modules/access-control.ts
 
 Orchestration:
-  src/lib/server/infrastructure/queue
-  src/lib/server/infrastructure/cron
-  src/lib/server/infrastructure/notifications/outbox.dispatcher.ts
+  src/lib/server/orchestration/notifications
+  src/lib/server/orchestration/cron
 ```
 
 Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` unless the user explicitly asks for product, brand, marketing, or storefront strategy.
@@ -147,7 +147,8 @@ Current notification facts:
 - `sendOtpSms`, `sendOrderConfirmationSms`, `sendShippingUpdateSms`, `sendPaymentUpdateSms`, `sendOrderStatusUpdateSms`, and `sendDropLaunchSms` exist.
 - `notification_outbox` is implemented under `src/lib/server/modules/notifications/outbox`.
 - Outbox notification types are `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
-- `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts` is orchestration.
+- `src/lib/server/orchestration/notifications` is orchestration.
+- `src/lib/server/infrastructure/cloudflare` contains Cloudflare Queue/Cron binding adapters and notification wakeup publisher adapters.
 - Queue producer/consumer bindings, Queue handlers, Cron recovery, and DLQ config are implemented.
 - SMS purposes are `otp`, `transactional`, and `promotional`, backed by Text.lk purpose-specific sender IDs.
 
@@ -201,8 +202,9 @@ Expected current findings:
 
 ```txt
 src/routes/media/[...key]/+server.ts is the allowed media R2 route exception.
-src/lib/server/infrastructure/queue routes Cloudflare Queue batches by queue name.
-src/lib/server/infrastructure/cron/scheduled-jobs.ts routes configured Cron expressions to service APIs.
+src/lib/server/infrastructure/cloudflare routes Cloudflare Queue/Cron runtime events.
+src/lib/server/orchestration/cron routes configured Cron expressions to service APIs.
+src/lib/server/orchestration/notifications claims outbox rows and dispatches semantic senders.
 notification_outbox, Queue bindings, Queue handlers, and notification Cron recovery are implemented.
 ```
 

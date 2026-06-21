@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { capturePayPalReturn } from '$lib/server/modules/payments';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
 	const paypalOrderId = url.searchParams.get('token');
@@ -15,7 +16,7 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		const result = await capturePayPalReturn(
 			{
 				actor: { id: 'system:paypal-return', role: 'adminUser' },
-				notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+				notificationWakeups: createCloudflareNotificationWakeups(platform)
 			},
 			{ paypalOrderId, payerId }
 		);

@@ -20,7 +20,7 @@ export {
 	listNotificationOutbox,
 	markNotificationFailed,
 	markNotificationSent,
-	publishNotificationQueueMessages,
+	publishNotificationWakeups,
 	releaseStaleNotificationLocks,
 	toNotificationQueueMessage
 } from './outbox.service';

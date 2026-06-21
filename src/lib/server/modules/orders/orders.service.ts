@@ -57,7 +57,7 @@ import {
 	enqueuePaymentUpdateSmsTx,
 	enqueueShippingUpdateEmailTx,
 	enqueueShippingUpdateSmsTx,
-	publishNotificationQueueMessages,
+	publishNotificationWakeups,
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
 import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
@@ -198,7 +198,7 @@ export async function placeOrderFromBag(
 			notificationsToPublish = await enqueueOrderConfirmationNotificationsTx(tx, orderDto);
 			return orderDto;
 		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 		return placedOrder;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
@@ -396,7 +396,7 @@ export async function transitionOrderStatus(
 			notificationsToPublish = await enqueueOrderStatusTransitionNotificationsTx(tx, orderDto);
 			return orderDto;
 		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 		return updatedOrder;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
@@ -510,7 +510,7 @@ export async function updateOrderFulfillment(
 
 			return orderDto;
 		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 		return updatedOrder;
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
@@ -561,7 +561,7 @@ export async function cancelExpiredPendingOrders(
 			}
 		}
 
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 
 		return {
 			cancelledCount: orders.length,

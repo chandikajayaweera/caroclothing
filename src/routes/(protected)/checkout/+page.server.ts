@@ -20,6 +20,7 @@ import {
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
 import { ErrorCode, isAppError } from '$lib/server/infrastructure/errors';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
 	const now = new Date();
@@ -101,7 +102,7 @@ export const actions: Actions = {
 			: null;
 		const ctx = {
 			actor,
-			notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+			notificationWakeups: createCloudflareNotificationWakeups(platform)
 		};
 
 		const formData = await request.formData();

@@ -20,12 +20,13 @@ import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import type { ServiceContext } from '$lib/server/foundation/context';
 
 function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceContext {
 	return {
 		actor: locals.user,
-		notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+		notificationWakeups: createCloudflareNotificationWakeups(platform)
 	};
 }
 

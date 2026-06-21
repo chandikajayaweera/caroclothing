@@ -674,16 +674,16 @@ export function toNotificationQueueMessage(
 	};
 }
 
-export async function publishNotificationQueueMessages(
+export async function publishNotificationWakeups(
 	ctx: ServiceContext,
 	rows: NotificationOutboxRowLike[]
 ): Promise<void> {
 	if (rows.length === 0) return;
 
-	const queue = ctx.notificationQueue ?? ctx.event?.platform?.env?.NOTIFICATION_QUEUE ?? null;
-	if (!queue) {
+	const publisher = ctx.notificationWakeups ?? null;
+	if (!publisher) {
 		console.warn(
-			'[notification-outbox] Queue binding unavailable; Cron will deliver notifications.',
+			'[notification-outbox] Notification wakeup publisher unavailable; Cron will deliver notifications.',
 			{
 				count: rows.length,
 				requestId: ctx.requestId
@@ -694,19 +694,14 @@ export async function publishNotificationQueueMessages(
 
 	const startedAt = Date.now();
 	try {
-		await queue.sendBatch(
-			rows.map((row) => ({
-				body: toNotificationQueueMessage(row),
-				contentType: 'json' as const
-			}))
-		);
-		console.info('[notification-outbox] Queue wakeups published:', {
+		await publisher.publish(rows.map(toNotificationQueueMessage));
+		console.info('[notification-outbox] Notification wakeups published:', {
 			count: rows.length,
 			durationMs: Date.now() - startedAt,
 			requestId: ctx.requestId
 		});
 	} catch (error) {
-		console.error('[notification-outbox] Failed to publish queue wakeups:', {
+		console.error('[notification-outbox] Failed to publish notification wakeups:', {
 			count: rows.length,
 			error
 		});

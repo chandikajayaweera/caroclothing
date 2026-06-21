@@ -8,6 +8,7 @@ import {
 	type SriLankaDistrict
 } from '$lib/server/modules/addresses';
 import type { ServiceContext } from '$lib/server/foundation/context';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
 function getAdminContext(
@@ -18,7 +19,7 @@ function getAdminContext(
 	return {
 		actor: locals.user,
 		event,
-		notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+		notificationWakeups: createCloudflareNotificationWakeups(platform)
 	};
 }
 

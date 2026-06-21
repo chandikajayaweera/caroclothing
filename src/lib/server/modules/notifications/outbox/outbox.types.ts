@@ -5,6 +5,7 @@ import type {
 	ShippingUpdateInput,
 	WelcomeEmailInput
 } from '$lib/server/infrastructure/email';
+import type { NotificationWakeupMessage } from '$lib/server/foundation/context';
 import type {
 	DropLaunchSmsInput,
 	OrderConfirmationSmsInput,
@@ -38,10 +39,7 @@ export type NotificationPayloadByType = {
 
 export type NotificationPayload = NotificationPayloadByType[NotificationOutboxType];
 
-export type NotificationQueueMessage = {
-	outboxId: string;
-	idempotencyKey: string;
-};
+export type NotificationQueueMessage = NotificationWakeupMessage;
 
 export type NotificationOutboxDTO = {
 	id: string;

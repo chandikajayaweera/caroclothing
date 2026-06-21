@@ -33,7 +33,7 @@ import {
 import {
 	enqueueDropLaunchEmailTx,
 	enqueueDropLaunchSmsTx,
-	publishNotificationQueueMessages,
+	publishNotificationWakeups,
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
 import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
@@ -434,7 +434,7 @@ export async function transitionDropStatus(
 			return updated;
 		});
 
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 
 		return hydrateDrop(row);
 	} catch (error) {

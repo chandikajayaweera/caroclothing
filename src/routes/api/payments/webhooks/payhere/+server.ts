@@ -2,6 +2,7 @@ import { text } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { processPayHereWebhook } from '$lib/server/modules/payments';
 import { getErrorStatusCode } from '$lib/server/infrastructure/errors';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const formData = await request.formData();
@@ -18,7 +19,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		await processPayHereWebhook(
 			{
 				actor: { id: 'system:payhere-webhook', role: 'adminUser' },
-				notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+				notificationWakeups: createCloudflareNotificationWakeups(platform)
 			},
 			{ payload, headers }
 		);

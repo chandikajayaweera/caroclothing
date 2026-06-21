@@ -10,6 +10,7 @@ import {
 } from '$lib/server/modules/drops';
 import { z } from 'zod';
 import type { ServiceContext } from '$lib/server/foundation/context';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import {
 	formFailFromAppError,
 	throwHttpFromAppError
@@ -29,7 +30,7 @@ function getAdminContext(
 	return {
 		actor: locals.user,
 		event,
-		notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+		notificationWakeups: createCloudflareNotificationWakeups(platform)
 	};
 }
 

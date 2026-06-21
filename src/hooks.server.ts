@@ -4,9 +4,11 @@ import { env as dynamicPublicEnv } from '$env/dynamic/public';
 import { type Handle, type HandleServerError } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { AuthHook as Auth } from '$lib/server/modules/auth/handleHooks';
-import { runScheduledJobs } from '$lib/server/infrastructure/cron';
 import type { NotificationQueueMessage } from '$lib/server/modules/notifications/outbox/outbox.types';
-import { processQueueBatch } from '$lib/server/infrastructure/queue';
+import {
+	processCloudflareQueueBatch,
+	runCloudflareScheduledJobs
+} from '$lib/server/infrastructure/cloudflare';
 import { getSentryRuntimeOptions, getSentryServerRuntimeEnv } from '$lib/shared/sentry';
 
 const SENTRY_FLUSH_TIMEOUT_MS = 2000;
@@ -110,7 +112,7 @@ export const queue: ExportedHandlerQueueHandler<App.Platform['env'], Notificatio
 ) => {
 	ctx.waitUntil(
 		runCloudflareRuntimeWithSentry(env, 'auto.function.cloudflare.queue', () =>
-			processQueueBatch(batch, env, ctx)
+			processCloudflareQueueBatch(batch, env, ctx)
 		)
 	);
 };
@@ -122,7 +124,7 @@ export const scheduled: ExportedHandlerScheduledHandler<App.Platform['env']> = (
 ) => {
 	ctx.waitUntil(
 		runCloudflareRuntimeWithSentry(env, 'auto.function.cloudflare.scheduled', () =>
-			runScheduledJobs(controller, env, ctx)
+			runCloudflareScheduledJobs(controller, env, ctx)
 		)
 	);
 };

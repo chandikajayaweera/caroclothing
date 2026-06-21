@@ -11,6 +11,7 @@ import {
 	listAvailableCheckoutPaymentMethods,
 	validateCheckoutPaymentSelection
 } from '$lib/server/modules/payments';
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 
 function requireProtectedContext(locals: App.Locals, url: URL) {
 	if (!locals.user) {
@@ -54,7 +55,7 @@ export const actions: Actions = {
 	retryPayment: async ({ locals, params, url, request, platform }) => {
 		const ctx = {
 			...requireProtectedContext(locals, url),
-			notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+			notificationWakeups: createCloudflareNotificationWakeups(platform)
 		};
 
 		try {

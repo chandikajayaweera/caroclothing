@@ -26,7 +26,7 @@ import { createTestDatabase, type TestDatabaseHarness } from '../../../../tests/
 import { seedUser } from '../../../../tests/factories/auth';
 import { makeAdminCtx, makeCustomerCtx } from '../../../../tests/context';
 import { dropInput, seedDrop, seedDropWaitlistEntry } from '../../../../tests/factories/drops';
-import { createFakeNotificationQueue } from '../../../../tests/fakes/queue';
+import { createFakeNotificationWakeupPublisher } from '../../../../tests/fakes/queue';
 import { createFakeR2Bucket, makeImage, makeMediaAdminCtx } from '../../../../tests/fakes/media';
 import { seedProduct } from '../../../../tests/factories/products';
 
@@ -415,11 +415,11 @@ describe('drops service integration', () => {
 				contactType: 'phone',
 				userId: null
 			});
-			const queue = createFakeNotificationQueue();
+			const notificationWakeups = createFakeNotificationWakeupPublisher();
 
 			const launched = await transitionDropStatus(
 				adminCtx({
-					notificationQueue: queue
+					notificationWakeups
 				}),
 				{ dropId: dropRow.id, toStatus: 'live', now }
 			);
@@ -451,11 +451,11 @@ describe('drops service integration', () => {
 				dropName: 'READY DROP',
 				dropUrl: 'https://staging.caroclothing.test/drops/ready-launch-drop'
 			});
-			expect(queue.batches).toHaveLength(1);
-			expect(queue.batches[0]).toHaveLength(2);
-			expect(queue.batches[0].map((message) => message.body.idempotencyKey).sort()).toEqual(
-				notifications.map((row) => row.idempotencyKey).sort()
-			);
+			expect(notificationWakeups.queue.batches).toHaveLength(1);
+			expect(notificationWakeups.queue.batches[0]).toHaveLength(2);
+			expect(
+				notificationWakeups.queue.batches[0].map((message) => message.body.idempotencyKey).sort()
+			).toEqual(notifications.map((row) => row.idempotencyKey).sort());
 		});
 
 		it('transitions due drops one-by-one and reports skipped invalid drops', async () => {

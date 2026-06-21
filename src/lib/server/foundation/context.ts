@@ -1,5 +1,4 @@
 import type { RequestEvent } from '@sveltejs/kit';
-import type { NotificationQueueMessage } from '$lib/server/modules/notifications/outbox/outbox.types';
 import type { UserRole } from '$lib/shared/modules/access-control';
 
 export type ServiceActor = {
@@ -13,10 +12,19 @@ export type SystemActor = {
 	role: 'adminUser';
 };
 
+export type NotificationWakeupMessage = {
+	outboxId: string;
+	idempotencyKey: string;
+};
+
+export type NotificationWakeupPublisher = {
+	publish(messages: NotificationWakeupMessage[]): Promise<void>;
+};
+
 export type ServiceContext = {
 	actor?: ServiceActor | SystemActor | null;
 	event?: Pick<RequestEvent, 'platform'>;
-	notificationQueue?: Queue<NotificationQueueMessage> | null;
+	notificationWakeups?: NotificationWakeupPublisher | null;
 	now?: Date;
 	requestId?: string;
 };

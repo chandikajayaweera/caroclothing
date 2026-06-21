@@ -27,7 +27,7 @@ import {
 	transitionOrderStatusTx,
 	enqueuePaymentUpdateNotificationTx
 } from '../orders/orders.service';
-import { publishNotificationQueueMessages } from '../notifications/outbox/outbox.service';
+import { publishNotificationWakeups } from '../notifications/outbox/outbox.service';
 import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
 import {
 	createPayPalFxQuote as buildPayPalFxQuote,
@@ -670,7 +670,7 @@ async function applyGatewayPaymentResult(
 	});
 
 	if (notification) {
-		await publishNotificationQueueMessages(ctx, [notification]);
+		await publishNotificationWakeups(ctx, [notification]);
 	}
 	return toGatewayResult(result);
 }
@@ -781,7 +781,7 @@ export async function recordPayment(
 			if (notification) notificationsToPublish = [notification];
 			return paymentDto;
 		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 		return result;
 	} catch (error) {
 		throw mapPaymentPersistenceError(error);
@@ -903,7 +903,7 @@ export async function recordRefund(
 			if (notification) notificationsToPublish = [notification];
 			return paymentDto;
 		});
-		await publishNotificationQueueMessages(ctx, notificationsToPublish);
+		await publishNotificationWakeups(ctx, notificationsToPublish);
 		return result;
 	} catch (error) {
 		throw mapPaymentPersistenceError(error);

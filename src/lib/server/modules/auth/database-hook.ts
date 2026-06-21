@@ -10,11 +10,12 @@ import {
 	isAppError,
 	toBetterAuthApiError
 } from '$lib/server/infrastructure/errors';
+import { createCloudflareNotificationWakeupPublisher } from '$lib/server/infrastructure/cloudflare';
 import { linkDropWaitlistEntriesToUser } from '$lib/server/modules/drops/drops.service';
 import {
 	enqueueAuthGoogleLinkedEmailTx,
 	enqueueAuthWelcomeEmailTx,
-	publishNotificationQueueMessages,
+	publishNotificationWakeups,
 	type NotificationOutboxTx
 } from '$lib/server/modules/notifications/outbox/outbox.service';
 import type { ServiceContext } from '$lib/server/foundation/context';
@@ -62,9 +63,11 @@ function getUserDisplayName(user: unknown): string {
 	return typeof name === 'string' && name.trim() ? name.trim() : 'Caro Customer';
 }
 
-function getNotificationQueue(): ServiceContext['notificationQueue'] {
+function getNotificationWakeups(): ServiceContext['notificationWakeups'] {
 	try {
-		return getRequestEvent().platform?.env?.NOTIFICATION_QUEUE ?? null;
+		return createCloudflareNotificationWakeupPublisher(
+			getRequestEvent().platform?.env?.NOTIFICATION_QUEUE
+		);
 	} catch {
 		return null;
 	}
@@ -91,7 +94,7 @@ async function enqueueAuthWelcomeEmailForUser(user: {
 			})
 		);
 
-		await publishNotificationQueueMessages({ notificationQueue: getNotificationQueue(), now }, [
+		await publishNotificationWakeups({ notificationWakeups: getNotificationWakeups(), now }, [
 			notification
 		]);
 		logger.info(`[auth] Welcome email queued for ${email}`);
@@ -116,7 +119,7 @@ async function enqueueAuthGoogleLinkedEmailForAccount(input: {
 			})
 		);
 
-		await publishNotificationQueueMessages({ notificationQueue: getNotificationQueue(), now }, [
+		await publishNotificationWakeups({ notificationWakeups: getNotificationWakeups(), now }, [
 			notification
 		]);
 		logger.info(`[auth] Google-linked email queued for ${input.email}`);
