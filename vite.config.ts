@@ -3,6 +3,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { sentrySvelteKit } from '@sentry/sveltekit';
 import { defineConfig, loadEnv } from 'vite';
 import pkg from './package.json';
+import cloudflareAppendWorkerHandlers from './scripts/cloudflare-append-worker-handlers';
 
 const releaseName = `caroclothing@${pkg.version}`;
 
@@ -26,7 +27,8 @@ export default defineConfig(({ mode }) => {
 				},
 				autoUploadSourceMaps: shouldUploadSentrySourceMaps
 			}),
-			sveltekit()
+			sveltekit(),
+			cloudflareAppendWorkerHandlers()
 		],
 		resolve: {
 			dedupe: ['svelte']

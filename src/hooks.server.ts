@@ -102,7 +102,7 @@ const appHandleError: HandleServerError = (input) => {
 export const handleError = Sentry.handleErrorWithSentry(appHandleError);
 
 // Stable Cloudflare Worker entry points appended into the SvelteKit Worker by
-// scripts/cloudflare-append-worker-handlers.mjs until adapter-cloudflare wires them natively.
+// scripts/cloudflare-append-worker-handlers.ts until adapter-cloudflare wires them natively.
 export const queue: ExportedHandlerQueueHandler<App.Platform['env'], NotificationQueueMessage> = (
 	batch,
 	env,
