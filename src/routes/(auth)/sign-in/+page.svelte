@@ -105,6 +105,18 @@
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
 	let errorTimer: ReturnType<typeof setInterval> | null = null;
 
+	// ─── Phone glow state ─────────────────────────────────────────────────────────
+	let showPhoneGlow = $state(false);
+	let glowTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function triggerPhoneGlow() {
+		showPhoneGlow = true;
+		if (glowTimeout) clearTimeout(glowTimeout);
+		glowTimeout = setTimeout(() => {
+			showPhoneGlow = false;
+		}, 1000);
+	}
+
 	function stopErrorTimer() {
 		if (!errorTimer) return;
 		clearInterval(errorTimer);
@@ -152,6 +164,7 @@
 
 	onDestroy(() => {
 		if (cooldownTimer) clearInterval(cooldownTimer);
+		if (glowTimeout) clearTimeout(glowTimeout);
 		stopErrorTimer();
 	});
 
@@ -278,7 +291,14 @@
 
 	function handlePhoneInput(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
-		rawDigits = input.value.replace(/\D/g, '').slice(0, 9);
+		let digits = input.value.replace(/\D/g, '');
+
+		if (digits.startsWith('0')) {
+			digits = digits.slice(1);
+			triggerPhoneGlow();
+		}
+
+		rawDigits = digits.slice(0, 9);
 		input.value = rawDigits;
 	}
 
@@ -421,7 +441,15 @@
 
 			<!-- PHONE VIEW -->
 			{#if view === 'phone'}
-				<div class="space-y-8">
+				<form
+					onsubmit={(e) => {
+						e.preventDefault();
+						if (!loading && rawDigits.length === 9) {
+							void handleSendOtp();
+						}
+					}}
+					class="space-y-8"
+				>
 					<div class="space-y-4">
 						<label
 							for="phone-input"
@@ -430,7 +458,13 @@
 						<div
 							class="flex items-center border-b-2 border-charcoal py-2 transition-colors focus-within:border-volt"
 						>
-							<span class="mr-4 font-mono text-xl text-ash">+94</span>
+							<span
+								class="mr-4 font-mono text-xl transition-all duration-300 {showPhoneGlow
+									? 'scale-110 font-bold text-volt drop-shadow-[0_0_8px_#C8FF00]'
+									: 'text-ash'}"
+							>
+								+94
+							</span>
 							<input
 								id="phone-input"
 								type="tel"
@@ -446,21 +480,22 @@
 					</div>
 
 					<Button
+						type="submit"
 						variant="primary"
 						class="h-16 w-full text-xl"
-						onclick={handleSendOtp}
 						disabled={loading || rawDigits.length < 9}
 					>
 						Send Code
 					</Button>
 
 					<button
+						type="button"
 						onclick={() => (view = 'idle')}
 						class="w-full text-center font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:text-bone"
 					>
 						Cancel
 					</button>
-				</div>
+				</form>
 			{/if}
 
 			<!-- OTP VIEW -->
