@@ -20,7 +20,8 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 	SESSION_EXPIRED: 'Your session expired. Sign in again to continue.',
 	OTP_RATE_LIMITED: 'Please wait before requesting another OTP code.',
 	OTP_SEND_FAILED: 'Unable to send OTP code. Please try again.',
-	ANONYMOUS_MIGRATION_FAILED: 'Unable to move your bag to this account. Please try again.'
+	ANONYMOUS_MIGRATION_FAILED: 'Unable to move your bag to this account. Please try again.',
+	ACCOUNT_SUSPENDED: 'Account is suspended.'
 };
 
 export const OTP_RATE_LIMITED_MESSAGE = AUTH_ERROR_MESSAGES.OTP_RATE_LIMITED;
@@ -45,6 +46,10 @@ export function getAuthErrorRetryAfterSeconds(
 
 export function parseAuthError(error: BetterAuthClientError | null | undefined): string {
 	if (!error) return 'An unknown error occurred.';
+
+	if (error.code === 'ACCOUNT_SUSPENDED') {
+		return error.message ?? AUTH_ERROR_MESSAGES.ACCOUNT_SUSPENDED;
+	}
 
 	if (error.code && AUTH_ERROR_MESSAGES[error.code]) return AUTH_ERROR_MESSAGES[error.code];
 

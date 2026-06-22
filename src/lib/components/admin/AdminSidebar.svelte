@@ -436,9 +436,7 @@
 		</button>
 
 		{#if mobileProfileExpanded}
-			<div
-				class="mt-2 space-y-1.5 border border-charcoal bg-void p-2"
-			>
+			<div class="mt-2 space-y-1.5 border border-charcoal bg-void p-2">
 				<div class="flex items-center gap-3 border border-charcoal bg-charcoal/20 p-2.5">
 					<ShieldCheck size={14} class="text-volt" aria-hidden="true" />
 					<div>

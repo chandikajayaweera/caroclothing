@@ -3,7 +3,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
-import { and, eq, ne } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { user as userTable } from '$lib/server/db/schema';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { getRequestEvent } from '$app/server';
@@ -86,24 +86,72 @@ function createAuth() {
 			before: createAuthMiddleware(async (ctx) => {
 				if (ctx.path !== '/phone-number/send-otp') return;
 
-				const session = await getSessionFromCtx(ctx);
-				const userId = session?.user?.id;
-				if (!userId) return;
-
 				const phoneNumber = ctx.body?.phoneNumber;
 				if (typeof phoneNumber !== 'string' || !phoneNumber.trim()) return;
 
+				const trimmedPhone = phoneNumber.trim();
+
 				const [existing] = await db
-					.select({ id: userTable.id })
+					.select({
+						id: userTable.id,
+						banned: userTable.banned,
+						banExpires: userTable.banExpires
+					})
 					.from(userTable)
-					.where(and(eq(userTable.phoneNumber, phoneNumber.trim()), ne(userTable.id, userId)))
+					.where(eq(userTable.phoneNumber, trimmedPhone))
 					.limit(1);
 
-				if (existing) {
-					throw new APIError('CONFLICT', {
-						message: 'Phone number is already linked to another account.',
-						code: 'PHONE_NUMBER_ALREADY_LINKED'
-					});
+				const session = await getSessionFromCtx(ctx);
+				const userId = session?.user?.id;
+
+				if (userId) {
+					if (existing && existing.id !== userId) {
+						throw new APIError('CONFLICT', {
+							message: 'Phone number is already linked to another account.',
+							code: 'PHONE_NUMBER_ALREADY_LINKED'
+						});
+					}
+
+					const [currentUser] = await db
+						.select({
+							id: userTable.id,
+							banned: userTable.banned,
+							banExpires: userTable.banExpires
+						})
+						.from(userTable)
+						.where(eq(userTable.id, userId))
+						.limit(1);
+
+					if (currentUser) {
+						const now = new Date();
+						const isBanned =
+							currentUser.banned === true &&
+							(!currentUser.banExpires || currentUser.banExpires > now);
+
+						if (isBanned) {
+							throw new APIError('FORBIDDEN', {
+								message: currentUser.banExpires
+									? `Account is suspended until ${currentUser.banExpires.toLocaleString()}.`
+									: 'Account is suspended.',
+								code: 'ACCOUNT_SUSPENDED'
+							});
+						}
+					}
+				} else {
+					if (existing) {
+						const now = new Date();
+						const isBanned =
+							existing.banned === true && (!existing.banExpires || existing.banExpires > now);
+
+						if (isBanned) {
+							throw new APIError('FORBIDDEN', {
+								message: existing.banExpires
+									? `Account is suspended until ${existing.banExpires.toLocaleString()}.`
+									: 'Account is suspended.',
+								code: 'ACCOUNT_SUSPENDED'
+							});
+						}
+					}
 				}
 			})
 		},
