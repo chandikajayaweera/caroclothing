@@ -1,5 +1,5 @@
 import { logger } from 'better-auth';
-import type { BetterAuthOptions } from 'better-auth';
+import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
 import { eq, and, ne } from 'drizzle-orm';
@@ -339,7 +339,8 @@ async function clearExpiredBan(userId: string) {
 	}
 }
 
-async function setBanCookieIfActive(userId: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function setBanCookieIfActive(userId: string, ctx?: any) {
 	const [user] = await getDb()
 		.select({
 			banned: userTable.banned,
@@ -351,20 +352,37 @@ async function setBanCookieIfActive(userId: string) {
 		.limit(1);
 
 	if (user && user.banned === true && (!user.banExpires || user.banExpires > new Date())) {
+		const cookieData = JSON.stringify({
+			banExpires: user.banExpires ? user.banExpires.getTime() : null,
+			banReason: user.banReason
+		});
+
+		if (ctx && typeof ctx.setCookie === 'function') {
+			try {
+				ctx.setCookie(
+					'caro_temp_ban_info',
+					cookieData,
+					{ path: '/', maxAge: 10, httpOnly: true }
+				);
+				logger.info(`[auth] Set temp ban cookie via Better Auth context for user ${userId}`);
+				return;
+			} catch (error) {
+				logger.warn(`[auth] Failed to set temp ban cookie via Better Auth context:`, error);
+			}
+		}
+
 		try {
 			const event = getRequestEvent();
 			if (event) {
 				event.cookies.set(
 					'caro_temp_ban_info',
-					JSON.stringify({
-						banExpires: user.banExpires ? user.banExpires.getTime() : null,
-						banReason: user.banReason
-					}),
+					cookieData,
 					{ path: '/', maxAge: 10, httpOnly: true }
 				);
+				logger.info(`[auth] Set temp ban cookie via SvelteKit cookies for user ${userId}`);
 			}
 		} catch (error) {
-			logger.warn(`[auth] Failed to set temp ban cookie:`, error);
+			logger.warn(`[auth] Failed to set temp ban cookie via SvelteKit cookies:`, error);
 		}
 	}
 }
@@ -386,7 +404,7 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 				const targetUserId = getUserIdFromHookContext(context);
 				if (targetUserId) {
 					await clearExpiredBan(targetUserId);
-					await setBanCookieIfActive(targetUserId);
+					await setBanCookieIfActive(targetUserId, context);
 				}
 
 				try {
@@ -488,4 +506,25 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 			}
 		}
 	}
+};
+
+export const tempBanPlugin: BetterAuthPlugin = {
+	id: 'caro-temp-ban',
+	init: () => ({
+		options: {
+			databaseHooks: {
+				session: {
+					create: {
+						before: async (session, ctx) => {
+							if (session.userId) {
+								await clearExpiredBan(session.userId);
+								await setBanCookieIfActive(session.userId, ctx);
+							}
+							return { data: session };
+						}
+					}
+				}
+			}
+		}
+	})
 };

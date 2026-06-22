@@ -57,7 +57,7 @@
 					<p class="font-mono text-[10px] font-bold tracking-widest text-red-500 uppercase">
 						{error.code}
 					</p>
-					<p class="mt-3 font-sans text-sm leading-relaxed text-ash">
+					<p class="mt-3 font-sans text-sm leading-relaxed whitespace-pre-line text-ash">
 						{error.message}
 					</p>
 				</div>

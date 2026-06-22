@@ -8,7 +8,7 @@ import { user as userTable } from '$lib/server/db/schema';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
-import { databaseHooks } from './database-hook';
+import { databaseHooks, tempBanPlugin } from './database-hook';
 import { sendOtpSms } from '$lib/server/infrastructure/sms';
 import { reserveOtpCooldown } from './otp-cooldown';
 import { migrateAnonymousUserData } from './anonymous-migration';
@@ -95,7 +95,8 @@ function createAuth() {
 					.select({
 						id: userTable.id,
 						banned: userTable.banned,
-						banExpires: userTable.banExpires
+						banExpires: userTable.banExpires,
+						banReason: userTable.banReason
 					})
 					.from(userTable)
 					.where(eq(userTable.phoneNumber, trimmedPhone))
@@ -116,7 +117,8 @@ function createAuth() {
 						.select({
 							id: userTable.id,
 							banned: userTable.banned,
-							banExpires: userTable.banExpires
+							banExpires: userTable.banExpires,
+							banReason: userTable.banReason
 						})
 						.from(userTable)
 						.where(eq(userTable.id, userId))
@@ -301,6 +303,8 @@ function createAuth() {
 					}
 				}
 			}),
+
+			tempBanPlugin,
 
 			admin({
 				ac,

@@ -3,9 +3,10 @@ import { ErrorCode } from '$lib/server/infrastructure/errors';
 
 export const load: PageServerLoad = async ({ url, cookies }) => {
 	const errorParam = url.searchParams.get('error') || 'unknown';
-	let errorDesc = url.searchParams.get('error_description') || '';
+	const errorDesc = url.searchParams.get('error_description') || '';
 
-	if (!errorDesc && (errorParam === 'banned' || errorParam === ErrorCode.ACCOUNT_SUSPENDED)) {
+	let dynamicDesc = '';
+	if (errorParam === 'banned' || errorParam === ErrorCode.ACCOUNT_SUSPENDED) {
 		const cookieVal = cookies.get('caro_temp_ban_info');
 		if (cookieVal) {
 			try {
@@ -15,9 +16,9 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 				};
 				if (info.banExpires) {
 					const date = new Date(info.banExpires);
-					errorDesc = `Account is suspended until ${date.toLocaleString()}.`;
+					dynamicDesc = `Account is suspended until ${date.toLocaleString()}.`;
 				} else {
-					errorDesc = 'Account is suspended.';
+					dynamicDesc = 'Account is suspended.';
 				}
 				// Clean up cookie immediately
 				cookies.delete('caro_temp_ban_info', { path: '/' });
@@ -33,7 +34,12 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 
 	if (errorParam === 'banned' || errorParam === ErrorCode.ACCOUNT_SUSPENDED) {
 		code = ErrorCode.ACCOUNT_SUSPENDED;
-		message = errorDesc || 'Your account has been suspended due to a policy violation.';
+		const rawMsg = dynamicDesc || errorDesc || '';
+		if (rawMsg.includes('suspended until')) {
+			message = `${rawMsg}\nPlease contact support if you believe this is an error.`;
+		} else {
+			message = 'Account is suspended.\nPlease contact support if you believe this is an error.';
+		}
 		appealSupport = true;
 	} else if (errorParam === 'session_expired' || errorParam === ErrorCode.SESSION_NOT_FOUND) {
 		code = ErrorCode.SESSION_NOT_FOUND;

@@ -249,9 +249,7 @@
 				}
 
 				if (err.code === 'ACCOUNT_SUSPENDED') {
-					await goto(
-						resolve(`/auth/error?error=banned&error_description=${encodeURIComponent(message)}`)
-					);
+					await goto(resolve('/auth/error?error=banned'));
 					return;
 				}
 
@@ -279,10 +277,7 @@
 			});
 			if (err) {
 				if (err.code === 'ACCOUNT_SUSPENDED') {
-					const message = parseAuthError(err);
-					await goto(
-						resolve(`/auth/error?error=banned&error_description=${encodeURIComponent(message)}`)
-					);
+					await goto(resolve('/auth/error?error=banned'));
 					return;
 				}
 				setErrorMessage(parseAuthError(err));
