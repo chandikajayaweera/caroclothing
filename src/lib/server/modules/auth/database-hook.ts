@@ -315,6 +315,60 @@ export async function repairTempUserEmailFromLinkedGoogleAccount(userId: string)
 	return promoteTempUserEmailFromGoogleAccount(userId, googleAccount.idToken);
 }
 
+function getUserIdFromHookContext(context: unknown): string | undefined {
+	const where = (context as { where?: { id?: unknown } } | null)?.where;
+	if (where && typeof where.id === 'string') {
+		return where.id;
+	}
+	return getSessionUserId(context);
+}
+
+async function clearExpiredBan(userId: string) {
+	const [user] = await getDb()
+		.select({ banned: userTable.banned, banExpires: userTable.banExpires })
+		.from(userTable)
+		.where(eq(userTable.id, userId))
+		.limit(1);
+
+	if (user && user.banned === true && user.banExpires && user.banExpires <= new Date()) {
+		await getDb()
+			.update(userTable)
+			.set({ banned: false, banExpires: null, banReason: null })
+			.where(eq(userTable.id, userId));
+		logger.info(`[auth] Dynamic unban executed for expired ban on user ${userId}`);
+	}
+}
+
+async function setBanCookieIfActive(userId: string) {
+	const [user] = await getDb()
+		.select({
+			banned: userTable.banned,
+			banExpires: userTable.banExpires,
+			banReason: userTable.banReason
+		})
+		.from(userTable)
+		.where(eq(userTable.id, userId))
+		.limit(1);
+
+	if (user && user.banned === true && (!user.banExpires || user.banExpires > new Date())) {
+		try {
+			const event = getRequestEvent();
+			if (event) {
+				event.cookies.set(
+					'caro_temp_ban_info',
+					JSON.stringify({
+						banExpires: user.banExpires ? user.banExpires.getTime() : null,
+						banReason: user.banReason
+					}),
+					{ path: '/', maxAge: 10, httpOnly: true }
+				);
+			}
+		} catch (error) {
+			logger.warn(`[auth] Failed to set temp ban cookie:`, error);
+		}
+	}
+}
+
 export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 	user: {
 		create: {
@@ -329,6 +383,12 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 		},
 		update: {
 			before: async (user, context) => {
+				const targetUserId = getUserIdFromHookContext(context);
+				if (targetUserId) {
+					await clearExpiredBan(targetUserId);
+					await setBanCookieIfActive(targetUserId);
+				}
+
 				try {
 					if ('name' in user && user.name !== undefined) {
 						if (typeof user.name !== 'string' || !isValidDisplayName(user.name)) {

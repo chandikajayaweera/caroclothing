@@ -248,6 +248,13 @@
 					return;
 				}
 
+				if (err.code === 'ACCOUNT_SUSPENDED') {
+					await goto(
+						resolve(`/auth/error?error=banned&error_description=${encodeURIComponent(message)}`)
+					);
+					return;
+				}
+
 				setErrorMessage(message);
 				return;
 			}
@@ -271,6 +278,13 @@
 				code: otpCode.trim()
 			});
 			if (err) {
+				if (err.code === 'ACCOUNT_SUSPENDED') {
+					const message = parseAuthError(err);
+					await goto(
+						resolve(`/auth/error?error=banned&error_description=${encodeURIComponent(message)}`)
+					);
+					return;
+				}
 				setErrorMessage(parseAuthError(err));
 				return;
 			}

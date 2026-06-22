@@ -1,9 +1,31 @@
 import type { PageServerLoad } from './$types';
 import { ErrorCode } from '$lib/server/infrastructure/errors';
 
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async ({ url, cookies }) => {
 	const errorParam = url.searchParams.get('error') || 'unknown';
-	const errorDesc = url.searchParams.get('error_description') || '';
+	let errorDesc = url.searchParams.get('error_description') || '';
+
+	if (!errorDesc && (errorParam === 'banned' || errorParam === ErrorCode.ACCOUNT_SUSPENDED)) {
+		const cookieVal = cookies.get('caro_temp_ban_info');
+		if (cookieVal) {
+			try {
+				const info = JSON.parse(cookieVal) as {
+					banExpires: number | null;
+					banReason: string | null;
+				};
+				if (info.banExpires) {
+					const date = new Date(info.banExpires);
+					errorDesc = `Account is suspended until ${date.toLocaleString()}.`;
+				} else {
+					errorDesc = 'Account is suspended.';
+				}
+				// Clean up cookie immediately
+				cookies.delete('caro_temp_ban_info', { path: '/' });
+			} catch (e) {
+				console.error('[auth] Failed to parse temp ban cookie:', e);
+			}
+		}
+	}
 
 	let code: ErrorCode = ErrorCode.INTERNAL_ERROR;
 	let message = 'An unexpected authentication error occurred. Please try again.';
