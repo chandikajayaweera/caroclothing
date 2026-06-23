@@ -7,7 +7,7 @@ type SentryFetchNoiseEvent = Pick<SentryErrorEvent, 'breadcrumbs' | 'exception' 
 const DEFAULT_TRACES_SAMPLE_RATE = 0.1;
 const DEFAULT_REPLAYS_SESSION_SAMPLE_RATE = 0.05;
 const DEFAULT_REPLAYS_ON_ERROR_SAMPLE_RATE = 1;
-const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\//;
+const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|192\.168\.\d+\.\d+)(?::\d+)?\//;
 const SVELTEKIT_DATA_RE = /\/__data\.json(?:\?|$)/;
 const PUBLIC_SENTRY_ENV_KEYS = [
 	'PUBLIC_SENTRY_DSN',
@@ -17,7 +17,9 @@ const PUBLIC_SENTRY_ENV_KEYS = [
 	'PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE'
 ] as const;
 
-export const SENTRY_RELEASE = `caroclothing@${__APP_VERSION__}`;
+export const SENTRY_RELEASE = `caroclothing@${
+	typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'
+}`;
 
 function stringEnvValue(source: object, key: string): string | undefined {
 	if (!(key in source)) return undefined;

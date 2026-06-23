@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/sveltekit';
 import { env as dynamicPublicEnv } from '$env/dynamic/public';
-import type { ClientInit } from '@sveltejs/kit';
+import type { ClientInit, HandleClientError } from '@sveltejs/kit';
 import { getSentryReplaySampleRates, getSentryRuntimeOptions } from '$lib/shared/sentry';
 
 const sentryOptions = getSentryRuntimeOptions(dynamicPublicEnv);
@@ -23,4 +23,9 @@ export const init: ClientInit = () => {
 	});
 };
 
-export const handleError = Sentry.handleErrorWithSentry();
+const appHandleError: HandleClientError = (input) => {
+	console.error('[client error]', input.error);
+	return { message: input.message };
+};
+
+export const handleError = Sentry.handleErrorWithSentry(appHandleError);

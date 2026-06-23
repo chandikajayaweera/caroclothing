@@ -33,7 +33,6 @@ function isExpectedClientError(input: Parameters<HandleServerError>[0]) {
 }
 
 async function captureAndFlushCloudflareRuntimeError(
-	env: App.Platform['env'],
 	error: unknown,
 	mechanismType: string
 ) {
@@ -56,14 +55,13 @@ async function captureAndFlushCloudflareRuntimeError(
 }
 
 async function runCloudflareRuntimeWithSentry<T>(
-	env: App.Platform['env'],
 	mechanismType: string,
 	task: () => Promise<T>
 ) {
 	try {
 		return await task();
 	} catch (error) {
-		await captureAndFlushCloudflareRuntimeError(env, error, mechanismType);
+		await captureAndFlushCloudflareRuntimeError(error, mechanismType);
 		throw error;
 	}
 }
@@ -111,7 +109,7 @@ export const queue: ExportedHandlerQueueHandler<App.Platform['env'], Notificatio
 	ctx
 ) => {
 	ctx.waitUntil(
-		runCloudflareRuntimeWithSentry(env, 'auto.function.cloudflare.queue', () =>
+		runCloudflareRuntimeWithSentry('auto.function.cloudflare.queue', () =>
 			processCloudflareQueueBatch(batch, env, ctx)
 		)
 	);
@@ -123,7 +121,7 @@ export const scheduled: ExportedHandlerScheduledHandler<App.Platform['env']> = (
 	ctx
 ) => {
 	ctx.waitUntil(
-		runCloudflareRuntimeWithSentry(env, 'auto.function.cloudflare.scheduled', () =>
+		runCloudflareRuntimeWithSentry('auto.function.cloudflare.scheduled', () =>
 			runCloudflareScheduledJobs(controller, env, ctx)
 		)
 	);
