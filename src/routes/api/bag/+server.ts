@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { nanoid } from 'nanoid';
 import {
 	getOrCreateBag,
 	addItemToBag,
@@ -16,7 +17,18 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
 	const ctx = { actor };
-	const sessionToken = cookies.get('bag_session_token');
+	let sessionToken = cookies.get('bag_session_token');
+
+	if (!actor && !sessionToken) {
+		sessionToken = nanoid(32);
+		cookies.set('bag_session_token', sessionToken, {
+			path: '/',
+			maxAge: 7 * 24 * 60 * 60, // 7 days
+			httpOnly: true,
+			sameSite: 'lax',
+			secure: true
+		});
+	}
 
 	try {
 		const bag = await getOrCreateBag(ctx, { sessionToken });
@@ -36,7 +48,18 @@ export const POST: RequestHandler = async ({ locals, cookies, request }) => {
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
 	const ctx = { actor };
-	const sessionToken = cookies.get('bag_session_token');
+	let sessionToken = cookies.get('bag_session_token');
+
+	if (!actor && !sessionToken) {
+		sessionToken = nanoid(32);
+		cookies.set('bag_session_token', sessionToken, {
+			path: '/',
+			maxAge: 7 * 24 * 60 * 60, // 7 days
+			httpOnly: true,
+			sameSite: 'lax',
+			secure: true
+		});
+	}
 
 	try {
 		const body = (await request.json()) as Record<string, unknown>;

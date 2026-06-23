@@ -110,8 +110,35 @@ export function getSentryRuntimeOptions(env: PublicSentryEnv) {
 			httpBodies: []
 		},
 		enableLogs: true,
-		beforeSend(event: SentryErrorEvent) {
+		beforeSend(event: SentryErrorEvent, hint?: { originalException?: unknown }) {
 			if (shouldDropDevFetchNoise(event, environment)) return null;
+
+			const error = hint?.originalException;
+			if (error && typeof error === 'object') {
+				const err = error as Record<string, unknown>;
+
+				// Drop SvelteKit client-side navigation/load errors (expected 4xx status codes)
+				if (
+					typeof err.status === 'number' &&
+					err.status >= 400 &&
+					err.status < 500 &&
+					err.type === 'error' &&
+					'error' in err
+				) {
+					return null;
+				}
+
+				// Drop SvelteKit client-side redirects (expected 3xx status codes)
+				if (
+					typeof err.status === 'number' &&
+					err.status >= 300 &&
+					err.status < 400 &&
+					'location' in err
+				) {
+					return null;
+				}
+			}
+
 			return event;
 		}
 	};

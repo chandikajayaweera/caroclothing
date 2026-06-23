@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
+import { nanoid } from 'nanoid';
 import {
 	getOrCreateBag,
 	addItemToBag,
@@ -18,7 +19,18 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
 	const ctx = { actor };
-	const sessionToken = cookies.get('bag_session_token');
+	let sessionToken = cookies.get('bag_session_token');
+
+	if (!actor && !sessionToken) {
+		sessionToken = nanoid(32);
+		cookies.set('bag_session_token', sessionToken, {
+			path: '/',
+			maxAge: 7 * 24 * 60 * 60, // 7 days
+			httpOnly: true,
+			sameSite: 'lax',
+			secure: true
+		});
+	}
 
 	try {
 		const bag = await getOrCreateBag(ctx, { sessionToken });
@@ -67,7 +79,19 @@ export const actions: Actions = {
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('bag_session_token');
+		let sessionToken = cookies.get('bag_session_token');
+
+		if (!actor && !sessionToken) {
+			sessionToken = nanoid(32);
+			cookies.set('bag_session_token', sessionToken, {
+				path: '/',
+				maxAge: 7 * 24 * 60 * 60, // 7 days
+				httpOnly: true,
+				sameSite: 'lax',
+				secure: true
+			});
+		}
+
 		const formData = await request.formData();
 		const variantId = formData.get('variantId') as string;
 		const quantity = formData.get('quantity') ? Number(formData.get('quantity')) : 1;
