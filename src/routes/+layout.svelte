@@ -8,10 +8,8 @@
 	import Toast from '$lib/components/shared/Toast.svelte';
 	import BottomNav from '$lib/components/layout/BottomNav.svelte';
 	import { page } from '$app/state';
-	import { fly } from 'svelte/transition';
 	import { onMount } from 'svelte';
 	import { onNavigate } from '$app/navigation';
-
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 
@@ -32,11 +30,9 @@
 			}
 		};
 		const availabilityPoll = setInterval(refreshBagAvailability, 3000);
-
 		refreshBagAvailability();
 		window.addEventListener('focus', refreshBagAvailability);
 		document.addEventListener('visibilitychange', refreshBagAvailability);
-
 		return () => {
 			clearInterval(availabilityPoll);
 			window.removeEventListener('focus', refreshBagAvailability);
@@ -46,7 +42,6 @@
 
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) return;
-
 		return new Promise((resolve) => {
 			document.startViewTransition(async () => {
 				resolve();
@@ -54,6 +49,21 @@
 			});
 		});
 	});
+
+	// GPU-composited slide transition — avoids iOS repaint jank
+	function slideFade(node: Element, { delay = 0, duration = 220 } = {}) {
+		return {
+			delay,
+			duration,
+			css: (t: number) => {
+				const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+				const x = (1 - ease) * 12; // px — keep small to stay subtle
+				const opacity = ease;
+				// translate3d forces the browser to promote this to its own GPU layer
+				return `transform: translate3d(${x}px, 0, 0); opacity: ${opacity}; will-change: transform, opacity;`;
+			}
+		};
+	}
 
 	const showFooterRoutes = ['/', '/about'];
 	const shouldShowFooter = $derived(showFooterRoutes.includes(page.url.pathname));
@@ -65,7 +75,6 @@
 	);
 	const routeAnimationKey = $derived.by(() => {
 		if (isAccountRoute) return '/account';
-
 		return page.url.pathname;
 	});
 </script>
@@ -75,36 +84,46 @@
 <div
 	class={isAppRoute
 		? 'relative flex h-dvh min-h-0 flex-col overflow-hidden selection:bg-volt selection:text-void'
-		: 'relative flex min-h-screen flex-col overflow-x-hidden selection:bg-volt selection:text-void'}
+		: 'relative flex min-h-screen flex-col selection:bg-volt selection:text-void'}
 >
 	{#if !isAppRoute}
 		<Navbar />
 		<BottomNav />
 	{/if}
-
 	{#if !isAppRoute}
 		<BagDrawer />
 		<WishlistDrawer />
 	{/if}
 	<Toast />
-
 	<main
 		class={isAppRoute
 			? 'min-h-0 grow overflow-hidden'
-			: 'grow pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0'}
+			: 'grow overflow-x-hidden pb-[calc(60px+env(safe-area-inset-bottom))] md:pb-0'}
 	>
 		{#if isAppRoute}
 			{@render children()}
 		{:else}
 			{#key routeAnimationKey}
-				<main in:fly={{ delay: 100, x: 10 }}>
+				<div in:slideFade class="route-transition-wrapper">
 					{@render children()}
-				</main>
+				</div>
 			{/key}
 		{/if}
 	</main>
-
 	{#if shouldShowFooter}
 		<Footer />
 	{/if}
 </div>
+
+<style>
+	.route-transition-wrapper {
+		isolation: isolate;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.route-transition-wrapper {
+			animation: none !important;
+			transition: none !important;
+		}
+	}
+</style>
