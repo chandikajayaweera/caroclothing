@@ -4,7 +4,8 @@ import {
 	getSentryPublicRuntimeEnv,
 	getSentryRuntimeOptions,
 	getSentryServerRuntimeEnv,
-	shouldDropDevFetchNoise
+	shouldDropDevFetchNoise,
+	shouldDropSvelteKitDataFetchNoise
 } from './sentry';
 
 const devFetchEvent = {
@@ -136,5 +137,118 @@ describe('Sentry runtime options', () => {
 		});
 
 		expect(options.beforeSend(devFetchEvent)).toBeNull();
+	});
+
+	describe('shouldDropSvelteKitDataFetchNoise', () => {
+		it('drops TypeError: Load failed on SvelteKit data endpoints in staging/production', () => {
+			const event = {
+				type: undefined,
+				exception: {
+					values: [
+						{
+							type: 'TypeError',
+							value: 'Load failed (staging.caroclothing.lk)'
+						}
+					]
+				},
+				breadcrumbs: [
+					{
+						type: 'http',
+						category: 'fetch',
+						level: 'error',
+						data: {
+							url: 'https://staging.caroclothing.lk/drops/__data.json?x-sveltekit-invalidated=01'
+						}
+					}
+				]
+			} satisfies SentryErrorEvent;
+
+			expect(shouldDropSvelteKitDataFetchNoise(event)).toBe(true);
+
+			// Wires into beforeSend
+			const options = getSentryRuntimeOptions({
+				PUBLIC_SENTRY_DSN: 'https://examplePublicKey@example.ingest.sentry.io/1',
+				PUBLIC_SENTRY_ENVIRONMENT: 'staging'
+			});
+			expect(options.beforeSend(event)).toBeNull();
+		});
+
+		it('drops TypeError: Failed to fetch on SvelteKit data endpoints', () => {
+			const event = {
+				type: undefined,
+				exception: {
+					values: [
+						{
+							type: 'TypeError',
+							value: 'Failed to fetch'
+						}
+					]
+				},
+				breadcrumbs: [
+					{
+						type: 'http',
+						category: 'fetch',
+						level: 'error',
+						data: {
+							url: 'https://caroclothing.lk/about/__data.json'
+						}
+					}
+				]
+			} satisfies SentryErrorEvent;
+
+			expect(shouldDropSvelteKitDataFetchNoise(event)).toBe(true);
+		});
+
+		it('keeps fetch errors on non-SvelteKit data URLs', () => {
+			const event = {
+				type: undefined,
+				exception: {
+					values: [
+						{
+							type: 'TypeError',
+							value: 'Failed to fetch'
+						}
+					]
+				},
+				breadcrumbs: [
+					{
+						type: 'http',
+						category: 'fetch',
+						level: 'error',
+						data: {
+							url: 'https://api.better-auth.com/login'
+						}
+					}
+				]
+			} satisfies SentryErrorEvent;
+
+			expect(shouldDropSvelteKitDataFetchNoise(event)).toBe(false);
+		});
+
+		it('keeps non-fetch exceptions on SvelteKit data URLs', () => {
+			const event = {
+				type: undefined,
+				exception: {
+					values: [
+						{
+							type: 'TypeError',
+							value: 'Cannot read properties of undefined'
+						}
+					]
+				},
+				breadcrumbs: [
+					{
+						type: 'http',
+						category: 'fetch',
+						level: 'error',
+						data: {
+							url: 'https://staging.caroclothing.lk/drops/__data.json'
+						}
+					}
+				]
+			} satisfies SentryErrorEvent;
+
+			expect(shouldDropSvelteKitDataFetchNoise(event)).toBe(false);
+		});
 	});
 });

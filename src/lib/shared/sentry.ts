@@ -96,6 +96,38 @@ export function shouldDropDevFetchNoise(
 	);
 }
 
+export function shouldDropSvelteKitDataFetchNoise(event: SentryFetchNoiseEvent): boolean {
+	const exception = event.exception?.values?.[0];
+	if (!exception) return false;
+
+	const type = exception.type;
+	const value = exception.value;
+	if (type !== 'TypeError' && type !== 'Error' && type !== 'Exception') return false;
+	if (!value) return false;
+
+	const val = value.toLowerCase();
+	const isFetchError =
+		val.includes('failed to fetch') ||
+		val.includes('load failed') ||
+		val.includes('networkerror') ||
+		val.includes('cancelled');
+	if (!isFetchError) return false;
+
+	const requestUrl = event.request?.url;
+	if (typeof requestUrl === 'string' && SVELTEKIT_DATA_RE.test(requestUrl)) {
+		return true;
+	}
+
+	return (
+		event.breadcrumbs?.some((breadcrumb) => {
+			if (breadcrumb.category !== 'fetch' && breadcrumb.type !== 'http') return false;
+			if (breadcrumb.level && breadcrumb.level !== 'error') return false;
+			const url = breadcrumb.data?.url;
+			return typeof url === 'string' && SVELTEKIT_DATA_RE.test(url);
+		}) ?? false
+	);
+}
+
 export function getSentryRuntimeOptions(env: PublicSentryEnv) {
 	const dsn = optionalValue(env.PUBLIC_SENTRY_DSN);
 	const environment = optionalValue(env.PUBLIC_SENTRY_ENVIRONMENT) ?? 'development';
@@ -114,6 +146,7 @@ export function getSentryRuntimeOptions(env: PublicSentryEnv) {
 		enableLogs: true,
 		beforeSend(event: SentryErrorEvent, hint?: { originalException?: unknown }) {
 			if (shouldDropDevFetchNoise(event, environment)) return null;
+			if (shouldDropSvelteKitDataFetchNoise(event)) return null;
 
 			const error = hint?.originalException;
 			if (error && typeof error === 'object') {
