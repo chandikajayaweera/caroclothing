@@ -67,7 +67,7 @@
 				name: item.product.name,
 				slug: item.product.slug,
 				tier: item.product.tier,
-				primaryImage: item.imageUrl || item.product.imageUrl || '/placeholder.png',
+				primaryImage: item.imageUrl || item.product.imageUrl || '/images/placeholder.jpg',
 				price: item.effectivePrice,
 				compareAtPrice: item.product.compareAtPrice,
 				variants: item.variant ? [item.variant] : []

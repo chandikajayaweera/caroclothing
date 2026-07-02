@@ -23,7 +23,7 @@
 			class="no-scrollbar flex gap-4 overflow-x-auto pb-6 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0"
 		>
 			{#each products.slice(0, 5) as product}
-				{@const primaryImage = product.primaryImageUrl ?? '/placeholder.png'}
+				{@const primaryImage = product.primaryImageUrl ?? '/images/placeholder.jpg'}
 				<a
 					href="/shop/{product.slug}"
 					class="group flex aspect-square min-w-[200px] items-center justify-center overflow-hidden border border-charcoal bg-charcoal transition-all duration-500 hover:border-volt/40 md:min-w-0"

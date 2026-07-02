@@ -48,7 +48,7 @@
 	});
 
 	const hero = $derived.by(() => {
-		const baseImg = featuredDrop?.heroImageUrl || '/images/hero.png';
+		const baseImg = featuredDrop?.heroImageUrl || '/images/hero.jpg';
 
 		if (mode === 'drop-live' && featuredDrop) {
 			return {
@@ -81,7 +81,7 @@
 			headline: ['WEAR THE', 'NEXT', 'GENERATION'],
 			subline: 'New arrivals. Limited stock.',
 			cta: { label: 'Shop New In →', href: '/shop?sort=new' },
-			image: '/images/hero.png'
+			image: '/images/hero.jpg'
 		};
 	});
 

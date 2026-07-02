@@ -4,7 +4,7 @@
 	let { featuredProduct = null }: { featuredProduct?: any } = $props();
 
 	const hasProduct = $derived(featuredProduct !== null);
-	const imageUrl = $derived(featuredProduct?.primaryImageUrl ?? '/images/editorial.png');
+	const imageUrl = $derived(featuredProduct?.primaryImageUrl ?? '/images/editorial.jpg');
 
 	const lines = $derived(
 		hasProduct ? [featuredProduct.name, 'FEATURED STYLE'] : ['FROM COLOMBO', 'TO EVERYWHERE.']

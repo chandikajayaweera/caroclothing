@@ -97,7 +97,7 @@
 								class="h-20 w-16 shrink-0 overflow-hidden bg-charcoal"
 							>
 								<img
-									src={item.imageUrl || '/placeholder.png'}
+									src={item.imageUrl || '/images/placeholder.jpg'}
 									alt={item.product.name}
 									class="h-full w-full object-cover object-top"
 								/>

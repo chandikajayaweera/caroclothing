@@ -58,7 +58,7 @@
 					<li class="flex gap-3">
 						<div class="relative h-20 w-16 shrink-0 overflow-hidden bg-charcoal">
 							<img
-								src={item.imageUrl || '/placeholder.png'}
+								src={item.imageUrl || '/images/placeholder.jpg'}
 								alt={item.productName || 'Product'}
 								class="h-full w-full object-cover"
 							/>

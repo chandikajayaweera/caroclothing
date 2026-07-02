@@ -17,7 +17,7 @@
 	<!-- Left Side: Editorial Image -->
 	<div class="relative hidden overflow-hidden border-r border-charcoal md:block">
 		<img
-			src="/images/editorial.png"
+			src="/images/editorial.jpg"
 			alt="Caro Clothing Editorial"
 			class="absolute inset-0 h-full w-full object-cover opacity-50 grayscale"
 		/>

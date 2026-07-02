@@ -12,7 +12,7 @@
 	}
 
 	const primaryImage = $derived(
-		product.primaryImageUrl ?? product.primaryImage ?? '/placeholder.png'
+		product.primaryImageUrl ?? product.primaryImage ?? '/images/placeholder.jpg'
 	);
 	const hoverImage = $derived(product.images?.[1]?.imageUrl ?? product.hoverImage ?? primaryImage);
 	const price = $derived(product.basePrice ?? product.price ?? 0);
