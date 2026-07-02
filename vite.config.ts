@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
 				autoUploadSourceMaps: shouldUploadSentrySourceMaps
 			}),
 			sveltekit(),
-			analyzer(),
+			// analyzer(), // Uncomment this when needed
 			cloudflareAppendWorkerHandlers()
 		],
 		resolve: {
