@@ -5,8 +5,8 @@ import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/invent
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 import { requireAccountContext } from '../_account.server';
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	const ctx = requireAccountContext(locals, url);
+export const load: PageServerLoad = async (event) => {
+	const ctx = requireAccountContext(event);
 
 	try {
 		const wishlist = await listWishlist(ctx, { limit: 50 });
@@ -101,9 +101,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	remove: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const formData = await request.formData();
+	remove: async (event) => {
+		const ctx = requireAccountContext(event);
+		const formData = await event.request.formData();
 		const productId = formData.get('productId') as string;
 		const variantId = (formData.get('variantId') as string) || null;
 
@@ -115,8 +115,8 @@ export const actions: Actions = {
 		}
 	},
 
-	clear: async ({ locals, url }) => {
-		const ctx = requireAccountContext(locals, url);
+	clear: async (event) => {
+		const ctx = requireAccountContext(event);
 
 		try {
 			await clearWishlist(ctx);

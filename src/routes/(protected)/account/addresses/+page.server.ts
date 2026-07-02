@@ -17,8 +17,8 @@ import {
 import { formFailFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 import { requireAccountContext } from '../_account.server';
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	const ctx = requireAccountContext(locals, url);
+export const load: PageServerLoad = async (event) => {
+	const ctx = requireAccountContext(event);
 	const [addresses, form, updateForm] = await Promise.all([
 		listMyAddresses(ctx),
 		superValidate(zod4(createAddressFormSchema), { id: 'createAddress', errors: false }),
@@ -34,9 +34,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	create: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(createAddressFormSchema), {
+	create: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(createAddressFormSchema), {
 			id: 'createAddress'
 		});
 
@@ -50,9 +50,9 @@ export const actions: Actions = {
 		}
 	},
 
-	update: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(updateMyAddressFormSchema), {
+	update: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(updateMyAddressFormSchema), {
 			id: 'updateAddress'
 		});
 
@@ -66,9 +66,9 @@ export const actions: Actions = {
 		}
 	},
 
-	setDefault: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(setDefaultAddressFormSchema), {
+	setDefault: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(setDefaultAddressFormSchema), {
 			id: 'setDefaultAddress'
 		});
 
@@ -82,9 +82,9 @@ export const actions: Actions = {
 		}
 	},
 
-	delete: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(deleteAddressFormSchema), {
+	delete: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(deleteAddressFormSchema), {
 			id: 'deleteAddress'
 		});
 

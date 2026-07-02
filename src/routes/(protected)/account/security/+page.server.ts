@@ -11,12 +11,12 @@ import { formFailFromAppError } from '$lib/server/infrastructure/errors/route-ad
 import { requireAccountContext } from '../_account.server';
 import { mapOAuthErrorToMessage } from '$lib/shared/modules/auth-errors';
 
-export const load: PageServerLoad = async ({ locals, url, parent }) => {
-	const ctx = requireAccountContext(locals, url);
-	const { account } = await parent();
+export const load: PageServerLoad = async (event) => {
+	const ctx = requireAccountContext(event);
+	const { account } = await event.parent();
 	const [sessions, revokeSessionForm] = await Promise.all([
 		listMySessions(ctx, {
-			currentSessionId: locals.session?.id,
+			currentSessionId: event.locals.session?.id,
 			limit: 100
 		}),
 		superValidate(zod4(revokeMySessionFormSchema), {
@@ -24,7 +24,7 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 		})
 	]);
 
-	const oauthError = url.searchParams.get('error');
+	const oauthError = event.url.searchParams.get('error');
 	const oauthErrorMessage = oauthError ? mapOAuthErrorToMessage(oauthError) : null;
 
 	return {
@@ -36,9 +36,9 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 };
 
 export const actions: Actions = {
-	revokeSession: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(revokeMySessionFormSchema), {
+	revokeSession: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(revokeMySessionFormSchema), {
 			id: 'revokeMySession'
 		});
 

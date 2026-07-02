@@ -10,9 +10,9 @@ import { listWishlist } from '$lib/server/modules/wishlist';
 import { formFailFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 import { requireAccountContext } from './_account.server';
 
-export const load: PageServerLoad = async ({ locals, url, parent }) => {
-	const ctx = requireAccountContext(locals, url);
-	const { account } = await parent();
+export const load: PageServerLoad = async (event) => {
+	const ctx = requireAccountContext(event);
+	const { account } = await event.parent();
 	const [orders, addresses, wishlist, reviews, nameForm] = await Promise.all([
 		listMyOrders(ctx, { limit: 1 }),
 		listMyAddresses(ctx, { limit: 1 }),
@@ -37,9 +37,9 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
 };
 
 export const actions: Actions = {
-	updateName: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(updateMyDisplayNameFormSchema), {
+	updateName: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(updateMyDisplayNameFormSchema), {
 			id: 'updateDisplayName'
 		});
 

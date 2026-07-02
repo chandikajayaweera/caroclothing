@@ -21,8 +21,8 @@ import {
 } from '$lib/server/infrastructure/errors/route-adapter';
 import { requireAccountContext } from '../_account.server';
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	const ctx = requireAccountContext(locals, url);
+export const load: PageServerLoad = async (event) => {
+	const ctx = requireAccountContext(event);
 
 	try {
 		const [reviewsResult, updateForm, deleteForm, addMediaForm, deleteMediaForm, reorderForm] =
@@ -49,9 +49,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	update: async ({ locals, request, url }) => {
-		const ctx = requireAccountContext(locals, url);
-		const form = await superValidate(request, zod4(updateMyReviewFormSchema), {
+	update: async (event) => {
+		const ctx = requireAccountContext(event);
+		const form = await superValidate(event.request, zod4(updateMyReviewFormSchema), {
 			id: 'updateReview'
 		});
 
@@ -66,7 +66,7 @@ export const actions: Actions = {
 	},
 
 	delete: async (event) => {
-		const ctx = { ...requireAccountContext(event.locals, event.url), event };
+		const ctx = { ...requireAccountContext(event), event };
 		const form = await superValidate(event.request, zod4(deleteReviewFormSchema), {
 			id: 'deleteReview'
 		});
@@ -82,7 +82,7 @@ export const actions: Actions = {
 	},
 
 	addMedia: async (event) => {
-		const ctx = { ...requireAccountContext(event.locals, event.url), event };
+		const ctx = { ...requireAccountContext(event), event };
 		const form = await superValidate(event.request, zod4(addReviewMediaFormSchema), {
 			id: 'addReviewMedia'
 		});
@@ -98,7 +98,7 @@ export const actions: Actions = {
 	},
 
 	deleteMedia: async (event) => {
-		const ctx = { ...requireAccountContext(event.locals, event.url), event };
+		const ctx = { ...requireAccountContext(event), event };
 		const form = await superValidate(event.request, zod4(deleteReviewMediaFormSchema), {
 			id: 'deleteReviewMedia'
 		});
@@ -114,7 +114,7 @@ export const actions: Actions = {
 	},
 
 	reorderMedia: async (event) => {
-		const ctx = requireAccountContext(event.locals, event.url);
+		const ctx = requireAccountContext(event);
 		const form = await superValidate(event.request, zod4(reorderReviewMediaFormSchema), {
 			id: 'reorderReviewMedia'
 		});
