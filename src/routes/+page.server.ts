@@ -9,35 +9,27 @@ import {
 	failFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, setHeaders }) => {
+	setHeaders({
+		'cache-control': 'public, max-age=10, s-maxage=60, stale-while-revalidate=300'
+	});
+
 	const actor = locals.user
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
 	const ctx = { actor };
 
 	try {
-		const [productsResult, dropsResult, reviewsResult, featuredResult] = await Promise.all([
-			listProducts(ctx, { isNewArrival: true, limit: 8, includeInactive: false }),
-			listDrops(ctx, { status: 'teaser', limit: 1, includeArchived: false }),
-			listRecentApprovedReviews({ limit: 6 }),
-			listProducts(ctx, { isFeatured: true, limit: 1, includeInactive: false })
-		]);
+		const [productsResult, teaserDropsResult, liveDropsResult, reviewsResult] =
+			await Promise.all([
+				listProducts(ctx, { isNewArrival: true, limit: 8, includeInactive: false }),
+				listDrops(ctx, { status: 'teaser', limit: 1, includeArchived: false }),
+				listDrops(ctx, { status: 'live', limit: 1, includeArchived: false }),
+				listRecentApprovedReviews({ limit: 6 })
+			]);
 
-		// Fallback to active/live drop if no upcoming drops exist
-		let featuredDrop = dropsResult.items[0] || null;
-		if (!featuredDrop) {
-			const activeDrops = await listDrops(ctx, {
-				status: 'live',
-				limit: 1,
-				includeArchived: false
-			});
-			featuredDrop = activeDrops.items[0] || null;
-		}
-
-		let featuredProduct = featuredResult.items[0] || null;
-		if (!featuredProduct && productsResult.items.length > 0) {
-			featuredProduct = productsResult.items[0];
-		}
+		const featuredDrop = teaserDropsResult.items[0] || liveDropsResult.items[0] || null;
+		const featuredProduct = productsResult.items[0] || null;
 
 		// Map stock status to new arrivals + featured product
 		const allProducts = [...productsResult.items];

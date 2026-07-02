@@ -30,10 +30,11 @@
 			}
 		};
 		const availabilityPoll = setInterval(refreshBagAvailability, 3000);
-		refreshBagAvailability();
+		const initialTimer = setTimeout(refreshBagAvailability, 100);
 		window.addEventListener('focus', refreshBagAvailability);
 		document.addEventListener('visibilitychange', refreshBagAvailability);
 		return () => {
+			clearTimeout(initialTimer);
 			clearInterval(availabilityPoll);
 			window.removeEventListener('focus', refreshBagAvailability);
 			document.removeEventListener('visibilitychange', refreshBagAvailability);
