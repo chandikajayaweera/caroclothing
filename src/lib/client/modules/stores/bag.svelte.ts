@@ -7,6 +7,7 @@ class BagState {
 	promoCode = $state<string | null>(null);
 	discountAmount = $state<number>(0);
 	freeShippingThreshold = $state<number | null>(null);
+	promoError = $state<string>('');
 
 	subtotal = $derived(this.items.reduce((sum, item) => sum + item.lineTotal, 0));
 	count = $derived(this.items.reduce((sum, item) => sum + item.quantity, 0));
@@ -167,6 +168,50 @@ class BagState {
 		const originalItems = JSON.parse(JSON.stringify(this.items)) as BagItemDTO[];
 		this.items = this.items.filter((item) => item.id !== bagItemId);
 		return originalItems;
+	}
+
+	async applyPromo(code: string) {
+		if (!code.trim()) return;
+		this.promoError = '';
+		const version = this.startMutation();
+		try {
+			const res = await fetch('/api/bag', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'applyPromo', code })
+			});
+			if (res.ok) {
+				const updated = (await res.json()) as BagDTO;
+				this.setBag(updated, version);
+			} else {
+				const errData = (await res.json()) as { message?: string };
+				this.promoError = errData?.message || 'Invalid promo code';
+			}
+		} catch (err) {
+			this.promoError = 'Failed to apply promo';
+			console.error(err);
+		} finally {
+			this.endMutation();
+		}
+	}
+
+	async removePromo() {
+		const version = this.startMutation();
+		try {
+			const res = await fetch('/api/bag', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'removePromo' })
+			});
+			if (res.ok) {
+				const updated = (await res.json()) as BagDTO;
+				this.setBag(updated, version);
+			}
+		} catch (err) {
+			console.error(err);
+		} finally {
+			this.endMutation();
+		}
 	}
 
 	async refresh() {

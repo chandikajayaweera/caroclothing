@@ -3,60 +3,11 @@
 	import { uiStore, closeBagDrawer } from '$lib/client/modules/stores/ui';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { resolve } from '$app/paths';
-	import type { BagDTO } from '$lib/server/modules/bag/bag.types';
 	import BagItem from './BagItem.svelte';
 	import Button from '../ui/Button.svelte';
-
-	let amountToFreeShipping = $derived(
-		bag.freeShippingThreshold !== null ? Math.max(0, bag.freeShippingThreshold - bag.subtotal) : 0
-	);
-	let freeShippingProgress = $derived(
-		bag.freeShippingThreshold !== null
-			? Math.min(100, (bag.subtotal / bag.freeShippingThreshold) * 100)
-			: 0
-	);
-
-	let promoInput = $state('');
-	let promoError = $state('');
-
-	async function applyPromo() {
-		if (!promoInput.trim()) return;
-		promoError = '';
-		try {
-			const res = await fetch('/api/bag', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'applyPromo', code: promoInput })
-			});
-			if (res.ok) {
-				const updated = (await res.json()) as BagDTO;
-				bag.setBag(updated);
-				promoInput = '';
-			} else {
-				const errData = (await res.json()) as { message?: string };
-				promoError = errData?.message || 'Invalid promo code';
-			}
-		} catch (err) {
-			promoError = 'Failed to apply promo';
-			console.error(err);
-		}
-	}
-
-	async function removePromo() {
-		try {
-			const res = await fetch('/api/bag', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'removePromo' })
-			});
-			if (res.ok) {
-				const updated = (await res.json()) as BagDTO;
-				bag.setBag(updated);
-			}
-		} catch (err) {
-			console.error(err);
-		}
-	}
+	import FreeShippingBar from './FreeShippingBar.svelte';
+	import PromoCodeInput from './PromoCodeInput.svelte';
+	import EmptyBag from './EmptyBag.svelte';
 </script>
 
 {#if $uiStore.bagDrawerOpen}
@@ -88,36 +39,15 @@
 		</div>
 
 		<!-- Free shipping bar -->
-		{#if bag.freeShippingThreshold !== null}
-			<div class="bg-charcoal px-6 py-3">
-				<div class="mb-1.5 flex items-center justify-between">
-					{#if amountToFreeShipping > 0}
-						<span class="font-mono text-[10px] text-ash uppercase">
-							Add LKR {amountToFreeShipping.toLocaleString()} more for free shipping
-						</span>
-					{:else}
-						<span class="font-mono text-[10px] text-volt uppercase">Free shipping unlocked</span>
-					{/if}
-				</div>
-				<div class="h-[2px] overflow-hidden rounded-full bg-ash/20">
-					<div
-						class="h-full w-full origin-left bg-volt transition-transform duration-500 ease-out will-change-transform"
-						style="transform: scaleX({freeShippingProgress / 100})"
-					></div>
-				</div>
-			</div>
-		{/if}
+		<div class="px-6 pt-4">
+			<FreeShippingBar />
+		</div>
 
 		<!-- Item list -->
 		<div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
 			{#if bag.items.length === 0}
-				<div class="flex h-full flex-col items-center justify-center text-center">
-					<span class="mb-2 font-display text-3xl text-bone">Your bag is empty.</span>
-					<span class="mb-6 font-mono text-xs tracking-widest text-ash/50 uppercase">Fix that.</span
-					>
-					<Button variant="primary" onclick={closeBagDrawer} href="/shop?sort=new">
-						Shop New In →
-					</Button>
+				<div class="flex h-full flex-col items-center justify-center">
+					<EmptyBag onShopClick={closeBagDrawer} />
 				</div>
 			{:else}
 				{#each bag.items as item (item.id)}
@@ -163,47 +93,7 @@
 				{/if}
 
 				<!-- Coupon Input / Display -->
-				<div class="mt-4 border-t border-charcoal/30 pt-4">
-					{#if bag.promoCodeId}
-						<div class="flex items-center justify-between border border-volt/20 bg-volt/5 p-3">
-							<div class="flex flex-col">
-								<span class="font-mono text-[9px] tracking-wider text-ash uppercase"
-									>Applied Promo</span
-								>
-								<span class="font-mono text-xs font-bold text-volt uppercase"
-									>{bag.promoCode || 'Applied'}</span
-								>
-							</div>
-							<button
-								type="button"
-								class="font-mono text-[10px] text-ash uppercase hover:text-bone"
-								onclick={removePromo}
-							>
-								Remove
-							</button>
-						</div>
-					{:else}
-						<div class="flex gap-2 border-b border-ash/20 py-1">
-							<input
-								type="text"
-								bind:value={promoInput}
-								placeholder="PROMO CODE"
-								class="flex-1 bg-transparent font-mono text-[10px] text-bone uppercase outline-none placeholder:text-ash/40"
-								onkeydown={(e) => e.key === 'Enter' && applyPromo()}
-							/>
-							<button
-								type="button"
-								class="font-mono text-[10px] tracking-widest text-volt uppercase"
-								onclick={applyPromo}
-							>
-								Apply
-							</button>
-						</div>
-						{#if promoError}
-							<p class="mt-2 font-mono text-[9px] text-red-500 uppercase">{promoError}</p>
-						{/if}
-					{/if}
-				</div>
+				<PromoCodeInput />
 
 				<a
 					href={resolve('/bag')}
