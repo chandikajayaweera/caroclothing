@@ -63,7 +63,11 @@
 	let waitlistLoading = $state(false);
 	let waitlistMessage = $state('');
 	let waitlistError = $state('');
-	let availability = $derived(data.availability);
+	let availability = $state<StorefrontVariantAvailabilityDTO[]>([]);
+
+	$effect(() => {
+		availability = data.availability;
+	});
 
 	let quantitySelected = $state(1);
 

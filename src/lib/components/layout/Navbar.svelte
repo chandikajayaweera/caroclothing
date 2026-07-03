@@ -5,11 +5,13 @@
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { page } from '$app/state';
 	import { authClient } from '$lib/client/modules/auth';
-	import { LayoutDashboard } from 'lucide-svelte';
+	import { Heart, ShoppingBag, User, LogIn, LayoutDashboard } from 'lucide-svelte';
+	import NavBadge from './NavBadge.svelte';
 
 	const session = authClient.useSession();
 	let scrolled = $state(false);
 	const isAdminUser = $derived($session.data?.user.role === 'adminUser');
+	const wishlistCount = $derived(wishlist.allIds.length);
 
 	const navLinks = [
 		{ label: 'Shop', href: '/shop' },
@@ -19,22 +21,6 @@
 		{ label: 'Women', href: '/shop?gender=women' },
 		{ label: 'About', href: '/about' }
 	];
-
-	// Badge animation state
-	let count = $derived(bag.count);
-	let prevCount = $state(0);
-	let animateBadge = $state(false);
-
-	$effect(() => {
-		if (count > prevCount && prevCount > 0) {
-			animateBadge = true;
-			const timer = setTimeout(() => {
-				animateBadge = false;
-			}, 600);
-			return () => clearTimeout(timer);
-		}
-		prevCount = count;
-	});
 
 	onMount(() => {
 		const handleScroll = () => {
@@ -110,27 +96,17 @@
 				}}
 				aria-label="Wishlist"
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill={wishlist.allIds.length > 0 ? 'var(--color-volt)' : 'none'}
-					stroke={wishlist.allIds.length > 0 ? 'var(--color-volt)' : 'currentColor'}
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					class="lucide lucide-heart transition-colors"
-				>
-					<path
-						d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
-					/>
-				</svg>
-				{#if wishlist.allIds.length > 0}
+				<Heart
+					size={20}
+					strokeWidth={2}
+					fill={wishlistCount > 0 ? 'var(--color-volt)' : 'none'}
+					class="transition-colors {wishlistCount > 0 ? 'text-volt' : ''}"
+				/>
+				{#if wishlistCount > 0}
 					<span
 						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void"
 					>
-						{wishlist.allIds.length}
+						{wishlistCount}
 					</span>
 				{/if}
 			</button>
@@ -143,30 +119,8 @@
 				}}
 				aria-label="Bag"
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					width="20"
-					height="20"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					class="lucide lucide-shopping-bag"
-				>
-					<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
-					<path d="M3 6h18" />
-					<path d="M16 10a4 4 0 0 1-8 0" />
-				</svg>
-				{#if bag.count > 0}
-					<span
-						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void transition-all duration-300"
-						class:badge-bounce-anim={animateBadge}
-					>
-						{bag.count}
-					</span>
-				{/if}
+				<ShoppingBag size={20} strokeWidth={2} />
+				<NavBadge count={bag.count} class="-top-1.5 -right-1.5" />
 			</button>
 
 			<!-- Account / Sign In (Tablet/Desktop) -->
@@ -178,38 +132,9 @@
 				aria-label={$session.data ? 'Account' : 'Sign in'}
 			>
 				{#if $session.data}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						width="20"
-						height="20"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						class="lucide lucide-user"
-					>
-						<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-						<circle cx="12" cy="7" r="4" />
-					</svg>
+					<User size={20} strokeWidth={2} />
 				{:else}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						width="20"
-						height="20"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						class="lucide lucide-log-in"
-					>
-						<path d="m10 17 5-5-5-5" />
-						<path d="M15 12H3" />
-						<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-					</svg>
+					<LogIn size={20} strokeWidth={2} />
 				{/if}
 			</a>
 			{#if $session.data}
@@ -228,19 +153,3 @@
 		</div>
 	</div>
 </nav>
-
-<style>
-	@keyframes badge-bounce {
-		0%,
-		100% {
-			transform: scale(1);
-		}
-		50% {
-			transform: scale(1.35);
-			background-color: var(--color-volt);
-		}
-	}
-	:global(.badge-bounce-anim) {
-		animation: badge-bounce 0.6s ease-in-out;
-	}
-</style>

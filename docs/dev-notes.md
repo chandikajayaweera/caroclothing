@@ -27,3 +27,16 @@
 ### 5. Multi-View UI Logic (Drawer vs Standalone Page)
 * **DON'T DO THIS**: Do not duplicate `fetch()` calls, local state, or HTML markup across page and drawer components.
 * **INSTEAD DO THIS**: Move API methods (`applyPromo`, `removePromo`) into `BagState`, and extract shared UI into reusable presentational components (`FreeShippingBar.svelte`, `PromoCodeInput.svelte`, `EmptyBag.svelte`).
+
+---
+
+### 6. Historical Comparison Tracking in `$effect` (Svelte 5)
+* **DON'T DO THIS**: Do not declare comparison tracking variables (e.g. `prevCount`) with `$state()` if they are read in the condition check and mutated at the end of the same `$effect` (`prevCount = count`). In Svelte 5, reading and writing a `$state` variable inside the same effect registers a self-referential dependency, triggering an infinite update loop (`effect_update_depth_exceeded`).
+* **INSTEAD DO THIS**: Use a plain, non-reactive JavaScript variable (`let prevCount = 0;`) for internal effect tracking that is not directly rendered in the UI markup.
+
+---
+
+### 7. Mutating `$derived` Signals vs Mutable State Sync (Svelte 5)
+* **DON'T DO THIS**: Do not reassign or mutate `$derived(...)` signals in response to user interactions or polling callbacks (e.g. `availability = [...]`). In Svelte 5, `$derived` expressions produce read-only signals and reassigning them causes runtime errors or proxy mismatches.
+* **INSTEAD DO THIS**: Declare local mutable state with `$state<T[]>()` and sync initial/server prop updates using `$effect(() => { availability = data.availability; })`.
+
