@@ -101,8 +101,8 @@
 				</div>
 				<div class="h-[2px] overflow-hidden rounded-full bg-ash/20">
 					<div
-						class="h-full bg-volt transition-all duration-500"
-						style="width: {freeShippingProgress}%"
+						class="h-full w-full origin-left bg-volt transition-transform duration-500 ease-out will-change-transform"
+						style="transform: scaleX({freeShippingProgress / 100})"
 					></div>
 				</div>
 			</div>
@@ -121,9 +121,7 @@
 				</div>
 			{:else}
 				{#each bag.items as item (item.id)}
-					{#key `${item.availabilityStatus}:${item.reservationExpiresAt ?? ''}`}
-						<BagItem {item} />
-					{/key}
+					<BagItem {item} />
 				{/each}
 			{/if}
 		</div>

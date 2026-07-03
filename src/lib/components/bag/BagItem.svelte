@@ -1,17 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { BagDTO, BagItemDTO } from '$lib/server/modules/bag/bag.types';
+	import type { BagItemDTO } from '$lib/server/modules/bag/bag.types';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 
 	let { item }: { item: BagItemDTO } = $props();
 
-	// null  = not editing → display follows item.quantity (server-confirmed)
-	// number = user is editing → display this value immediately
-	let editingQuantity = $state<number | null>(null);
-	const localQuantity = $derived(editingQuantity ?? item.quantity);
-
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let rollbackQuantity: number | null = null;
 	let reservationSeconds = $state(0);
 	let reservationRefreshStarted = false;
 	let reservationTime = $derived(
@@ -42,73 +35,6 @@
 		}
 		return item.availableQuantity ?? 10;
 	});
-
-	function updateQuantity(delta: number) {
-		const next = localQuantity + delta;
-		if (next < 1 || next > maxQuantityAvailable) return;
-
-		// Capture the server-confirmed value before the first click in a sequence
-		if (rollbackQuantity === null) {
-			rollbackQuantity = item.quantity;
-		}
-
-		// Update display instantly — no re-render dependency, purely local
-		editingQuantity = next;
-		bag.updateItemQuantityOptimistically(item.id, next);
-
-		// Only send one request after the user stops clicking
-		if (debounceTimer) clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(async () => {
-			debounceTimer = null;
-
-			// Capture before clearing — editingQuantity holds the final desired qty
-			const quantityToSend = editingQuantity!;
-			const quantityToRollback = rollbackQuantity!;
-			rollbackQuantity = null;
-
-			// Switch back to server-driven display (item.quantity = optimistic value = quantityToSend)
-			// No visual flicker since item.quantity matches what we just set optimistically
-			editingQuantity = null;
-
-			try {
-				const res = await fetch('/api/bag', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ action: 'update', bagItemId: item.id, quantity: quantityToSend })
-				});
-				if (res.ok) {
-					const updated = (await res.json()) as BagDTO;
-					bag.setBag(updated);
-				} else {
-					// Revert optimistic state to original server value
-					bag.updateItemQuantityOptimistically(item.id, quantityToRollback);
-				}
-			} catch (err) {
-				console.error('Failed to update quantity:', err);
-				bag.updateItemQuantityOptimistically(item.id, quantityToRollback);
-			}
-		}, 350);
-	}
-
-	async function removeItem() {
-		const previousItems = bag.removeItemOptimistically(item.id);
-		try {
-			const res = await fetch('/api/bag', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'remove', bagItemId: item.id })
-			});
-			if (res.ok) {
-				const updated = (await res.json()) as BagDTO;
-				bag.setBag(updated);
-			} else {
-				bag.items = previousItems;
-			}
-		} catch (err) {
-			console.error('Failed to remove item:', err);
-			bag.items = previousItems;
-		}
-	}
 </script>
 
 <div class="flex items-start gap-4">
@@ -126,7 +52,7 @@
 			<span class="truncate font-sans text-sm font-medium text-bone"
 				>{item.productName ?? 'Product'}</span
 			>
-			<button class="ml-2 font-mono text-xs text-ash/50 hover:text-volt" onclick={removeItem}>
+			<button class="ml-2 font-mono text-xs text-ash/50 hover:text-volt" onclick={() => bag.removeItem(item.id)}>
 				×
 			</button>
 		</div>
@@ -151,18 +77,18 @@
 			<div class="flex items-center gap-2 font-mono text-sm">
 				<button
 					class="hover:text-volt disabled:opacity-30"
-					onclick={() => updateQuantity(-1)}
-					disabled={localQuantity <= 1}>[−]</button
+					onclick={() => bag.updateItemQuantity(item.id, -1, maxQuantityAvailable)}
+					disabled={item.quantity <= 1}>[−]</button
 				>
-				<span>{localQuantity}</span>
+				<span>{item.quantity}</span>
 				<button
 					class="hover:text-volt disabled:opacity-30"
-					onclick={() => updateQuantity(1)}
-					disabled={localQuantity >= maxQuantityAvailable}>[+]</button
+					onclick={() => bag.updateItemQuantity(item.id, 1, maxQuantityAvailable)}
+					disabled={item.quantity >= maxQuantityAvailable}>[+]</button
 				>
 			</div>
 			<span class="font-mono text-sm text-bone">
-				LKR {(item.unitPrice * localQuantity).toLocaleString()}
+				LKR {item.lineTotal.toLocaleString()}
 			</span>
 		</div>
 	</div>

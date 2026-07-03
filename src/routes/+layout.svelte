@@ -8,7 +8,7 @@
 	import Toast from '$lib/components/shared/Toast.svelte';
 	import BottomNav from '$lib/components/layout/BottomNav.svelte';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { onNavigate } from '$app/navigation';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
@@ -16,11 +16,17 @@
 	let { children, data } = $props();
 
 	$effect(() => {
-		bag.setBag(data?.bag);
-		wishlist.setProductIds(data?.wishlistProductIds || []);
-		if (data?.user) {
-			wishlist.syncLocalWishlist();
-		}
+		const bagData = data?.bag;
+		const wishlistProductIds = data?.wishlistProductIds || [];
+		const user = data?.user;
+
+		untrack(() => {
+			bag.setBag(bagData);
+			wishlist.setProductIds(wishlistProductIds);
+			if (user) {
+				wishlist.syncLocalWishlist();
+			}
+		});
 	});
 
 	onMount(() => {
