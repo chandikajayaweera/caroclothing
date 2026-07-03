@@ -20,6 +20,7 @@ This file defines the foundational mandates and technical context for Caro Cloth
 - **Svelte 5 Runes**: Strictly use `$state`, `$derived`, `$effect`, and `$props`. Never use legacy Svelte 4 syntax.
 - **Two-Tier Product Model**: All products have a `tier` — either `drop` (limited, event-based, hype ritual) or `core` (always available, restockable). This distinction drives inventory behaviour, pricing bands, marketing mechanics, and UX patterns throughout the app.
 - **Centralized Errors**: ALWAYS use the structured custom errors defined in `src/lib/server/infrastructure/errors/index.ts` instead of throwing generic JavaScript `Error` objects. If a specific domain error class or `ErrorCode` does not exist for your use case, add it there first.
+- **Client Reactive State & Performance**: Strictly follow `docs/dev-notes.md` before editing Svelte 5 stores, `$effect` sync logic, debounced mutations, or UI transitions.
 
 ## 🧠 Intelligence Guidelines
 

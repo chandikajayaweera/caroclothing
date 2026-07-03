@@ -6,6 +6,7 @@ Before service-layer, route, notification, or Codex-guidance changes, read:
 
 - `docs/service-layer-architecture.md`
 - `docs/codex-service-layer-workflow.md`
+- `docs/dev-notes.md`
 - Relevant `src/lib/server/modules/**/**.drizzle.ts`
 - Relevant service/type/form files and routes
 - Existing helpers:
