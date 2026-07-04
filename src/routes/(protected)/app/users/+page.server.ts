@@ -22,6 +22,7 @@ import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
+import { isAppError } from '$lib/server/infrastructure/errors';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import type { UserRole } from '$lib/shared/modules/access-control';
 
@@ -88,7 +89,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				selectedUser = profile;
 				selectedUserSessions = sessions.items;
 			} catch (error) {
-				console.error(`Failed to load selected user ${selectedUserId}:`, error);
+				if (!isAppError(error) || error.statusCode >= 500) {
+					console.error(`Failed to load selected user ${selectedUserId}:`, error);
+				}
 			}
 		}
 

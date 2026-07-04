@@ -2,6 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { addToWishlist, removeFromWishlist, listWishlist } from '$lib/server/modules/wishlist';
 import { getProduct } from '$lib/server/modules/products';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import { isAppError } from '$lib/server/infrastructure/errors';
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const actor = locals.user
@@ -50,7 +51,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 						isAvailable: prod.isActive
 					};
 				} catch (err) {
-					console.error(`Failed to load product ${id} for guest wishlist:`, err);
+					if (!isAppError(err) || err.statusCode >= 500) {
+						console.error(`Failed to load product ${id} for guest wishlist:`, err);
+					}
 					return null;
 				}
 			})

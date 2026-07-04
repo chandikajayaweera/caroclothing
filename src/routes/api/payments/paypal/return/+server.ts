@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { capturePayPalReturn } from '$lib/server/modules/payments';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
+import { isAppError } from '$lib/server/infrastructure/errors';
 
 export const GET: RequestHandler = async ({ url, platform }) => {
 	const paypalOrderId = url.searchParams.get('token');
@@ -28,10 +29,12 @@ export const GET: RequestHandler = async ({ url, platform }) => {
 		if (error && typeof error === 'object' && 'status' in error && 'location' in error) {
 			throw error;
 		}
-		console.error('[payments] PayPal return failed:', {
-			paypalOrderId,
-			error
-		});
+		if (!isAppError(error) || error.statusCode >= 500) {
+			console.error('[payments] PayPal return failed:', {
+				paypalOrderId,
+				error
+			});
+		}
 		const destination = fallbackOrderId
 			? `/checkout/confirmation/${encodeURIComponent(fallbackOrderId)}?payment=failed`
 			: '/account/orders?payment=failed';

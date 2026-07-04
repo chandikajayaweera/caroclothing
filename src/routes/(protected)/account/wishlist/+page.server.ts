@@ -3,6 +3,7 @@ import { clearWishlist, listWishlist, removeFromWishlist } from '$lib/server/mod
 import { listProductVariants, type ProductVariantDTO } from '$lib/server/modules/products';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import { isAppError } from '$lib/server/infrastructure/errors';
 import { requireAccountContext } from '../_account.server';
 
 export const load: PageServerLoad = async (event) => {
@@ -21,7 +22,9 @@ export const load: PageServerLoad = async (event) => {
 					const variants = await listProductVariants(ctx, productId, { includeInactive: false });
 					productVariantsMap.set(productId, variants);
 				} catch (err) {
-					console.error(`Failed to load variants for product ${productId}:`, err);
+					if (!isAppError(err) || err.statusCode >= 500) {
+						console.error(`Failed to load variants for product ${productId}:`, err);
+					}
 				}
 			})
 		);

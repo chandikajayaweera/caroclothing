@@ -5,6 +5,7 @@ import {
 	isTransientDatabaseTransportError,
 	withTransientDatabaseRetry
 } from '$lib/server/infrastructure/errors/transient-database';
+import { isAppError } from '$lib/server/infrastructure/errors';
 import { nanoid } from 'nanoid';
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
@@ -29,7 +30,9 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				);
 				cookies.delete('bag_session_token', { path: '/' });
 			} catch (err) {
-				console.error('Failed to merge guest bag into user bag:', err);
+				if (!isAppError(err) || err.statusCode >= 500) {
+					console.error('Failed to merge guest bag into user bag:', err);
+				}
 			}
 		}
 		const [bag, wishlistProductIds] = await Promise.all([
