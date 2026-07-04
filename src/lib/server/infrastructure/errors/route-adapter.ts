@@ -11,6 +11,17 @@ function toErrorStatus(statusCode: number): ErrorStatus {
 	return 500;
 }
 
+function recordDomainValidationBreadcrumb(error: unknown) {
+	if (isAppError(error) && error.statusCode < 500) {
+		Sentry.addBreadcrumb({
+			category: 'domain.validation',
+			message: `${error.code}: ${error.message}`,
+			level: 'warning',
+			data: { code: error.code, statusCode: error.statusCode }
+		});
+	}
+}
+
 export function failFromAppError(error: unknown) {
 	if (isRedirect(error)) throw error;
 
@@ -21,6 +32,8 @@ export function failFromAppError(error: unknown) {
 
 	if (error.statusCode >= 500) {
 		Sentry.captureException(error);
+	} else {
+		recordDomainValidationBreadcrumb(error);
 	}
 
 	return fail(error.statusCode, {
@@ -39,6 +52,8 @@ export function throwHttpFromAppError(error: unknown): never {
 	const body = toErrorResponseBody(error, { includeDetails: error.statusCode < 500 });
 	if (error.statusCode >= 500) {
 		Sentry.captureException(error);
+	} else {
+		recordDomainValidationBreadcrumb(error);
 	}
 	throw kitError(error.statusCode, body.message);
 }
@@ -52,6 +67,8 @@ export function jsonFromRouteError(error: unknown): Response {
 
 	if (status >= 500 || !isAppError(error)) {
 		Sentry.captureException(error);
+	} else {
+		recordDomainValidationBreadcrumb(error);
 	}
 
 	return json(
@@ -80,6 +97,8 @@ export function formFailFromAppError<
 
 	if (status >= 500) {
 		Sentry.captureException(error);
+	} else {
+		recordDomainValidationBreadcrumb(error);
 	}
 
 	return message(form, body.message as M, { status });

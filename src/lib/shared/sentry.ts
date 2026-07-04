@@ -128,6 +128,49 @@ export function shouldDropSvelteKitDataFetchNoise(event: SentryFetchNoiseEvent):
 	);
 }
 
+const PII_REGEX_PATTERNS = [
+	/(?:\+94|0)?7[0-9]{8}\b/g,
+	/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+	/\b(?:otp|password|token|secret|key|authorization)=([^&]+)/gi
+];
+
+export function sanitizeStringPii(text: string): string {
+	let sanitized = text;
+	for (const pattern of PII_REGEX_PATTERNS) {
+		sanitized = sanitized.replace(pattern, '[REDACTED_PII]');
+	}
+	return sanitized;
+}
+
+export function sanitizeSentryEventPii(event: SentryErrorEvent): SentryErrorEvent {
+	if (event.request?.url) {
+		event.request.url = sanitizeStringPii(event.request.url);
+	}
+
+	if (event.breadcrumbs) {
+		for (const breadcrumb of event.breadcrumbs) {
+			if (breadcrumb.message) {
+				breadcrumb.message = sanitizeStringPii(breadcrumb.message);
+			}
+			if (breadcrumb.data && typeof breadcrumb.data === 'object') {
+				for (const [key, val] of Object.entries(breadcrumb.data)) {
+					if (typeof val === 'string') {
+						breadcrumb.data[key] = sanitizeStringPii(val);
+					}
+				}
+			}
+		}
+	}
+
+	if (event.user) {
+		if (event.user.email) event.user.email = '[REDACTED_PII]';
+		if (event.user.username) event.user.username = '[REDACTED_PII]';
+		if (event.user.ip_address) event.user.ip_address = '[REDACTED_PII]';
+	}
+
+	return event;
+}
+
 export function getSentryRuntimeOptions(env: PublicSentryEnv) {
 	const dsn = optionalValue(env.PUBLIC_SENTRY_DSN);
 	const environment = optionalValue(env.PUBLIC_SENTRY_ENVIRONMENT) ?? 'development';
@@ -174,7 +217,7 @@ export function getSentryRuntimeOptions(env: PublicSentryEnv) {
 				}
 			}
 
-			return event;
+			return sanitizeSentryEventPii(event);
 		}
 	};
 }
