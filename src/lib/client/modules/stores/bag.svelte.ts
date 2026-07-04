@@ -8,6 +8,8 @@ class BagState {
 	discountAmount = $state<number>(0);
 	freeShippingThreshold = $state<number | null>(null);
 	promoError = $state<string>('');
+	isApplyingPromo = $state<boolean>(false);
+	isRemovingPromo = $state<boolean>(false);
 
 	subtotal = $derived(this.items.reduce((sum, item) => sum + item.lineTotal, 0));
 	count = $derived(this.items.reduce((sum, item) => sum + item.quantity, 0));
@@ -171,8 +173,9 @@ class BagState {
 	}
 
 	async applyPromo(code: string) {
-		if (!code.trim()) return;
+		if (!code.trim() || this.isApplyingPromo || this.isRemovingPromo) return;
 		this.promoError = '';
+		this.isApplyingPromo = true;
 		const version = this.startMutation();
 		try {
 			const res = await fetch('/api/bag', {
@@ -191,11 +194,14 @@ class BagState {
 			this.promoError = 'Failed to apply promo';
 			console.error('[bag] Failed to apply promo code:', err);
 		} finally {
+			this.isApplyingPromo = false;
 			this.endMutation();
 		}
 	}
 
 	async removePromo() {
+		if (this.isApplyingPromo || this.isRemovingPromo) return;
+		this.isRemovingPromo = true;
 		const version = this.startMutation();
 		try {
 			const res = await fetch('/api/bag', {
@@ -210,6 +216,7 @@ class BagState {
 		} catch (err) {
 			console.error('[bag] Failed to remove promo code:', err);
 		} finally {
+			this.isRemovingPromo = false;
 			this.endMutation();
 		}
 	}

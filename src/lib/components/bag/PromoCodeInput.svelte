@@ -1,16 +1,21 @@
 <script lang="ts">
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
+	import { Loader2 } from 'lucide-svelte';
 
 	let promoInput = $state('');
 
-	function handleApply() {
-		if (!promoInput.trim()) return;
-		void bag.applyPromo(promoInput);
-		promoInput = '';
+	async function handleApply() {
+		if (!promoInput.trim() || bag.isApplyingPromo || bag.isRemovingPromo) return;
+		const codeToApply = promoInput;
+		await bag.applyPromo(codeToApply);
+		if (!bag.promoError) {
+			promoInput = '';
+		}
 	}
 
-	function handleRemove() {
-		void bag.removePromo();
+	async function handleRemove() {
+		if (bag.isApplyingPromo || bag.isRemovingPromo) return;
+		await bag.removePromo();
 	}
 </script>
 
@@ -25,10 +30,16 @@
 			</div>
 			<button
 				type="button"
-				class="font-mono text-[10px] text-ash uppercase hover:text-bone"
+				class="inline-flex items-center gap-1.5 font-mono text-[10px] text-ash uppercase transition-colors hover:text-bone disabled:cursor-not-allowed disabled:opacity-50"
 				onclick={handleRemove}
+				disabled={bag.isRemovingPromo || bag.isApplyingPromo}
 			>
-				Remove
+				{#if bag.isRemovingPromo}
+					<Loader2 size={12} class="animate-spin text-ash" aria-hidden="true" />
+					<span>REMOVING...</span>
+				{:else}
+					<span>Remove</span>
+				{/if}
 			</button>
 		</div>
 	{:else}
@@ -37,15 +48,22 @@
 				type="text"
 				bind:value={promoInput}
 				placeholder="PROMO CODE"
-				class="flex-1 bg-transparent font-mono text-[10px] text-bone uppercase outline-none placeholder:text-ash/40"
+				disabled={bag.isApplyingPromo || bag.isRemovingPromo}
+				class="flex-1 bg-transparent font-mono text-[10px] text-bone uppercase outline-none placeholder:text-ash/40 disabled:opacity-50"
 				onkeydown={(e) => e.key === 'Enter' && handleApply()}
 			/>
 			<button
 				type="button"
-				class="font-mono text-[10px] tracking-widest text-volt uppercase"
+				class="inline-flex items-center gap-1.5 font-mono text-[10px] tracking-widest text-volt uppercase transition-colors hover:text-volt/80 disabled:cursor-not-allowed disabled:opacity-60"
 				onclick={handleApply}
+				disabled={!promoInput.trim() || bag.isApplyingPromo || bag.isRemovingPromo}
 			>
-				Apply
+				{#if bag.isApplyingPromo}
+					<Loader2 size={12} class="animate-spin text-volt" aria-hidden="true" />
+					<span>VALIDATING...</span>
+				{:else}
+					<span>Apply</span>
+				{/if}
 			</button>
 		</div>
 		{#if bag.promoError}

@@ -70,5 +70,11 @@
 * **DON'T DO THIS**: Do not completely discard diagnostic context when handling expected 4xx domain validation failures. Omitting validation history leaves developers blind to the sequence of user actions preceding a subsequent system error or bug report.
 * **INSTEAD DO THIS**: Record low-overhead warning breadcrumbs (`Sentry.addBreadcrumb({ category: 'domain.validation', level: 'warning' })`) inside route error adapters during 4xx handling, maintaining diagnostic history without generating exception alert noise.
 
+---
+
+### 13. Async Action Loading & Input Preservation in Reusable Components
+* **DON'T DO THIS**: Do not clear user inputs before async API calls finish or when validation fails, and do not leave action buttons enabled without visual loading feedback during server calls.
+* **INSTEAD DO THIS**: Expose explicit loading flags (`isApplyingPromo`, `isRemovingPromo`) in client domain store (`bag.svelte.ts`). In shared UI components (`PromoCodeInput.svelte`), disable inputs while active, display animated progress text (`VALIDATING...` / `REMOVING...`), and clear input value ONLY on success so failed inputs stay editable.
+
 
 
