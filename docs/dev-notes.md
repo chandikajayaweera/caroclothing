@@ -40,3 +40,16 @@
 * **DON'T DO THIS**: Do not reassign or mutate `$derived(...)` signals in response to user interactions or polling callbacks (e.g. `availability = [...]`). In Svelte 5, `$derived` expressions produce read-only signals and reassigning them causes runtime errors or proxy mismatches.
 * **INSTEAD DO THIS**: Declare local mutable state with `$state<T[]>()` and sync initial/server prop updates using `$effect(() => { availability = data.availability; })`.
 
+---
+
+### 8. Conditional DTO Hydration for Qualified Promo Codes
+* **DON'T DO THIS**: Do not return raw database foreign keys (`row.promoCodeId`) in hydrated `BagDTO` objects when promo eligibility criteria fail (e.g. `subtotal < minOrderAmount` or expired code). Returning a non-null `promoCodeId` with `discountAmount: 0` tricks the client UI into displaying the promo code as applied.
+* **INSTEAD DO THIS**: Compute an `effectivePromoCodeId` during hydration that evaluates to `null` whenever validation rules fail, ensuring DTO fields (`promoCodeId`, `promoCode`, `discountAmount`) remain strictly consistent.
+
+---
+
+### 9. Route Error Logging Policy (`console.error` vs `AppError`)
+* **DON'T DO THIS**: Do not execute `console.error(...)` unconditionally in API route `catch` blocks for expected domain validation failures (subclasses of `AppError` with 4xx status codes like `PROMO_EXPIRED` or `MINIMUM_ORDER_VALUE_NOT_MET`). This floods server logs with stack traces for standard user validation events.
+* **INSTEAD DO THIS**: Filter route error logging with `if (!isAppError(error) || error.statusCode >= 500)` before calling `console.error`, letting `jsonFromRouteError(error)` handle expected 4xx responses cleanly.
+
+
