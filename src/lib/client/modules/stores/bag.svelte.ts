@@ -189,7 +189,7 @@ class BagState {
 			}
 		} catch (err) {
 			this.promoError = 'Failed to apply promo';
-			console.error(err);
+			console.error('[bag] Failed to apply promo code:', err);
 		} finally {
 			this.endMutation();
 		}
@@ -208,7 +208,7 @@ class BagState {
 				this.setBag(updated, version);
 			}
 		} catch (err) {
-			console.error(err);
+			console.error('[bag] Failed to remove promo code:', err);
 		} finally {
 			this.endMutation();
 		}
