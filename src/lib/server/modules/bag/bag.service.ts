@@ -1368,27 +1368,30 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		const promoCodeId = row.promoCodeId;
 		let promoCodeCode: string | null = null;
 		let effectivePromoCodeId: string | null = null;
+		let promoMinOrderAmount: number | null = null;
 		if (promoCodeId) {
 			const promo = promoCodesById.get(promoCodeId);
-			if (
-				promo &&
-				promo.isActive &&
-				(promo.startsAt === null || promo.startsAt <= now) &&
-				(promo.expiresAt === null || promo.expiresAt > now) &&
-				(promo.minOrderAmount === null || subtotal >= promo.minOrderAmount) &&
-				(promo.usageLimit === null || promo.usedCount < promo.usageLimit)
-			) {
-				const rawDiscount =
-					promo.discountType === 'percentage'
-						? Math.floor((subtotal * promo.discountValue) / 100)
-						: promo.discountValue;
-				const cappedByMaxDiscount =
-					promo.maxDiscountAmount === null
-						? rawDiscount
-						: Math.min(rawDiscount, promo.maxDiscountAmount);
-				discountAmount = Math.min(cappedByMaxDiscount, subtotal);
+			if (promo) {
 				promoCodeCode = promo.code;
-				effectivePromoCodeId = promo.id;
+				promoMinOrderAmount = promo.minOrderAmount;
+				if (
+					promo.isActive &&
+					(promo.startsAt === null || promo.startsAt <= now) &&
+					(promo.expiresAt === null || promo.expiresAt > now) &&
+					(promo.minOrderAmount === null || subtotal >= promo.minOrderAmount) &&
+					(promo.usageLimit === null || promo.usedCount < promo.usageLimit)
+				) {
+					const rawDiscount =
+						promo.discountType === 'percentage'
+							? Math.floor((subtotal * promo.discountValue) / 100)
+							: promo.discountValue;
+					const cappedByMaxDiscount =
+						promo.maxDiscountAmount === null
+							? rawDiscount
+							: Math.min(rawDiscount, promo.maxDiscountAmount);
+					discountAmount = Math.min(cappedByMaxDiscount, subtotal);
+					effectivePromoCodeId = promo.id;
+				}
 			}
 		}
 
@@ -1409,6 +1412,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 			hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
 			promoCodeId: effectivePromoCodeId,
 			promoCode: promoCodeCode,
+			promoMinOrderAmount,
 			freeShippingThreshold,
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt

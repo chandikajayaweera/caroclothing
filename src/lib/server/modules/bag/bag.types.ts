@@ -95,6 +95,7 @@ export type BagDTO = {
 	hasReservedItems: boolean;
 	promoCodeId: string | null;
 	promoCode: string | null;
+	promoMinOrderAmount: number | null;
 	freeShippingThreshold: number | null;
 	createdAt: Date;
 	updatedAt: Date;

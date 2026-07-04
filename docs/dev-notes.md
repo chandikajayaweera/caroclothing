@@ -76,5 +76,25 @@
 * **DON'T DO THIS**: Do not clear user inputs before async API calls finish or when validation fails, and do not leave action buttons enabled without visual loading feedback during server calls.
 * **INSTEAD DO THIS**: Expose explicit loading flags (`isApplyingPromo`, `isRemovingPromo`) in client domain store (`bag.svelte.ts`). In shared UI components (`PromoCodeInput.svelte`), disable inputs while active, display animated progress text (`VALIDATING...` / `REMOVING...`), and clear input value ONLY on success so failed inputs stay editable.
 
+---
+
+### 14. CSS Grid Stacking for Concurrent Branch Transitions
+* **DON'T DO THIS**: Do not place height or slide transitions (`transition:slide`) on competing `{#if}` and `{:else}` branch elements in standard document flow. Concurrent rendering during the transition window causes vertical stacking and layout jitter for elements below.
+* **INSTEAD DO THIS**: Wrap conditional transition branches in a single CSS Grid container (`grid grid-cols-1 grid-rows-1 overflow-hidden`) and place each branch in the identical grid cell (`col-start-1 row-start-1`), allowing entering and exiting elements to animate in-place without disturbing surrounding page layout.
+
+---
+
+### 15. Zero-Delay Optimistic State Derivation for Threshold Entitlements
+* **DON'T DO THIS**: Do not gate client active states or monetary calculations on server-populated database keys or status flags during local optimistic mutations. Waiting for API responses introduces network latency delays before visual indicators, badges, and totals update.
+* **INSTEAD DO THIS**: Retain active rule metadata locally and derive entitlement eligibility dynamically from client reactive signals (e.g. `subtotal >= minThreshold`). Derive effective discount and summary values at 0ms synchronously with user actions, letting background server responses validate without UI flicker.
+
+---
+
+### 16. Standardized Domain Error Messages with Requirement Context
+* **DON'T DO THIS**: Do not return generic error strings (such as `"Minimum order value not met."` or `"Invalid code."`) from domain services or display different error text on the client for the same failure condition. Generic error text frustrates users and creates inconsistency between client-derived notices and server API responses.
+* **INSTEAD DO THIS**: Include specific entity identifiers and requirement details directly in domain error messages (e.g. `Promo ${code} requires min. LKR ${minOrderAmount.toLocaleString()}`). Ensure client components use identical wording for matching failure conditions.
+
+
+
 
 

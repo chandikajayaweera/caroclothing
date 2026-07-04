@@ -68,10 +68,10 @@
 								<span class="text-ash">Subtotal</span>
 								<span class="text-bone">LKR {bag.subtotal.toLocaleString()}</span>
 							</div>
-							{#if bag.discountAmount > 0}
+							{#if bag.effectiveDiscountAmount > 0}
 								<div class="flex justify-between font-mono text-sm text-volt uppercase">
 									<span>Promo Discount</span>
-									<span>- LKR {bag.discountAmount.toLocaleString()}</span>
+									<span>- LKR {bag.effectiveDiscountAmount.toLocaleString()}</span>
 								</div>
 							{/if}
 							<div class="flex justify-between font-mono text-sm uppercase">

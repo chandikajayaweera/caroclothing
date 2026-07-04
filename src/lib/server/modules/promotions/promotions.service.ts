@@ -352,7 +352,7 @@ export async function validatePromoCodeForBagTx(
 	const row = await loadPromoCodeByCodeTx(tx, code);
 
 	if (!row || !row.isActive) {
-		throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND, { code });
+		throw new PromotionError('Invalid or inactive promo code.', ErrorCode.PROMO_NOT_FOUND, { code });
 	}
 
 	return validatePromoCodeRowForBagTx(tx, row, { subtotal, userId, now });
@@ -469,20 +469,28 @@ async function validatePromoCodeRowForBagTx(
 	if (input.userId) {
 		const userUsageCount = await countPromoCodeUsagesForUserTx(tx, row.id, input.userId);
 		if (userUsageCount >= row.perUserLimit) {
-			throw new PromotionError('Promo code already used.', ErrorCode.PROMO_ALREADY_USED, {
-				promoCodeId: row.id,
-				userId: input.userId,
-				perUserLimit: row.perUserLimit
-			});
+			throw new PromotionError(
+				`You have already used promo ${row.code}.`,
+				ErrorCode.PROMO_ALREADY_USED,
+				{
+					promoCodeId: row.id,
+					userId: input.userId,
+					perUserLimit: row.perUserLimit
+				}
+			);
 		}
 	}
 
 	const discountAmount = calculateDiscountAmount(row, input.subtotal);
 	if (discountAmount <= 0) {
-		throw new PromotionError('Promo code is not applicable.', ErrorCode.PROMO_NOT_APPLICABLE, {
-			promoCodeId: row.id,
-			subtotal: input.subtotal
-		});
+		throw new PromotionError(
+			`Promo ${row.code} cannot be applied to this bag.`,
+			ErrorCode.PROMO_NOT_APPLICABLE,
+			{
+				promoCodeId: row.id,
+				subtotal: input.subtotal
+			}
+		);
 	}
 
 	const dto = toPromoCodeDTO(row, input.now);
@@ -499,21 +507,25 @@ async function validatePromoCodeRowForBagTx(
 
 function assertPromoCodeRedeemable(row: PromoCode, input: { subtotal: number; now: Date }): void {
 	if (!row.isActive) {
-		throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND, {
+		throw new PromotionError('Invalid or inactive promo code.', ErrorCode.PROMO_NOT_FOUND, {
 			promoCodeId: row.id
 		});
 	}
 
 	if (row.startsAt && row.startsAt > input.now) {
-		throw new PromotionError('Promo code is not active yet.', ErrorCode.PROMO_NOT_APPLICABLE, {
-			promoCodeId: row.id,
-			startsAt: row.startsAt,
-			now: input.now
-		});
+		throw new PromotionError(
+			`Promo ${row.code} is not active yet.`,
+			ErrorCode.PROMO_NOT_APPLICABLE,
+			{
+				promoCodeId: row.id,
+				startsAt: row.startsAt,
+				now: input.now
+			}
+		);
 	}
 
 	if (row.expiresAt && row.expiresAt <= input.now) {
-		throw new PromotionError('Promo code has expired.', ErrorCode.PROMO_EXPIRED, {
+		throw new PromotionError(`Promo ${row.code} has expired.`, ErrorCode.PROMO_EXPIRED, {
 			promoCodeId: row.id,
 			expiresAt: row.expiresAt,
 			now: input.now
@@ -522,7 +534,7 @@ function assertPromoCodeRedeemable(row: PromoCode, input: { subtotal: number; no
 
 	if (row.usageLimit !== null && row.usedCount >= row.usageLimit) {
 		throw new PromotionError(
-			'Promo code usage limit exceeded.',
+			`Promo ${row.code} usage limit reached.`,
 			ErrorCode.PROMO_USAGE_LIMIT_EXCEEDED,
 			{
 				promoCodeId: row.id,
@@ -534,7 +546,7 @@ function assertPromoCodeRedeemable(row: PromoCode, input: { subtotal: number; no
 
 	if (row.minOrderAmount !== null && input.subtotal < row.minOrderAmount) {
 		throw new PromotionError(
-			'Minimum order value not met.',
+			`Promo ${row.code} requires min. LKR ${row.minOrderAmount.toLocaleString()}`,
 			ErrorCode.MINIMUM_ORDER_VALUE_NOT_MET,
 			{
 				promoCodeId: row.id,

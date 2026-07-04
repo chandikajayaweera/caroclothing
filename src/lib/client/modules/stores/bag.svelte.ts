@@ -5,27 +5,68 @@ class BagState {
 	items = $state<BagItemDTO[]>([]);
 	promoCodeId = $state<string | null>(null);
 	promoCode = $state<string | null>(null);
+	promoMinOrderAmount = $state<number | null>(null);
 	discountAmount = $state<number>(0);
 	freeShippingThreshold = $state<number | null>(null);
 	promoError = $state<string>('');
 	isApplyingPromo = $state<boolean>(false);
 	isRemovingPromo = $state<boolean>(false);
 
+	lastDiscountAmount = $state<number>(0);
+
 	subtotal = $derived(this.items.reduce((sum, item) => sum + item.lineTotal, 0));
 	count = $derived(this.items.reduce((sum, item) => sum + item.quantity, 0));
-	totalBeforeShipping = $derived(Math.max(0, this.subtotal - this.discountAmount));
 	hasUnavailableItems = $derived(
 		this.items.some((item) => item.availabilityStatus === 'unavailable')
 	);
 	hasReservedItems = $derived(this.items.some((item) => item.availabilityStatus === 'reserved'));
 
+	isPromoActive = $derived(
+		this.promoCode !== null &&
+			(this.promoMinOrderAmount === null || this.subtotal >= this.promoMinOrderAmount)
+	);
+	isPromoMinNotMet = $derived(
+		this.promoCode !== null &&
+			this.promoMinOrderAmount !== null &&
+			this.subtotal < this.promoMinOrderAmount
+	);
+
+	effectiveDiscountAmount = $derived(
+		this.isPromoActive
+			? this.discountAmount > 0
+				? this.discountAmount
+				: this.lastDiscountAmount
+			: 0
+	);
+	totalBeforeShipping = $derived(Math.max(0, this.subtotal - this.effectiveDiscountAmount));
+
 	private refreshRequest: Promise<void> | null = null;
 	private mutationVersion = 0;
 	private pendingMutations = 0;
 
+	private prevPromoCode: string | null = null;
+	private prevPromoWasActive = false;
+
 	// Per-item mutation & debounce state owned by store
 	private itemDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private itemRollbacks = new Map<string, number>();
+
+	private checkPromoStatusTransitions() {
+		const currentCode = this.promoCode;
+		const currentActive = this.isPromoActive;
+		const minNotMet = this.isPromoMinNotMet;
+
+		if (this.prevPromoCode === currentCode) {
+			if (this.prevPromoWasActive && minNotMet) {
+				this.prevPromoWasActive = false;
+			} else if (!this.prevPromoWasActive && currentActive && currentCode) {
+				this.prevPromoWasActive = true;
+			}
+		} else {
+			this.prevPromoCode = currentCode;
+			this.prevPromoWasActive = currentActive;
+		}
+	}
 
 	startMutation(): number {
 		this.pendingMutations++;
@@ -50,16 +91,24 @@ class BagState {
 			this.items = [];
 			this.promoCodeId = null;
 			this.promoCode = null;
+			this.promoMinOrderAmount = null;
 			this.discountAmount = 0;
+			this.lastDiscountAmount = 0;
 			this.freeShippingThreshold = null;
+			this.checkPromoStatusTransitions();
 			return;
 		}
 		this.id = bag.id;
 		this.items = bag.items || [];
 		this.promoCodeId = bag.promoCodeId ?? null;
 		this.promoCode = bag.promoCode ?? null;
+		this.promoMinOrderAmount = bag.promoMinOrderAmount ?? null;
 		this.discountAmount = bag.discountAmount || 0;
+		if (bag.discountAmount > 0) {
+			this.lastDiscountAmount = bag.discountAmount;
+		}
 		this.freeShippingThreshold = bag.freeShippingThreshold ?? null;
+		this.checkPromoStatusTransitions();
 	}
 
 	updateItemQuantityOptimistically(bagItemId: string, newQuantity: number) {
@@ -72,6 +121,7 @@ class BagState {
 				{ ...existing, quantity: newQuantity, lineTotal: existing.unitPrice * newQuantity },
 				...this.items.slice(itemIndex + 1)
 			];
+			this.checkPromoStatusTransitions();
 		}
 		return originalItems;
 	}
@@ -169,6 +219,7 @@ class BagState {
 	removeItemOptimistically(bagItemId: string) {
 		const originalItems = JSON.parse(JSON.stringify(this.items)) as BagItemDTO[];
 		this.items = this.items.filter((item) => item.id !== bagItemId);
+		this.checkPromoStatusTransitions();
 		return originalItems;
 	}
 
@@ -219,6 +270,10 @@ class BagState {
 			this.isRemovingPromo = false;
 			this.endMutation();
 		}
+	}
+
+	clearPromoError() {
+		this.promoError = '';
 	}
 
 	async refresh() {
