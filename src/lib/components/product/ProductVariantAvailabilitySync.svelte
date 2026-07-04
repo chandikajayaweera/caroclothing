@@ -42,7 +42,7 @@
 				});
 			})
 			.catch((error) => {
-				console.error('Failed to refresh product availability:', error);
+				console.error('[products] Failed to refresh product availability:', error);
 			})
 			.finally(() => {
 				refreshRequest = null;

@@ -98,7 +98,8 @@ For notification work, also inspect:
 3. For new services, first produce a service API plan covering storefront, admin dashboard, checkout/account, Queue/Cron/job, support, notification, and related-system needs.
 4. Edit the smallest safe file set.
 5. Run typecheck/lint/tests or targeted validation where available.
-6. Summarize changed files, validation commands, failures, risks, and follow-up work.
+6. Only create git commits when explicitly requested by the user.
+7. Summarize changed files, validation commands, failures, risks, and follow-up work.
 
 ## Anti-Hallucination Rules
 

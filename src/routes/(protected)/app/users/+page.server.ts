@@ -90,7 +90,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				selectedUserSessions = sessions.items;
 			} catch (error) {
 				if (!isAppError(error) || error.statusCode >= 500) {
-					console.error(`Failed to load selected user ${selectedUserId}:`, error);
+					console.error(`[admin:users] Failed to load selected user ${selectedUserId}:`, error);
 				}
 			}
 		}

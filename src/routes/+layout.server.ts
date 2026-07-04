@@ -31,7 +31,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				cookies.delete('bag_session_token', { path: '/' });
 			} catch (err) {
 				if (!isAppError(err) || err.statusCode >= 500) {
-					console.error('Failed to merge guest bag into user bag:', err);
+					console.error('[bag] Failed to merge guest bag into user bag:', err);
 				}
 			}
 		}

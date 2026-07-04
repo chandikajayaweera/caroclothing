@@ -100,7 +100,7 @@
 				goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
 			}
 		} catch (err) {
-			console.error('Failed to delete bag:', err);
+			console.error('[admin:bag] Failed to delete bag:', err);
 		} finally {
 			deletionSubmitting = false;
 		}

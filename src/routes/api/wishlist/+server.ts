@@ -52,7 +52,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 					};
 				} catch (err) {
 					if (!isAppError(err) || err.statusCode >= 500) {
-						console.error(`Failed to load product ${id} for guest wishlist:`, err);
+						console.error(`[wishlist] Failed to load product ${id} for guest wishlist:`, err);
 					}
 					return null;
 				}

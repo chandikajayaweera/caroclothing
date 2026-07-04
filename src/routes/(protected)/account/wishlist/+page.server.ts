@@ -23,7 +23,7 @@ export const load: PageServerLoad = async (event) => {
 					productVariantsMap.set(productId, variants);
 				} catch (err) {
 					if (!isAppError(err) || err.statusCode >= 500) {
-						console.error(`Failed to load variants for product ${productId}:`, err);
+						console.error(`[wishlist] Failed to load variants for product ${productId}:`, err);
 					}
 				}
 			})

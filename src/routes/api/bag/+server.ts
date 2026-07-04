@@ -40,7 +40,7 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		});
 	} catch (error) {
 		if (!isAppError(error) || error.statusCode >= 500) {
-			console.error('Failed to load bag:', error);
+			console.error('[bag] Failed to load bag:', error);
 		}
 		return jsonFromRouteError(error);
 	}
@@ -132,7 +132,7 @@ export const POST: RequestHandler = async ({ locals, cookies, request }) => {
 		return json(updatedBag);
 	} catch (error) {
 		if (!isAppError(error) || error.statusCode >= 500) {
-			console.error('Failed to update bag:', error);
+			console.error('[bag] Failed to update bag:', error);
 		}
 		return jsonFromRouteError(error);
 	}

@@ -81,7 +81,7 @@ class WishlistState {
 				}
 			}
 		} catch (err) {
-			console.error('Failed to toggle wishlist item:', err);
+			console.error('[wishlist] Failed to toggle wishlist item:', err);
 			// Revert on error
 			if (exists) {
 				this.productIds = [...this.productIds, productId];
@@ -114,7 +114,7 @@ class WishlistState {
 						body: JSON.stringify({ productId, action: 'add' })
 					});
 				} catch (err) {
-					console.error(`Failed to sync product ${productId} to user wishlist:`, err);
+					console.error(`[wishlist] Failed to sync product ${productId} to user wishlist:`, err);
 				}
 			}
 		}

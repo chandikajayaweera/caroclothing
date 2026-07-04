@@ -577,7 +577,7 @@ export async function cancelExpiredPendingOrders(
 
 				failedCount += 1;
 				failedOrderIds.push(row.id);
-				console.error(`Failed to cancel expired order ${row.id}:`, err);
+				console.error(`[orders] Failed to cancel expired order ${row.id}:`, err);
 			}
 		}
 

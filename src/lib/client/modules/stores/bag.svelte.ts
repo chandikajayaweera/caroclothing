@@ -121,7 +121,7 @@ class BagState {
 					this.updateItemQuantityOptimistically(bagItemId, rollbackQuantity);
 				}
 			} catch (err) {
-				console.error('Failed to update quantity:', err);
+				console.error('[bag] Failed to update quantity:', err);
 				this.updateItemQuantityOptimistically(bagItemId, rollbackQuantity);
 			} finally {
 				this.endMutation();
@@ -157,7 +157,7 @@ class BagState {
 				this.items = previousItems;
 			}
 		} catch (err) {
-			console.error('Failed to remove item:', err);
+			console.error('[bag] Failed to remove item:', err);
 			this.items = previousItems;
 		} finally {
 			this.endMutation();
@@ -230,7 +230,7 @@ class BagState {
 					this.setBag(bagData);
 				}
 			} catch (err) {
-				console.error('Failed to refresh bag state:', err);
+				console.error('[bag] Failed to refresh bag state:', err);
 			} finally {
 				this.refreshRequest = null;
 			}

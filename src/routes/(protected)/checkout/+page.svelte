@@ -358,7 +358,7 @@
 				bag.setBag(await response.json());
 			})
 			.catch((error) => {
-				console.error('Failed to release checkout reservation:', error);
+				console.error('[checkout] Failed to release checkout reservation:', error);
 			})
 			.finally(() => {
 				checkoutCancelRequest = null;
@@ -417,7 +417,7 @@
 				}
 			} catch (error) {
 				if (controller.signal.aborted) return;
-				console.error('Failed to load shipping quotes:', error);
+				console.error('[checkout] Failed to load shipping quotes:', error);
 				shippingQuotes = [];
 				selectedShippingMethodId = '';
 				shippingError = 'Shipping options could not be loaded. Try again.';

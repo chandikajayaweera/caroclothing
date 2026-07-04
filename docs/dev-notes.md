@@ -52,4 +52,23 @@
 * **DON'T DO THIS**: Do not execute `console.error(...)` unconditionally in API route `catch` blocks for expected client-facing domain validation errors (4xx status codes). Unfiltered logging creates stack trace noise for normal user validation outcomes.
 * **INSTEAD DO THIS**: Filter route logging with `if (!isAppError(error) || error.statusCode >= 500)` before invoking `console.error`, allowing standard domain errors to be handled cleanly by route error adapters.
 
+---
+
+### 10. Automated Observability PII Redaction
+* **DON'T DO THIS**: Do not allow raw customer personally identifiable information (phone numbers, email addresses, authentication tokens, or OTP secrets) to be included in telemetry events, breadcrumbs, or error monitoring payloads.
+* **INSTEAD DO THIS**: Enforce automated regex sanitization in telemetry dispatch hooks (`beforeSend`), redacting sensitive PII patterns (`[REDACTED_PII]`) from URLs, breadcrumb text, and user metadata before event dispatch.
+
+---
+
+### 11. Structured Module Namespace Tagging in Diagnostics
+* **DON'T DO THIS**: Do not emit un-prefixed or inconsistently formatted log messages in error catch blocks across client stores, server services, and route handlers. Un-tagged logging creates fragmented output that is difficult to search or filter in worker logs.
+* **INSTEAD DO THIS**: Prefix all diagnostic log calls with standardized bracketed module tags (`[bag]`, `[wishlist]`, `[orders]`, `[promotions]`, `[checkout]`, `[admin:users]`) corresponding to the owning feature or domain boundary.
+
+---
+
+### 12. Recording Non-Fatal Domain Validation Breadcrumbs
+* **DON'T DO THIS**: Do not completely discard diagnostic context when handling expected 4xx domain validation failures. Omitting validation history leaves developers blind to the sequence of user actions preceding a subsequent system error or bug report.
+* **INSTEAD DO THIS**: Record low-overhead warning breadcrumbs (`Sentry.addBreadcrumb({ category: 'domain.validation', level: 'warning' })`) inside route error adapters during 4xx handling, maintaining diagnostic history without generating exception alert noise.
+
+
 

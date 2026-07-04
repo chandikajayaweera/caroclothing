@@ -649,7 +649,7 @@ export async function deleteExpiredGuestBags(
 			} catch (err) {
 				failedCount += 1;
 				failedBagIds.push(row.id);
-				console.error(`Failed to delete expired guest bag ${row.id}:`, err);
+				console.error(`[bag] Failed to delete expired guest bag ${row.id}:`, err);
 			}
 		}
 
@@ -711,7 +711,7 @@ export async function expireDueBagCheckouts(
 			} catch (err) {
 				failedCount += 1;
 				failedBagIds.push(row.id);
-				console.error(`Failed to expire checkout for bag ${row.id}:`, err);
+				console.error(`[bag] Failed to expire checkout for bag ${row.id}:`, err);
 			}
 		}
 

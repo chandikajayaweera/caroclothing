@@ -171,7 +171,7 @@ export const actions: Actions = {
 				billingEmail: paymentSelection.billingEmail
 			});
 		} catch (error) {
-			console.error('Payment session setup failed after order placement.', {
+			console.error('[checkout] Payment session setup failed after order placement.', {
 				orderId: order.id,
 				error
 			});

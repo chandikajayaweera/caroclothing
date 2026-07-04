@@ -310,7 +310,7 @@ export async function reconcilePromoCodeUsageCounts(
 					code: row.code,
 					error: getErrorMessage(error)
 				});
-				console.error(`Failed to reconcile promo code ${row.id}:`, error);
+				console.error(`[promotions] Failed to reconcile promo code ${row.id}:`, error);
 			}
 		}
 

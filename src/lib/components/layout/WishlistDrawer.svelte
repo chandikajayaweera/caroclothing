@@ -24,7 +24,7 @@
 					wishlistItems = data.items || [];
 				}
 			} catch (err) {
-				console.error('Failed to fetch wishlist item details:', err);
+				console.error('[wishlist] Failed to fetch wishlist item details:', err);
 			} finally {
 				isLoading = false;
 			}

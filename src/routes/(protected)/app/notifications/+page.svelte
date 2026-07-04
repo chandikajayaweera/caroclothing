@@ -213,7 +213,7 @@
 				goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
 			}
 		} catch (err) {
-			console.error('Failed to cancel:', err);
+			console.error('[admin:notifications] Failed to cancel notification:', err);
 		} finally {
 			cancellationSubmitting = false;
 		}
