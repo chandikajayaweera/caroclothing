@@ -30,26 +30,26 @@
 
 ---
 
-### 6. Historical Comparison Tracking in `$effect` (Svelte 5)
-* **DON'T DO THIS**: Do not declare comparison tracking variables (e.g. `prevCount`) with `$state()` if they are read in the condition check and mutated at the end of the same `$effect` (`prevCount = count`). In Svelte 5, reading and writing a `$state` variable inside the same effect registers a self-referential dependency, triggering an infinite update loop (`effect_update_depth_exceeded`).
-* **INSTEAD DO THIS**: Use a plain, non-reactive JavaScript variable (`let prevCount = 0;`) for internal effect tracking that is not directly rendered in the UI markup.
+### 6. Non-Rendered Comparison State in Reactive Effects
+* **DON'T DO THIS**: Do not wrap internal comparison tracking variables in reactive state (`$state()`) if they are read in a condition check and mutated at the end of the same effect block. Reading and writing reactive state inside the same effect creates self-referential dependencies, triggering infinite update loops (`effect_update_depth_exceeded`).
+* **INSTEAD DO THIS**: Use plain non-reactive JavaScript variables (`let prevValue = 0`) for internal state tracking that is not directly rendered in the UI template.
 
 ---
 
-### 7. Mutating `$derived` Signals vs Mutable State Sync (Svelte 5)
-* **DON'T DO THIS**: Do not reassign or mutate `$derived(...)` signals in response to user interactions or polling callbacks (e.g. `availability = [...]`). In Svelte 5, `$derived` expressions produce read-only signals and reassigning them causes runtime errors or proxy mismatches.
-* **INSTEAD DO THIS**: Declare local mutable state with `$state<T[]>()` and sync initial/server prop updates using `$effect(() => { availability = data.availability; })`.
+### 7. Derived Signals vs Local Mutable State Synchronization
+* **DON'T DO THIS**: Do not attempt to reassign or mutate read-only derived signals (`$derived(...)`) in response to client callbacks or live updates.
+* **INSTEAD DO THIS**: Declare local mutable state with `$state()` and keep it in sync with reactive server props via an explicit `$effect(() => { localState = propValue; })`.
 
 ---
 
-### 8. Conditional DTO Hydration for Qualified Promo Codes
-* **DON'T DO THIS**: Do not return raw database foreign keys (`row.promoCodeId`) in hydrated `BagDTO` objects when promo eligibility criteria fail (e.g. `subtotal < minOrderAmount` or expired code). Returning a non-null `promoCodeId` with `discountAmount: 0` tricks the client UI into displaying the promo code as applied.
-* **INSTEAD DO THIS**: Compute an `effectivePromoCodeId` during hydration that evaluates to `null` whenever validation rules fail, ensuring DTO fields (`promoCodeId`, `promoCode`, `discountAmount`) remain strictly consistent.
+### 8. Conditional DTO Hydration for Qualified Entitlements
+* **DON'T DO THIS**: Do not blindly pass raw database foreign keys into hydrated DTOs when associated business qualifications or domain rules fail. Returning active identifiers alongside zeroed-out calculated values creates misleading state in client consumers.
+* **INSTEAD DO THIS**: Compute effective entitlement identifiers during service hydration that resolve to `null` whenever domain qualification checks fail, keeping all DTO fields strictly consistent.
 
 ---
 
-### 9. Route Error Logging Policy (`console.error` vs `AppError`)
-* **DON'T DO THIS**: Do not execute `console.error(...)` unconditionally in API route `catch` blocks for expected domain validation failures (subclasses of `AppError` with 4xx status codes like `PROMO_EXPIRED` or `MINIMUM_ORDER_VALUE_NOT_MET`). This floods server logs with stack traces for standard user validation events.
-* **INSTEAD DO THIS**: Filter route error logging with `if (!isAppError(error) || error.statusCode >= 500)` before calling `console.error`, letting `jsonFromRouteError(error)` handle expected 4xx responses cleanly.
+### 9. API Route Logging & Error Handling Boundaries
+* **DON'T DO THIS**: Do not execute `console.error(...)` unconditionally in API route `catch` blocks for expected client-facing domain validation errors (4xx status codes). Unfiltered logging creates stack trace noise for normal user validation outcomes.
+* **INSTEAD DO THIS**: Filter route logging with `if (!isAppError(error) || error.statusCode >= 500)` before invoking `console.error`, allowing standard domain errors to be handled cleanly by route error adapters.
 
 
