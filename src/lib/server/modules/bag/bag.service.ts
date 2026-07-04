@@ -1367,6 +1367,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		let discountAmount = 0;
 		const promoCodeId = row.promoCodeId;
 		let promoCodeCode: string | null = null;
+		let effectivePromoCodeId: string | null = null;
 		if (promoCodeId) {
 			const promo = promoCodesById.get(promoCodeId);
 			if (
@@ -1387,6 +1388,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 						: Math.min(rawDiscount, promo.maxDiscountAmount);
 				discountAmount = Math.min(cappedByMaxDiscount, subtotal);
 				promoCodeCode = promo.code;
+				effectivePromoCodeId = promo.id;
 			}
 		}
 
@@ -1405,7 +1407,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 			totalBeforeShipping: Math.max(0, subtotal - discountAmount),
 			hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
 			hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
-			promoCodeId: promoCodeId ?? null,
+			promoCodeId: effectivePromoCodeId,
 			promoCode: promoCodeCode,
 			freeShippingThreshold,
 			createdAt: row.createdAt,
