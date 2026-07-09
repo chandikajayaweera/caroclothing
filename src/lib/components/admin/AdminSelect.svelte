@@ -127,13 +127,13 @@
 		</Select.Trigger>
 		<Select.Portal>
 			<Select.Content
-				class="z-50 w-[var(--bits-select-anchor-width)] min-w-[var(--bits-select-anchor-width)] rounded-sm border border-ash/15 bg-charcoal p-1 shadow-xl"
+				class="z-50 w-(--bits-select-anchor-width) min-w-(--bits-select-anchor-width) rounded-sm border border-ash/15 bg-charcoal p-1 shadow-xl"
 				sideOffset={4}
 			>
 				<Select.Viewport class="max-h-60 overflow-y-auto p-1">
 					{#each optionsList as option (option.value)}
 						<Select.Item
-							class="flex h-10 w-full cursor-pointer items-center rounded-sm px-3 py-2 text-sm text-bone transition-colors outline-none select-none hover:bg-ash/10 disabled:cursor-not-allowed disabled:opacity-40 data-[highlighted]:bg-ash/10 data-[selected]:font-semibold data-[selected]:text-volt"
+							class="flex h-10 w-full cursor-pointer items-center rounded-sm px-3 py-2 text-sm text-bone transition-colors outline-none select-none hover:bg-ash/10 disabled:cursor-not-allowed disabled:opacity-40 data-highlighted:bg-ash/10 data-selected:font-semibold data-selected:text-volt"
 							value={option.value}
 							label={option.label}
 						>

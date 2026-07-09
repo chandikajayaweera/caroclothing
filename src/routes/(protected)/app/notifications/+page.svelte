@@ -451,14 +451,14 @@
 {#if detailOpen && selectedLog}
 	<button
 		type="button"
-		class="fixed inset-0 z-[90] bg-void/70 backdrop-blur-sm transition-opacity"
+		class="fixed inset-0 z-90 bg-void/70 backdrop-blur-sm transition-opacity"
 		onclick={closeDetails}
 		aria-label="Close log details"
 		transition:fade={{ duration: 150 }}
 	></button>
 
 	<div
-		class="fixed inset-y-0 right-0 z-[100] w-full max-w-2xl overflow-y-auto border-l border-charcoal bg-void p-6 shadow-2xl"
+		class="fixed inset-y-0 right-0 z-100 w-full max-w-2xl overflow-y-auto border-l border-charcoal bg-void p-6 shadow-2xl"
 		transition:scale={{ duration: 150, start: 0.98, opacity: 0 }}
 	>
 		<!-- Detail view header -->
@@ -494,17 +494,17 @@
 							class="space-y-1 border-b border-charcoal bg-charcoal/30 px-4 py-2 font-mono text-[10px] text-ash/80"
 						>
 							<div class="flex gap-2">
-								<span class="min-w-[50px] text-ash/40">Subject:</span>
+								<span class="min-w-12.5 text-ash/40">Subject:</span>
 								<span class="font-medium text-bone"
 									>{getEmailSubject(selectedLog.type, selectedLog.payload)}</span
 								>
 							</div>
 							<div class="flex gap-2">
-								<span class="min-w-[50px] text-ash/40">From:</span>
+								<span class="min-w-12.5 text-ash/40">From:</span>
 								<span class="text-ash">no-reply@caroclothing.lk</span>
 							</div>
 							<div class="flex gap-2">
-								<span class="min-w-[50px] text-ash/40">To:</span>
+								<span class="min-w-12.5 text-ash/40">To:</span>
 								<span class="text-bone">{selectedLog.recipient}</span>
 							</div>
 						</div>

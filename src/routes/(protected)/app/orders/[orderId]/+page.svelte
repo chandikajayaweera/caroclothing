@@ -300,7 +300,7 @@
 							<div class="flex items-center gap-4 p-5 transition-colors hover:bg-charcoal/20">
 								<!-- Thumbnail image -->
 								<div
-									class="flex h-16 w-12 flex-shrink-0 items-center justify-center overflow-hidden border border-charcoal bg-void"
+									class="flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden border border-charcoal bg-void"
 								>
 									{#if item.imageUrl}
 										<img
@@ -314,7 +314,7 @@
 								</div>
 
 								<!-- Details info -->
-								<div class="flex-grow">
+								<div class="grow">
 									<p class="font-sans text-sm font-semibold text-bone">{item.productName}</p>
 									<p class="mt-1 font-mono text-[10px] text-ash/80 uppercase">
 										Size: <span class="text-bone">{item.variantSize}</span> &bull; Colour:
@@ -441,7 +441,7 @@
 														Refund Amount (LKR)
 													</h3>
 													<div class="flex gap-2">
-														<div class="relative flex-grow">
+														<div class="relative grow">
 															<input
 																name="refundAmount"
 																type="number"
@@ -503,7 +503,7 @@
 								<div class="relative">
 									<!-- Dot marker -->
 									<span
-										class="absolute top-1.5 -left-[31px] flex h-4.5 w-4.5 items-center justify-center rounded-full border border-charcoal bg-void text-volt"
+										class="absolute top-1.5 -left-7.75 flex h-4.5 w-4.5 items-center justify-center rounded-full border border-charcoal bg-void text-volt"
 									>
 										<span class="h-1.5 w-1.5 rounded-full bg-volt"></span>
 									</span>

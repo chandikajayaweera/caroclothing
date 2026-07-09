@@ -57,7 +57,7 @@
 				<!-- Diagonal cross line for sold out -->
 				{#if isSoldOut}
 					<span
-						class="absolute inset-0 block h-full w-full after:absolute after:top-0 after:bottom-0 after:left-[47%] after:h-full after:w-[1px] after:rotate-[35deg] after:bg-ash/20"
+						class="absolute inset-0 block h-full w-full after:absolute after:top-0 after:bottom-0 after:left-[47%] after:h-full after:w-px after:rotate-35 after:bg-ash/20"
 					></span>
 				{/if}
 

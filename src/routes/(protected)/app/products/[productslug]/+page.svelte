@@ -152,7 +152,7 @@
 
 			<aside class="grid gap-4 xl:sticky xl:top-8 xl:self-start">
 				<div class="border border-charcoal bg-charcoal">
-					<div class="aspect-[4/5] w-full bg-charcoal"></div>
+					<div class="aspect-4/5 w-full bg-charcoal"></div>
 					<div class="p-5">
 						<div class="mb-3 h-3 w-16 rounded bg-charcoal"></div>
 						<div class="grid grid-cols-3 gap-3 text-center">
@@ -379,7 +379,7 @@
 										<img
 											src={image.imageUrl}
 											alt={image.altText ?? ''}
-											class="aspect-[4/5] w-full object-cover"
+											class="aspect-4/5 w-full object-cover"
 										/>
 										{#if image.isPrimary}
 											<span
@@ -426,10 +426,10 @@
 						<img
 							src={primaryImage.imageUrl}
 							alt={primaryImage.altText ?? ''}
-							class="aspect-[4/5] w-full object-cover"
+							class="aspect-4/5 w-full object-cover"
 						/>
 					{:else}
-						<div class="grid aspect-[4/5] place-items-center bg-void text-ash">
+						<div class="grid aspect-4/5 place-items-center bg-void text-ash">
 							<ImageOff size={28} aria-hidden="true" />
 						</div>
 					{/if}

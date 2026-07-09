@@ -68,14 +68,14 @@
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 			<a
 				href={resolve('/app/products/new')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:translate-y-[-1px] hover:border-volt/60 hover:bg-charcoal/25"
+				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:-translate-y-px hover:border-volt/60 hover:bg-charcoal/25"
 			>
 				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">New Product</span>
 				<Plus size={14} class="text-volt" />
 			</a>
 			<a
 				href={resolve('/app/orders?status=pending')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:translate-y-[-1px] hover:border-volt/60 hover:bg-charcoal/25"
+				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:-translate-y-px hover:border-volt/60 hover:bg-charcoal/25"
 			>
 				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">Pending Orders</span
 				>
@@ -83,7 +83,7 @@
 			</a>
 			<a
 				href={resolve('/app/inventory?stockStatus=low')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:translate-y-[-1px] hover:border-volt/60 hover:bg-charcoal/25"
+				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:-translate-y-px hover:border-volt/60 hover:bg-charcoal/25"
 			>
 				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">Low Stock List</span
 				>
@@ -115,7 +115,7 @@
 				</div>
 			</div>
 			<div
-				class="absolute inset-x-0 bottom-0 h-[2px] bg-charcoal transition-colors group-hover:bg-volt"
+				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
 			></div>
 		</div>
 
@@ -140,7 +140,7 @@
 				</div>
 			</div>
 			<div
-				class="absolute inset-x-0 bottom-0 h-[2px] bg-charcoal transition-colors group-hover:bg-volt"
+				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
 			></div>
 		</div>
 
@@ -165,7 +165,7 @@
 				</div>
 			</div>
 			<div
-				class="absolute inset-x-0 bottom-0 h-[2px] bg-charcoal transition-colors group-hover:bg-volt"
+				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
 			></div>
 		</div>
 
@@ -190,7 +190,7 @@
 				</div>
 			</div>
 			<div
-				class="absolute inset-x-0 bottom-0 h-[2px] bg-charcoal transition-colors group-hover:bg-volt"
+				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
 			></div>
 		</div>
 	</div>
@@ -279,7 +279,7 @@
 
 			{#if data.recentOrders && data.recentOrders.length > 0}
 				<div class="overflow-x-auto">
-					<table class="w-full min-w-[600px] text-left">
+					<table class="w-full min-w-150 text-left">
 						<thead class="border-b border-charcoal">
 							<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
 								<th class="px-5 py-4 font-normal">Order</th>
@@ -301,7 +301,7 @@
 											>
 												#{order.orderNumber}
 											</a>
-											<span class="max-w-[200px] truncate font-mono text-[9px] text-ash/70">
+											<span class="min-w-50 truncate font-mono text-[9px] text-ash/70">
 												{order.shippingAddressSnapshot?.recipientName ?? 'Guest'}
 												{#if order.shippingAddressSnapshot?.phone}
 													({order.shippingAddressSnapshot.phone})

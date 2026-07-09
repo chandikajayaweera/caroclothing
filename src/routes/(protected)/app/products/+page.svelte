@@ -430,7 +430,7 @@
 							>
 								{product.name}
 							</a>
-							<p class="mt-1 max-w-[220px] truncate font-mono text-[10px] text-ash">
+							<p class="mt-1 max-w-55 truncate font-mono text-[10px] text-ash">
 								{product.slug}
 							</p>
 						</div>

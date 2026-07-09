@@ -324,7 +324,7 @@
 			<td class="px-5 py-4 font-mono text-[11px]">
 				<a
 					href={resolve(`/app/orders?query=${payment.orderId}`)}
-					class="inline-flex max-w-[120px] items-center gap-1 truncate text-volt hover:underline"
+					class="inline-flex max-w-30 items-center gap-1 truncate text-volt hover:underline"
 				>
 					{payment.orderId.substring(0, 8)}
 					<ArrowUpRight size={10} />
@@ -402,7 +402,7 @@
 			<div class="flex items-start justify-between">
 				<div>
 					<p class="font-mono text-[8px] tracking-[0.08em] text-ash uppercase">Payment ID</p>
-					<p class="max-w-[150px] truncate font-mono text-xs text-bone/60">{payment.id}</p>
+					<p class="max-w-37.5 truncate font-mono text-xs text-bone/60">{payment.id}</p>
 				</div>
 				<div class="flex flex-col items-end gap-1">
 					<span
@@ -549,13 +549,13 @@
 							<div class="grid grid-cols-1 gap-6 md:grid-cols-[1fr_220px]">
 								<!-- Left: Slip Image -->
 								<div
-									class="flex min-h-[300px] items-center justify-center border border-charcoal bg-void p-2"
+									class="flex min-h-75 items-center justify-center border border-charcoal bg-void p-2"
 								>
 									{#if selectedPayment!.bankSlipR2Key}
 										<img
 											src="/media/{selectedPayment!.bankSlipR2Key}"
 											alt="Uploaded bank slip"
-											class="max-h-[400px] max-w-full object-contain"
+											class="max-h-100 max-w-full object-contain"
 										/>
 									{:else}
 										<span class="font-mono text-xs text-ash/40">No slip image uploaded</span>

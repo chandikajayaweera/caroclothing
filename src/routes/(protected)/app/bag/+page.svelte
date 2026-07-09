@@ -351,7 +351,7 @@
 			<!-- Identity Identifier -->
 			<td class="px-5 py-4">
 				<span
-					class="block max-w-[200px] truncate font-mono text-xs text-bone"
+					class="block min-w-50 truncate font-mono text-xs text-bone"
 					title={bag.userId ?? bag.sessionToken ?? bag.id}
 				>
 					{bag.userId ?? bag.sessionToken ?? bag.id}
@@ -423,14 +423,14 @@
 {#if detailOpen && selectedBag}
 	<button
 		type="button"
-		class="fixed inset-0 z-[90] bg-void/70 backdrop-blur-sm transition-opacity"
+		class="fixed inset-0 z-90 bg-void/70 backdrop-blur-sm transition-opacity"
 		onclick={closeDetails}
 		aria-label="Close bag details"
 		transition:fade={{ duration: 150 }}
 	></button>
 
 	<div
-		class="fixed inset-y-0 right-0 z-[100] w-full max-w-2xl overflow-y-auto border-l border-charcoal bg-void p-6 shadow-2xl"
+		class="fixed inset-y-0 right-0 z-100 w-full max-w-2xl overflow-y-auto border-l border-charcoal bg-void p-6 shadow-2xl"
 		transition:scale={{ duration: 150, start: 0.98, opacity: 0 }}
 	>
 		<!-- Detail view header -->

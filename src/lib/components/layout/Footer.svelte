@@ -42,7 +42,7 @@
 			<!-- Col 1 -->
 			<div class="md:col-span-2 lg:col-span-1">
 				<span class="mb-6 block font-display text-4xl tracking-[0.2em] text-bone">CARO</span>
-				<p class="mb-6 max-w-[200px] font-display text-4xl leading-tight text-bone">{tagline}</p>
+				<p class="mb-6 min-w-50 font-display text-4xl leading-tight text-bone">{tagline}</p>
 				<div class="flex gap-4">
 					{#each social as item (item.href)}
 						<button

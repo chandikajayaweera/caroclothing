@@ -542,7 +542,7 @@
 							size="icon"
 							onclick={(e) => toggleDropdown(userRow.id, e)}
 							title="More actions"
-							class="flex h-[28px] w-[28px] items-center justify-center border border-ash/20 bg-charcoal p-0 text-ash transition-all hover:border-ash/50 hover:text-bone"
+							class="flex h-7 w-7 items-center justify-center border border-ash/20 bg-charcoal p-0 text-ash transition-all hover:border-ash/50 hover:text-bone"
 						>
 							<span class="sr-only">More actions</span>
 							<svg
@@ -728,7 +728,7 @@
 						size="icon"
 						onclick={(e) => toggleDropdown(userRow.id, e)}
 						title="More actions"
-						class="flex h-[28px] w-[28px] items-center justify-center border border-ash/20 bg-charcoal p-0 text-ash transition-all hover:border-ash/50 hover:text-bone"
+						class="flex h-7 w-7 items-center justify-center border border-ash/20 bg-charcoal p-0 text-ash transition-all hover:border-ash/50 hover:text-bone"
 					>
 						<span class="sr-only">More actions</span>
 						<svg
@@ -905,9 +905,7 @@
 
 								<div class="mt-6 flex flex-col gap-6">
 									<!-- Info Grid -->
-									<div
-										class="grid grid-cols-2 gap-4 rounded-[2px] border border-ash/5 bg-void/50 p-4"
-									>
+									<div class="grid grid-cols-2 gap-4 rounded-xs border border-ash/5 bg-void/50 p-4">
 										<div class="font-mono text-[10px] text-ash uppercase">
 											<span>User ID:</span>
 											<p class="mt-1 font-mono text-xs font-semibold text-bone select-all">
@@ -952,7 +950,7 @@
 
 									<!-- Last Active Details -->
 									{#if selectedUser.lastActiveAt}
-										<div class="rounded-[2px] border border-ash/5 bg-void/35 p-4">
+										<div class="rounded-xs border border-ash/5 bg-void/35 p-4">
 											<h3
 												class="flex items-center gap-1.5 border-b border-ash/10 pb-1.5 font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
 											>
@@ -973,7 +971,9 @@
 												</div>
 												<div class="col-span-2 font-mono text-[10px] text-ash uppercase">
 													<span>Device / User Agent:</span>
-													<p class="mt-1 font-sans text-xs leading-normal break-words text-ash/90">
+													<p
+														class="mt-1 font-sans text-xs leading-normal wrap-break-word text-ash/90"
+													>
 														{selectedUser.lastActiveUserAgent || 'Unknown'}
 													</p>
 												</div>
@@ -992,7 +992,7 @@
 											{#if selectedUser.authMethods && selectedUser.authMethods.length > 0}
 												{#each selectedUser.authMethods as method (`${method.type}-${method.label}`)}
 													<div
-														class="flex items-center justify-between rounded-[2px] border border-ash/5 bg-void/35 p-3"
+														class="flex items-center justify-between rounded-xs border border-ash/5 bg-void/35 p-3"
 													>
 														<div>
 															<span class="font-mono text-xs font-semibold text-bone uppercase"
@@ -1016,7 +1016,7 @@
 											<!-- Google Temp Email Repair Action -->
 											{#if selectedUser.hasInternalEmail && selectedUser.authMethods?.some((m) => m.type === 'google')}
 												<div
-													class="mt-2 flex items-center justify-between rounded-[2px] border border-volt/20 bg-volt/5 p-4"
+													class="mt-2 flex items-center justify-between rounded-xs border border-volt/20 bg-volt/5 p-4"
 												>
 													<div class="min-w-0 pr-4">
 														<span class="font-mono text-xs font-semibold text-volt"
@@ -1078,11 +1078,11 @@
 											{/if}
 										</div>
 
-										<div class="mt-3 flex max-h-[220px] flex-col gap-2 overflow-y-auto pr-1">
+										<div class="mt-3 flex max-h-55 flex-col gap-2 overflow-y-auto pr-1">
 											{#if data.selectedUserSessions && data.selectedUserSessions.length > 0}
 												{#each data.selectedUserSessions as session (session.id)}
 													<div
-														class="flex items-center justify-between rounded-[2px] border border-ash/5 bg-void/35 p-3 transition-colors hover:border-ash/10"
+														class="flex items-center justify-between rounded-xs border border-ash/5 bg-void/35 p-3 transition-colors hover:border-ash/10"
 													>
 														<div class="min-w-0 pr-4">
 															<div class="flex items-center gap-2">
@@ -1135,9 +1135,9 @@
 									<div class="border-t border-ash/10 pt-5">
 										{#if selectedUser.isBanned}
 											<!-- Suspended User Card -->
-											<div class="rounded-[2px] border border-red-500/20 bg-red-500/5 p-4">
+											<div class="rounded-xs border border-red-500/20 bg-red-500/5 p-4">
 												<div class="flex items-start gap-3">
-													<AlertTriangle class="mt-0.5 flex-shrink-0 text-red-400" size={18} />
+													<AlertTriangle class="mt-0.5 shrink-0 text-red-400" size={18} />
 													<div>
 														<h4 class="font-mono text-xs font-semibold text-red-400 uppercase">
 															Account Suspended
@@ -1174,7 +1174,7 @@
 												method="POST"
 												action="?/ban"
 												use:banEnhance
-												class="flex flex-col gap-4 rounded-[2px] border border-ash/10 bg-void/10 p-4"
+												class="flex flex-col gap-4 rounded-xs border border-ash/10 bg-void/10 p-4"
 											>
 												<h4
 													class="font-mono text-xs font-semibold tracking-wider text-ash uppercase"
@@ -1192,7 +1192,7 @@
 														name="reason"
 														bind:value={$banForm.reason}
 														placeholder="Internal reason or policy violation details..."
-														class="min-h-[70px] w-full border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+														class="min-h-17.5 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 													></textarea>
 													{#if $banErrors.reason}
 														<span class="mt-0.5 font-sans text-xs text-red-400">
@@ -1267,14 +1267,14 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-sm"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-0 z-[101] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
 				<Dialog.Content
-					class="w-full max-w-md rounded-[2px] border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
+					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
 				>
 					{#snippet child({ props })}
 						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
@@ -1292,7 +1292,7 @@
 							</div>
 
 							<div
-								class="space-y-1 rounded-[2px] border border-ash/10 bg-void/50 p-4 font-mono text-[10px]"
+								class="space-y-1 rounded-xs border border-ash/10 bg-void/50 p-4 font-mono text-[10px]"
 							>
 								<div>
 									<span class="text-ash uppercase">User:</span>
@@ -1346,14 +1346,14 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-sm"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-0 z-[101] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
 				<Dialog.Content
-					class="w-full max-w-lg rounded-[2px] border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
+					class="w-full max-w-lg rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
 				>
 					{#snippet child({ props })}
 						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
@@ -1380,7 +1380,7 @@
 										name="reason"
 										bind:value={$banForm.reason}
 										placeholder="Internal reason or policy violation details..."
-										class="min-h-[70px] w-full border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+										class="min-h-17.5 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 									></textarea>
 									{#if $banErrors.reason}
 										<span class="mt-0.5 font-sans text-xs text-red-400">
@@ -1448,14 +1448,14 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-sm"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-0 z-[101] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
 				<Dialog.Content
-					class="w-full max-w-md rounded-[2px] border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
+					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
 				>
 					{#snippet child({ props })}
 						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
@@ -1505,14 +1505,14 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-sm"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-0 z-[101] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
 				<Dialog.Content
-					class="w-full max-w-md rounded-[2px] border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
+					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
 				>
 					{#snippet child({ props })}
 						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">

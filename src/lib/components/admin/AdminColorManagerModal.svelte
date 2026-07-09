@@ -129,11 +129,11 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-xs"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-xs"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
-			<div class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-100 flex items-center justify-center p-4">
 				<Dialog.Content>
 					{#snippet child({ props })}
 						<div

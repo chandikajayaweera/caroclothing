@@ -207,8 +207,8 @@
 													>
 														<DatePicker.Day
 															class="flex h-full w-full cursor-pointer items-center justify-center font-mono text-xs text-bone transition-colors hover:bg-ash/10 hover:text-volt focus:outline-none focus-visible:ring-1 focus-visible:ring-volt
-															data-[disabled]:pointer-events-none data-[disabled]:text-ash/20 data-[outside-month]:text-ash/30
-															data-[selected]:bg-volt data-[selected]:font-bold data-[selected]:text-void"
+															data-disabled:pointer-events-none data-disabled:text-ash/20 data-outside-month:text-ash/30
+															data-selected:bg-volt data-selected:font-bold data-selected:text-void"
 														/>
 													</DatePicker.Cell>
 												{/each}

@@ -154,8 +154,7 @@
 				</div>
 				<div class="flex justify-between">
 					<span class="text-ash/50">Slug:</span>
-					<span class="max-w-[180px] truncate text-bone" title={category.slug}>{category.slug}</span
-					>
+					<span class="max-w-45 truncate text-bone" title={category.slug}>{category.slug}</span>
 				</div>
 				<div class="flex justify-between font-mono">
 					<span class="text-ash/50">Parent:</span>
@@ -163,10 +162,7 @@
 						{#await data.streamed.parentCategoryName}
 							<span class="text-ash/40">Loading parent...</span>
 						{:then parentName}
-							<span
-								class="max-w-[150px] truncate text-volt"
-								title={parentName || 'Parent Category'}
-							>
+							<span class="max-w-37.5 truncate text-volt" title={parentName || 'Parent Category'}>
 								{parentName || 'Parent Category'}
 							</span>
 						{/await}
@@ -216,7 +212,7 @@
 				</p>
 
 				{#if products.length > 0}
-					<div class="mt-4 grid max-h-[480px] gap-3 overflow-y-auto pr-1">
+					<div class="mt-4 grid max-h-120 gap-3 overflow-y-auto pr-1">
 						{#each products as product (product.id)}
 							<div class="flex flex-col justify-between gap-3 border border-charcoal bg-void p-3">
 								<div class="flex items-center gap-3">

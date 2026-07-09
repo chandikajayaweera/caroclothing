@@ -15,7 +15,7 @@
 		<div class="relative flex items-start gap-4 pb-8 last:pb-0">
 			<!-- Connecting line -->
 			{#if i < steps.length - 1}
-				<div class="absolute top-4 left-[5.5px] h-full w-[1px] bg-charcoal">
+				<div class="absolute top-4 left-[5.5px] h-full w-px bg-charcoal">
 					<div
 						class="w-full bg-volt transition-all duration-500"
 						style="height: {step.done && steps[i + 1].done ? '100%' : '0%'}"
@@ -25,7 +25,7 @@
 
 			<!-- Dot -->
 			<div
-				class="z-10 mt-0.5 h-3 w-3 flex-shrink-0 rounded-full transition-all duration-300
+				class="z-10 mt-0.5 h-3 w-3 shrink-0 rounded-full transition-all duration-300
         {step.done
 					? 'bg-volt'
 					: i === currentStepIndex + 1

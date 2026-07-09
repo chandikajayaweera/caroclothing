@@ -1442,7 +1442,7 @@
 			{/if}
 
 			{#if snapshotImages.length > 0}
-				<div class="scrollbar-thin flex gap-2 overflow-x-auto border-b border-ash/15 bg-void p-3">
+				<div class="flex scrollbar-thin gap-2 overflow-x-auto border-b border-ash/15 bg-void p-3">
 					{#each snapshotImages as img (img.id)}
 						<button
 							type="button"

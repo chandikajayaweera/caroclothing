@@ -259,7 +259,7 @@
 										side="right"
 										align="center"
 										sideOffset={12}
-										class="z-[100] border border-charcoal bg-void px-3 py-1.5 font-mono text-[9px] tracking-widest text-bone uppercase shadow-lg shadow-black/40"
+										class="z-100 border border-charcoal bg-void px-3 py-1.5 font-mono text-[9px] tracking-widest text-bone uppercase shadow-lg shadow-black/40"
 									>
 										{#snippet child({ props })}
 											<div {...props}>

@@ -33,7 +33,7 @@
 		class="hero-image absolute inset-0 h-full w-full object-cover object-top"
 	/>
 
-	<div class="absolute inset-0 bg-gradient-to-t from-void via-void/40 to-transparent"></div>
+	<div class="absolute inset-0 bg-linear-to-t from-void via-void/40 to-transparent"></div>
 
 	<div class="relative z-10 px-5 pb-10 md:px-10 md:pb-16 lg:px-16 lg:pb-20">
 		<span class="mb-4 block font-mono text-[10px] tracking-[0.2em] text-volt uppercase">

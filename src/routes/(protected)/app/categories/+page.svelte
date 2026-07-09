@@ -339,7 +339,7 @@
 							>
 								{category.name}
 							</a>
-							<p class="mt-1 max-w-[220px] truncate font-mono text-[10px] text-ash">
+							<p class="mt-1 max-w-55 truncate font-mono text-[10px] text-ash">
 								{category.slug}
 							</p>
 						</div>
@@ -360,7 +360,7 @@
 						{category.isActive ? 'Active' : 'Inactive'}
 					</span>
 				</td>
-				<td class="max-w-[250px] truncate px-5 py-4 font-sans text-xs text-ash/85">
+				<td class="max-w-62.5 truncate px-5 py-4 font-sans text-xs text-ash/85">
 					{category.description || 'No description'}
 				</td>
 				<td class="px-5 py-4">

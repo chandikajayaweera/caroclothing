@@ -542,7 +542,7 @@
 							</span>
 							{#if code.description}
 								<span
-									class="max-w-[200px] truncate font-sans text-xs text-ash/80"
+									class="min-w-50 truncate font-sans text-xs text-ash/80"
 									title={code.description}
 								>
 									{code.description}
@@ -777,7 +777,7 @@
 						</div>
 						<div>
 							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Customer ID</p>
-							<p class="mt-0.5 max-w-[120px] truncate font-medium text-bone">
+							<p class="mt-0.5 max-w-30 truncate font-medium text-bone">
 								{usage.userId ?? 'Guest User'}
 							</p>
 						</div>
@@ -1196,14 +1196,14 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-sm"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-0 z-[101] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
 				<Dialog.Content
-					class="w-full max-w-md rounded-[2px] border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
+					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
 				>
 					{#snippet child({ props })}
 						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">

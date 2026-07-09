@@ -13,7 +13,7 @@
 {#if $uiStore.bagDrawerOpen}
 	<!-- Backdrop -->
 	<div
-		class="fixed inset-0 z-[54] hidden bg-void/50 md:block"
+		class="fixed inset-0 z-54 hidden bg-void/50 md:block"
 		transition:fade={{ duration: 250 }}
 		onclick={closeBagDrawer}
 		onkeydown={(e) => e.key === 'Escape' && closeBagDrawer()}
@@ -24,7 +24,7 @@
 
 	<!-- Drawer -->
 	<div
-		class="fixed top-0 right-0 z-[55] hidden h-full w-[420px] flex-col border-l border-charcoal bg-void md:flex"
+		class="fixed top-0 right-0 z-55 hidden h-full w-[420px] flex-col border-l border-charcoal bg-void md:flex"
 		transition:fly={{ x: 420, duration: 250 }}
 	>
 		<!-- Header -->

@@ -322,7 +322,9 @@
 							{/if}
 						</div>
 						<p class="mt-3 text-sm font-medium text-bone">{address.recipientName}</p>
-						<p class="mt-1 text-sm leading-relaxed break-words text-ash">{address.singleLine}</p>
+						<p class="mt-1 text-sm leading-relaxed wrap-break-word text-ash">
+							{address.singleLine}
+						</p>
 						<p class="mt-2 font-mono text-[10px] text-ash">{address.phone}</p>
 					</div>
 				</div>

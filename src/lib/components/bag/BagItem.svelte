@@ -42,10 +42,10 @@
 		<img
 			src={item.imageUrl}
 			alt={item.productName ?? 'Product'}
-			class="h-20 w-16 flex-shrink-0 object-cover"
+			class="h-20 w-16 shrink-0 object-cover"
 		/>
 	{:else}
-		<div class="h-20 w-16 flex-shrink-0 bg-charcoal"></div>
+		<div class="h-20 w-16 shrink-0 bg-charcoal"></div>
 	{/if}
 	<div class="flex min-w-0 flex-1 flex-col">
 		<div class="flex items-start justify-between">

@@ -47,10 +47,7 @@
 
 			<!-- Error Card -->
 			<div class="space-y-6">
-				<div
-					class="rounded-[2px] border border-red-500/20 bg-red-500/5 p-6 text-center"
-					role="alert"
-				>
+				<div class="rounded-xs border border-red-500/20 bg-red-500/5 p-6 text-center" role="alert">
 					<div class="mb-4 flex justify-center text-red-500">
 						<AlertTriangle size={36} />
 					</div>

@@ -618,7 +618,7 @@
 	{#snippet row(item: InventoryItem)}
 		<tr class="hover:bg-charcoal/10">
 			<!-- Product Info -->
-			<td class="min-w-[220px] px-5 py-3.5">
+			<td class="min-w-55 px-5 py-3.5">
 				<p class="truncate font-mono text-xs font-bold text-bone uppercase">
 					{item.product.name}
 				</p>
@@ -768,7 +768,7 @@
 									>Variant detail</span
 								>
 								<h2
-									class="mt-1 max-w-[280px] truncate font-display text-2xl leading-none text-bone uppercase"
+									class="mt-1 max-w-70 truncate font-display text-2xl leading-none text-bone uppercase"
 								>
 									{detail.product.name}
 								</h2>
@@ -1136,7 +1136,7 @@
 													<div class="relative min-w-0">
 														<!-- Dot icon -->
 														<span
-															class="absolute top-1.5 -left-[21px] h-2.5 w-2.5 rounded-full border {getMovementDotClass(
+															class="absolute top-1.5 -left-5.25 h-2.5 w-2.5 rounded-full border {getMovementDotClass(
 																move
 															)}"
 														></span>

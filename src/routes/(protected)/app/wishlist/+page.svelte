@@ -370,9 +370,7 @@
 								<p class="font-sans text-xs leading-tight font-semibold text-bone">
 									{user.name || 'Anonymous User'}
 								</p>
-								<p
-									class="mt-0.5 max-w-[200px] truncate font-mono text-[9px] tracking-wider text-ash"
-								>
+								<p class="mt-0.5 min-w-50 truncate font-mono text-[9px] tracking-wider text-ash">
 									{user.email || user.phoneNumber || user.id}
 								</p>
 							</div>

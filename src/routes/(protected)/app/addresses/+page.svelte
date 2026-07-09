@@ -272,9 +272,9 @@
 					</div>
 				</td>
 				<td class="px-5 py-4 font-mono text-[10px] text-ash">
-					<p class="max-w-[200px] truncate" title={addr.addressLine1}>{addr.addressLine1}</p>
+					<p class="min-w-50 truncate" title={addr.addressLine1}>{addr.addressLine1}</p>
 					{#if addr.addressLine2}
-						<p class="max-w-[200px] truncate text-ash/70" title={addr.addressLine2}>
+						<p class="min-w-50 truncate text-ash/70" title={addr.addressLine2}>
 							{addr.addressLine2}
 						</p>
 					{/if}
@@ -401,9 +401,7 @@
 
 								<div class="mt-6 flex flex-col gap-6">
 									<!-- Info Grid -->
-									<div
-										class="grid grid-cols-2 gap-4 rounded-[2px] border border-ash/5 bg-void/50 p-4"
-									>
+									<div class="grid grid-cols-2 gap-4 rounded-xs border border-ash/5 bg-void/50 p-4">
 										<div class="font-mono text-[10px] text-ash uppercase">
 											<span>Address ID:</span>
 											<p class="mt-1 font-mono text-xs font-semibold text-bone select-all">
@@ -440,7 +438,7 @@
 									</div>
 
 									<!-- Address Snapshot Card -->
-									<div class="rounded-[2px] border border-ash/5 bg-void/35 p-4">
+									<div class="rounded-xs border border-ash/5 bg-void/35 p-4">
 										<h3
 											class="flex items-center gap-1.5 border-b border-ash/10 pb-1.5 font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
 										>
@@ -481,9 +479,7 @@
 									</div>
 
 									<!-- Metadata Timestamps -->
-									<div
-										class="grid grid-cols-2 gap-4 rounded-[2px] border border-ash/5 bg-void/25 p-4"
-									>
+									<div class="grid grid-cols-2 gap-4 rounded-xs border border-ash/5 bg-void/25 p-4">
 										<div class="font-mono text-[10px] text-ash uppercase">
 											<span class="flex items-center gap-1"><Calendar size={11} /> Created At</span>
 											<p class="mt-1 text-xs text-bone">{formatDate(selected.createdAt)}</p>

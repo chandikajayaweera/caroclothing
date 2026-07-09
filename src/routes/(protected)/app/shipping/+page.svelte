@@ -441,7 +441,7 @@
 							<span class="font-mono text-xs font-semibold text-bone uppercase">{method.name}</span>
 							{#if method.description}
 								<span
-									class="max-w-[240px] truncate font-sans text-xs text-ash/80"
+									class="max-w-60 truncate font-sans text-xs text-ash/80"
 									title={method.description}
 								>
 									{method.description}
@@ -1030,7 +1030,7 @@
 				name="description"
 				bind:value={$createForm.description}
 				placeholder="Displayed to customers at checkout..."
-				class="min-h-[80px] w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 			></textarea>
 			{#if $createErrors.description}
 				<span class="mt-0.5 font-sans text-xs text-red-400">
@@ -1159,7 +1159,7 @@
 				name="description"
 				bind:value={$updateForm.description}
 				placeholder="Displayed to customers at checkout..."
-				class="min-h-[80px] w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 			></textarea>
 			{#if $updateErrors.description}
 				<span class="mt-0.5 font-sans text-xs text-red-400">
@@ -1424,7 +1424,7 @@
 				name="notes"
 				bind:value={$createCarrierFormState.notes}
 				placeholder="Internal operational notes or support contact details..."
-				class="min-h-[80px] w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 			></textarea>
 			{#if $createCarrierErrors.notes}
 				<span class="mt-0.5 font-sans text-xs text-red-400">
@@ -1505,7 +1505,7 @@
 				name="notes"
 				bind:value={$updateCarrierFormState.notes}
 				placeholder="..."
-				class="min-h-[80px] w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
 			></textarea>
 			{#if $updateCarrierErrors.notes}
 				<span class="mt-0.5 font-sans text-xs text-red-400">

@@ -495,7 +495,7 @@
 					>
 						{order.orderNumber}
 					</a>
-					<span class="max-w-[240px] truncate font-mono text-[10px] text-ash">
+					<span class="max-w-60 truncate font-mono text-[10px] text-ash">
 						{order.userId ?? 'Guest order'}
 					</span>
 				</div>
@@ -574,7 +574,7 @@
 						>
 							{order.orderNumber}
 						</a>
-						<p class="mt-0.5 max-w-[200px] truncate font-mono text-[10px] text-ash">
+						<p class="mt-0.5 min-w-50 truncate font-mono text-[10px] text-ash">
 							{order.userId ?? 'Guest order'}
 						</p>
 					</div>
@@ -1016,14 +1016,14 @@
 					<div
 						{...props}
 						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-[100] bg-void/85 backdrop-blur-sm"
+						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
 					></div>
 				{/snippet}
 			</Dialog.Overlay>
 
-			<div class="fixed inset-0 z-[101] flex items-center justify-center p-4">
+			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
 				<Dialog.Content
-					class="w-full max-w-md rounded-[2px] border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
+					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
 				>
 					{#snippet child({ props })}
 						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">

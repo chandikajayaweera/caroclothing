@@ -85,7 +85,7 @@
 {#if visible && message}
 	<!-- Backdrop anchor: fixed bottom-right desktop, bottom-center mobile -->
 	<div
-		class="fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 sm:right-5 sm:bottom-5 sm:left-auto sm:translate-x-0"
+		class="fixed bottom-4 left-1/2 z-100 -translate-x-1/2 sm:right-5 sm:bottom-5 sm:left-auto sm:translate-x-0"
 		role="status"
 		aria-live="polite"
 		aria-atomic="true"
@@ -101,7 +101,7 @@
 			"
 		>
 			<!-- Prefix icon -->
-			<span class="mt-[1px] shrink-0 {variantClasses.iconClass}">
+			<span class="mt-px shrink-0 {variantClasses.iconClass}">
 				<ToastIcon size={15} strokeWidth={2} />
 			</span>
 
