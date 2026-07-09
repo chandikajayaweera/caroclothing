@@ -3,7 +3,6 @@ import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from '$lib/server/infrastructure
 import {
 	GENDER_TIERS,
 	SIZE_TIERS,
-	insertCategorySchema,
 	insertProductImageSchema,
 	insertProductSchema,
 	insertProductVariantSchema,
@@ -118,11 +117,20 @@ const formBooleanSchema = z.preprocess((val) => {
 	return undefined;
 }, z.boolean().optional());
 
-export const updateCategoryFormSchema = updateCategorySchema.omit({ imageR2Key: true }).extend({
-	parentId: nullableIdFormSchema,
-	image: optionalImageFileSchema,
-	removeImage: formBooleanSchema
-});
+export const updateCategoryFormSchema = updateCategorySchema
+	.omit({
+		imageR2Key: true,
+		imageMimeType: true,
+		imageByteSize: true,
+		imageOriginalFilename: true,
+		imageWidth: true,
+		imageHeight: true
+	})
+	.extend({
+		parentId: nullableIdFormSchema,
+		image: optionalImageFileSchema,
+		removeImage: formBooleanSchema
+	});
 
 export const updateCategoryActionFormSchema = updateCategoryFormSchema.extend({
 	categoryId: idSchema
@@ -233,10 +241,19 @@ export const deleteProductVariantFormSchema = z.object({
 	variantId: idSchema
 });
 
-export const addProductImageFormSchema = insertProductImageSchema.omit({ r2Key: true }).extend({
-	variantId: nullableIdFormSchema,
-	image: imageFileSchema
-});
+export const addProductImageFormSchema = insertProductImageSchema
+	.omit({
+		r2Key: true,
+		mimeType: true,
+		byteSize: true,
+		originalFilename: true,
+		width: true,
+		height: true
+	})
+	.extend({
+		variantId: nullableIdFormSchema,
+		image: imageFileSchema
+	});
 
 export const setPrimaryProductImageFormSchema = z.object({
 	imageId: idSchema

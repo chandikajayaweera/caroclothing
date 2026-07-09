@@ -12,7 +12,6 @@ import type { NotificationQueueMessage } from './lib/server/modules/notification
 
 type PlatformEnv = Cloudflare.Env & {
 	MEDIA: R2Bucket;
-	IMAGES: ImagesBinding;
 	OTP_COOLDOWNS: KVNamespace;
 	NOTIFICATION_QUEUE: Queue<NotificationQueueMessage>;
 };

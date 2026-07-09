@@ -17,7 +17,7 @@
 		id,
 		previewUrl = $bindable(null),
 		file = $bindable(null),
-		accept = 'image/*',
+		accept = 'image/jpeg,image/png,image/webp,image/avif',
 		maxSizeMb = 5,
 		onchange,
 		error = '',

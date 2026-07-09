@@ -268,7 +268,7 @@
 					bind:previewUrl={rootImagePreviewUrl}
 					bind:file={rootImageFile}
 					onchange={handleRootImageChange}
-					accept="image/*"
+					accept="image/jpeg,image/png,image/webp,image/avif"
 					maxSizeMb={5}
 				/>
 			</AdminCard>

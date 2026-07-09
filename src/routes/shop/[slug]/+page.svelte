@@ -134,6 +134,7 @@
 			.filter((image) => image.variantId === null || image.variantId === activeColorVariantId)
 			.map((image) => ({
 				url: image.imageUrl,
+				r2Key: image.r2Key,
 				alt: image.altText ?? `${product.name} in ${activeColor || 'selected color'}`
 			}))
 	);
@@ -332,7 +333,7 @@
 					<PDPImageGallery images={galleryImages} />
 				{:else}
 					<div
-						class="flex aspect-[4/5] w-full items-center justify-center border border-charcoal bg-charcoal"
+						class="flex aspect-4/5 w-full items-center justify-center border border-charcoal bg-charcoal"
 					>
 						<span class="font-mono text-xs text-ash uppercase">No product image</span>
 					</div>
@@ -434,70 +435,70 @@
 				</div>
 
 				<div class="mt-7 flex gap-3">
-						<form
-							method="POST"
-							action="?/addToBag"
-							use:enhance={enhanceAddToBag}
-							class="flex flex-1 gap-3"
-						>
-							<input type="hidden" name="variantId" value={activeVariant?.id ?? ''} />
-							<input type="hidden" name="quantity" value={quantitySelected} />
+					<form
+						method="POST"
+						action="?/addToBag"
+						use:enhance={enhanceAddToBag}
+						class="flex flex-1 gap-3"
+					>
+						<input type="hidden" name="variantId" value={activeVariant?.id ?? ''} />
+						<input type="hidden" name="quantity" value={quantitySelected} />
 
-							{#if activeSize && canAddToBag}
-								<div
-									class="flex h-14 items-center gap-3 border border-charcoal bg-charcoal/20 px-4 font-mono text-sm text-bone"
-								>
-									<button
-										type="button"
-										class="cursor-pointer hover:text-volt disabled:opacity-30"
-										onclick={() => (quantitySelected = Math.max(1, quantitySelected - 1))}
-										disabled={quantitySelected <= 1}
-										aria-label="Decrease quantity"
-									>
-										[−]
-									</button>
-									<span class="min-w-6 text-center">{quantitySelected}</span>
-									<button
-										type="button"
-										class="cursor-pointer hover:text-volt disabled:opacity-30"
-										onclick={() =>
-											(quantitySelected = Math.min(maxQuantityAvailable, quantitySelected + 1))}
-										disabled={quantitySelected >= maxQuantityAvailable}
-										aria-label="Increase quantity"
-									>
-										[+]
-									</button>
-								</div>
-							{/if}
-
-							<button
-								type="submit"
-								class="flex h-14 flex-1 cursor-pointer items-center justify-center gap-2 border border-volt bg-volt px-5 font-mono text-xs font-bold tracking-widest text-void uppercase transition-colors hover:bg-bone disabled:cursor-not-allowed disabled:border-charcoal disabled:bg-charcoal disabled:text-ash/50"
-								disabled={!canAddToBag}
+						{#if activeSize && canAddToBag}
+							<div
+								class="flex h-14 items-center gap-3 border border-charcoal bg-charcoal/20 px-4 font-mono text-sm text-bone"
 							>
-								{#if addToBagLoading}
-									<Loader2 size={16} class="animate-spin" aria-hidden="true" />
-								{:else if addedToBag}
-									<Check size={16} aria-hidden="true" />
-								{/if}
-								{addToBagLabel}
-							</button>
-						</form>
+								<button
+									type="button"
+									class="cursor-pointer hover:text-volt disabled:opacity-30"
+									onclick={() => (quantitySelected = Math.max(1, quantitySelected - 1))}
+									disabled={quantitySelected <= 1}
+									aria-label="Decrease quantity"
+								>
+									[−]
+								</button>
+								<span class="min-w-6 text-center">{quantitySelected}</span>
+								<button
+									type="button"
+									class="cursor-pointer hover:text-volt disabled:opacity-30"
+									onclick={() =>
+										(quantitySelected = Math.min(maxQuantityAvailable, quantitySelected + 1))}
+									disabled={quantitySelected >= maxQuantityAvailable}
+									aria-label="Increase quantity"
+								>
+									[+]
+								</button>
+							</div>
+						{/if}
 
 						<button
-							type="button"
-							onclick={handleWishlistToggle}
-							class="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center border border-charcoal text-bone transition-colors hover:border-volt hover:text-volt"
-							aria-label={isSaved ? 'Remove from wishlist' : 'Save to wishlist'}
-							aria-pressed={isSaved}
+							type="submit"
+							class="flex h-14 flex-1 cursor-pointer items-center justify-center gap-2 border border-volt bg-volt px-5 font-mono text-xs font-bold tracking-widest text-void uppercase transition-colors hover:bg-bone disabled:cursor-not-allowed disabled:border-charcoal disabled:bg-charcoal disabled:text-ash/50"
+							disabled={!canAddToBag}
 						>
-							<Heart
-								size={20}
-								fill={isSaved ? 'currentColor' : 'none'}
-								strokeWidth={1.8}
-								aria-hidden="true"
-							/>
+							{#if addToBagLoading}
+								<Loader2 size={16} class="animate-spin" aria-hidden="true" />
+							{:else if addedToBag}
+								<Check size={16} aria-hidden="true" />
+							{/if}
+							{addToBagLabel}
 						</button>
+					</form>
+
+					<button
+						type="button"
+						onclick={handleWishlistToggle}
+						class="flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center border border-charcoal text-bone transition-colors hover:border-volt hover:text-volt"
+						aria-label={isSaved ? 'Remove from wishlist' : 'Save to wishlist'}
+						aria-pressed={isSaved}
+					>
+						<Heart
+							size={20}
+							fill={isSaved ? 'currentColor' : 'none'}
+							strokeWidth={1.8}
+							aria-hidden="true"
+						/>
+					</button>
 				</div>
 				{#if addToBagError}
 					<p class="mt-3 font-mono text-[11px] text-red-400 uppercase" role="alert">
@@ -676,13 +677,13 @@
 											for="review-files"
 											class="mb-1 block font-mono text-[10px] text-ash uppercase"
 										>
-											Photo or video
+											Photos
 										</label>
 										<input
 											id="review-files"
 											type="file"
 											name="files"
-											accept="image/*,video/mp4,video/webm"
+											accept="image/jpeg,image/png,image/webp,image/avif"
 											multiple
 											class="block w-full cursor-pointer border border-charcoal bg-void text-sm text-ash file:mr-3 file:h-11 file:border-0 file:bg-charcoal file:px-3 file:font-mono file:text-[10px] file:text-bone file:uppercase hover:file:bg-volt hover:file:text-void"
 										/>
@@ -777,22 +778,15 @@
 											{#if review.media.length > 0}
 												<div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
 													{#each review.media as media (media.id)}
-														{#if media.type === 'image'}
-															<img
-																src={media.mediaUrl}
-																alt={`Review media for ${product.name}`}
-																loading="lazy"
-																class="aspect-square w-full border border-charcoal object-cover"
-															/>
-														{:else}
-															<video
-																src={media.mediaUrl}
-																controls
-																class="aspect-square w-full border border-charcoal object-cover"
-															>
-																<track kind="captions" />
-															</video>
-														{/if}
+														<img
+															src={media.mediaUrl}
+															alt={`Review photo for ${product.name}`}
+															loading="lazy"
+															decoding="async"
+															width="400"
+															height="400"
+															class="aspect-square w-full border border-charcoal object-cover"
+														/>
 													{/each}
 												</div>
 											{/if}

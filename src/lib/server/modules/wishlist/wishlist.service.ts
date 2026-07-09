@@ -8,7 +8,7 @@ import {
 	ProductError,
 	WishlistError
 } from '$lib/server/infrastructure/errors';
-import { mediaUrl } from '$lib/server/infrastructure/media';
+import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isForeignKeyConstraintError,
@@ -684,19 +684,19 @@ function resolveWishlistImageUrl(images: ProductImage[], variantId: string | nul
 	const variantPrimary = variantId
 		? images.find((image) => image.variantId === variantId && image.isPrimary)
 		: null;
-	if (variantPrimary) return mediaUrl(variantPrimary.r2Key);
+	if (variantPrimary) return mediaPresetUrl(variantPrimary.r2Key, 'card600');
 
 	const productPrimary = images.find((image) => image.variantId === null && image.isPrimary);
-	if (productPrimary) return mediaUrl(productPrimary.r2Key);
+	if (productPrimary) return mediaPresetUrl(productPrimary.r2Key, 'card600');
 
 	const anyPrimary = images.find((image) => image.isPrimary);
-	if (anyPrimary) return mediaUrl(anyPrimary.r2Key);
+	if (anyPrimary) return mediaPresetUrl(anyPrimary.r2Key, 'card600');
 
 	const variantImage = variantId ? images.find((image) => image.variantId === variantId) : null;
-	if (variantImage) return mediaUrl(variantImage.r2Key);
+	if (variantImage) return mediaPresetUrl(variantImage.r2Key, 'card600');
 
 	const firstImage = images[0];
-	return firstImage ? mediaUrl(firstImage.r2Key) : null;
+	return firstImage ? mediaPresetUrl(firstImage.r2Key, 'card600') : null;
 }
 
 function wishlistTargetKey(productId: string, variantId: string | null): string {

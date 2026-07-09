@@ -10,6 +10,11 @@ export type ReviewMediaDTO = {
 	r2Key: string;
 	mediaUrl: string;
 	type: ReviewMediaType;
+	mimeType: string | null;
+	byteSize: number | null;
+	originalFilename: string | null;
+	width: number | null;
+	height: number | null;
 	position: number;
 	createdAt: Date;
 };

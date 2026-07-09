@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import {
-	ALLOWED_IMAGE_TYPES,
-	ALLOWED_VIDEO_TYPES,
-	MAX_IMAGE_BYTES,
-	MAX_VIDEO_BYTES
-} from '$lib/server/infrastructure/media/r2';
+import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from '$lib/server/infrastructure/media/r2';
 import { insertReviewSchema, updateReviewSchema } from './reviews.drizzle';
 import { MAX_REVIEW_MEDIA_FILES } from './reviews.types';
 
@@ -52,16 +47,9 @@ const optionalRatingSchema = z.preprocess(
 
 export const reviewMediaFileSchema = z
 	.instanceof(File)
-	.refine((file) => file.size > 0, 'File is empty.')
-	.refine((file) => {
-		if (ALLOWED_IMAGE_TYPES.has(file.type)) return file.size <= MAX_IMAGE_BYTES;
-		if (ALLOWED_VIDEO_TYPES.has(file.type)) return file.size <= MAX_VIDEO_BYTES;
-		return true;
-	}, 'File is too large.')
-	.refine(
-		(file) => ALLOWED_IMAGE_TYPES.has(file.type) || ALLOWED_VIDEO_TYPES.has(file.type),
-		'Unsupported file type.'
-	);
+	.refine((file) => file.size > 0, 'Image is empty.')
+	.refine((file) => file.size <= MAX_IMAGE_BYTES, 'Image must be 5MB or less.')
+	.refine((file) => ALLOWED_IMAGE_TYPES.has(file.type), 'Unsupported image type.');
 
 export const optionalReviewMediaFilesSchema = z.preprocess(
 	normalizeFiles,

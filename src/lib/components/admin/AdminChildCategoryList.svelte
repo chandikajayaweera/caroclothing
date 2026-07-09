@@ -173,7 +173,7 @@
 			<!-- Numbered badge -->
 			<div class="mb-4 flex items-center justify-between gap-2">
 				<span
-					class="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-charcoal px-1.5 font-mono text-[10px] text-ash"
+					class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-charcoal px-1.5 font-mono text-[10px] text-ash"
 				>
 					#{i + 1}
 				</span>
@@ -342,7 +342,7 @@
 							Upload Image
 							<input
 								type="file"
-								accept="image/*"
+								accept="image/jpeg,image/png,image/webp,image/avif"
 								class="sr-only"
 								onchange={(e) => handleChildFileChange(i, e)}
 							/>

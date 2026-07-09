@@ -1,8 +1,13 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
 	import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-svelte';
+	import {
+		mediaPresetUrl,
+		productDetailImageAttrs,
+		productThumbnailImageAttrs
+	} from '$lib/shared/media';
 
-	let { images }: { images: { url: string; alt: string }[] } = $props();
+	let { images }: { images: { url: string; alt: string; r2Key?: string | null }[] } = $props();
 
 	let activeIndex = $state(0);
 	let lightboxIndex = $state(0);
@@ -62,6 +67,30 @@
 		if (event.key === 'ArrowRight') nextImage();
 		if (event.key === 'ArrowLeft') prevImage();
 	}
+
+	function detailAttrs(index: number) {
+		return productDetailImageAttrs(
+			{
+				r2Key: images[index]?.r2Key ?? null,
+				imageUrl: images[index]?.url ?? null,
+				altText: images[index]?.alt ?? null
+			},
+			{ priority: index === 0 }
+		);
+	}
+
+	function thumbnailAttrs(index: number) {
+		return productThumbnailImageAttrs({
+			r2Key: images[index]?.r2Key ?? null,
+			imageUrl: images[index]?.url ?? null,
+			altText: images[index]?.alt ?? null
+		});
+	}
+
+	function lightboxSrc(index: number) {
+		const image = images[index];
+		return image?.r2Key ? mediaPresetUrl(image.r2Key, 'product1200') : image?.url;
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -69,7 +98,7 @@
 <div class="w-full">
 	<button
 		type="button"
-		class="relative block aspect-[4/5] w-full cursor-zoom-in overflow-hidden bg-charcoal p-0 text-left md:hidden"
+		class="relative block aspect-4/5 w-full cursor-zoom-in overflow-hidden bg-charcoal p-0 text-left md:hidden"
 		ontouchstart={handleTouchStart}
 		ontouchend={handleTouchEnd}
 		onclick={() => openLightbox(safeActiveIndex)}
@@ -77,12 +106,18 @@
 	>
 		{#if images.length > 0}
 			{#key images[safeActiveIndex]?.url}
+				{@const attrs = detailAttrs(safeActiveIndex)}
 				<img
-					src={images[safeActiveIndex]?.url}
+					src={attrs?.src ?? images[safeActiveIndex]?.url}
+					srcset={attrs?.srcset || undefined}
+					sizes={attrs?.sizes}
+					width={attrs?.width}
+					loading={attrs?.loading}
+					decoding={attrs?.decoding}
+					fetchpriority={attrs?.fetchpriority}
 					alt={images[safeActiveIndex]?.alt}
 					class="absolute inset-0 h-full w-full object-cover"
 					transition:fade={{ duration: 160 }}
-					fetchpriority={safeActiveIndex === 0 ? 'high' : undefined}
 				/>
 			{/key}
 		{/if}
@@ -102,9 +137,10 @@
 				class="no-scrollbar sticky top-24 flex max-h-[70vh] w-16 shrink-0 flex-col gap-3 overflow-y-auto lg:w-20"
 			>
 				{#each images as image, index (image.url)}
+					{@const attrs = thumbnailAttrs(index)}
 					<button
 						type="button"
-						class="relative aspect-[4/5] w-full cursor-pointer overflow-hidden border bg-charcoal transition-colors focus-visible:ring-1 focus-visible:ring-volt focus-visible:outline-none {safeActiveIndex ===
+						class="relative aspect-4/5 w-full cursor-pointer overflow-hidden border bg-charcoal transition-colors focus-visible:ring-1 focus-visible:ring-volt focus-visible:outline-none {safeActiveIndex ===
 						index
 							? 'border-volt'
 							: 'border-charcoal hover:border-ash/60'}"
@@ -112,7 +148,15 @@
 						onclick={() => openLightbox(index)}
 						aria-label="Open product image {index + 1}"
 					>
-						<img src={image.url} alt={image.alt} class="h-full w-full object-cover" />
+						<img
+							src={attrs?.src ?? image.url}
+							sizes={attrs?.sizes}
+							width={attrs?.width}
+							loading={attrs?.loading}
+							decoding={attrs?.decoding}
+							alt={image.alt}
+							class="h-full w-full object-cover"
+						/>
 					</button>
 				{/each}
 			</div>
@@ -120,18 +164,24 @@
 
 		<button
 			type="button"
-			class="relative block aspect-[4/5] flex-1 cursor-zoom-in overflow-hidden border border-charcoal bg-charcoal p-0 text-left"
+			class="relative block aspect-4/5 flex-1 cursor-zoom-in overflow-hidden border border-charcoal bg-charcoal p-0 text-left"
 			onclick={() => openLightbox(safeActiveIndex)}
 			aria-label="Open selected product image"
 		>
 			{#if images.length > 0}
 				{#key images[safeActiveIndex]?.url}
+					{@const attrs = detailAttrs(safeActiveIndex)}
 					<img
-						src={images[safeActiveIndex]?.url}
+						src={attrs?.src ?? images[safeActiveIndex]?.url}
+						srcset={attrs?.srcset || undefined}
+						sizes={attrs?.sizes}
+						width={attrs?.width}
+						loading={attrs?.loading}
+						decoding={attrs?.decoding}
+						fetchpriority={attrs?.fetchpriority}
 						alt={images[safeActiveIndex]?.alt}
 						class="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
 						transition:fade={{ duration: 160 }}
-						fetchpriority={safeActiveIndex === 0 ? 'high' : undefined}
 					/>
 				{/key}
 			{/if}
@@ -189,7 +239,7 @@
 			>
 				{#key images[safeLightboxIndex]?.url}
 					<img
-						src={images[safeLightboxIndex]?.url}
+						src={lightboxSrc(safeLightboxIndex)}
 						alt={images[safeLightboxIndex]?.alt}
 						class="max-h-[76vh] max-w-full object-contain transition-transform duration-200 {isZoomed
 							? 'scale-150'

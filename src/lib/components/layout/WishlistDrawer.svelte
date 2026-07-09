@@ -43,7 +43,7 @@
 {#if $uiStore.wishlistDrawerOpen}
 	<!-- Backdrop -->
 	<div
-		class="fixed inset-0 z-[54] bg-void/50"
+		class="fixed inset-0 z-54 bg-void/50"
 		transition:fade={{ duration: 250 }}
 		onclick={closeWishlistDrawer}
 		onkeydown={(e) => e.key === 'Escape' && closeWishlistDrawer()}
@@ -54,7 +54,7 @@
 
 	<!-- Drawer -->
 	<div
-		class="fixed top-0 right-0 z-[55] flex h-full w-full flex-col border-l border-charcoal bg-void sm:w-[420px]"
+		class="fixed top-0 right-0 z-55 flex h-full w-full flex-col border-l border-charcoal bg-void sm:w-105"
 		transition:fly={{ x: 420, duration: 250 }}
 	>
 		<!-- Header -->
@@ -136,13 +136,3 @@
 		{/if}
 	</div>
 {/if}
-
-<style>
-	.no-scrollbar::-webkit-scrollbar {
-		display: none;
-	}
-	.no-scrollbar {
-		-ms-overflow-style: none;
-		scrollbar-width: none;
-	}
-</style>

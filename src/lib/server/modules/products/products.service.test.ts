@@ -147,11 +147,31 @@ describe('products service integration', () => {
 			expect(created.images).toHaveLength(1);
 			expect(created.images[0]).toMatchObject({
 				altText: 'Graphic tee front',
-				isPrimary: true
+				isPrimary: true,
+				imageUrl: expect.stringContaining('/media/_preset/card600/'),
+				mimeType: 'image/png',
+				byteSize: 4,
+				originalFilename: 'graphic-front.png',
+				width: null,
+				height: null
 			});
 			expect(created.images[0].variantId).toBeTruthy();
+			expect(created.primaryImageR2Key).toBe(created.images[0].r2Key);
+			expect(created.primaryImageUrl).toBe(created.images[0].imageUrl);
 			expect(bucket.putCalls).toHaveLength(1);
-			expect(bucket.objects.has(created.images[0].r2Key)).toBe(true);
+			const stored = bucket.objects.get(created.images[0].r2Key);
+			expect(stored).toBeTruthy();
+			expect(stored?.options).toMatchObject({
+				httpMetadata: {
+					contentType: 'image/png',
+					cacheControl: 'public, max-age=31536000, immutable'
+				},
+				customMetadata: {
+					originalName: 'graphic-front.png',
+					mimeType: 'image/png',
+					byteSize: '4'
+				}
+			});
 		});
 
 		it('rejects validation errors before upload and leaves DB and R2 untouched', async () => {

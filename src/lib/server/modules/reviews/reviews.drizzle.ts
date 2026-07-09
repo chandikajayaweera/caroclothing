@@ -68,12 +68,12 @@ export const review = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
-// REVIEW MEDIA  (photos / videos attached to reviews)
+// REVIEW MEDIA  (still images attached to reviews)
 //
 // r2Key stores the Cloudflare R2 object key — NOT a URL.
 // Build via: buildMediaKey({ scope: 'reviews', entityId: reviewId, variant: 'photo-1', contentType })
-// Resolve to URL via: mediaUrl(r2Key) from media/utils.ts
-// Supports both images and videos (video/mp4, video/webm) per r2.ts ALLOWED_VIDEO_TYPES.
+// Resolve originals via mediaOriginalUrl(r2Key) or display presets via mediaPresetUrl().
+// Videos are intentionally out of scope for this image pipeline.
 // ---------------------------------------------------------------------------
 
 export const reviewMedia = sqliteTable(
@@ -85,10 +85,15 @@ export const reviewMedia = sqliteTable(
 		reviewId: text('review_id')
 			.notNull()
 			.references(() => review.id, { onDelete: 'cascade' }),
-		r2Key: text('r2_key').notNull(), // R2 object key — use mediaUrl(r2Key) to serve
-		type: text('type', { enum: ['image', 'video'] })
+		r2Key: text('r2_key').notNull(), // R2 object key, not a URL
+		type: text('type', { enum: ['image'] })
 			.default('image')
 			.notNull(),
+		mimeType: text('mime_type'),
+		byteSize: integer('byte_size'),
+		originalFilename: text('original_filename'),
+		width: integer('width'),
+		height: integer('height'),
 		position: integer('position').default(0).notNull(),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
@@ -169,7 +174,12 @@ export const updateReviewSchema = createUpdateSchema(review, {
 export const insertReviewMediaSchema = createInsertSchema(reviewMedia, {
 	reviewId: idSchema,
 	r2Key: r2KeySchema,
-	type: z.enum(['image', 'video']).optional(),
+	type: z.literal('image').optional(),
+	mimeType: z.string().max(100).optional().nullable(),
+	byteSize: z.number().int().nonnegative().optional().nullable(),
+	originalFilename: z.string().max(255).optional().nullable(),
+	width: z.number().int().positive().optional().nullable(),
+	height: z.number().int().positive().optional().nullable(),
 	position: z.number().int().min(0).optional()
 }).omit({
 	id: true,

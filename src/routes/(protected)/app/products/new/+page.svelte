@@ -1182,7 +1182,7 @@
 																			<div
 																				{...props}
 																				transition:scale={{ duration: 120, start: 0.96 }}
-																				class="max-h-60 w-[var(--bits-dropdown-anchor-width)] min-w-[var(--bits-dropdown-anchor-width)] overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl outline-none"
+																				class="max-h-60 w-(--bits-dropdown-anchor-width) min-w-(--bits-dropdown-anchor-width) overflow-y-auto border border-ash/20 bg-charcoal py-1 shadow-xl outline-none"
 																			>
 																				{#each colors as c (c.id)}
 																					{@const isColorUsed = $createProductForm.variants.some(
@@ -1193,7 +1193,7 @@
 																						onclick={() => selectColor(originalIndex, c)}
 																						class="flex w-full items-center gap-2 px-3 py-2 text-left font-sans text-sm transition-colors outline-none {isColorUsed
 																							? 'cursor-not-allowed text-ash opacity-30'
-																							: 'text-bone hover:bg-void/50 data-[highlighted]:bg-void/50'}"
+																							: 'text-bone hover:bg-void/50 data-highlighted:bg-void/50'}"
 																					>
 																						<span
 																							class="h-4 w-4 rounded-full border border-ash/30"
@@ -1369,7 +1369,7 @@
 													>
 														<input
 															type="file"
-															accept="image/*"
+															accept="image/jpeg,image/png,image/webp,image/avif"
 															multiple
 															onchange={(event) =>
 																handleVariantImageUpload(variant.clientId, event)}

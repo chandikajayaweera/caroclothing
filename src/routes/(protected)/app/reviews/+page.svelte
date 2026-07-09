@@ -264,7 +264,7 @@
 			<td class="px-5 py-4">
 				<div class="font-sans text-xs text-bone">{review.reviewerName}</div>
 				<div
-					class="mt-0.5 max-w-[120px] truncate font-mono text-[9px] text-ash/60"
+					class="mt-0.5 max-w-30 truncate font-mono text-[9px] text-ash/60"
 					title={review.userId}
 				>
 					ID: {review.userId}
@@ -302,11 +302,7 @@
 				<div class="flex flex-wrap gap-2">
 					{#each review.media as media, i (media.id)}
 						<div class="group relative border border-charcoal bg-void">
-							{#if media.type === 'image'}
-								<img src={media.mediaUrl} alt="" class="h-10 w-10 object-cover" />
-							{:else}
-								<video src={media.mediaUrl} muted class="h-10 w-10 object-cover"></video>
-							{/if}
+							<img src={media.mediaUrl} alt="" loading="lazy" class="h-10 w-10 object-cover" />
 
 							<!-- Media Controls Overlays -->
 							<div
@@ -377,7 +373,7 @@
 									name="files"
 									type="file"
 									multiple
-									accept="image/*,video/*"
+									accept="image/jpeg,image/png,image/webp,image/avif"
 									class="hidden"
 									onchange={(e) => {
 										const form = e.currentTarget.closest('form');
@@ -562,11 +558,7 @@
 			<div class="flex flex-wrap gap-2">
 				{#each review.media as media, i (media.id)}
 					<div class="group relative border border-charcoal bg-void">
-						{#if media.type === 'image'}
-							<img src={media.mediaUrl} alt="" class="h-12 w-12 object-cover" />
-						{:else}
-							<video src={media.mediaUrl} muted class="h-12 w-12 object-cover"></video>
-						{/if}
+						<img src={media.mediaUrl} alt="" loading="lazy" class="h-12 w-12 object-cover" />
 
 						<div
 							class="absolute inset-0 flex items-center justify-center gap-1 bg-void/80 opacity-0 transition-opacity hover:opacity-100"
@@ -622,7 +614,7 @@
 								name="files"
 								type="file"
 								multiple
-								accept="image/*,video/*"
+								accept="image/jpeg,image/png,image/webp,image/avif"
 								class="hidden"
 								onchange={(e) => {
 									const form = e.currentTarget.closest('form');

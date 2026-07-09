@@ -1,7 +1,28 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
+	import { productCardImageAttrs } from '$lib/shared/media';
 
-	let { product }: { product: any } = $props();
+	type ProductCardProduct = {
+		id: string;
+		slug: string;
+		name: string;
+		primaryImageUrl?: string | null;
+		primaryImage?: string | null;
+		primaryImageR2Key?: string | null;
+		hoverImage?: string | null;
+		basePrice?: number | null;
+		price?: number | null;
+		compareAtPrice?: number | null;
+		stockStatus?: string | null;
+		isNewArrival?: boolean | null;
+		badge?: string | null;
+		colorSwatches?: { name: string; hex: string }[] | null;
+		variants?: { color?: string | null; colorHex?: string | null }[] | null;
+		images?: { r2Key?: string | null; imageUrl?: string | null }[] | null;
+	};
+
+	let { product }: { product: ProductCardProduct } = $props();
 
 	const isSaved = $derived(wishlist.has(product.id));
 
@@ -15,15 +36,29 @@
 		product.primaryImageUrl ?? product.primaryImage ?? '/images/placeholder.jpg'
 	);
 	const hoverImage = $derived(product.images?.[1]?.imageUrl ?? product.hoverImage ?? primaryImage);
+	const primaryImageAttrs = $derived(
+		productCardImageAttrs({
+			r2Key: product.primaryImageR2Key ?? product.images?.[0]?.r2Key ?? null,
+			imageUrl: primaryImage,
+			altText: product.name
+		})
+	);
+	const hoverImageAttrs = $derived(
+		productCardImageAttrs({
+			r2Key: product.images?.[1]?.r2Key ?? null,
+			imageUrl: hoverImage,
+			altText: product.name
+		})
+	);
 	const price = $derived(product.basePrice ?? product.price ?? 0);
 
 	const colorSwatches = $derived.by(() => {
 		if (product.colorSwatches) return product.colorSwatches;
 		const swatches: { name: string; hex: string }[] = [];
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		for (const variant of product.variants ?? []) {
-			if (variant.color && !seen.has(variant.color)) {
-				seen.add(variant.color);
+			if (variant.color && !seen.includes(variant.color)) {
+				seen.push(variant.color);
 				swatches.push({
 					name: variant.color,
 					hex: variant.colorHex ?? '#FFFFFF'
@@ -35,12 +70,18 @@
 </script>
 
 <div class="group relative flex cursor-pointer flex-col">
-	<a href="/shop/{product.slug}" class="block">
+	<a href={resolve(`/shop/${product.slug}`)} class="block">
 		<!-- Image container -->
-		<div class="relative aspect-[3/4] overflow-hidden rounded-none bg-charcoal">
+		<div class="relative aspect-3/4 overflow-hidden rounded-none bg-charcoal">
 			<!-- Primary Image -->
 			<img
-				src={primaryImage}
+				src={primaryImageAttrs?.src ?? primaryImage}
+				srcset={primaryImageAttrs?.srcset || undefined}
+				sizes={primaryImageAttrs?.sizes}
+				width={primaryImageAttrs?.width}
+				height={primaryImageAttrs?.height}
+				loading={primaryImageAttrs?.loading}
+				decoding={primaryImageAttrs?.decoding}
 				alt={product.name}
 				class="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
 			/>
@@ -48,7 +89,13 @@
 			<!-- Hover Image -->
 			{#if hoverImage !== primaryImage}
 				<img
-					src={hoverImage}
+					src={hoverImageAttrs?.src ?? hoverImage}
+					srcset={hoverImageAttrs?.srcset || undefined}
+					sizes={hoverImageAttrs?.sizes}
+					width={hoverImageAttrs?.width}
+					height={hoverImageAttrs?.height}
+					loading={hoverImageAttrs?.loading}
+					decoding={hoverImageAttrs?.decoding}
 					alt={product.name}
 					class="absolute inset-0 h-full w-full object-cover object-top opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 				/>
@@ -127,7 +174,7 @@
 			<!-- Color swatches -->
 			{#if colorSwatches.length > 0}
 				<div class="mt-1 flex gap-1.5">
-					{#each colorSwatches as swatch}
+					{#each colorSwatches as swatch (swatch.name)}
 						<div
 							class="h-3 w-3 rounded-full border border-ash/20"
 							style="background-color: {swatch.hex}"

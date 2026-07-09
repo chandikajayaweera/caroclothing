@@ -342,7 +342,7 @@
 				</p>
 
 				<div
-					class="flex min-h-[100px] flex-col gap-2 overflow-x-auto border border-ash/15 bg-void/30 p-4"
+					class="flex min-h-25 flex-col gap-2 overflow-x-auto border border-ash/15 bg-void/30 p-4"
 				>
 					{@render renderNode(categoryTree, 0)}
 				</div>
@@ -357,9 +357,7 @@
 						class="relative flex items-center justify-between gap-4 border border-charcoal bg-void p-3"
 					>
 						<div class="flex min-w-0 items-center gap-3">
-							<div
-								class="h-16 w-16 flex-shrink-0 overflow-hidden border border-charcoal bg-charcoal"
-							>
+							<div class="h-16 w-16 shrink-0 overflow-hidden border border-charcoal bg-charcoal">
 								<img src={data.category.imageUrl} alt="" class="h-full w-full object-cover" />
 							</div>
 							<div class="min-w-0">
@@ -383,9 +381,7 @@
 						class="relative flex items-center justify-between gap-4 border border-charcoal bg-void p-3"
 					>
 						<div class="flex min-w-0 items-center gap-3">
-							<div
-								class="h-16 w-16 flex-shrink-0 overflow-hidden border border-charcoal bg-charcoal"
-							>
+							<div class="h-16 w-16 shrink-0 overflow-hidden border border-charcoal bg-charcoal">
 								<img src={imagePreviewUrl} alt="Preview" class="h-full w-full object-cover" />
 							</div>
 							<div class="min-w-0">
@@ -450,7 +446,7 @@
 			<input
 				name="image"
 				type="file"
-				accept="image/*"
+				accept="image/jpeg,image/png,image/webp,image/avif"
 				onchange={handleFileChange}
 				class="hidden"
 				id="category-image-input"
@@ -551,7 +547,7 @@
 					<div class="mt-4 border-t border-charcoal/60 pt-3">
 						<div class="flex justify-between font-mono text-[10px] uppercase">
 							<span class="text-ash/50">Parent:</span>
-							<span class="max-w-[150px] truncate text-bone">{parentCategoryName}</span>
+							<span class="max-w-37.5 truncate text-bone">{parentCategoryName}</span>
 						</div>
 						<div class="mt-1 flex justify-between font-mono text-[10px] uppercase">
 							<span class="text-ash/50">Sort Order:</span>
@@ -633,7 +629,7 @@
 					>Category Image</span
 				>
 				<div
-					class="relative flex aspect-video w-full max-w-[280px] items-center justify-center overflow-hidden border border-charcoal bg-charcoal/20"
+					class="relative flex aspect-video w-full max-w-70 items-center justify-center overflow-hidden border border-charcoal bg-charcoal/20"
 				>
 					{#if editPreviewUrl}
 						<img src={editPreviewUrl} alt="Preview" class="h-full w-full object-cover" />
@@ -675,7 +671,7 @@
 					<input
 						type="file"
 						name="image"
-						accept="image/*"
+						accept="image/jpeg,image/png,image/webp,image/avif"
 						onchange={handleEditFileChange}
 						class="w-full border border-ash/30 bg-void px-4 py-2.5 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
 					/>

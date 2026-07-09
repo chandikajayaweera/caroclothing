@@ -1,2 +1,15 @@
-export { isMediaImagePreset, mediaPresetUrl, mediaUrl } from './utils';
-export type { MediaImagePreset } from './utils';
+export {
+	MEDIA_IMAGE_PRESET_NAMES,
+	MEDIA_IMAGE_PRESETS,
+	heroImageAttrs,
+	isMediaImagePreset,
+	mediaOriginalUrl,
+	mediaPresetUrl,
+	mediaSrcset,
+	mediaUrl,
+	productCardImageAttrs,
+	productDetailImageAttrs,
+	productThumbnailImageAttrs,
+	type MediaImageAttrs,
+	type MediaImagePreset
+} from './utils';

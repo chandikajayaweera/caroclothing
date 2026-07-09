@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { assertSafeR2Key, getMediaBucket } from '$lib/server/infrastructure/media/r2';
 import {
+	MEDIA_IMAGE_PRESETS,
 	isMediaImagePreset,
 	mediaUrl,
 	type MediaImagePreset
@@ -80,23 +81,23 @@ function parseMediaParam(param: string): { key: string; preset: MediaImagePreset
 }
 
 function isImageObject(obj: R2Object): boolean {
-	return Boolean(obj.httpMetadata?.contentType?.startsWith('image/'));
+	return isSupportedStillImageType(obj.httpMetadata?.contentType);
 }
 
-function isTransformableImageObject(obj: R2Object): boolean {
-	return isImageObject(obj) && obj.httpMetadata?.contentType !== 'image/gif';
+function isSupportedStillImageType(contentType: string | undefined): boolean {
+	return (
+		contentType === 'image/jpeg' ||
+		contentType === 'image/png' ||
+		contentType === 'image/webp' ||
+		contentType === 'image/avif'
+	);
 }
 
 function presetToImageOptions(
 	preset: MediaImagePreset,
 	acceptHeader: string | null
 ): RequestInitCfPropertiesImage {
-	const base = (() => {
-		if (preset === 'thumb') return { width: 240, fit: 'scale-down', quality: 78 } as const;
-		if (preset === 'card') return { width: 640, fit: 'scale-down', quality: 80 } as const;
-		if (preset === 'pdp') return { width: 1200, fit: 'scale-down', quality: 84 } as const;
-		return { width: 2400, fit: 'scale-down', quality: 84 } as const;
-	})();
+	const base = MEDIA_IMAGE_PRESETS[preset];
 	const format = preferredImageFormat(acceptHeader);
 
 	return format ? { ...base, format } : base;
@@ -138,6 +139,9 @@ async function serveOriginalObject(
 	request: Request
 ): Promise<Response> {
 	const obj = await getOriginalObject(bucket, key);
+	if (!isImageObject(obj)) {
+		throw error(415, 'Media route can only serve supported still images.');
+	}
 	const headers = buildHeaders(obj);
 	const ifNoneMatch = request.headers.get('If-None-Match');
 
@@ -154,7 +158,11 @@ async function servePresetObject(
 	preset: MediaImagePreset,
 	sourceHead: R2Object
 ): Promise<Response> {
-	if (!isTransformableImageObject(sourceHead)) {
+	if (!isImageObject(sourceHead)) {
+		throw error(415, 'Media preset can only transform supported still images.');
+	}
+
+	if (/image-resizing/i.test(event.request.headers.get('Via') ?? '')) {
 		const bucket = getMediaBucket(event);
 		return serveOriginalObject(bucket, key, event.request);
 	}
@@ -171,8 +179,14 @@ async function servePresetObject(
 	}
 
 	console.warn(`[Media] preset transform failed for "${key}" (${preset}): ${response.status}`);
-	const bucket = getMediaBucket(event);
-	return serveOriginalObject(bucket, key, event.request);
+	return new Response(null, {
+		status: 502,
+		statusText: 'Image transformation failed',
+		headers: {
+			'Cache-Control': 'no-store',
+			'X-Content-Type-Options': 'nosniff'
+		}
+	});
 }
 
 /**
@@ -192,6 +206,7 @@ export const HEAD: RequestHandler = async (event) => {
 	const bucket = getMediaBucket(event);
 	const obj = await bucket.head(parsed.key);
 	if (!obj) throw error(404, 'Not found.');
+	if (!isImageObject(obj)) throw error(415, 'Media route can only serve supported still images.');
 
 	if (parsed.preset) {
 		const response = await servePresetObject(event, parsed.key, parsed.preset, obj);

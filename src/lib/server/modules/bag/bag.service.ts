@@ -25,7 +25,7 @@ import {
 	getErrorMessage,
 	isAppError
 } from '$lib/server/infrastructure/errors';
-import { mediaUrl } from '$lib/server/infrastructure/media';
+import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceActor, ServiceContext, SystemActor } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
@@ -184,7 +184,7 @@ export async function updateBagItemQuantity(
 	try {
 		return await getDb().transaction(async (tx) => {
 			const row = await findOwnedBagItemTx(tx, owner, bagItemId, now);
-			await loadPurchasableVariantTx(tx, row.item.variantId, now);
+			await loadPurchasableVariantTx(tx, row.item.variantId);
 			await cancelCheckoutTx(tx, row.bag, now);
 
 			const delta = quantity - row.item.quantity;
@@ -739,7 +739,7 @@ async function addItemToBagWithRetry(
 	try {
 		return await getDb().transaction(async (tx) => {
 			const bagRow = await getOrCreateBagTx(tx, owner, now);
-			const target = await loadPurchasableVariantTx(tx, variantId, now);
+			const target = await loadPurchasableVariantTx(tx, variantId);
 			const existing = await findBagItemByVariantTx(tx, bagRow.id, variantId);
 			await cancelCheckoutTx(tx, bagRow, now);
 
@@ -1120,8 +1120,7 @@ async function mergeBagRowsTx(tx: Tx, sourceBag: Bag, targetBag: Bag, now: Date)
 
 async function loadPurchasableVariantTx(
 	tx: QueryExecutor,
-	variantId: string,
-	now: Date
+	variantId: string
 ): Promise<PurchasableVariant> {
 	const [row] = await tx
 		.select({
@@ -1855,19 +1854,19 @@ function normalizeSessionToken(value: string): string {
 
 function resolveBagImageUrl(images: ProductImage[], variantId: string): string | null {
 	const variantPrimary = images.find((image) => image.variantId === variantId && image.isPrimary);
-	if (variantPrimary) return mediaUrl(variantPrimary.r2Key);
+	if (variantPrimary) return mediaPresetUrl(variantPrimary.r2Key, 'thumb160');
 
 	const productPrimary = images.find((image) => image.variantId === null && image.isPrimary);
-	if (productPrimary) return mediaUrl(productPrimary.r2Key);
+	if (productPrimary) return mediaPresetUrl(productPrimary.r2Key, 'thumb160');
 
 	const anyPrimary = images.find((image) => image.isPrimary);
-	if (anyPrimary) return mediaUrl(anyPrimary.r2Key);
+	if (anyPrimary) return mediaPresetUrl(anyPrimary.r2Key, 'thumb160');
 
 	const variantImage = images.find((image) => image.variantId === variantId);
-	if (variantImage) return mediaUrl(variantImage.r2Key);
+	if (variantImage) return mediaPresetUrl(variantImage.r2Key, 'thumb160');
 
 	const firstImage = images[0];
-	return firstImage ? mediaUrl(firstImage.r2Key) : null;
+	return firstImage ? mediaPresetUrl(firstImage.r2Key, 'thumb160') : null;
 }
 
 function resolveBagImageR2Key(images: ProductImage[], variantId: string): string | null {

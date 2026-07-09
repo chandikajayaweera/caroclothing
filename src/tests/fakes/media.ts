@@ -43,43 +43,34 @@ export function makeImage(name = 'product.png', type = 'image/png'): File {
 	return new File([new Uint8Array([137, 80, 78, 71])], name, { type });
 }
 
-export function makeMediaEvent(
-	bucket: FakeR2Bucket,
-	images?: ImagesBinding | null
-): NonNullable<ServiceContext['event']> {
-	return makeServiceEvent(images ? { MEDIA: bucket, IMAGES: images } : { MEDIA: bucket });
+export function makeMediaEvent(bucket: FakeR2Bucket): NonNullable<ServiceContext['event']> {
+	return makeServiceEvent({ MEDIA: bucket });
 }
 
-export function withMedia(
-	ctx: ServiceContext,
-	bucket: FakeR2Bucket,
-	images?: ImagesBinding | null
-): ServiceContext {
+export function withMedia(ctx: ServiceContext, bucket: FakeR2Bucket): ServiceContext {
 	return {
 		...ctx,
-		event: makeMediaEvent(bucket, images)
+		event: makeMediaEvent(bucket)
 	};
 }
 
 export function makeMediaAdminCtx(
 	bucket = createFakeR2Bucket(),
-	overrides: Partial<ServiceContext> = {},
-	images?: ImagesBinding | null
+	overrides: Partial<ServiceContext> = {}
 ): ServiceContext {
 	return makeAdminCtx({
 		...overrides,
-		event: makeMediaEvent(bucket, images)
+		event: makeMediaEvent(bucket)
 	});
 }
 
 export function makeMediaCustomerCtx(
 	bucket = createFakeR2Bucket(),
 	userId = 'customer-user',
-	overrides: Partial<ServiceContext> = {},
-	images?: ImagesBinding | null
+	overrides: Partial<ServiceContext> = {}
 ): ServiceContext {
 	return makeCustomerCtx(userId, {
 		...overrides,
-		event: makeMediaEvent(bucket, images)
+		event: makeMediaEvent(bucket)
 	});
 }

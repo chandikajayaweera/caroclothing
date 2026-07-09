@@ -22,6 +22,11 @@ export type CategoryDTO = {
 	description: string | null;
 	imageR2Key: string | null;
 	imageUrl: string | null;
+	imageMimeType: string | null;
+	imageByteSize: number | null;
+	imageOriginalFilename: string | null;
+	imageWidth: number | null;
+	imageHeight: number | null;
 	parentId: string | null;
 	sortOrder: number;
 	isActive: boolean;
@@ -45,11 +50,19 @@ export type ListCategoriesOptions = {
 	offset?: number;
 };
 
-export type CreateCategoryInput = Omit<InsertCategory, 'imageR2Key'> & {
+type CategoryImageMetadataFields =
+	| 'imageR2Key'
+	| 'imageMimeType'
+	| 'imageByteSize'
+	| 'imageOriginalFilename'
+	| 'imageWidth'
+	| 'imageHeight';
+
+export type CreateCategoryInput = Omit<InsertCategory, CategoryImageMetadataFields> & {
 	image?: File | null;
 };
 
-export type UpdateCategoryInput = Omit<UpdateCategory, 'imageR2Key'> & {
+export type UpdateCategoryInput = Omit<UpdateCategory, CategoryImageMetadataFields> & {
 	image?: File | null;
 	removeImage?: boolean;
 };
@@ -102,6 +115,11 @@ export type ProductImageDTO = {
 	variantId: string | null;
 	r2Key: string;
 	imageUrl: string;
+	mimeType: string | null;
+	byteSize: number | null;
+	originalFilename: string | null;
+	width: number | null;
+	height: number | null;
 	altText: string | null;
 	position: number;
 	isPrimary: boolean;
@@ -133,6 +151,7 @@ export type ProductDTO = {
 	updatedAt: Date;
 	variants: ProductVariantReadDTO[];
 	images: ProductImageReadDTO[];
+	primaryImageR2Key: string | null;
 	tags: TagDTO[];
 	primaryImageUrl: string | null;
 };

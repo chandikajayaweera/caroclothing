@@ -13,12 +13,12 @@ import {
 import {
 	buildMediaKey,
 	deleteObjectSafe,
-	getImagesBindingOptional,
 	getMediaBucket,
 	getMediaBucketOptional,
-	uploadMedia
+	uploadImage,
+	type StoredImageMetadata
 } from '$lib/server/infrastructure/media/r2';
-import { mediaUrl } from '$lib/server/infrastructure/media';
+import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceActor, ServiceContext, SystemActor } from '$lib/server/foundation/context';
 import {
 	isForeignKeyConstraintError,
@@ -84,9 +84,8 @@ type QueryExecutor = Db | ReviewsTx;
 type User = typeof user.$inferSelect;
 type AnyActor = ServiceActor | SystemActor;
 
-type UploadedReviewMedia = {
+type UploadedReviewMedia = StoredImageMetadata & {
 	bucket: R2Bucket;
-	key: string;
 	type: ReviewMedia['type'];
 	position: number;
 };
@@ -238,6 +237,11 @@ export async function createReview(
 							reviewId,
 							r2Key: item.key,
 							type: item.type,
+							mimeType: item.mimeType,
+							byteSize: item.byteSize,
+							originalFilename: item.originalFilename,
+							width: null,
+							height: null,
 							position: item.position
 						})
 					)
@@ -393,6 +397,11 @@ export async function addReviewMedia(
 						reviewId: reviewRow.id,
 						r2Key: item.key,
 						type: item.type,
+						mimeType: item.mimeType,
+						byteSize: item.byteSize,
+						originalFilename: item.originalFilename,
+						width: null,
+						height: null,
 						position: currentMedia.length + item.position - existingMedia.length
 					})
 				)
@@ -795,8 +804,13 @@ function toReviewMediaDTO(row: ReviewMedia): ReviewMediaDTO {
 		id: row.id,
 		reviewId: row.reviewId,
 		r2Key: row.r2Key,
-		mediaUrl: mediaUrl(row.r2Key),
+		mediaUrl: mediaPresetUrl(row.r2Key, 'square400'),
 		type: row.type,
+		mimeType: row.mimeType,
+		byteSize: row.byteSize,
+		originalFilename: row.originalFilename,
+		width: row.width,
+		height: row.height,
 		position: row.position,
 		createdAt: row.createdAt
 	};
@@ -814,13 +828,13 @@ function toReviewProductSummaryDTO(row: Product, images: ProductImage[]): Review
 
 function resolvePrimaryProductImageUrl(images: ProductImage[]): string | null {
 	const primary = images.find((image) => image.variantId === null && image.isPrimary);
-	if (primary) return mediaUrl(primary.r2Key);
+	if (primary) return mediaPresetUrl(primary.r2Key, 'card600');
 
 	const anyPrimary = images.find((image) => image.isPrimary);
-	if (anyPrimary) return mediaUrl(anyPrimary.r2Key);
+	if (anyPrimary) return mediaPresetUrl(anyPrimary.r2Key, 'card600');
 
 	const first = images[0];
-	return first ? mediaUrl(first.r2Key) : null;
+	return first ? mediaPresetUrl(first.r2Key, 'card600') : null;
 }
 
 function parseCreateReviewInput(
@@ -1078,7 +1092,6 @@ async function uploadReviewMediaFiles(
 	startPosition: number
 ): Promise<UploadedReviewMedia[]> {
 	const bucket = requireMediaBucket(ctx);
-	const images = getImagesBindingOptional(ctx.event);
 	const uploaded: UploadedReviewMedia[] = [];
 
 	try {
@@ -1090,15 +1103,15 @@ async function uploadReviewMediaFiles(
 				variant: `media-${position}`,
 				contentType: file.type
 			});
-			const result = await uploadMedia(bucket, key, file, {
-				images,
-				profile: 'review'
-			});
+			const result = await uploadImage(bucket, key, file);
 
 			uploaded.push({
 				bucket,
 				key: result.key,
-				type: result.mediaType === 'photo' ? 'image' : 'video',
+				type: 'image',
+				mimeType: result.mimeType,
+				byteSize: result.byteSize,
+				originalFilename: result.originalFilename,
 				position
 			});
 		}

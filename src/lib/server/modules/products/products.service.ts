@@ -1,16 +1,4 @@
-import {
-	and,
-	asc,
-	count,
-	desc,
-	eq,
-	inArray,
-	isNull,
-	like,
-	or,
-	sql,
-	type SQL
-} from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/foundation/guards';
@@ -25,12 +13,12 @@ import {
 import {
 	buildMediaKey,
 	deleteObjectSafe,
-	getImagesBindingOptional,
 	getMediaBucket,
 	getMediaBucketOptional,
-	uploadImage
+	uploadImage,
+	type StoredImageMetadata
 } from '$lib/server/infrastructure/media/r2';
-import { mediaUrl } from '$lib/server/infrastructure/media';
+import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isCheckConstraintError,
@@ -125,9 +113,8 @@ import type {
 type Db = ReturnType<typeof getDb>;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
-type UploadedImage = {
+type UploadedImage = StoredImageMetadata & {
 	bucket: R2Bucket;
-	key: string;
 };
 
 type UploadedProductImage = UploadedImage & {
@@ -193,7 +180,12 @@ export async function createCategory(
 		const values: NewCategory = {
 			id,
 			...data,
-			imageR2Key: uploadedImage?.key ?? null
+			imageR2Key: uploadedImage?.key ?? null,
+			imageMimeType: uploadedImage?.mimeType ?? null,
+			imageByteSize: uploadedImage?.byteSize ?? null,
+			imageOriginalFilename: uploadedImage?.originalFilename ?? null,
+			imageWidth: null,
+			imageHeight: null
 		};
 
 		const [created] = await getDb().insert(category).values(values).returning();
@@ -299,7 +291,16 @@ export async function updateCategory(
 		removeImage && existing.imageR2Key && !uploadedImage ? requireMediaBucket(ctx) : null;
 	const updateValues: Partial<NewCategory> = removeUndefinedValues({
 		...data,
-		imageR2Key: uploadedImage ? uploadedImage.key : removeImage ? null : undefined
+		imageR2Key: uploadedImage ? uploadedImage.key : removeImage ? null : undefined,
+		imageMimeType: uploadedImage ? uploadedImage.mimeType : removeImage ? null : undefined,
+		imageByteSize: uploadedImage ? uploadedImage.byteSize : removeImage ? null : undefined,
+		imageOriginalFilename: uploadedImage
+			? uploadedImage.originalFilename
+			: removeImage
+				? null
+				: undefined,
+		imageWidth: uploadedImage ? null : removeImage ? null : undefined,
+		imageHeight: uploadedImage ? null : removeImage ? null : undefined
 	});
 
 	if (Object.keys(updateValues).length === 0) {
@@ -370,15 +371,8 @@ export async function createProduct(
 ): Promise<ProductDTO> {
 	requireAdmin(ctx.actor);
 
-	const {
-		tagIds,
-		newTagNames,
-		images,
-		primaryImageIndex,
-		variants,
-		imageMetadata,
-		...rawData
-	} = input;
+	const { tagIds, newTagNames, images, primaryImageIndex, variants, imageMetadata, ...rawData } =
+		input;
 	const data = parseInsertProduct(rawData);
 
 	const normalizedTagIds = normalizeTagIds(tagIds);
@@ -474,6 +468,11 @@ export async function createProduct(
 							productId: row.id,
 							variantId: image.variantId,
 							r2Key: image.key,
+							mimeType: image.mimeType,
+							byteSize: image.byteSize,
+							originalFilename: image.originalFilename,
+							width: null,
+							height: null,
 							altText: image.altText,
 							position: image.position,
 							isPrimary: image.isPrimary
@@ -559,11 +558,7 @@ export async function updateProduct(
 	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
 	const updateValues = removeUndefinedValues(data);
 
-	if (
-		Object.keys(updateValues).length === 0 &&
-		tagIds === undefined &&
-		newTagNames === undefined
-	) {
+	if (Object.keys(updateValues).length === 0 && tagIds === undefined && newTagNames === undefined) {
 		return hydrateProduct(existing, { includeInactiveRelations: true });
 	}
 
@@ -660,6 +655,11 @@ export async function updateProductFull(
 		id: string;
 		variantId: string | null;
 		r2Key: string;
+		mimeType: string | null;
+		byteSize: number | null;
+		originalFilename: string | null;
+		width: number | null;
+		height: number | null;
 		altText: string | null;
 		position: number;
 		isPrimary: boolean;
@@ -687,13 +687,21 @@ export async function updateProductFull(
 
 				uploadedR2Images.push({
 					bucket: uploadResult.bucket,
-					key: uploadResult.key
+					key: uploadResult.key,
+					mimeType: uploadResult.mimeType,
+					byteSize: uploadResult.byteSize,
+					originalFilename: uploadResult.originalFilename
 				});
 
 				newImageInsertData.push({
 					id: img.id,
 					variantId: resolvedVariantId,
 					r2Key: uploadResult.key,
+					mimeType: uploadResult.mimeType,
+					byteSize: uploadResult.byteSize,
+					originalFilename: uploadResult.originalFilename,
+					width: null,
+					height: null,
 					altText: img.altText ?? null,
 					position: img.position,
 					isPrimary: img.isPrimary
@@ -850,6 +858,11 @@ export async function updateProductFull(
 							productId: existing.id,
 							variantId: resolvedVariantId,
 							r2Key: insertData.r2Key,
+							mimeType: insertData.mimeType,
+							byteSize: insertData.byteSize,
+							originalFilename: insertData.originalFilename,
+							width: insertData.width,
+							height: insertData.height,
 							altText: img.altText ?? null,
 							position: img.position,
 							isPrimary: img.isPrimary
@@ -1248,7 +1261,12 @@ export async function addProductImage(
 	try {
 		const values: NewProductImage = {
 			...data,
-			r2Key: uploadedImage.key
+			r2Key: uploadedImage.key,
+			mimeType: uploadedImage.mimeType,
+			byteSize: uploadedImage.byteSize,
+			originalFilename: uploadedImage.originalFilename,
+			width: null,
+			height: null
 		};
 		const created = await getDb().transaction(async (tx) => {
 			if (values.isPrimary) {
@@ -1705,7 +1723,12 @@ function toCategoryDTO(row: Category): CategoryDTO {
 		slug: row.slug,
 		description: row.description,
 		imageR2Key: row.imageR2Key,
-		imageUrl: row.imageR2Key ? mediaUrl(row.imageR2Key) : null,
+		imageUrl: row.imageR2Key ? mediaPresetUrl(row.imageR2Key, 'hero960') : null,
+		imageMimeType: row.imageMimeType,
+		imageByteSize: row.imageByteSize,
+		imageOriginalFilename: row.imageOriginalFilename,
+		imageWidth: row.imageWidth,
+		imageHeight: row.imageHeight,
 		parentId: row.parentId,
 		sortOrder: row.sortOrder,
 		isActive: row.isActive,
@@ -1751,7 +1774,12 @@ function toProductImageDTO(row: ProductImage): ProductImageDTO {
 		productId: row.productId,
 		variantId: row.variantId,
 		r2Key: row.r2Key,
-		imageUrl: mediaUrl(row.r2Key),
+		imageUrl: mediaPresetUrl(row.r2Key, 'card600'),
+		mimeType: row.mimeType,
+		byteSize: row.byteSize,
+		originalFilename: row.originalFilename,
+		width: row.width,
+		height: row.height,
 		altText: row.altText,
 		position: row.position,
 		isPrimary: row.isPrimary,
@@ -1770,6 +1798,7 @@ function toProductDTO(
 ): ProductDTO {
 	const images = input.images.map(toProductImageDTO);
 	const primaryVariant = input.variants[0];
+	const primaryImage = resolvePrimaryImage(images);
 
 	return {
 		id: row.id,
@@ -1795,7 +1824,8 @@ function toProductDTO(
 		variants: input.variants,
 		images,
 		tags: input.tags.map(toTagDTO),
-		primaryImageUrl: resolvePrimaryImageUrl(images)
+		primaryImageR2Key: primaryImage?.r2Key ?? null,
+		primaryImageUrl: primaryImage?.imageUrl ?? null
 	};
 }
 
@@ -1828,12 +1858,7 @@ function parseUpdateCategory(
 function parseInsertProduct(
 	input: Omit<
 		CreateProductInput,
-		| 'tagIds'
-		| 'newTagNames'
-		| 'images'
-		| 'primaryImageIndex'
-		| 'variants'
-		| 'imageMetadata'
+		'tagIds' | 'newTagNames' | 'images' | 'primaryImageIndex' | 'variants' | 'imageMetadata'
 	>
 ): InsertProduct {
 	const result = insertProductSchema.safeParse(input);
@@ -1847,7 +1872,9 @@ function parseInsertProduct(
 	return result.data;
 }
 
-function parseUpdateProduct(input: Omit<UpdateProductInput, 'tagIds' | 'newTagNames'>): UpdateProduct {
+function parseUpdateProduct(
+	input: Omit<UpdateProductInput, 'tagIds' | 'newTagNames'>
+): UpdateProduct {
 	const result = updateProductSchema.safeParse(input);
 
 	if (!result.success) {
@@ -3055,14 +3082,14 @@ function resolveIncludeInactive(
 	return true;
 }
 
-function resolvePrimaryImageUrl(images: ProductImageDTO[]): string | null {
+function resolvePrimaryImage(images: ProductImageDTO[]): ProductImageDTO | null {
 	const productPrimary = images.find((image) => image.variantId === null && image.isPrimary);
-	if (productPrimary) return productPrimary.imageUrl;
+	if (productPrimary) return productPrimary;
 
 	const anyPrimary = images.find((image) => image.isPrimary);
-	if (anyPrimary) return anyPrimary.imageUrl;
+	if (anyPrimary) return anyPrimary;
 
-	return images[0]?.imageUrl ?? null;
+	return images[0] ?? null;
 }
 
 function validateResolvedProductPricing(input: {
@@ -3103,10 +3130,8 @@ async function uploadCategoryImage(
 			variant: 'image',
 			contentType: image.type
 		});
-		await uploadImage(bucket, key, image, {
-			images: getImagesBindingOptional(ctx.event),
-			profile: 'category'
-		});
+		const uploaded = await uploadImage(bucket, key, image);
+		return { bucket, ...uploaded };
 	} catch (error) {
 		if (isAppError(error)) throw error;
 
@@ -3115,8 +3140,6 @@ async function uploadCategoryImage(
 			cause: message
 		});
 	}
-
-	return { bucket, key };
 }
 
 async function uploadProductImage(
@@ -3135,10 +3158,8 @@ async function uploadProductImage(
 			variant: variantId ? `variant-${variantId}` : 'main',
 			contentType: image.type
 		});
-		await uploadImage(bucket, key, image, {
-			images: getImagesBindingOptional(ctx.event),
-			profile: 'product'
-		});
+		const uploaded = await uploadImage(bucket, key, image);
+		return { bucket, ...uploaded };
 	} catch (error) {
 		if (isAppError(error)) throw error;
 
@@ -3147,8 +3168,6 @@ async function uploadProductImage(
 			cause: message
 		});
 	}
-
-	return { bucket, key };
 }
 
 async function uploadProductImages(

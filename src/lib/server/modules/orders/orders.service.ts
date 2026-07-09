@@ -24,7 +24,7 @@ import {
 	getErrorMessage,
 	isAppError
 } from '$lib/server/infrastructure/errors';
-import { mediaUrl } from '$lib/server/infrastructure/media';
+import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
 	isForeignKeyConstraintError,
@@ -1204,7 +1204,7 @@ function toOrderSummaryDTO(row: Order, items: OrderItem[]): OrderSummaryDTO {
 
 	return {
 		...dto,
-		firstItemImageUrl: firstImageKey ? mediaUrl(firstImageKey) : null
+		firstItemImageUrl: firstImageKey ? mediaPresetUrl(firstImageKey, 'thumb160') : null
 	};
 }
 
@@ -1218,7 +1218,7 @@ function toOrderItemDTO(row: OrderItem): OrderItemDTO {
 		variantSize: row.variantSize,
 		variantColor: row.variantColor,
 		productImageR2Key: row.productImageR2Key,
-		imageUrl: row.productImageR2Key ? mediaUrl(row.productImageR2Key) : null,
+		imageUrl: row.productImageR2Key ? mediaPresetUrl(row.productImageR2Key, 'thumb160') : null,
 		quantity: row.quantity,
 		unitPrice: row.unitPrice,
 		totalPrice: row.totalPrice

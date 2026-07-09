@@ -25,7 +25,7 @@ export type SizeTier = (typeof SIZE_TIERS)[number];
 // CATEGORIES
 //
 // imageR2Key stores the Cloudflare R2 object key — NOT a URL.
-// Resolve at query time via mediaUrl(imageR2Key) from media/utils.ts.
+// Resolve originals via mediaOriginalUrl(imageR2Key) or display presets via mediaPresetUrl().
 // R2 key format: categories/{categoryId}/{variant}-{uuid}.{ext}
 // Use buildMediaKey({ scope: 'categories', entityId: id, ... }) from r2.ts
 // ---------------------------------------------------------------------------
@@ -40,6 +40,11 @@ export const category = sqliteTable(
 		slug: text('slug').notNull().unique(),
 		description: text('description'),
 		imageR2Key: text('image_r2_key'), // R2 object key, NOT a URL
+		imageMimeType: text('image_mime_type'),
+		imageByteSize: integer('image_byte_size'),
+		imageOriginalFilename: text('image_original_filename'),
+		imageWidth: integer('image_width'),
+		imageHeight: integer('image_height'),
 		parentId: text('parent_id').references((): AnySQLiteColumn => category.id, {
 			onDelete: 'set null'
 		}), // self-referential FK
@@ -206,7 +211,7 @@ export const productVariant = sqliteTable(
 //
 // r2Key stores the Cloudflare R2 object key — NOT a URL.
 // Build via: buildMediaKey({ scope: 'products', entityId: productId, variant: 'main', contentType })
-// Resolve to URL via: mediaUrl(r2Key) from media/utils.ts
+// Resolve originals via mediaOriginalUrl(r2Key) or display presets via mediaPresetUrl().
 //
 // variantId references productVariantColor.id.
 //
@@ -227,7 +232,12 @@ export const productImage = sqliteTable(
 		variantId: text('variant_id').references(() => productVariantColor.id, {
 			onDelete: 'set null'
 		}),
-		r2Key: text('r2_key').notNull(), // R2 object key — use mediaUrl(r2Key) to serve
+		r2Key: text('r2_key').notNull(), // R2 object key, not a URL
+		mimeType: text('mime_type'),
+		byteSize: integer('byte_size'),
+		originalFilename: text('original_filename'),
+		width: integer('width'),
+		height: integer('height'),
 		altText: text('alt_text'),
 		position: integer('position').default(0).notNull(),
 		isPrimary: integer('is_primary', { mode: 'boolean' }).default(false).notNull(),
@@ -388,7 +398,12 @@ export const insertCategorySchema = createInsertSchema(category, {
 	parentId: idSchema.optional().nullable(),
 	sortOrder: sortOrderSchema.optional(),
 	isActive: z.boolean().optional(),
-	imageR2Key: r2KeySchema.optional().nullable()
+	imageR2Key: r2KeySchema.optional().nullable(),
+	imageMimeType: z.string().max(100).optional().nullable(),
+	imageByteSize: z.number().int().nonnegative().optional().nullable(),
+	imageOriginalFilename: z.string().max(255).optional().nullable(),
+	imageWidth: z.number().int().positive().optional().nullable(),
+	imageHeight: z.number().int().positive().optional().nullable()
 }).omit({
 	id: true,
 	createdAt: true,
@@ -404,7 +419,12 @@ export const updateCategorySchema = createUpdateSchema(category, {
 	parentId: idSchema.optional().nullable(),
 	sortOrder: sortOrderSchema.optional(),
 	isActive: z.boolean().optional(),
-	imageR2Key: r2KeySchema.optional().nullable()
+	imageR2Key: r2KeySchema.optional().nullable(),
+	imageMimeType: z.string().max(100).optional().nullable(),
+	imageByteSize: z.number().int().nonnegative().optional().nullable(),
+	imageOriginalFilename: z.string().max(255).optional().nullable(),
+	imageWidth: z.number().int().positive().optional().nullable(),
+	imageHeight: z.number().int().positive().optional().nullable()
 }).omit({
 	id: true,
 	createdAt: true,
@@ -525,6 +545,11 @@ export const insertProductImageSchema = createInsertSchema(productImage, {
 	productId: idSchema,
 	variantId: idSchema.optional().nullable(),
 	r2Key: r2KeySchema,
+	mimeType: z.string().max(100).optional().nullable(),
+	byteSize: z.number().int().nonnegative().optional().nullable(),
+	originalFilename: z.string().max(255).optional().nullable(),
+	width: z.number().int().positive().optional().nullable(),
+	height: z.number().int().positive().optional().nullable(),
 	altText: z.string().max(255).optional().nullable(),
 	position: sortOrderSchema.optional(),
 	isPrimary: z.boolean().optional()

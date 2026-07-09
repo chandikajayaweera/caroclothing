@@ -303,10 +303,8 @@
 				<div class="mt-6 border-t border-charcoal pt-5">
 					<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 						<div>
-							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
-								Photos and videos
-							</p>
-							<p class="mt-1 text-xs text-ash/70">{review.media.length}/5 files</p>
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">Photos</p>
+							<p class="mt-1 text-xs text-ash/70">{review.media.length}/5 images</p>
 						</div>
 						{#if review.media.length < 5}
 							<form
@@ -321,11 +319,11 @@
 									class="flex min-h-11 cursor-pointer items-center gap-2 border border-charcoal px-4 font-mono text-[9px] tracking-widest text-bone uppercase hover:border-volt hover:text-volt"
 								>
 									<ImagePlus size={14} aria-hidden="true" />
-									Add media
+									Add photos
 									<input
 										name="files"
 										type="file"
-										accept="image/*,video/mp4,video/webm"
+										accept="image/jpeg,image/png,image/webp,image/avif"
 										multiple
 										required
 										class="sr-only"
@@ -341,21 +339,15 @@
 						<div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
 							{#each review.media as media, index (media.id)}
 								<div class="border border-charcoal bg-charcoal/15 p-2">
-									{#if media.type === 'image'}
-										<img
-											src={media.mediaUrl}
-											alt={`Review media ${index + 1}`}
-											loading="lazy"
-											class="aspect-square w-full object-cover"
-										/>
-									{:else}
-										<video
-											src={media.mediaUrl}
-											controls
-											preload="metadata"
-											class="aspect-square w-full object-cover"><track kind="captions" /></video
-										>
-									{/if}
+									<img
+										src={media.mediaUrl}
+										alt={`Review photo ${index + 1}`}
+										loading="lazy"
+										decoding="async"
+										width="400"
+										height="400"
+										class="aspect-square w-full object-cover"
+									/>
 									<div class="mt-2 flex items-center justify-between">
 										<div class="flex">
 											{#if index > 0}

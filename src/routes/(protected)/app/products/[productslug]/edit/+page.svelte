@@ -1,14 +1,5 @@
 <script lang="ts">
-	import {
-		ChevronDown,
-		FolderPlus,
-		ImageOff,
-		Plus,
-		Star,
-		Trash2,
-		Upload,
-		X
-	} from 'lucide-svelte';
+	import { ChevronDown, FolderPlus, ImageOff, Plus, Star, Trash2, Upload, X } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
 	import { flip } from 'svelte/animate';
 	import { superForm, filesProxy } from 'sveltekit-superforms';
@@ -1154,7 +1145,7 @@
 													>
 														<input
 															type="file"
-															accept="image/*"
+															accept="image/jpeg,image/png,image/webp,image/avif"
 															multiple
 															onchange={(e) => handleVariantImageUpload(card.id, e)}
 															class="hidden"
