@@ -37,10 +37,6 @@ import { repairTempUserEmailFromLinkedGoogleAccount } from './database-hook';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { deleteUserBagForAccountDeletionTx, type BagTx } from '../bag/bag.service';
 import {
-	deleteDropWaitlistEntriesForAccountDeletionTx,
-	type DropsTx
-} from '../drops/drops.service';
-import {
 	cancelNotificationsForAccountDeletionTx,
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
@@ -114,7 +110,6 @@ const ALLOWED_REDIRECT_PATHS = new Set<AuthRedirectPath>([
 	'/app',
 	'/bag',
 	'/checkout',
-	'/drops',
 	'/shop',
 	'/wishlist'
 ]);
@@ -205,7 +200,6 @@ export async function prepareAccountDeletion(input: {
 		const reviewMediaKeys = await listReviewMediaKeysForAccountDeletionTx(tx as ReviewsTx, userId);
 
 		await deleteUserBagForAccountDeletionTx(tx as BagTx, userId, now);
-		await deleteDropWaitlistEntriesForAccountDeletionTx(tx as DropsTx, userId);
 		await cancelNotificationsForAccountDeletionTx(tx as NotificationOutboxTx, {
 			userId,
 			now

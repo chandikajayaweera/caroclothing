@@ -26,13 +26,12 @@
 		<section class="grid grid-cols-1 gap-10 md:grid-cols-2">
 			<div class="flex flex-col gap-4 border border-charcoal bg-charcoal/20 p-8">
 				<span class="font-mono text-[9px] tracking-widest text-volt uppercase"
-					>01 / The Drop Ritual</span
+					>01 / The Release Ritual</span
 				>
-				<h3 class="font-display text-2xl text-bone uppercase">Limited releases</h3>
+				<h3 class="font-display text-2xl text-bone uppercase">Small-batch releases</h3>
 				<p class="font-sans text-sm leading-relaxed text-ash">
-					We don't believe in mass production. Our Drop collections are limited, event-based
-					releases. Once they sell out, they are archived forever. This ensures uniqueness and
-					minimizes environmental footprint.
+					We don't believe in mass production. Our collections stay focused, practical, and
+					deliberate, with stock planned around real demand and everyday wear.
 				</p>
 			</div>
 
@@ -42,8 +41,8 @@
 				>
 				<h3 class="font-display text-2xl text-bone uppercase">Always Available</h3>
 				<p class="font-sans text-sm leading-relaxed text-ash">
-					Alongside our hype drops, we maintain a lineup of Core staples. High-grade blanks, durable
-					fabrics, and perfect fits that remain restockable all year round.
+					We maintain a lineup of Core staples. High-grade blanks, durable fabrics, and perfect
+					fits that remain restockable all year round.
 				</p>
 			</div>
 
@@ -66,7 +65,7 @@
 		<section class="border-t border-charcoal pt-16 text-center">
 			<h2 class="font-display text-3xl text-bone uppercase md:text-5xl">Explore the collection</h2>
 			<p class="mx-auto mt-4 max-w-md font-mono text-[10px] tracking-widest text-ash uppercase">
-				See our latest core essentials and upcoming drop lists.
+				See our latest essentials and new arrivals.
 			</p>
 			<div class="mt-8 flex justify-center gap-4">
 				<Button
@@ -74,14 +73,7 @@
 					href="/shop"
 					class="px-12 py-4 font-mono text-xs tracking-widest uppercase"
 				>
-					Shop Core
-				</Button>
-				<Button
-					variant="outline"
-					href="/drops"
-					class="border-charcoal px-12 py-4 font-mono text-xs tracking-widest uppercase hover:bg-bone hover:text-void"
-				>
-					View Drops
+					Shop Now
 				</Button>
 			</div>
 		</section>

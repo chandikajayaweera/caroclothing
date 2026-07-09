@@ -1,5 +1,4 @@
 import {
-	sendDropLaunchEmail,
 	sendGoogleLinkedEmail,
 	sendOrderConfirmationEmail,
 	sendShippingUpdateEmail,
@@ -12,7 +11,6 @@ import type {
 	WelcomeEmailInput
 } from '$lib/server/infrastructure/email';
 import {
-	sendDropLaunchSms,
 	sendOrderConfirmationSms,
 	sendOrderStatusUpdateSms,
 	sendPaymentUpdateSms,
@@ -24,11 +22,7 @@ import type {
 	PaymentUpdateSmsInput,
 	ShippingUpdateSmsInput
 } from '$lib/server/infrastructure/sms';
-import type {
-	ClaimedNotificationDTO,
-	DropLaunchOutboxEmailInput,
-	DropLaunchOutboxSmsInput
-} from '$lib/server/modules/notifications/outbox/outbox.types';
+import type { ClaimedNotificationDTO } from '$lib/server/modules/notifications/outbox/outbox.types';
 import type {
 	NotificationChannel,
 	NotificationOutboxType
@@ -43,9 +37,7 @@ type NotificationDispatchKey =
 	| 'shipping_update:email'
 	| 'shipping_update:sms'
 	| 'payment_update:sms'
-	| 'order_status_update:sms'
-	| 'drop_launch:email'
-	| 'drop_launch:sms';
+	| 'order_status_update:sms';
 
 type DispatchPayloadByKey = {
 	'auth_welcome:email': WelcomeEmailInput;
@@ -56,8 +48,6 @@ type DispatchPayloadByKey = {
 	'shipping_update:sms': ShippingUpdateSmsInput;
 	'payment_update:sms': PaymentUpdateSmsInput;
 	'order_status_update:sms': OrderStatusUpdateSmsInput;
-	'drop_launch:email': DropLaunchOutboxEmailInput;
-	'drop_launch:sms': DropLaunchOutboxSmsInput;
 };
 
 type DispatchTypeForKey<TKey extends NotificationDispatchKey> =
@@ -107,12 +97,6 @@ const notificationDispatchers = {
 	},
 	'order_status_update:sms': async (notification) => {
 		return toSmsDispatchResult(await sendOrderStatusUpdateSms(notification.payload));
-	},
-	'drop_launch:email': async (notification) => {
-		return toEmailDispatchResult(await sendDropLaunchEmail(notification.payload));
-	},
-	'drop_launch:sms': async (notification) => {
-		return toSmsDispatchResult(await sendDropLaunchSms(notification.payload));
 	}
 } satisfies NotificationDispatchRegistry;
 
@@ -168,10 +152,6 @@ function dispatchWithTypedPayload(
 		case 'payment_update:sms':
 			return notificationDispatchers[key](toClaimedNotificationForKey(notification, key));
 		case 'order_status_update:sms':
-			return notificationDispatchers[key](toClaimedNotificationForKey(notification, key));
-		case 'drop_launch:email':
-			return notificationDispatchers[key](toClaimedNotificationForKey(notification, key));
-		case 'drop_launch:sms':
 			return notificationDispatchers[key](toClaimedNotificationForKey(notification, key));
 	}
 }

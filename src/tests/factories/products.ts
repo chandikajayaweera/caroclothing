@@ -70,7 +70,6 @@ export async function seedProduct(
 			description: overrides.description ?? null,
 			shortDescription: overrides.shortDescription ?? null,
 			categoryId: overrides.categoryId ?? null,
-			tier: overrides.tier ?? 'core',
 			gender: overrides.gender ?? 'unisex',
 			fit: overrides.fit ?? 'oversized',
 			material: overrides.material ?? null,

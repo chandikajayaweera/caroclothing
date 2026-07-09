@@ -18,7 +18,6 @@
 		Package,
 		PanelLeftClose,
 		PanelLeftOpen,
-		RadioTower,
 		ShieldCheck,
 		Star,
 		Store,
@@ -33,7 +32,6 @@
 		| '/app/addresses'
 		| '/app/bag'
 		| '/app/categories'
-		| '/app/drops'
 		| '/app/inventory'
 		| '/app/notifications'
 		| '/app/orders'
@@ -87,7 +85,6 @@
 			label: 'Operations',
 			items: [
 				{ label: 'Inventory', href: '/app/inventory', icon: Boxes },
-				{ label: 'Drops', href: '/app/drops', icon: RadioTower },
 				{ label: 'Shipping', href: '/app/shipping', icon: Truck }
 			]
 		},

@@ -56,8 +56,6 @@
 				return `Order Confirmation - #${p.orderNumber || p.orderId}`;
 			case 'shipping_update':
 				return `Shipping Update - Order #${p.orderNumber || p.orderId}`;
-			case 'drop_launch':
-				return `HYPE RELEASE: ${p.dropName} is LIVE!`;
 			default:
 				return 'System Notification';
 		}
@@ -73,7 +71,7 @@
 					<div style="font-family: sans-serif; color: #F8F5F0;">
 						<h2 style="color: #C8FF00; font-family: sans-serif; text-transform: uppercase; margin-top: 0;">Welcome to CARO, ${p.name}!</h2>
 						<p>Your account has been successfully created. We are excited to have you as part of our exclusive community.</p>
-						<p>Explore our latest drops and core catalog now.</p>
+						<p>Explore our latest arrivals and core catalog now.</p>
 						<p style="margin-top: 20px; font-size: 10px; color: #B4AFA8; border-top: 1px solid #1C1C1C; padding-top: 10px;">Email: ${p.email}</p>
 					</div>
 				`;
@@ -113,15 +111,6 @@
 						<p><a href="${p.trackingUrl || '#'}" target="_blank" style="color: #C8FF00; text-decoration: underline; font-weight: bold;">Click here to track shipment</a></p>
 					</div>
 				`;
-			case 'drop_launch':
-				return `
-					<div style="font-family: sans-serif; color: #F8F5F0;">
-						<h2 style="color: #C8FF00; text-transform: uppercase; margin-top: 0; font-size: 18px;">${p.dropName} has Launched</h2>
-						<p style="color: #C8FF00; font-weight: bold;">${p.tagline || 'The highly-anticipated release is live.'}</p>
-						<p>Shop limited hype pieces before the collection sells out completely.</p>
-						<p style="margin-top: 20px;"><a href="${p.dropUrl || '#'}" target="_blank" style="background: #C8FF00; color: #0A0A0A; padding: 8px 16px; font-weight: bold; text-decoration: none; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; display: inline-block;">View Drop Details</a></p>
-					</div>
-				`;
 			default:
 				return `<pre style="font-family: monospace; white-space: pre-wrap; font-size: 10px; color: #B4AFA8;">${JSON.stringify(payload, null, 2)}</pre>`;
 		}
@@ -140,8 +129,6 @@
 				return `CARO: Payment of ${p.amount || '—'} received for order #${p.orderNumber || p.orderId}. Status: ${p.statusLabel || p.status}.`;
 			case 'order_status_update':
 				return `CARO: Order #${p.orderNumber || p.orderId} status updated: ${p.statusLabel || p.status}. Details: ${p.orderUrl || '—'}`;
-			case 'drop_launch':
-				return `CARO: Drop "${p.dropName}" is LIVE! Shop highly-limited hype drops before they sell out: ${p.dropUrl || '—'}`;
 			default:
 				return p.message || `No message text parsed. Payload: ${JSON.stringify(payload)}`;
 		}
@@ -345,8 +332,7 @@
 					{ value: 'order_confirmation', label: 'Order Conf.' },
 					{ value: 'shipping_update', label: 'Shipping Update' },
 					{ value: 'payment_update', label: 'Payment Update' },
-					{ value: 'order_status_update', label: 'Status Update' },
-					{ value: 'drop_launch', label: 'Drop Launch' }
+					{ value: 'order_status_update', label: 'Status Update' }
 				]}
 				onchange={(e) => {
 					const form = (e.currentTarget as HTMLElement).closest('form');

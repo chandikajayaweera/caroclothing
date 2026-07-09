@@ -124,7 +124,7 @@
 </script>
 
 <div class="flex flex-col gap-2 {className}">
-	<!-- Drop zone / preview wrapper -->
+	<!-- Upload zone / preview wrapper -->
 	<div
 		class="relative aspect-video w-full overflow-hidden rounded-lg border transition-all duration-200
 			{dragActive
@@ -181,7 +181,7 @@
 
 				<span class="flex flex-col gap-1">
 					<span class="font-sans text-sm leading-tight font-semibold text-bone/90">
-						{dragActive ? 'Release to upload' : 'Drop image here or click to browse'}
+						{dragActive ? 'Release to upload' : 'Drag image here or click to browse'}
 					</span>
 					<span class="font-mono text-xs tracking-wide text-ash/70 uppercase">
 						JPG · PNG · WEBP · MAX {maxSizeMb}MB

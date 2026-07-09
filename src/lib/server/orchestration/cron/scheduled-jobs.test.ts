@@ -5,7 +5,6 @@ import { runScheduledJobs, SCHEDULED_JOB_REGISTRY } from './scheduled-jobs';
 const jobMocks = vi.hoisted(() => ({
 	deleteExpiredGuestBags: vi.fn(),
 	expireDueBagCheckouts: vi.fn(),
-	transitionDueDropsToLive: vi.fn(),
 	cancelExpiredPendingOrders: vi.fn(),
 	reconcilePromoCodeUsageCounts: vi.fn(),
 	processDueNotificationOutbox: vi.fn()
@@ -14,10 +13,6 @@ const jobMocks = vi.hoisted(() => ({
 vi.mock('$lib/server/modules/bag/bag.service', () => ({
 	deleteExpiredGuestBags: jobMocks.deleteExpiredGuestBags,
 	expireDueBagCheckouts: jobMocks.expireDueBagCheckouts
-}));
-
-vi.mock('$lib/server/modules/drops/drops.service', () => ({
-	transitionDueDropsToLive: jobMocks.transitionDueDropsToLive
 }));
 
 vi.mock('$lib/server/modules/orders/orders.service', () => ({
@@ -42,15 +37,6 @@ describe('runScheduledJobs', () => {
 			releaseSkippedCount: 0,
 			claimedCount: 2,
 			results: [{ id: 'outbox_1', outcome: 'sent' }]
-		});
-		jobMocks.transitionDueDropsToLive.mockResolvedValue({
-			launchedCount: 1,
-			launched: [],
-			skippedCount: 0,
-			skipped: [],
-			failedCount: 0,
-			failed: [],
-			limit: 50
 		});
 		jobMocks.cancelExpiredPendingOrders.mockResolvedValue({
 			cancelledCount: 1,
@@ -97,27 +83,17 @@ describe('runScheduledJobs', () => {
 		expect(new Set(registeredSchedules).size).toBe(registeredSchedules.length);
 	});
 
-	it('runs all jobs registered for the drop launch and notification schedule', async () => {
+	it('runs the notification outbox job on the notification schedule', async () => {
 		const results = await runScheduledJobs({
-			cron: CRON_SCHEDULES.dropLaunchAndNotifications,
+			cron: CRON_SCHEDULES.notifications,
 			scheduledTime
 		});
 
-		expect(results.map((result) => result.job)).toEqual([
-			'notifications.processDueOutbox',
-			'drops.transitionDueDropsToLive'
-		]);
+		expect(results.map((result) => result.job)).toEqual(['notifications.processDueOutbox']);
 		expect(jobMocks.processDueNotificationOutbox).toHaveBeenCalledWith({
 			now: new Date(scheduledTime),
 			limit: 50
 		});
-		expect(jobMocks.transitionDueDropsToLive).toHaveBeenCalledWith(
-			expect.objectContaining({
-				actor: { id: 'system:cron', role: 'adminUser' },
-				now: new Date(scheduledTime)
-			}),
-			{ now: new Date(scheduledTime), limit: 50 }
-		);
 	});
 
 	it('returns an explicit result for unknown cron schedules', async () => {
@@ -137,15 +113,14 @@ describe('runScheduledJobs', () => {
 	});
 
 	it('waits for sibling jobs and fails the scheduled invocation when any job fails', async () => {
-		jobMocks.transitionDueDropsToLive.mockRejectedValueOnce(new Error('drop job failed'));
+		jobMocks.processDueNotificationOutbox.mockRejectedValueOnce(new Error('outbox job failed'));
 
 		await expect(
 			runScheduledJobs({
-				cron: CRON_SCHEDULES.dropLaunchAndNotifications,
+				cron: CRON_SCHEDULES.notifications,
 				scheduledTime
 			})
-		).rejects.toThrow('[cron] Scheduled job failure: drop job failed');
+		).rejects.toThrow('[cron] Scheduled job failure: outbox job failed');
 		expect(jobMocks.processDueNotificationOutbox).toHaveBeenCalledTimes(1);
-		expect(jobMocks.transitionDueDropsToLive).toHaveBeenCalledTimes(1);
 	});
 });

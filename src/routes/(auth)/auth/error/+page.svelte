@@ -27,7 +27,7 @@
 				THE NEXT<br />GEN.
 			</h1>
 			<p class="font-mono text-xs leading-relaxed tracking-[0.3em] text-ash/80 uppercase">
-				Join the inner circle. Get early access to limited drops. Raw style. No suggestions.
+				Join the inner circle. Get early access to new arrivals. Raw style. No suggestions.
 			</p>
 		</div>
 	</div>

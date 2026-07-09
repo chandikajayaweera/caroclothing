@@ -1,13 +1,8 @@
-import type { PageServerLoad, Actions } from './$types';
-import { fail } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
 import { listProducts } from '$lib/server/modules/products';
-import { listDrops, joinDropWaitlist, joinDropWaitlistFormSchema } from '$lib/server/modules/drops';
 import { listRecentApprovedReviews } from '$lib/server/modules/reviews';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
-import {
-	throwHttpFromAppError,
-	failFromAppError
-} from '$lib/server/infrastructure/errors/route-adapter';
+import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
 export const load: PageServerLoad = async ({ locals, setHeaders }) => {
 	setHeaders({
@@ -20,15 +15,11 @@ export const load: PageServerLoad = async ({ locals, setHeaders }) => {
 	const ctx = { actor };
 
 	try {
-		const [productsResult, teaserDropsResult, liveDropsResult, reviewsResult] =
-			await Promise.all([
-				listProducts(ctx, { isNewArrival: true, limit: 8, includeInactive: false }),
-				listDrops(ctx, { status: 'teaser', limit: 1, includeArchived: false }),
-				listDrops(ctx, { status: 'live', limit: 1, includeArchived: false }),
-				listRecentApprovedReviews({ limit: 6 })
-			]);
+		const [productsResult, reviewsResult] = await Promise.all([
+			listProducts(ctx, { isNewArrival: true, limit: 8, includeInactive: false }),
+			listRecentApprovedReviews({ limit: 6 })
+		]);
 
-		const featuredDrop = teaserDropsResult.items[0] || liveDropsResult.items[0] || null;
 		const featuredProduct = productsResult.items[0] || null;
 
 		// Map stock status to new arrivals + featured product
@@ -86,41 +77,10 @@ export const load: PageServerLoad = async ({ locals, setHeaders }) => {
 
 		return {
 			newArrivals,
-			featuredDrop,
 			recentReviews: reviewsResult.items,
 			featuredProduct: mappedFeaturedProduct
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
-	}
-};
-
-export const actions: Actions = {
-	joinWaitlist: async ({ request, locals }) => {
-		const actor = locals.user
-			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
-			: null;
-		const ctx = { actor };
-		const formData = await request.formData();
-		const contact = String(formData.get('contact') ?? '').trim();
-		const result = joinDropWaitlistFormSchema.safeParse({
-			dropId: formData.get('dropId'),
-			contact,
-			contactType: contact.includes('@') ? 'email' : 'phone'
-		});
-
-		if (!result.success) {
-			return fail(400, {
-				success: false,
-				message: 'Use an email or +94 phone number.'
-			});
-		}
-
-		try {
-			await joinDropWaitlist(ctx, result.data);
-			return { success: true, message: 'Drop alert locked.' };
-		} catch (error) {
-			return failFromAppError(error);
-		}
 	}
 };

@@ -45,13 +45,6 @@ export const ErrorCode = {
 	WISHLIST_ITEM_ALREADY_EXISTS: 'WISHLIST_ITEM_ALREADY_EXISTS',
 	WISHLIST_ITEM_NOT_FOUND: 'WISHLIST_ITEM_NOT_FOUND',
 
-	// Drops
-	DROP_NOT_FOUND: 'DROP_NOT_FOUND',
-	DROP_NOT_LIVE: 'DROP_NOT_LIVE',
-	DROP_PRODUCT_NOT_FOUND: 'DROP_PRODUCT_NOT_FOUND',
-	DROP_WAITLIST_ENTRY_NOT_FOUND: 'DROP_WAITLIST_ENTRY_NOT_FOUND',
-	DROP_WAITLIST_ENTRY_ALREADY_EXISTS: 'DROP_WAITLIST_ENTRY_ALREADY_EXISTS',
-
 	// Inventory
 	INVENTORY_NOT_FOUND: 'INVENTORY_NOT_FOUND',
 	INVENTORY_MOVEMENT_NOT_FOUND: 'INVENTORY_MOVEMENT_NOT_FOUND',
@@ -166,12 +159,6 @@ const defaultStatusByCode = {
 	BAG_MIGRATION_FAILED: 500,
 	WISHLIST_ITEM_ALREADY_EXISTS: 409,
 	WISHLIST_ITEM_NOT_FOUND: 404,
-
-	DROP_NOT_FOUND: 404,
-	DROP_NOT_LIVE: 409,
-	DROP_PRODUCT_NOT_FOUND: 404,
-	DROP_WAITLIST_ENTRY_NOT_FOUND: 404,
-	DROP_WAITLIST_ENTRY_ALREADY_EXISTS: 409,
 
 	INVENTORY_NOT_FOUND: 404,
 	INVENTORY_MOVEMENT_NOT_FOUND: 404,
@@ -318,17 +305,6 @@ export class WishlistError extends AppError {
 }
 
 export class AddressError extends AppError {
-	constructor(
-		message: string,
-		code: ErrorCode,
-		details?: Record<string, unknown>,
-		statusCode?: number
-	) {
-		super(message, code, statusCode ?? getDefaultStatusCode(code), details);
-	}
-}
-
-export class DropError extends AppError {
 	constructor(
 		message: string,
 		code: ErrorCode,

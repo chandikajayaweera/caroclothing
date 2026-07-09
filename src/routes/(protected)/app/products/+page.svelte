@@ -16,7 +16,6 @@
 
 	const tableHeaders = [
 		{ label: 'Product' },
-		{ label: 'Tier' },
 		{ label: 'Price' },
 		{ label: 'Category' },
 		{ label: 'State' },
@@ -28,7 +27,6 @@
 
 	const hasActiveFilters = $derived(
 		data.filters.categoryId !== '' ||
-			data.filters.tier !== '' ||
 			data.filters.gender !== '' ||
 			data.filters.isFeatured !== '' ||
 			data.filters.isNewArrival !== '' ||
@@ -83,18 +81,14 @@
 		return `LKR ${value.toLocaleString('en-LK')}`;
 	}
 
-	function formatLabel(value: string): string {
-		return value.replace(/_/g, ' ');
-	}
-
 	function productStatusLabel(product: ProductItem): string {
 		if (product.isActive) return 'Active';
-		return product.tier === 'drop' && !product.dropAssignment ? 'Needs drop' : 'Inactive';
+		return 'Inactive';
 	}
 
 	function productStatusClass(product: ProductItem): string {
 		if (product.isActive) return 'text-volt';
-		return product.tier === 'drop' && !product.dropAssignment ? 'text-amber-300' : 'text-red-300';
+		return 'text-red-300';
 	}
 </script>
 
@@ -199,17 +193,6 @@
 				</AdminSelect>
 
 				<AdminSelect
-					label="Tier"
-					name="tier"
-					value={data.filters.tier}
-					onchange={(e) => {
-						const form = (e.currentTarget as HTMLElement).closest('form');
-						if (form) form.requestSubmit();
-					}}
-					options={[{ value: '', label: 'All tiers' }, ...data.tierOptions]}
-				/>
-
-				<AdminSelect
 					label="Gender"
 					name="gender"
 					value={data.filters.gender}
@@ -310,11 +293,6 @@
 							</span>
 						</div>
 						<div class="mt-3 flex flex-wrap gap-1.5">
-							<span
-								class="border border-charcoal px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase"
-							>
-								{formatLabel(product.tier)}
-							</span>
 							{#if product.isFeatured}
 								<span
 									class="border border-amber-300/40 px-2 py-1 font-mono text-[9px] tracking-widest text-amber-300 uppercase"
@@ -457,9 +435,6 @@
 							</p>
 						</div>
 					</div>
-				</td>
-				<td class="px-5 py-4 font-mono text-[10px] tracking-widest text-ash uppercase">
-					{formatLabel(product.tier)}
 				</td>
 				<td class="px-5 py-4">
 					<div class="flex flex-col gap-1 font-mono text-xs">

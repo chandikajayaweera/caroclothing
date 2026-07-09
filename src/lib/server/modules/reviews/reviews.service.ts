@@ -807,7 +807,6 @@ function toReviewProductSummaryDTO(row: Product, images: ProductImage[]): Review
 		id: row.id,
 		name: row.name,
 		slug: row.slug,
-		tier: row.tier,
 		isActive: row.isActive,
 		primaryImageUrl: resolvePrimaryProductImageUrl(images)
 	};

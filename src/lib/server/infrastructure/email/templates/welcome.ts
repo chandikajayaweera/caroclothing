@@ -15,7 +15,7 @@ export function buildWelcomeEmail(name: string): WelcomeTemplateResult {
       Welcome to Caro, ${safeName}.
     </h2>
     <p style="margin:0 0 32px;font-size:16px;color:#0A0A0A;line-height:1.6;">
-      Streetwear made here. Drops move fast. Core stays ready.
+      Streetwear made here. New arrivals ready now.
     </p>
     <a href="${getEnv().PUBLIC_APP_URL}/shop"
        style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:16px 32px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:0;border:1px solid #0A0A0A;">
@@ -29,7 +29,7 @@ export function buildWelcomeEmail(name: string): WelcomeTemplateResult {
 	return {
 		subject: `Welcome to ${getEnv().PUBLIC_APP_NAME}`,
 		html: baseLayout({
-			previewText: `Welcome to ${getEnv().PUBLIC_APP_NAME}. Drops and core are ready.`,
+			previewText: `Welcome to ${getEnv().PUBLIC_APP_NAME}. New arrivals are ready.`,
 			content
 		})
 	};

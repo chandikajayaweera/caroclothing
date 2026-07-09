@@ -46,7 +46,7 @@ export const inventory = sqliteTable(
 		reservedQuantity: integer('reserved_quantity').default(0).notNull(),
 		// Alert threshold — surface low-stock warnings in the admin panel
 		lowStockThreshold: integer('low_stock_threshold').default(5).notNull(),
-		// false = always show as available (useful for made-to-order drops)
+		// false = always show as available (useful for made-to-order products)
 		trackInventory: integer('track_inventory', { mode: 'boolean' }).default(true).notNull(),
 		// Allow orders even when stock hits 0 (e.g. pre-order campaigns).
 		// When true, the application bypasses the reservedQuantity step entirely —

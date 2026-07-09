@@ -43,7 +43,7 @@ describe('bag promo min order threshold service integration', () => {
 		harness.close();
 	});
 
-	it('preserves promo code on DTO when subtotal drops below minimum, and reactivates when subtotal recovers', async () => {
+	it('preserves promo code on DTO when subtotal falls below minimum, and reactivates when subtotal recovers', async () => {
 		const user = await seedUser(db(), { id: 'bag-promo-user' });
 		const ctx = makeCustomerCtx(user.id, { now });
 

@@ -5,7 +5,6 @@ import type { Actions, PageServerLoad } from './$types';
 import {
 	FIT_TIERS,
 	GENDER_TIERS,
-	PRODUCT_TIERS,
 	SIZE_TIERS,
 	type SizeTier,
 	createProduct,
@@ -16,7 +15,6 @@ import {
 	createColor,
 	deleteColor
 } from '$lib/server/modules/products';
-import { listDrops } from '$lib/server/modules/drops';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import {
@@ -52,7 +50,6 @@ const createProductDefaults = {
 	description: null,
 	shortDescription: null,
 	categoryId: null,
-	tier: 'core' as const,
 	gender: 'unisex' as const,
 	fit: 'oversized' as const,
 	material: null,
@@ -64,7 +61,6 @@ const createProductDefaults = {
 	metaDescription: null,
 	tagIds: [] as string[],
 	newTagNames: [] as string[],
-	dropId: null,
 	primaryImageIndex: 0,
 	images: [] as File[],
 	variants: [
@@ -93,10 +89,9 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const [categories, tags, drops, colors, createProductForm] = await Promise.all([
+		const [categories, tags, colors, createProductForm] = await Promise.all([
 			listCategories(ctx, { includeInactive: true, limit: 100 }),
 			listTags({ limit: 100 }),
-			listDrops(ctx, { limit: 100 }),
 			listColors(ctx),
 			superValidate(createProductDefaults, zod4(createProductFormSchema), {
 				id: 'createProduct',
@@ -107,9 +102,7 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 		return {
 			categories,
 			tags,
-			drops: drops.items,
 			colors,
-			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
 			fitOptions: FIT_TIERS.map(toOption),
 			sizeOptions: SIZE_TIERS.map(toOption),
@@ -141,10 +134,6 @@ export const actions: Actions = {
 
 		if (redirectTo === 'categories') {
 			throw redirect(303, '/app/categories');
-		}
-
-		if (redirectTo === 'drops') {
-			throw redirect(303, '/app/drops');
 		}
 
 		if (redirectTo === 'products') {

@@ -4,7 +4,6 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import {
 	GENDER_TIERS,
-	PRODUCT_TIERS,
 	deleteProduct,
 	deleteProductFormSchema,
 	getProduct,
@@ -15,8 +14,7 @@ import {
 	updateProduct,
 	updateProductFlagsFormSchema,
 	type GenderTier,
-	type ListProductsOptions,
-	type ProductTier
+	type ListProductsOptions
 } from '$lib/server/modules/products';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
@@ -40,7 +38,6 @@ function getAdminContext(
 function getListOptions(url: URL): ListProductsOptions {
 	const result = listProductsFormSchema.safeParse({
 		categoryId: getTrimmedParam(url.searchParams.get('categoryId')),
-		tier: getTierParam(url.searchParams.get('tier')),
 		gender: getGenderParam(url.searchParams.get('gender')),
 		isFeatured: getBooleanParam(url.searchParams.get('isFeatured')),
 		isNewArrival: getBooleanParam(url.searchParams.get('isNewArrival')),
@@ -56,10 +53,6 @@ function getListOptions(url: URL): ListProductsOptions {
 function getTrimmedParam(value: string | null): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : undefined;
-}
-
-function getTierParam(value: string | null): ProductTier | undefined {
-	return PRODUCT_TIERS.includes(value as ProductTier) ? (value as ProductTier) : undefined;
 }
 
 function getGenderParam(value: string | null): GenderTier | undefined {
@@ -102,11 +95,9 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				stats: getProductStats(ctx),
 				categories: listCategories(ctx, { includeInactive: true, limit: 100 })
 			},
-			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
 			filters: {
 				categoryId: productOptions.categoryId ?? '',
-				tier: productOptions.tier ?? '',
 				gender: productOptions.gender ?? '',
 				isFeatured:
 					productOptions.isFeatured === undefined ? '' : String(productOptions.isFeatured),
@@ -152,10 +143,6 @@ export const actions: Actions = {
 
 		try {
 			const product = await getProduct(ctx, { id: form.data.productId }, { includeInactive: true });
-
-			if (form.data.isActive && product.tier === 'drop' && !product.dropAssignment) {
-				return message(form, 'Add a drop before activating this drop product.', { status: 400 });
-			}
 
 			await updateProduct(
 				ctx,

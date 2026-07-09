@@ -2,7 +2,6 @@
 export { sendSms } from './client';
 export { normalizeSmsRecipient, maskSmsRecipient } from './utils';
 export type {
-	DropLaunchSmsInput,
 	OrderConfirmationSmsInput,
 	OrderStatusUpdateSmsInput,
 	PaymentUpdateSmsInput,
@@ -22,6 +21,3 @@ export {
 	sendPaymentUpdateSms,
 	sendShippingUpdateSms
 } from './senders/transactional';
-
-// Marketing
-export { sendDropLaunchSms } from './senders/marketing';

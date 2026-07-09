@@ -1,5 +1,4 @@
 import { deleteExpiredGuestBags, expireDueBagCheckouts } from '$lib/server/modules/bag/bag.service';
-import { transitionDueDropsToLive } from '$lib/server/modules/drops/drops.service';
 import { cancelExpiredPendingOrders } from '$lib/server/modules/orders/orders.service';
 import { reconcilePromoCodeUsageCounts } from '$lib/server/modules/promotions/promotions.service';
 import type {
@@ -11,7 +10,6 @@ import { processDueNotificationOutbox } from '$lib/server/orchestration/notifica
 import { CRON_SCHEDULES, type CronSchedule } from './schedules';
 
 const NOTIFICATION_OUTBOX_LIMIT = 50;
-const DROP_LAUNCH_LIMIT = 50;
 const ORDER_CANCEL_LIMIT = 50;
 const BAG_CHECKOUT_EXPIRY_LIMIT = 100;
 const BAG_CLEANUP_LIMIT = 100;
@@ -53,11 +51,8 @@ export const SCHEDULED_JOB_REGISTRY = [
 		jobs: ({ now, serviceCtx }) => [() => expireBagCheckouts(serviceCtx, now)]
 	},
 	{
-		schedule: CRON_SCHEDULES.dropLaunchAndNotifications,
-		jobs: ({ now, serviceCtx }) => [
-			() => processDueNotificationOutboxJob(now),
-			() => launchDueDrops(serviceCtx, now)
-		]
+		schedule: CRON_SCHEDULES.notifications,
+		jobs: ({ now }) => [() => processDueNotificationOutboxJob(now)]
 	},
 	{
 		schedule: CRON_SCHEDULES.orderPaymentExpiry,
@@ -150,22 +145,6 @@ async function processDueNotificationOutboxJob(now: Date): Promise<ScheduledJobR
 			failedCount: countNotificationOutcomes(result, 'failed'),
 			skippedCount: countNotificationOutcomes(result, 'skipped'),
 			invalidCount: countNotificationOutcomes(result, 'invalid')
-		}
-	};
-}
-
-async function launchDueDrops(ctx: ServiceContext, now: Date): Promise<ScheduledJobResult> {
-	const result = await transitionDueDropsToLive(ctx, {
-		now,
-		limit: DROP_LAUNCH_LIMIT
-	});
-
-	return {
-		job: 'drops.transitionDueDropsToLive',
-		count: result.launchedCount,
-		details: {
-			skippedCount: result.skippedCount,
-			failedCount: result.failedCount
 		}
 	};
 }

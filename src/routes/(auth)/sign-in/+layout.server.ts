@@ -11,7 +11,6 @@ const ALLOWED_REDIRECT_PATHS = new Set([
 	'/app',
 	'/bag',
 	'/checkout',
-	'/drops',
 	'/shop',
 	'/wishlist'
 ]);

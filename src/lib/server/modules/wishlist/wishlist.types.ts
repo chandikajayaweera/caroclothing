@@ -1,4 +1,4 @@
-import type { ProductTier, SizeTier } from '../products/products.drizzle';
+import type { SizeTier } from '../products/products.drizzle';
 
 export type WishlistTargetInput = {
 	productId: string;
@@ -10,7 +10,6 @@ export type WishlistProductSummaryDTO = {
 	name: string;
 	slug: string;
 	shortDescription: string | null;
-	tier: ProductTier;
 	basePrice: number;
 	compareAtPrice: number | null;
 	isActive: boolean;

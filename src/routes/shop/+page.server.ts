@@ -1,13 +1,11 @@
 import type { PageServerLoad } from './$types';
 import {
 	GENDER_TIERS,
-	PRODUCT_TIERS,
 	listCategories,
 	listProducts,
 	listProductsFormSchema,
 	type GenderTier,
-	type ListProductsOptions,
-	type ProductTier
+	type ListProductsOptions
 } from '$lib/server/modules/products';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
 import type { ServiceContext } from '$lib/server/foundation/context';
@@ -20,7 +18,6 @@ function getStorefrontContext(locals: App.Locals): ServiceContext {
 function getListOptions(url: URL): ListProductsOptions {
 	const result = listProductsFormSchema.safeParse({
 		categoryId: getTrimmedParam(url.searchParams.get('categoryId')),
-		tier: getTierParam(url.searchParams.get('tier')),
 		gender: getGenderParam(url.searchParams.get('gender')),
 		isFeatured: getBooleanParam(url.searchParams.get('isFeatured')),
 		isNewArrival:
@@ -38,10 +35,6 @@ function getListOptions(url: URL): ListProductsOptions {
 function getTrimmedParam(value: string | null): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : undefined;
-}
-
-function getTierParam(value: string | null): ProductTier | undefined {
-	return PRODUCT_TIERS.includes(value as ProductTier) ? (value as ProductTier) : undefined;
 }
 
 function getGenderParam(value: string | null): GenderTier | undefined {
@@ -127,11 +120,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		return {
 			products: productsWithStock,
 			categories,
-			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
 			filters: {
 				categoryId: productOptions.categoryId ?? '',
-				tier: productOptions.tier ?? '',
 				gender: productOptions.gender ?? '',
 				isFeatured:
 					productOptions.isFeatured === undefined ? '' : String(productOptions.isFeatured),

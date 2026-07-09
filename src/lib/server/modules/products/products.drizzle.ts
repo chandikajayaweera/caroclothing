@@ -12,24 +12,6 @@ import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'driz
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-// ---------------------------------------------------------------------------
-// PRODUCT TIER ENUM
-//
-// 'drop'  — Limited release. Part of a named drop event. Bold graphic statement.
-//           Never restocked. Priced LKR 3,000–4,500. Hype ritual applies.
-//           A product with tier = 'drop' MUST be linked to a dropProduct row
-//           when the drop is live.
-//
-// 'core'  — Always available. Minimal wordmark / tonal design. Restockable.
-//           Priced LKR 2,500–3,200. No countdown, no ceremony.
-//           If a piece could be a drop, it's too good for Core.
-//
-// Design rules per tier are defined in caro_brand_identity.html §06.
-// ---------------------------------------------------------------------------
-
-export const PRODUCT_TIERS = ['drop', 'core'] as const;
-export type ProductTier = (typeof PRODUCT_TIERS)[number];
-
 export const GENDER_TIERS = ['men', 'women', 'unisex'] as const;
 export type GenderTier = (typeof GENDER_TIERS)[number];
 
@@ -95,12 +77,6 @@ export const product = sqliteTable(
 		categoryId: text('category_id').references(() => category.id, {
 			onDelete: 'set null'
 		}),
-		// ── Tier ──────────────────────────────────────────────────────────────
-		// Determines pricing band, restockability, and marketing ritual.
-		// 'drop'  → limited, event-based, never restocked, hype mechanic
-		// 'core'  → always available, minimal branding, quietly restocked
-		// See PRODUCT_TIERS and brand identity §06 for full design rules.
-		tier: text('tier', { enum: PRODUCT_TIERS }).default('core').notNull(),
 		// ── Attributes ────────────────────────────────────────────────────────
 		gender: text('gender', { enum: GENDER_TIERS }).default('unisex').notNull(),
 		fit: text('fit', { enum: FIT_TIERS }).default('oversized').notNull(),
@@ -126,9 +102,7 @@ export const product = sqliteTable(
 		index('product_active_featured_idx').on(table.isActive, table.isFeatured, table.createdAt),
 		index('product_gender_active_idx').on(table.gender, table.isActive),
 		index('product_new_arrival_idx').on(table.isNewArrival, table.isActive, table.createdAt),
-		index('product_created_idx').on(table.createdAt),
-		// Tier-based queries: PLP "Shop Core", "Shop Drops", admin tier management
-		index('product_tier_active_idx').on(table.tier, table.isActive, table.createdAt)
+		index('product_created_idx').on(table.createdAt)
 	]
 );
 
@@ -443,7 +417,6 @@ export const insertProductBaseSchema = createInsertSchema(product, {
 	description: z.string().max(5000).optional().nullable(),
 	shortDescription: z.string().max(500).optional().nullable(),
 	categoryId: idSchema.optional().nullable(),
-	tier: z.enum(PRODUCT_TIERS).optional(),
 	gender: z.enum(GENDER_TIERS).optional(),
 	fit: z.enum(FIT_TIERS).optional(),
 	material: z.string().max(200).optional().nullable(),
@@ -468,7 +441,6 @@ export const updateProductBaseSchema = createUpdateSchema(product, {
 	description: z.string().max(5000).optional().nullable(),
 	shortDescription: z.string().max(500).optional().nullable(),
 	categoryId: idSchema.optional().nullable(),
-	tier: z.enum(PRODUCT_TIERS).optional(),
 	gender: z.enum(GENDER_TIERS).optional(),
 	fit: z.enum(FIT_TIERS).optional(),
 	material: z.string().max(200).optional().nullable(),

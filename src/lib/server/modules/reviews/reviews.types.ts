@@ -1,4 +1,3 @@
-import type { ProductTier } from '../products/products.drizzle';
 import type { InsertReview, Review, ReviewMedia, UpdateReview } from './reviews.drizzle';
 
 export const MAX_REVIEW_MEDIA_FILES = 5;
@@ -19,7 +18,6 @@ export type ReviewProductSummaryDTO = {
 	id: string;
 	name: string;
 	slug: string;
-	tier: ProductTier;
 	isActive: boolean;
 	primaryImageUrl: string | null;
 };

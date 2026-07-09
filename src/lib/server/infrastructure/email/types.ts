@@ -92,12 +92,3 @@ export interface PromotionalEmailInput {
 	/** Optional hero image URL */
 	heroImageUrl?: string;
 }
-
-export interface DropLaunchEmailInput {
-	to: string | string[];
-	dropName: string;
-	dropSlug: string;
-	dropUrl: string;
-	tagline?: string | null;
-	heroImageUrl?: string;
-}

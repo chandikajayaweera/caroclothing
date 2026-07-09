@@ -7,7 +7,6 @@
 	import {
 		Home,
 		Store,
-		Radio,
 		ShoppingBag,
 		Heart,
 		User,
@@ -29,11 +28,6 @@
 			label: 'Shop',
 			href: '/shop',
 			icon: Store
-		},
-		{
-			label: 'Drops',
-			href: '/drops',
-			icon: Radio
 		},
 		{
 			label: 'Bag',

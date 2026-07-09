@@ -18,7 +18,6 @@ import {
 	getInventoryAvailabilityByVariantIds,
 	type InventoryAvailabilityDTO
 } from '$lib/server/modules/inventory';
-import { joinDropWaitlist, joinDropWaitlistFormSchema } from '$lib/server/modules/drops';
 import { listShippingQuotes } from '$lib/server/modules/shipping';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
@@ -109,7 +108,6 @@ async function loadRelatedProducts(
 ): Promise<ProductWithStockStatus[]> {
 	const related = await listProducts(ctx, {
 		categoryId: product.categoryId ?? undefined,
-		tier: product.tier,
 		limit: 8,
 		includeInactive: false
 	});
@@ -118,7 +116,6 @@ async function loadRelatedProducts(
 	if (candidates.length > 0) return withStockStatus(ctx, candidates);
 
 	const fallback = await listProducts(ctx, {
-		tier: product.tier,
 		limit: 8,
 		includeInactive: false
 	});
@@ -219,30 +216,6 @@ export const actions: Actions = {
 				await addToWishlist(ctx, { productId });
 			}
 			return { success: true };
-		} catch (error) {
-			return failFromAppError(error);
-		}
-	},
-	joinDropWaitlist: async ({ request, locals }) => {
-		const ctx = getStorefrontContext(locals);
-		const formData = await request.formData();
-		const contact = String(formData.get('contact') ?? '').trim();
-		const result = joinDropWaitlistFormSchema.safeParse({
-			dropId: formData.get('dropId'),
-			contact,
-			contactType: contact.includes('@') ? 'email' : 'phone'
-		});
-
-		if (!result.success) {
-			return fail(400, {
-				success: false,
-				message: 'Use an email or +94 phone number.'
-			});
-		}
-
-		try {
-			await joinDropWaitlist(ctx, result.data);
-			return { success: true, message: 'Drop alert locked.' };
 		} catch (error) {
 			return failFromAppError(error);
 		}

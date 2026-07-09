@@ -12,7 +12,6 @@
 	// Sync local states with filters
 	let activeCategory = $derived(data.filters.categoryId);
 	let activeGender = $derived(data.filters.gender);
-	let activeTier = $derived(data.filters.tier);
 	let activeSort = $derived(data.filters.sort);
 
 	function updateFilter(name: string, value: string) {
@@ -45,7 +44,7 @@
 	<title>Shop | Caro Clothing</title>
 	<meta
 		name="description"
-		content="Shop the latest premium streetwear drops and core essentials from Caro Clothing."
+		content="Shop the latest premium streetwear essentials from Caro Clothing."
 	/>
 </svelte:head>
 
@@ -125,35 +124,6 @@
 								onclick={() => updateFilter('gender', option.value)}
 							>
 								{option.label}
-							</button>
-						{/each}
-					</div>
-				</div>
-
-				<!-- Tier -->
-				<div>
-					<h3 class="mb-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-						Release Type
-					</h3>
-					<div class="flex flex-wrap gap-3 lg:flex-col lg:items-start">
-						<button
-							class="font-mono text-xs uppercase transition-colors hover:text-volt {activeTier ===
-							''
-								? 'font-bold text-volt'
-								: 'text-ash'}"
-							onclick={() => updateFilter('tier', '')}
-						>
-							All Releases
-						</button>
-						{#each data.tierOptions as option (option.value)}
-							<button
-								class="font-mono text-xs uppercase transition-colors hover:text-volt {activeTier ===
-								option.value
-									? 'font-bold text-volt'
-									: 'text-ash'}"
-								onclick={() => updateFilter('tier', option.value)}
-							>
-								{option.label === 'drop' ? 'Limited Drop' : 'Core restock'}
 							</button>
 						{/each}
 					</div>

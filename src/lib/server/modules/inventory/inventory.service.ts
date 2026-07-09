@@ -881,7 +881,6 @@ function toInventoryListItemDTO(row: InventoryListRow): InventoryListItemDTO {
 			id: row.product.id,
 			name: row.product.name,
 			slug: row.product.slug,
-			tier: row.product.tier,
 			isActive: row.product.isActive
 		},
 		variant: {

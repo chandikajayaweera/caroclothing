@@ -5,7 +5,6 @@
 		ChevronDown,
 		FolderPlus,
 		ImageOff,
-		Layers,
 		Plus,
 		Star,
 		Trash2,
@@ -33,7 +32,7 @@
 	type DraftVariant = CreateProductData['variants'][number];
 	type SizeType = DraftVariant['sizes'][number];
 	type ImageMetadata = CreateProductData['imageMetadata'][number];
-	type RedirectTarget = 'products' | 'categories' | 'drops';
+	type RedirectTarget = 'products' | 'categories';
 
 	type ImagePreview = {
 		url: string;
@@ -175,9 +174,6 @@
 	});
 
 	const actionMessage = $derived(actionData?.form?.message);
-	const dropTierWithoutDrop = $derived(
-		$createProductForm.tier === 'drop' && !$createProductForm.dropId
-	);
 	const selectedTags = $derived(
 		data.tags.filter((tag) => $createProductForm.tagIds.includes(tag.id))
 	);
@@ -210,9 +206,6 @@
 			if (variantsWithNoSizes.length > 0) {
 				warnings.push('Sizes are missing on some variants');
 			}
-		}
-		if ($createProductForm.tier === 'drop' && !$createProductForm.dropId) {
-			warnings.push('Drop is required for Drop Tier');
 		}
 		if (imagePreviews.length === 0) {
 			warnings.push('No product photography uploaded');
@@ -389,35 +382,6 @@
 		}
 	}
 
-	function handleTierChange(): void {
-		const tier = $createProductForm.tier;
-		for (const variant of $createProductForm.variants) {
-			if (tier === 'drop') {
-				if (variant.basePrice < 3000 || variant.basePrice > 4500) {
-					variant.basePrice = 3000;
-				}
-			} else {
-				if (variant.basePrice < 2500 || variant.basePrice > 3200) {
-					variant.basePrice = 2500;
-				}
-			}
-		}
-
-		if ($createProductForm.tier === 'core') {
-			$createProductForm.dropId = null;
-		}
-
-		if ($createProductForm.tier === 'drop' && !$createProductForm.dropId) {
-			$createProductForm.isActive = false;
-		}
-	}
-
-	function handleDropChange(): void {
-		if ($createProductForm.tier === 'drop' && !$createProductForm.dropId) {
-			$createProductForm.isActive = false;
-		}
-	}
-
 	function createVariantDraft(): DraftVariant {
 		// Find the next unused color
 		const usedColorIds = new Set($createProductForm.variants.map((v) => v.colorId).filter(Boolean));
@@ -436,7 +400,7 @@
 			colorId: assignedColor.id,
 			color: assignedColor.name,
 			colorHex: assignedColor.hex,
-			basePrice: $createProductForm.tier === 'drop' ? 3000 : 2500,
+			basePrice: 2500,
 			compareAtPrice: null,
 			sortOrder: $createProductForm.variants.length + 1,
 			sizes: ['M']
@@ -852,7 +816,7 @@
 	<title>New Product | Caro Admin</title>
 	<meta
 		name="description"
-		content="Create a Caro product with media, variants, tags, tier, and drop state."
+		content="Create a Caro product with media, variants, tags, and catalog state."
 	/>
 </svelte:head>
 
@@ -975,46 +939,7 @@
 						</AdminButton>
 					</div>
 
-					<div class="grid gap-4 md:grid-cols-3">
-						<AdminSelect
-							label="Tier"
-							name="tier"
-							bind:value={$createProductForm.tier}
-							onchange={handleTierChange}
-						>
-							{#each data.tierOptions as option (option.value)}
-								<option value={option.value}>{formatLabel(option.label)}</option>
-							{/each}
-						</AdminSelect>
-
-						{#if $createProductForm.tier === 'drop'}
-							<AdminSelect
-								label="Drop"
-								name="dropId"
-								bind:value={$createProductForm.dropId}
-								onchange={handleDropChange}
-							>
-								<option value="">No drop</option>
-								{#each data.drops as drop (drop.id)}
-									<option value={drop.id}>{drop.name} ({formatLabel(drop.status)})</option>
-								{/each}
-							</AdminSelect>
-
-							<AdminButton href="/app/drops/new" variant="outline" size="sm" class="self-end">
-								<Layers size={14} aria-hidden="true" />
-								New Drop
-							</AdminButton>
-
-							{#if dropTierWithoutDrop}
-								<p
-									class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-sans text-xs text-red-300 md:col-span-3"
-								>
-									<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
-									Please assign a drop to make this drop product active.
-								</p>
-							{/if}
-						{/if}
-
+					<div class="grid gap-4 md:grid-cols-2">
 						<AdminSelect label="Gender" name="gender" bind:value={$createProductForm.gender}>
 							{#each data.genderOptions as option (option.value)}
 								<option value={option.value}>{formatLabel(option.label)}</option>
@@ -1063,7 +988,6 @@
 							description="Visible to shoppers"
 							name="isActive"
 							bind:checked={$createProductForm.isActive}
-							disabled={dropTierWithoutDrop}
 						/>
 
 						<AdminToggle
@@ -1865,12 +1789,6 @@
 				<div class="mt-5 flex justify-between gap-4 border-t border-ash/10 pt-4">
 					<span class="font-medium text-ash">Category</span>
 					<span class="text-right text-bone">{selectedCategoryName}</span>
-				</div>
-				<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
-					<span class="font-medium text-ash">Tier</span>
-					<span class="text-right text-bone uppercase"
-						>{formatLabel($createProductForm.tier ?? '')}</span
-					>
 				</div>
 				<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
 					<span class="font-medium text-ash">Gender / Fit</span>

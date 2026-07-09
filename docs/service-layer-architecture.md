@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-05-19
+- **Status:** current as of 2026-07-07
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 ## Current State
@@ -12,7 +12,6 @@ Implemented public service modules:
 auth
 addresses
 products
-drops
 wishlist
 bag
 shipping
@@ -45,7 +44,7 @@ Customer account lifecycle:
 - Existing phone-derived display names are treated as incomplete and redirected to account profile completion.
 - A customer must always retain at least one sign-in method: verified phone or Google.
 - Self-service account deletion requires a fresh Better Auth session.
-- Before account deletion, the auth workflow releases checkout reservations, deletes the bag, removes user-linked drop waitlist entries, cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one transaction.
+- Before account deletion, the auth workflow releases checkout reservations, deletes the bag, cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one transaction.
 - User deletion cascades profile-owned data while anonymized order/payment history remains with a null user reference.
 - Review media keys are collected before deletion and removed from R2 after the database deletion succeeds.
 
@@ -77,13 +76,11 @@ sendWelcomeEmail
 sendGoogleLinkedEmail
 sendOrderConfirmationEmail
 sendShippingUpdateEmail
-sendDropLaunchEmail
 sendOtpSms
 sendOrderConfirmationSms
 sendShippingUpdateSms
 sendPaymentUpdateSms
 sendOrderStatusUpdateSms
-sendDropLaunchSms
 ```
 
 Implemented outbox notification types:
@@ -95,7 +92,6 @@ order_confirmation
 shipping_update
 payment_update
 order_status_update
-drop_launch
 ```
 
 SMS sender purposes are configured by Text.lk sender ID:
@@ -138,7 +134,6 @@ Domain modules:
   src/lib/server/modules/auth
   src/lib/server/modules/addresses
   src/lib/server/modules/bag
-  src/lib/server/modules/drops
   src/lib/server/modules/inventory
   src/lib/server/modules/notifications/outbox
   src/lib/server/modules/orders
@@ -197,23 +192,22 @@ Service rules:
 - Multi-table writes must use transactions.
 - Cross-module transaction workflows should use internal `*Tx` helpers imported directly by server internals, not exported as public module CRUD.
 - Background/cron/cleanup tasks that process multiple items must NOT run the entire batch under a single monolithic transaction. Instead, select the targeted rows first, then process each record individually within its own transaction. This prevents database timeouts, lock contention, and worker runtime termination on Cloudflare.
-- Account deletion may use narrowly scoped internal bag, drop waitlist, review media, and notification outbox helpers; these are not generic public CRUD APIs.
+- Account deletion may use narrowly scoped internal bag, review media, and notification outbox helpers; these are not generic public CRUD APIs.
 - Inventory APIs may manage variant inventory rows, but `inventoryMovement` remains append-only audit state and must not be exposed as generic CRUD.
 - Services return DTOs when UI needs derived fields or public URLs.
 - Public reads default to public-safe filtering.
 - Reads that expose inactive, archived, unpublished, moderation, or admin-only data must accept `ServiceContext` and enforce authorization.
-- Do not expose generic CRUD for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, product-tag joins, or drop-product joins.
+- Do not expose generic CRUD for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, or product-tag joins.
 
 Product service contract:
 
-- `products.service.ts` owns product creation across product rows, selected tags, newly created tags, draft variant colors, draft variants (sizes), product images, and non-archived drop assignment. Admin routes must call `createProduct()` instead of writing any of those tables directly.
-- Product form schemas may include UI-only create fields such as `newTagNames`, `dropId`, `images`, `primaryImageIndex`, draft variant colors (`variants`), `imageMetadata`, and route `redirectTo`. Services strip and validate these fields before persistence.
+- `products.service.ts` owns product creation across product rows, selected tags, newly created tags, draft variant colors, draft variants (sizes), and product images. Admin routes must call `createProduct()` instead of writing any of those tables directly.
+- Product form schemas may include UI-only create fields such as `newTagNames`, `images`, `primaryImageIndex`, draft variant colors (`variants`), `imageMetadata`, and route `redirectTo`. Services strip and validate these fields before persistence.
 - Draft variant colors use client-side `clientId` values during create so image metadata and size-level variants can target a specific color card before the database ID exists. The service generates product, variant color, and variant size IDs, maps client IDs to variant color IDs, and rejects duplicate draft client IDs or duplicate color names.
 - Product image metadata must match the uploaded file count. Each image can set `variantColorClientId`, `altText`, `position`, and `isPrimary`; the service enforces valid variant color mapping, nonnegative positions, alt text length, and one primary image per color card scope.
 - Product image uploads are service-owned R2 side effects associated with a `productVariantColor` (color card) row via `variantColorId`. Routes pass `ctx.event`; the service uploads with generated product/color/variant IDs and deletes uploaded objects if a later validation or transaction step fails.
-- Product edit workflows use `updateProductFull()` for full-form synchronization of product rows, tags, drop assignment, variant color cards, size variants, new image uploads, image deletion, primary image state, image alt text, and image `position` display order. Admin edit routes serialize UI image metadata and must not write product image rows directly.
-- Product drop assignment is managed as part of product create/update through the product service when the UI supplies `dropId`. `dropProduct` remains a junction table with no generic CRUD route; drop-tier products without a current non-archived drop assignment are kept inactive until assigned.
-- `ProductDTO` includes non-archived `dropAssignment`, variants, images, tags, and resolved `primaryImageUrl` so admin/storefront routes do not need cross-table joins.
+- Product edit workflows use `updateProductFull()` for full-form synchronization of product rows, tags, variant color cards, size variants, new image uploads, image deletion, primary image state, image alt text, and image `position` display order. Admin edit routes serialize UI image metadata and must not write product image rows directly.
+- `ProductDTO` includes variants, images, tags, and resolved `primaryImageUrl` so admin/storefront routes do not need cross-table joins.
 
 ## Errors, Auth, Env, And Media
 
@@ -290,7 +284,7 @@ Queue:
 Cron:
 
 - Cron scans pending due rows, due failed rows, and stale locked rows.
-- Cron also routes configured scheduled service jobs such as due drop launch, pending-payment cancellation, guest-bag cleanup, and promo usage reconciliation.
+- Cron also routes configured scheduled service jobs such as pending-payment cancellation, guest-bag cleanup, and promo usage reconciliation.
 - Cron/job code must be idempotent, limit-aware, retry-safe, explicit about `now`, and free of `$lib/client/*` imports.
 
 Sender rules:
@@ -299,7 +293,7 @@ Sender rules:
 - Normal delivery failures return `EmailResult` or `SmsResult`; they do not throw.
 - OTP auth helpers may throw only where the existing auth flow expects thrown failures; current OTP SMS remains synchronous/direct for that Better Auth path.
 - SMS semantic senders choose `senderPurpose`; outbox payloads and Queue messages should not carry provider sender IDs.
-- OTP auth uses `otp`, order/payment/delivery/status SMS uses `transactional`, and drops/new arrivals/offers/campaigns use `promotional`.
+- OTP auth uses `otp`, order/payment/delivery/status SMS uses `transactional`, and new arrivals/offers/campaigns use `promotional`.
 - Failed email/SMS sends must not mark waitlist entries or notification records as sent.
 - Cloudflare KV must not be used as notification outbox; it is acceptable only for short-lived soft state such as OTP cooldowns.
 

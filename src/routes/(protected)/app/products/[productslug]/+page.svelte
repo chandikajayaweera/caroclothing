@@ -220,7 +220,6 @@
 						</div>
 						<div class="bg-void p-5">
 							<p class="font-sans text-xs text-ash">Tier</p>
-							<p class="mt-2 font-sans text-sm text-bone">{formatLabel(product.tier)}</p>
 						</div>
 						<div class="bg-void p-5">
 							<p class="font-sans text-xs text-ash">Gender / Fit</p>
@@ -229,9 +228,9 @@
 							</p>
 						</div>
 						<div class="bg-void p-5">
-							<p class="font-sans text-xs text-ash">Drop</p>
+							<p class="font-sans text-xs text-ash">Status</p>
 							<p class="mt-2 font-sans text-sm text-bone">
-								{product.dropAssignment?.name ?? 'No drop'}
+								{product.isActive ? 'Active' : 'Inactive'}
 							</p>
 						</div>
 					</div>
@@ -452,35 +451,6 @@
 					</div>
 				</div>
 
-				<!-- Drop Assignment Card -->
-				<AdminCard
-					kicker="Drop Assignment"
-					title="Drop Window"
-					titleSize="text-lg"
-					border="border border-charcoal/40"
-					class="shadow-sm"
-				>
-					<div class="grid gap-3 font-mono text-xs uppercase">
-						<div class="flex justify-between gap-4 border-b border-charcoal pb-2">
-							<span class="font-sans text-xs text-ash uppercase">Status</span>
-							<span class="text-right font-mono text-xs text-bone"
-								>{product.dropAssignment?.status ?? 'None'}</span
-							>
-						</div>
-						<div class="flex justify-between gap-4 border-b border-charcoal pb-2">
-							<span class="font-sans text-xs text-ash uppercase">Launch</span>
-							<span class="text-right font-mono text-xs text-bone">
-								{formatDate(product.dropAssignment?.launchAt ?? null)}
-							</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="font-sans text-xs text-ash uppercase">End</span>
-							<span class="text-right font-mono text-xs text-bone">
-								{formatDate(product.dropAssignment?.endAt ?? null)}
-							</span>
-						</div>
-					</div>
-				</AdminCard>
 			{/snippet}
 		</AdminDetailLayout>
 

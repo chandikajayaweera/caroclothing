@@ -51,7 +51,7 @@
 		"crons": [
 			// Timed checkout stock reservation expiry.
 			"* * * * *",
-			// Drop launch + waitlist notifications.
+			// Notification outbox retries.
 			"*/5 * * * *",
 			// Pending online payment order auto-cancel.
 			"*/10 * * * *",

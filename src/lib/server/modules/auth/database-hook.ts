@@ -11,7 +11,6 @@ import {
 	toBetterAuthApiError
 } from '$lib/server/infrastructure/errors';
 import { createCloudflareNotificationWakeupPublisher } from '$lib/server/infrastructure/cloudflare';
-import { linkDropWaitlistEntriesToUser } from '$lib/server/modules/drops/drops.service';
 import {
 	enqueueAuthGoogleLinkedEmailTx,
 	enqueueAuthWelcomeEmailTx,
@@ -38,11 +37,6 @@ function isInternalTempEmail(email: string) {
 	);
 }
 
-function getUserPhoneNumber(user: unknown): string | null {
-	const phoneNumber = (user as { phoneNumber?: unknown } | null)?.phoneNumber;
-	return typeof phoneNumber === 'string' && phoneNumber.trim() ? phoneNumber.trim() : null;
-}
-
 function getUserPublicEmail(user: unknown): string | null {
 	const email = (user as { email?: unknown } | null)?.email;
 	if (typeof email !== 'string') return null;
@@ -50,12 +44,6 @@ function getUserPublicEmail(user: unknown): string | null {
 	const normalizedEmail = email.trim().toLowerCase();
 	if (!normalizedEmail || isInternalTempEmail(normalizedEmail)) return null;
 	return normalizedEmail;
-}
-
-function getWaitlistContactsForUser(user: unknown): string[] {
-	return [
-		...new Set([getUserPublicEmail(user), getUserPhoneNumber(user)].filter(Boolean) as string[])
-	];
 }
 
 function getUserDisplayName(user: unknown): string {
@@ -125,30 +113,6 @@ async function enqueueAuthGoogleLinkedEmailForAccount(input: {
 		logger.info(`[auth] Google-linked email queued for ${input.email}`);
 	} catch (error) {
 		logger.error(`[auth] Failed to queue Google-linked email for ${input.email}`, error);
-	}
-}
-
-async function linkDropWaitlistContactsForUser(
-	userId: string,
-	contacts: string[],
-	source: string
-): Promise<void> {
-	const uniqueContacts = [...new Set(contacts.filter(Boolean))];
-	if (uniqueContacts.length === 0) return;
-
-	try {
-		const ctx = {
-			actor: { id: userId, role: 'customerUser' }
-		} satisfies ServiceContext;
-		const result = await linkDropWaitlistEntriesToUser(ctx, { userId, contacts: uniqueContacts });
-
-		if (result.linkedCount > 0) {
-			logger.info(
-				`[auth] Linked ${result.linkedCount} drop waitlist entries for ${userId} from ${source}`
-			);
-		}
-	} catch (error) {
-		logger.warn(`[auth] Failed to link drop waitlist entries for ${userId} from ${source}`, error);
 	}
 }
 
@@ -297,8 +261,6 @@ async function promoteTempUserEmailFromGoogleAccount(
 		.set({ email: googleEmail, emailVerified: true })
 		.where(eq(userTable.id, userId));
 
-	await linkDropWaitlistContactsForUser(userId, [googleEmail], 'google email promotion');
-
 	logger.info(`[auth] Promoted temp email to linked Google email for ${userId}`);
 	return googleEmail;
 }
@@ -391,11 +353,6 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 	user: {
 		create: {
 			after: async (user) => {
-				await linkDropWaitlistContactsForUser(
-					user.id,
-					getWaitlistContactsForUser(user),
-					'user create'
-				);
 				await enqueueAuthWelcomeEmailForUser(user);
 			}
 		},
@@ -445,12 +402,6 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 			after: async (user, context) => {
 				const userId = getSessionUserId(context);
 				if (!userId) return;
-
-				await linkDropWaitlistContactsForUser(
-					userId,
-					getWaitlistContactsForUser(user),
-					'user update'
-				);
 			}
 		}
 	},

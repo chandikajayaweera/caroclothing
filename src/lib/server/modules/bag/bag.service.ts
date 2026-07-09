@@ -20,7 +20,6 @@ import { getDb } from '$lib/server/db';
 import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	BagError,
-	DropError,
 	ErrorCode,
 	ProductError,
 	getErrorMessage,
@@ -37,7 +36,6 @@ import {
 	resolveNow,
 	isString
 } from '$lib/server/foundation/utils';
-import { drop as dropTable, dropProduct as dropProductTable } from '../drops/drops.drizzle';
 import { promoCode as promoCodeTable } from '../promotions/promotions.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
 import { validatePromoCodeForBagTx, type PromotionsTx } from '../promotions/promotions.service';
@@ -1159,10 +1157,6 @@ async function loadPurchasableVariantTx(
 		});
 	}
 
-	if (row.product.tier === 'drop') {
-		await assertProductInLiveDropTx(tx, row.product.id, now);
-	}
-
 	return {
 		product: row.product,
 		variant: {
@@ -1176,31 +1170,6 @@ async function loadPurchasableVariantTx(
 		} as any,
 		unitPrice: row.color.basePrice
 	};
-}
-
-async function assertProductInLiveDropTx(
-	tx: QueryExecutor,
-	productId: string,
-	now: Date
-): Promise<void> {
-	const [row] = await tx
-		.select({ dropId: dropTable.id })
-		.from(dropProductTable)
-		.innerJoin(dropTable, eq(dropProductTable.dropId, dropTable.id))
-		.where(
-			and(
-				eq(dropProductTable.productId, productId),
-				eq(dropTable.status, 'live'),
-				or(isNull(dropTable.endAt), gt(dropTable.endAt, now))
-			)
-		)
-		.limit(1);
-
-	if (!row) {
-		throw new DropError('Drop is not live for this product.', ErrorCode.DROP_NOT_LIVE, {
-			productId
-		});
-	}
 }
 
 async function hydrateBagTx(tx: Tx, row: Bag, now: Date): Promise<BagDTO> {
@@ -1308,15 +1277,17 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 	const releasedBagIds = await releaseExpiredCheckoutReservationsForVariantsTx(tx, variantIds, now);
 	const currentRows =
 		releasedBagIds.size > 0 ? await reloadHydratedBagRowsTx(tx, rows, releasedBagIds) : rows;
-	const [productRows, variantRows, imageRows, inventoryRows, liveDropProductIds] =
-		await loadBagHydrationRelationsTx(tx, productIds, variantIds, now);
+	const [productRows, variantRows, imageRows, inventoryRows] = await loadBagHydrationRelationsTx(
+		tx,
+		productIds,
+		variantIds
+	);
 	const productsById = new Map(productRows.map((productRow) => [productRow.id, productRow]));
 	const variantsById = new Map(variantRows.map((variantRow) => [variantRow.id, variantRow]));
 	const imagesByProductId = groupByProductId(imageRows);
 	const inventoryByVariantId = new Map(
 		inventoryRows.map((inventoryRow) => [inventoryRow.variantId, inventoryRow])
 	);
-	const liveDropProductIdSet = new Set(liveDropProductIds);
 	const reservedByItemId = await loadReservedQuantitiesByItemId(tx, itemRows);
 	const activeCheckoutHoldsByVariantId = await loadActiveCheckoutHoldsByVariantId(
 		tx,
@@ -1358,8 +1329,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 				inventory: inventoryByVariantId.get(item.variantId) ?? null,
 				reservedForItem: reservedByItemId.get(item.id) ?? 0,
 				activeCheckoutHolds: activeCheckoutHoldsByVariantId.get(item.variantId) ?? [],
-				now,
-				liveDropProductIds: liveDropProductIdSet
+				now
 			})
 		);
 		const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
@@ -1514,11 +1484,8 @@ async function loadActiveCheckoutHoldsByVariantId(
 async function loadBagHydrationRelationsTx(
 	tx: Tx,
 	productIds: string[],
-	variantIds: string[],
-	now: Date
-): Promise<
-	[Product[], HydratedBagVariant[], ProductImage[], InventoryAvailabilityDTO[], string[]]
-> {
+	variantIds: string[]
+): Promise<[Product[], HydratedBagVariant[], ProductImage[], InventoryAvailabilityDTO[]]> {
 	const productRows =
 		productIds.length > 0
 			? await tx.select().from(productTable).where(inArray(productTable.id, productIds))
@@ -1547,21 +1514,6 @@ async function loadBagHydrationRelationsTx(
 			: [];
 	const inventoryRows =
 		variantIds.length > 0 ? await getInventoryAvailabilityByVariantIdsTx(tx, { variantIds }) : [];
-	const dropProductIds = productRows.filter((row) => row.tier === 'drop').map((row) => row.id);
-	const liveDropRows =
-		dropProductIds.length > 0
-			? await tx
-					.select({ productId: dropProductTable.productId })
-					.from(dropProductTable)
-					.innerJoin(dropTable, eq(dropProductTable.dropId, dropTable.id))
-					.where(
-						and(
-							inArray(dropProductTable.productId, dropProductIds),
-							eq(dropTable.status, 'live'),
-							or(isNull(dropTable.endAt), gt(dropTable.endAt, now))
-						)
-					)
-			: [];
 
 	return [
 		productRows,
@@ -1575,8 +1527,7 @@ async function loadBagHydrationRelationsTx(
 			variantColorId: v.color.id
 		})),
 		imageRows,
-		inventoryRows,
-		liveDropRows.map((row) => row.productId)
+		inventoryRows
 	];
 }
 
@@ -1606,7 +1557,6 @@ function toBagItemDTO(input: {
 	reservedForItem: number;
 	activeCheckoutHolds: ActiveCheckoutHold[];
 	now: Date;
-	liveDropProductIds: Set<string>;
 }): BagItemDTO {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const currentUnitPrice = input.variant ? (input.variant as any).basePrice : null;
@@ -1654,7 +1604,6 @@ function resolveBagItemAvailability(input: {
 	inventory: InventoryAvailabilityDTO | null;
 	reservedForItem: number;
 	activeCheckoutHolds: ActiveCheckoutHold[];
-	liveDropProductIds: Set<string>;
 }): {
 	status: BagItemAvailabilityStatus;
 	availableQuantity: number | null;
@@ -1665,10 +1614,6 @@ function resolveBagItemAvailability(input: {
 	}
 
 	if (!input.product.isActive || !input.variant.isActive) {
-		return { status: 'unavailable', availableQuantity: 0, reservationExpiresAt: null };
-	}
-
-	if (input.product.tier === 'drop' && !input.liveDropProductIds.has(input.product.id)) {
 		return { status: 'unavailable', availableQuantity: 0, reservationExpiresAt: null };
 	}
 

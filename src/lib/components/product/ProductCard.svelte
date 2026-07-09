@@ -68,12 +68,6 @@
 					>
 						LOW STOCK
 					</span>
-				{:else if product.tier === 'drop'}
-					<span
-						class="bg-volt px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"
-					>
-						DROP
-					</span>
 				{:else if product.isNewArrival || product.badge === 'NEW'}
 					<span
 						class="bg-bone px-2 py-0.5 font-mono text-[9px] tracking-[0.15em] text-void uppercase"

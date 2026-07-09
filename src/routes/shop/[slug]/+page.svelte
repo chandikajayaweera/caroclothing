@@ -4,7 +4,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { PageData } from './$types';
 	import type { StorefrontVariantAvailabilityDTO } from '$lib/server/modules/bag/bag.types';
-	import { Check, Heart, Loader2, Mail, ShieldCheck, Star, Truck, X } from 'lucide-svelte';
+	import { Check, Heart, Loader2, ShieldCheck, Star, Truck, X } from 'lucide-svelte';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { openBagDrawer } from '$lib/client/modules/stores/ui';
@@ -21,11 +21,6 @@
 	let { data }: { data: PageData } = $props();
 
 	const product = $derived(data.product);
-	const drop = $derived(product.dropAssignment);
-	const isDropProduct = $derived(product.tier === 'drop');
-	const isDropLive = $derived(!isDropProduct || drop?.status === 'live');
-	const isDropTeaser = $derived(isDropProduct && drop?.status === 'teaser');
-	const isDropSoldOut = $derived(isDropProduct && drop?.status === 'sold_out');
 	const hasReviews = $derived(data.reviewsSummary.reviewCount > 0);
 	const isSaved = $derived(wishlist.has(product.id));
 
@@ -59,10 +54,6 @@
 	let addToBagLoading = $state(false);
 	let addedToBag = $state(false);
 	let addToBagError = $state('');
-	let waitlistContact = $state('');
-	let waitlistLoading = $state(false);
-	let waitlistMessage = $state('');
-	let waitlistError = $state('');
 	let availability = $state<StorefrontVariantAvailabilityDTO[]>([]);
 
 	$effect(() => {
@@ -166,28 +157,16 @@
 		)
 	);
 	const canAddToBag = $derived(
-		isDropLive &&
-			Boolean(activeVariant) &&
-			!isSelectedReserved &&
-			!isSelectedUnavailable &&
-			!addToBagLoading
+		Boolean(activeVariant) && !isSelectedReserved && !isSelectedUnavailable && !addToBagLoading
 	);
 	const addToBagLabel = $derived.by(() => {
 		if (addToBagLoading) return 'Adding';
 		if (addedToBag) return 'Added';
-		if (!isDropLive) return isDropSoldOut ? 'Sold Out' : 'Drop Not Live';
 		if (!activeSize) return 'Select Size';
 		if (isSelectedReserved) return 'Reserved at Checkout';
 		if (isSelectedPreOrder) return 'Pre-Order';
 		if (isSelectedUnavailable) return 'Sold Out';
 		return 'Add to Bag';
-	});
-	const tierLabel = $derived.by(() => {
-		if (product.tier === 'core') return 'Core Essential';
-		if (drop?.status === 'teaser') return 'Drop Teaser';
-		if (drop?.status === 'live') return 'Live Drop';
-		if (drop?.status === 'sold_out') return 'Sold Out Drop';
-		return 'Limited Drop';
 	});
 	const accordionPanels = $derived.by(() => [
 		{
@@ -306,29 +285,6 @@
 		};
 	};
 
-	const enhanceWaitlist: SubmitFunction = () => {
-		waitlistLoading = true;
-		waitlistMessage = '';
-		waitlistError = '';
-
-		return async ({ result, update }) => {
-			if (result.type === 'success') {
-				const resultData = result.data as { message?: string } | undefined;
-				waitlistMessage = resultData?.message ?? 'Drop alert locked.';
-				waitlistContact = '';
-				await update({ reset: false, invalidateAll: false });
-			} else if (result.type === 'failure') {
-				const resultData = result.data as { message?: string } | undefined;
-				waitlistError = resultData?.message ?? 'Could not join. Try again.';
-				await update({ reset: false, invalidateAll: false });
-			} else {
-				await update();
-			}
-
-			waitlistLoading = false;
-		};
-	};
-
 	const enhanceReview: SubmitFunction = () => {
 		reviewError = '';
 
@@ -386,14 +342,6 @@
 			<div class="h-fit md:sticky md:top-24">
 				<div class="border-b border-charcoal/70 pb-6">
 					<div class="flex flex-wrap items-center gap-2">
-						<span
-							class="border px-2 py-1 font-mono text-[10px] tracking-widest uppercase {isDropLive &&
-							isDropProduct
-								? 'border-volt/40 bg-volt/10 text-volt'
-								: 'border-ash/20 text-ash'}"
-						>
-							{tierLabel}
-						</span>
 						{#if product.isNewArrival}
 							<span
 								class="border border-bone/20 px-2 py-1 font-mono text-[10px] text-bone uppercase"
@@ -427,37 +375,6 @@
 						{/if}
 					</div>
 				</div>
-
-				{#if isDropProduct}
-					<div class="mt-5 border border-charcoal bg-charcoal/35 p-4">
-						<div class="flex items-start justify-between gap-4">
-							<div>
-								<p class="font-mono text-[10px] tracking-widest text-volt uppercase">
-									{drop?.name ?? 'Drop assignment pending'}
-								</p>
-								<p class="mt-1 font-sans text-sm text-bone">
-									{#if drop?.status === 'teaser'}
-										Opens {formatDate(drop.launchAt)}.
-									{:else if drop?.status === 'live'}
-										Live now. Stock updates at checkout.
-									{:else if drop?.status === 'sold_out'}
-										Sold out. No restock.
-									{:else}
-										Drop not open.
-									{/if}
-								</p>
-							</div>
-							{#if drop?.slug}
-								<a
-									href={resolve(`/drops/${drop.slug}`)}
-									class="shrink-0 font-mono text-[10px] text-ash uppercase transition-colors hover:text-volt"
-								>
-									View Drop
-								</a>
-							{/if}
-						</div>
-					</div>
-				{/if}
 
 				<div class="mt-6 space-y-6">
 					{#if colors.length > 0}
@@ -511,63 +428,12 @@
 						<p class="font-mono text-[11px] tracking-widest text-red-400 uppercase">
 							Sold out in {activeSize}
 						</p>
-					{:else if !activeSize && sizesForColor.length > 1 && isDropLive}
+					{:else if !activeSize && sizesForColor.length > 1}
 						<p class="font-mono text-[11px] tracking-widest text-ash uppercase">Choose a size</p>
 					{/if}
 				</div>
 
-				{#if isDropTeaser && drop}
-					<div id="drop-alert" class="mt-6 border border-volt/25 bg-volt/5 p-4">
-						<div class="flex items-start gap-3">
-							<Mail size={18} class="mt-0.5 shrink-0 text-volt" aria-hidden="true" />
-							<div>
-								<h2 class="font-mono text-xs font-bold tracking-widest text-volt uppercase">
-									Get the drop alert
-								</h2>
-								<p class="mt-1 font-sans text-sm text-ash">
-									Phone or email. No fake countdown resets.
-								</p>
-							</div>
-						</div>
-
-						<form
-							method="POST"
-							action="?/joinDropWaitlist"
-							use:enhance={enhanceWaitlist}
-							class="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]"
-						>
-							<input type="hidden" name="dropId" value={drop.id} />
-							<label class="sr-only" for="waitlist-contact">Phone or email</label>
-							<input
-								id="waitlist-contact"
-								name="contact"
-								bind:value={waitlistContact}
-								required
-								inputmode="email"
-								placeholder="+94771234567 or email"
-								class="h-12 border border-charcoal bg-void px-3 font-sans text-sm text-bone outline-none placeholder:text-ash/45 focus:border-volt"
-							/>
-							<button
-								type="submit"
-								class="h-12 cursor-pointer bg-volt px-5 font-mono text-xs font-bold tracking-widest text-void uppercase transition-colors hover:bg-bone disabled:bg-charcoal disabled:text-ash"
-								disabled={waitlistLoading}
-							>
-								{waitlistLoading ? 'Saving' : 'Notify Me'}
-							</button>
-						</form>
-						{#if waitlistMessage}
-							<p class="mt-3 font-mono text-[11px] text-volt uppercase" role="status">
-								{waitlistMessage}
-							</p>
-						{/if}
-						{#if waitlistError}
-							<p class="mt-3 font-mono text-[11px] text-red-400 uppercase" role="alert">
-								{waitlistError}
-							</p>
-						{/if}
-					</div>
-				{:else}
-					<div class="mt-7 flex gap-3">
+				<div class="mt-7 flex gap-3">
 						<form
 							method="POST"
 							action="?/addToBag"
@@ -632,12 +498,11 @@
 								aria-hidden="true"
 							/>
 						</button>
-					</div>
-					{#if addToBagError}
-						<p class="mt-3 font-mono text-[11px] text-red-400 uppercase" role="alert">
-							{addToBagError}
-						</p>
-					{/if}
+				</div>
+				{#if addToBagError}
+					<p class="mt-3 font-mono text-[11px] text-red-400 uppercase" role="alert">
+						{addToBagError}
+					</p>
 				{/if}
 
 				<div class="mt-5 grid grid-cols-2 gap-2">
@@ -978,41 +843,28 @@
 	</div>
 </div>
 
-{#if !isDropTeaser}
-	<div
-		class="fixed right-0 bottom-[calc(60px+env(safe-area-inset-bottom))] left-0 z-30 border-t border-charcoal bg-void/95 px-4 py-3 backdrop-blur md:hidden"
-	>
-		<div class="flex items-center gap-3">
-			<div class="min-w-0 flex-1">
-				<p class="truncate font-mono text-[11px] text-bone uppercase">{product.name}</p>
-				<p class="font-mono text-[11px] text-ash">
-					{formatMoney(selectedPrice)}{activeSize ? ` / ${activeSize}` : ''}
-				</p>
-			</div>
-			<form method="POST" action="?/addToBag" use:enhance={enhanceAddToBag}>
-				<input type="hidden" name="variantId" value={activeVariant?.id ?? ''} />
-				<input type="hidden" name="quantity" value="1" />
-				<button
-					type="submit"
-					class="h-12 min-w-36 cursor-pointer bg-volt px-4 font-mono text-xs font-bold tracking-widest text-void uppercase disabled:bg-charcoal disabled:text-ash"
-					disabled={!canAddToBag}
-				>
-					{addToBagLabel}
-				</button>
-			</form>
+<div
+	class="fixed right-0 bottom-[calc(60px+env(safe-area-inset-bottom))] left-0 z-30 border-t border-charcoal bg-void/95 px-4 py-3 backdrop-blur md:hidden"
+>
+	<div class="flex items-center gap-3">
+		<div class="min-w-0 flex-1">
+			<p class="truncate font-mono text-[11px] text-bone uppercase">{product.name}</p>
+			<p class="font-mono text-[11px] text-ash">
+				{formatMoney(selectedPrice)}{activeSize ? ` / ${activeSize}` : ''}
+			</p>
 		</div>
+		<form method="POST" action="?/addToBag" use:enhance={enhanceAddToBag}>
+			<input type="hidden" name="variantId" value={activeVariant?.id ?? ''} />
+			<input type="hidden" name="quantity" value="1" />
+			<button
+				type="submit"
+				class="h-12 min-w-36 cursor-pointer bg-volt px-4 font-mono text-xs font-bold tracking-widest text-void uppercase disabled:bg-charcoal disabled:text-ash"
+				disabled={!canAddToBag}
+			>
+				{addToBagLabel}
+			</button>
+		</form>
 	</div>
-{:else}
-	<div
-		class="fixed right-0 bottom-[calc(60px+env(safe-area-inset-bottom))] left-0 z-30 border-t border-charcoal bg-void/95 px-4 py-3 backdrop-blur md:hidden"
-	>
-		<a
-			href="#drop-alert"
-			class="flex h-12 w-full items-center justify-center bg-volt font-mono text-xs font-bold tracking-widest text-void uppercase"
-		>
-			Notify Me
-		</a>
-	</div>
-{/if}
+</div>
 
 <SizeGuideModal isOpen={isSizeGuideOpen} onClose={() => (isSizeGuideOpen = false)} />

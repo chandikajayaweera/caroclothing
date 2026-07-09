@@ -12,7 +12,7 @@ import type {
 	NotificationOutboxStatus,
 	NotificationOutboxType,
 	NotificationChannel
-} from '$lib/server/modules/notifications/outbox/outbox.drizzle';
+} from '$lib/server/modules/notifications/outbox';
 
 function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceContext {
 	return {

@@ -1,7 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '$lib/server/infrastructure/errors';
-import { dropProduct } from '$lib/server/modules/drops/drops.drizzle';
 import {
 	color,
 	product,
@@ -29,7 +28,6 @@ import {
 	makeMediaAdminCtx as makeAdminCtx,
 	makeMediaCustomerCtx as makePublicCtx
 } from '../../../../tests/fakes/media';
-import { seedDrop } from '../../../../tests/factories/drops';
 import { makeAdminCtx as makeAdminCtxWithoutMedia } from '../../../../tests/context';
 import { seedProduct, seedTag, seedVariantColor } from '../../../../tests/factories/products';
 
@@ -63,7 +61,6 @@ function baseProductInput(overrides: Partial<CreateProductInput> = {}): CreatePr
 		description: null,
 		shortDescription: null,
 		categoryId: null,
-		tier: 'core',
 		gender: 'unisex',
 		fit: 'oversized',
 		material: null,
@@ -113,33 +110,30 @@ describe('products service integration', () => {
 	});
 
 	describe('createProduct', () => {
-		it('creates products with variants, tags, drop assignment, and uploaded images', async () => {
+		it('creates products with variants, tags, and uploaded images', async () => {
 			const existingTag = await seedTag(db(), { name: 'Graphic', slug: 'graphic' });
-			const drop = await seedDrop(db(), { slug: 'drop-001', name: 'DROP 001' });
 			const bucket = createFakeR2Bucket();
 			const ctx = makeAdminCtx(bucket);
 
 			const created = await createProduct(
 				ctx,
 				baseProductInput({
-					name: 'Drop Tee',
-					slug: 'drop-tee',
-					tier: 'drop',
-					dropId: drop.id,
+					name: 'Graphic Tee',
+					slug: 'graphic-tee',
 					tagIds: [existingTag.id],
 					newTagNames: ['Launch'],
 					variants: [
 						variantInput({
 							clientId: 'black-card',
-							basePrice: 3500,
+							basePrice: 2500,
 							sizes: ['M', 'L']
 						})
 					],
-					images: [makeImage('drop-front.png')],
+					images: [makeImage('graphic-front.png')],
 					imageMetadata: [
 						{
 							variantClientId: 'black-card',
-							altText: 'Drop tee front',
+							altText: 'Graphic tee front',
 							position: 0,
 							isPrimary: true
 						}
@@ -147,26 +141,17 @@ describe('products service integration', () => {
 				})
 			);
 
-			expect(created.slug).toBe('drop-tee');
-			expect(created.tier).toBe('drop');
-			expect(created.dropAssignment?.id).toBe(drop.id);
+			expect(created.slug).toBe('graphic-tee');
 			expect(created.tags.map((row) => row.slug).sort()).toEqual(['graphic', 'launch']);
 			expect(created.variants).toHaveLength(2);
 			expect(created.images).toHaveLength(1);
 			expect(created.images[0]).toMatchObject({
-				altText: 'Drop tee front',
+				altText: 'Graphic tee front',
 				isPrimary: true
 			});
 			expect(created.images[0].variantId).toBeTruthy();
 			expect(bucket.putCalls).toHaveLength(1);
 			expect(bucket.objects.has(created.images[0].r2Key)).toBe(true);
-
-			const assignments = await db()
-				.select()
-				.from(dropProduct)
-				.where(eq(dropProduct.productId, created.id));
-			expect(assignments).toHaveLength(1);
-			expect(assignments[0].dropId).toBe(drop.id);
 		});
 
 		it('rejects validation errors before upload and leaves DB and R2 untouched', async () => {
@@ -209,26 +194,6 @@ describe('products service integration', () => {
 			expect(bucket.deleteCalls).toEqual(bucket.putCalls);
 			expect(bucket.objects.size).toBe(0);
 			expect(await productRows()).toHaveLength(0);
-		});
-
-		it('keeps drop-tier products inactive until assigned to a drop', async () => {
-			const created = await createProduct(
-				makeAdminCtx(),
-				baseProductInput({
-					name: 'Unassigned Drop Tee',
-					slug: 'unassigned-drop-tee',
-					tier: 'drop',
-					isActive: true,
-					variants: [
-						variantInput({
-							basePrice: 3200
-						})
-					]
-				})
-			);
-
-			expect(created.isActive).toBe(false);
-			expect(created.dropAssignment).toBeNull();
 		});
 
 		it('requires admin access for product writes', async () => {
@@ -545,12 +510,11 @@ describe('products service integration', () => {
 			).rejects.toMatchObject({ code: ErrorCode.INSUFFICIENT_PERMISSIONS });
 		});
 
-		it('validates tier pricing and compare-at price rules', async () => {
+		it('validates pricing and compare-at price rules', async () => {
 			await expect(
 				createProduct(
 					makeAdminCtx(),
 					baseProductInput({
-						tier: 'core',
 						variants: [
 							variantInput({
 								basePrice: 2400
@@ -564,11 +528,10 @@ describe('products service integration', () => {
 				createProduct(
 					makeAdminCtx(),
 					baseProductInput({
-						tier: 'drop',
 						variants: [
 							variantInput({
-								basePrice: 3500,
-								compareAtPrice: 3400
+								basePrice: 2500,
+								compareAtPrice: 2400
 							})
 						]
 					})

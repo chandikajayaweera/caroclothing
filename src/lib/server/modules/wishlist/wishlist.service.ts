@@ -533,7 +533,6 @@ function toWishlistProductSummaryDTO(
 		name: row.name,
 		slug: row.slug,
 		shortDescription: row.shortDescription,
-		tier: row.tier,
 		basePrice,
 		compareAtPrice,
 		isActive: row.isActive,

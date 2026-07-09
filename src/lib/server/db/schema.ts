@@ -4,7 +4,6 @@ export * from '../modules/auth/auth.drizzle';
 // ── Modules ───────────────────────────────────────────────────────────────────
 export * from '../modules/addresses/addresses.drizzle';
 export * from '../modules/bag/bag.drizzle';
-export * from '../modules/drops/drops.drizzle';
 export * from '../modules/inventory/inventory.drizzle';
 export * from '../modules/notifications/outbox/outbox.drizzle';
 export * from '../modules/orders/orders.drizzle';

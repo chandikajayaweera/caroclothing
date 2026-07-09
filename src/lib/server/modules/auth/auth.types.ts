@@ -11,7 +11,6 @@ export type AuthRedirectPath =
 	| '/app'
 	| '/bag'
 	| '/checkout'
-	| '/drops'
 	| '/shop'
 	| '/wishlist';
 

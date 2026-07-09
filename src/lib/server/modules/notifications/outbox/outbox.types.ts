@@ -1,5 +1,4 @@
 import type {
-	DropLaunchEmailInput,
 	GoogleLinkedEmailInput,
 	OrderConfirmationInput,
 	ShippingUpdateInput,
@@ -7,7 +6,6 @@ import type {
 } from '$lib/server/infrastructure/email';
 import type { NotificationWakeupMessage } from '$lib/server/foundation/context';
 import type {
-	DropLaunchSmsInput,
 	OrderConfirmationSmsInput,
 	OrderStatusUpdateSmsInput,
 	PaymentUpdateSmsInput,
@@ -21,12 +19,6 @@ import type {
 	NotificationOutboxType
 } from './outbox.drizzle';
 
-export type DropLaunchOutboxEmailInput = Omit<DropLaunchEmailInput, 'to'> & {
-	to: string;
-};
-
-export type DropLaunchOutboxSmsInput = DropLaunchSmsInput;
-
 export type NotificationPayloadByType = {
 	auth_welcome: WelcomeEmailInput;
 	auth_google_linked: GoogleLinkedEmailInput;
@@ -34,7 +26,6 @@ export type NotificationPayloadByType = {
 	shipping_update: ShippingUpdateInput | ShippingUpdateSmsInput;
 	payment_update: PaymentUpdateSmsInput;
 	order_status_update: OrderStatusUpdateSmsInput;
-	drop_launch: DropLaunchOutboxEmailInput | DropLaunchOutboxSmsInput;
 };
 
 export type NotificationPayload = NotificationPayloadByType[NotificationOutboxType];
@@ -165,28 +156,6 @@ export type EnqueueOrderStatusUpdateSmsInput = {
 	orderId: string;
 	recipientUserId?: string | null;
 	payload: OrderStatusUpdateSmsInput;
-	metadata?: Record<string, unknown> | null;
-	maxAttempts?: number;
-	nextAttemptAt?: Date;
-	now?: Date;
-};
-
-export type EnqueueDropLaunchEmailInput = {
-	dropId: string;
-	waitlistEntryId: string;
-	recipientUserId?: string | null;
-	payload: DropLaunchOutboxEmailInput;
-	metadata?: Record<string, unknown> | null;
-	maxAttempts?: number;
-	nextAttemptAt?: Date;
-	now?: Date;
-};
-
-export type EnqueueDropLaunchSmsInput = {
-	dropId: string;
-	waitlistEntryId: string;
-	recipientUserId?: string | null;
-	payload: DropLaunchOutboxSmsInput;
 	metadata?: Record<string, unknown> | null;
 	maxAttempts?: number;
 	nextAttemptAt?: Date;

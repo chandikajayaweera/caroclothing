@@ -24,7 +24,6 @@ Current services:
 auth
 addresses
 products
-drops
 wishlist
 bag
 shipping
@@ -120,13 +119,11 @@ Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` u
 
 The admin new-product workflow is a multi-entity service write owned by `src/lib/server/modules/products/products.service.ts`.
 
-- `createProduct()` accepts form-level fields for selected `tagIds`, `newTagNames`, optional `dropId`, uploaded `images`, `primaryImageIndex`, draft variant colors (`variants`), and per-image `imageMetadata`.
+- `createProduct()` accepts form-level fields for selected `tagIds`, `newTagNames`, uploaded `images`, `primaryImageIndex`, draft variant colors (`variants`), and per-image `imageMetadata`.
 - Draft variant colors carry a client-side `clientId`; image metadata and size-level variants reference that ID through `variantColorClientId` until the service maps it to the generated variant color ID.
 - Product image metadata is one row per uploaded file and may set variant color assignment, alt text, position, and primary state. The service enforces one primary image per color card scope.
-- Product create routes must not write `product_variant_color`, `product_variant`, `product_image`, `product_tag`, `tag`, or `drop_product` directly. They validate through module form schemas and call `createProduct()`.
-- Drop assignment from the product form is service-owned. `dropProduct` remains a junction table with no generic CRUD route.
+- Product create routes must not write `product_variant_color`, `product_variant`, `product_image`, `product_tag`, or `tag` directly. They validate through module form schemas and call `createProduct()`.
 - Product media uploads require `ctx.event` and compensation cleanup in the service if any later database write fails.
-- `ProductDTO.dropAssignment` is available for route/UI reads that need the current non-archived drop link.
 
 ## Current Product Edit Contract
 
@@ -134,7 +131,7 @@ The admin edit-product workflow is a full-form service write owned by `updatePro
 
 - Product edit routes serialize variant color cards and image metadata into form fields, validate through `updateProductFormSchema`, and call `updateProductFull()`.
 - Image metadata may update variant assignment, alt text, display `position`, primary state, deletion state, and new upload file mapping.
-- Routes must not write `product_variant_color`, `product_variant`, `product_image`, `product_tag`, `tag`, or `drop_product` directly during edit flows.
+- Routes must not write `product_variant_color`, `product_variant`, `product_image`, `product_tag`, or `tag` directly during edit flows.
 - New edit-route uploads still require `ctx.event`; uploaded objects are cleaned up by the service if later validation or persistence fails.
 
 ## Notification Workflow
@@ -143,10 +140,10 @@ Use `$caro-notifications` for email/SMS senders, notification outbox, waitlist n
 
 Current notification facts:
 
-- `sendOtpEmail`, `sendWelcomeEmail`, `sendGoogleLinkedEmail`, `sendOrderConfirmationEmail`, `sendShippingUpdateEmail`, and `sendDropLaunchEmail` exist.
-- `sendOtpSms`, `sendOrderConfirmationSms`, `sendShippingUpdateSms`, `sendPaymentUpdateSms`, `sendOrderStatusUpdateSms`, and `sendDropLaunchSms` exist.
+- `sendOtpEmail`, `sendWelcomeEmail`, `sendGoogleLinkedEmail`, `sendOrderConfirmationEmail`, and `sendShippingUpdateEmail` exist.
+- `sendOtpSms`, `sendOrderConfirmationSms`, `sendShippingUpdateSms`, `sendPaymentUpdateSms`, and `sendOrderStatusUpdateSms` exist.
 - `notification_outbox` is implemented under `src/lib/server/modules/notifications/outbox`.
-- Outbox notification types are `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
+- Outbox notification types are `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, and `order_status_update`.
 - `src/lib/server/orchestration/notifications` is orchestration.
 - `src/lib/server/infrastructure/cloudflare` contains Cloudflare Queue/Cron binding adapters and notification wakeup publisher adapters.
 - Queue producer/consumer bindings, Queue handlers, Cron recovery, and DLQ config are implemented.

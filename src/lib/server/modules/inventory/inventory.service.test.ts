@@ -55,7 +55,6 @@ async function seedVariantForInventory(
 		size?: ProductVariant['size'];
 		color?: string;
 		isActive?: boolean;
-		tier?: Product['tier'];
 	} = {}
 ) {
 	const id = crypto.randomUUID().slice(0, 8);
@@ -63,7 +62,6 @@ async function seedVariantForInventory(
 		product: {
 			name: overrides.productName ?? `Inventory Product ${id}`,
 			slug: overrides.productSlug ?? `inventory-product-${id}`,
-			tier: overrides.tier ?? 'core',
 			isActive: true
 		},
 		variantColor: {

@@ -5,7 +5,6 @@ import type { Actions, PageServerLoad } from './$types';
 import {
 	FIT_TIERS,
 	GENDER_TIERS,
-	PRODUCT_TIERS,
 	SIZE_TIERS,
 	getProduct,
 	listCategories,
@@ -17,7 +16,6 @@ import {
 	updateProductFormSchema,
 	type ProductDTO
 } from '$lib/server/modules/products';
-import { listDrops } from '$lib/server/modules/drops';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import {
@@ -54,7 +52,6 @@ function toUpdateProductFormData(product: ProductDTO) {
 		description: product.description,
 		shortDescription: product.shortDescription,
 		categoryId: product.categoryId,
-		tier: product.tier,
 		gender: product.gender,
 		fit: product.fit,
 		material: product.material,
@@ -66,7 +63,6 @@ function toUpdateProductFormData(product: ProductDTO) {
 		metaDescription: product.metaDescription,
 		tagIds: product.tags.map((tag) => tag.id),
 		newTagNames: [],
-		dropId: product.dropAssignment?.id ?? null,
 		serializedVariants: '[]',
 		serializedImages: '[]',
 		newImageFiles: []
@@ -77,11 +73,10 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const [product, categories, tags, drops, colors] = await Promise.all([
+		const [product, categories, tags, colors] = await Promise.all([
 			getProduct(ctx, { slug: params.productslug }, { includeInactive: true }),
 			listCategories(ctx, { includeInactive: true, limit: 100 }),
 			listTags({ limit: 100 }),
-			listDrops(ctx, { limit: 100 }),
 			listColors(ctx)
 		]);
 
@@ -97,9 +92,7 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			product,
 			categories,
 			tags,
-			drops: drops.items,
 			colors,
-			tierOptions: PRODUCT_TIERS.map(toOption),
 			genderOptions: GENDER_TIERS.map(toOption),
 			fitOptions: FIT_TIERS.map(toOption),
 			sizeOptions: SIZE_TIERS.map(toOption),

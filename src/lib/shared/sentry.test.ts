@@ -106,7 +106,7 @@ describe('Sentry runtime options', () => {
 		});
 	});
 
-	it('drops development localhost SvelteKit data fetch noise', () => {
+	it('filters development localhost SvelteKit data fetch noise', () => {
 		expect(shouldDropDevFetchNoise(devFetchEvent, 'development')).toBe(true);
 	});
 
@@ -140,7 +140,7 @@ describe('Sentry runtime options', () => {
 	});
 
 	describe('shouldDropSvelteKitDataFetchNoise', () => {
-		it('drops TypeError: Load failed on SvelteKit data endpoints in staging/production', () => {
+		it('filters TypeError: Load failed on SvelteKit data endpoints in staging/production', () => {
 			const event = {
 				type: undefined,
 				exception: {
@@ -157,7 +157,7 @@ describe('Sentry runtime options', () => {
 						category: 'fetch',
 						level: 'error',
 						data: {
-							url: 'https://staging.caroclothing.lk/drops/__data.json?x-sveltekit-invalidated=01'
+							url: 'https://staging.caroclothing.lk/shop/__data.json?x-sveltekit-invalidated=01'
 						}
 					}
 				]
@@ -173,7 +173,7 @@ describe('Sentry runtime options', () => {
 			expect(options.beforeSend(event)).toBeNull();
 		});
 
-		it('drops TypeError: Failed to fetch on SvelteKit data endpoints', () => {
+		it('filters TypeError: Failed to fetch on SvelteKit data endpoints', () => {
 			const event = {
 				type: undefined,
 				exception: {
@@ -242,7 +242,7 @@ describe('Sentry runtime options', () => {
 						category: 'fetch',
 						level: 'error',
 						data: {
-							url: 'https://staging.caroclothing.lk/drops/__data.json'
+							url: 'https://staging.caroclothing.lk/shop/__data.json'
 						}
 					}
 				]

@@ -3,7 +3,6 @@
 	import NewInGrid from '$lib/components/home/NewInGrid.svelte';
 	import SocialProofRail from '$lib/components/home/SocialProofRail.svelte';
 	import EditorialBanner from '$lib/components/home/EditorialBanner.svelte';
-	import DropTeaser from '$lib/components/home/DropTeaser.svelte';
 	import InstagramStrip from '$lib/components/home/InstagramStrip.svelte';
 	import type { PageData } from './$types';
 
@@ -18,20 +17,8 @@
 	/>
 </svelte:head>
 
-<HeroSection featuredDrop={data.featuredDrop} />
+<HeroSection />
 <NewInGrid products={data.newArrivals} />
 <SocialProofRail reviews={data.recentReviews} />
-{#if data.featuredDrop && data.featuredDrop.status === 'teaser' && !data.featuredDrop.heroImageUrl}
-	<!-- Only render secondary teaser if it wasn't featured as the main visual hero drop -->
-	<DropTeaser
-		nextDrop={{
-			id: data.featuredDrop.id,
-			name: data.featuredDrop.name,
-			tagline: data.featuredDrop.tagline || '',
-			date: data.featuredDrop.launchAt ? new Date(data.featuredDrop.launchAt) : new Date(),
-			slug: data.featuredDrop.slug
-		}}
-	/>
-{/if}
 <InstagramStrip products={data.newArrivals} />
 <EditorialBanner featuredProduct={data.featuredProduct} />

@@ -11,15 +11,6 @@ export interface SmsSendInput {
 	senderPurpose: SmsSenderPurpose;
 }
 
-// Drop launch
-
-export interface DropLaunchSmsInput {
-	/** E.164 format, e.g. "+94771234567" */
-	to: string;
-	dropName: string;
-	dropUrl: string;
-}
-
 // Transactional
 
 export interface OrderConfirmationSmsInput {

@@ -35,8 +35,6 @@ import type {
 	ClaimedNotificationDTO,
 	EnqueueAuthGoogleLinkedEmailInput,
 	EnqueueAuthWelcomeEmailInput,
-	EnqueueDropLaunchEmailInput,
-	EnqueueDropLaunchSmsInput,
 	EnqueueNotificationInput,
 	EnqueueOrderConfirmationEmailInput,
 	EnqueueOrderConfirmationSmsInput,
@@ -79,15 +77,13 @@ const EMAIL_SUPPORTED_TYPES = new Set<NotificationOutboxType>([
 	'auth_welcome',
 	'auth_google_linked',
 	'order_confirmation',
-	'shipping_update',
-	'drop_launch'
+	'shipping_update'
 ]);
 const SMS_SUPPORTED_TYPES = new Set<NotificationOutboxType>([
 	'order_confirmation',
 	'shipping_update',
 	'payment_update',
-	'order_status_update',
-	'drop_launch'
+	'order_status_update'
 ]);
 
 export async function getNotificationOutbox(
@@ -630,50 +626,6 @@ export async function enqueueOrderStatusUpdateSmsTx(
 	});
 }
 
-export async function enqueueDropLaunchEmailTx(
-	tx: NotificationOutboxTx,
-	input: EnqueueDropLaunchEmailInput
-): Promise<NotificationOutboxDTO> {
-	const dropId = normalizeId(input.dropId, 'dropId');
-	const waitlistEntryId = normalizeId(input.waitlistEntryId, 'waitlistEntryId');
-	return enqueueNotificationTx(tx, {
-		idempotencyKey: `drop:${dropId}:launch:${waitlistEntryId}:email`,
-		type: 'drop_launch',
-		channel: 'email',
-		recipient: input.payload.to,
-		recipientUserId: input.recipientUserId,
-		aggregateType: 'drop',
-		aggregateId: dropId,
-		payload: input.payload,
-		metadata: { waitlistEntryId, ...input.metadata },
-		maxAttempts: input.maxAttempts,
-		nextAttemptAt: input.nextAttemptAt,
-		now: input.now
-	});
-}
-
-export async function enqueueDropLaunchSmsTx(
-	tx: NotificationOutboxTx,
-	input: EnqueueDropLaunchSmsInput
-): Promise<NotificationOutboxDTO> {
-	const dropId = normalizeId(input.dropId, 'dropId');
-	const waitlistEntryId = normalizeId(input.waitlistEntryId, 'waitlistEntryId');
-	return enqueueNotificationTx(tx, {
-		idempotencyKey: `drop:${dropId}:launch:${waitlistEntryId}:sms`,
-		type: 'drop_launch',
-		channel: 'sms',
-		recipient: input.payload.to,
-		recipientUserId: input.recipientUserId,
-		aggregateType: 'drop',
-		aggregateId: dropId,
-		payload: input.payload,
-		metadata: { waitlistEntryId, ...input.metadata },
-		maxAttempts: input.maxAttempts,
-		nextAttemptAt: input.nextAttemptAt,
-		now: input.now
-	});
-}
-
 export function toNotificationQueueMessage(
 	row: NotificationOutboxRowLike
 ): NotificationQueueMessage {
@@ -972,17 +924,7 @@ function normalizeNotificationPayload<TType extends NotificationOutboxType>(
 		requireString(normalizedPayload.status, 'payload.status');
 	}
 
-	if (type === 'drop_launch') {
-		requireString(normalizedPayload.to, 'payload.to');
-		requireString(normalizedPayload.dropName, 'payload.dropName');
-		requireString(normalizedPayload.dropUrl, 'payload.dropUrl');
-
-		if (channel === 'email') {
-			requireString(normalizedPayload.dropSlug, 'payload.dropSlug');
-		}
-	}
-
-	return normalizedPayload as NotificationPayloadByType[TType];
+	return normalizedPayload as unknown as NotificationPayloadByType[TType];
 }
 
 function parseMetadata(value: unknown): Record<string, unknown> | null {

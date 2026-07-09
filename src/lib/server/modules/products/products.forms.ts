@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from '$lib/server/infrastructure/media/r2';
 import {
 	GENDER_TIERS,
-	PRODUCT_TIERS,
 	SIZE_TIERS,
 	insertCategorySchema,
 	insertProductImageSchema,
@@ -17,7 +16,7 @@ import {
 } from './products.drizzle';
 
 const idSchema = z.string().min(1).max(64);
-const redirectToSchema = z.enum(['view', 'products', 'categories', 'drops']).default('view');
+const redirectToSchema = z.enum(['view', 'products', 'categories']).default('view');
 
 function emptyFileToUndefined(value: unknown): unknown {
 	if (value instanceof File && value.size === 0) return undefined;
@@ -53,7 +52,6 @@ export const nullableIdFormSchema = z.preprocess(emptyStringToNull, idSchema.opt
 
 export const listProductsFormSchema = z.object({
 	categoryId: idSchema.optional(),
-	tier: z.enum(PRODUCT_TIERS).optional(),
 	gender: z.enum(GENDER_TIERS).optional(),
 	isFeatured: z.boolean().optional(),
 	isNewArrival: z.boolean().optional(),
@@ -171,7 +169,6 @@ export const createProductFormSchema = insertProductSchema
 	.safeExtend({
 		tagIds: productTagIdsSchema,
 		newTagNames: newTagNamesFormSchema,
-		dropId: nullableIdFormSchema,
 		primaryImageIndex: primaryImageIndexFormSchema,
 		images: imageFilesFormSchema,
 		variants: z.array(createProductDraftVariantFormSchema).default([]),
@@ -180,7 +177,6 @@ export const createProductFormSchema = insertProductSchema
 		syncPrices: z.boolean().default(false)
 	})
 	.superRefine((data, ctx) => {
-		const tier = data.tier ?? 'core';
 		data.variants.forEach((v, index) => {
 			if (v.compareAtPrice != null && v.compareAtPrice <= v.basePrice) {
 				ctx.addIssue({
@@ -189,22 +185,12 @@ export const createProductFormSchema = insertProductSchema
 					path: ['variants', index, 'compareAtPrice']
 				});
 			}
-			if (tier === 'drop') {
-				if (v.basePrice < 3000 || v.basePrice > 4500) {
-					ctx.addIssue({
-						code: 'custom',
-						message: 'Drop variant basePrice must be between 3000 and 4500',
-						path: ['variants', index, 'basePrice']
-					});
-				}
-			} else {
-				if (v.basePrice < 2500 || v.basePrice > 3200) {
-					ctx.addIssue({
-						code: 'custom',
-						message: 'Core variant basePrice must be between 2500 and 3200',
-						path: ['variants', index, 'basePrice']
-					});
-				}
+			if (v.basePrice < 2500 || v.basePrice > 3200) {
+				ctx.addIssue({
+					code: 'custom',
+					message: 'Variant basePrice must be between 2500 and 3200',
+					path: ['variants', index, 'basePrice']
+				});
 			}
 		});
 	});
@@ -215,7 +201,6 @@ export const updateProductFormSchema = updateProductSchema.extend({
 	isNewArrival: formBooleanSchema,
 	tagIds: productTagIdsSchema,
 	newTagNames: newTagNamesFormSchema,
-	dropId: nullableIdFormSchema,
 	serializedVariants: z.string().default('[]'),
 	serializedImages: z.string().default('[]'),
 	newImageFiles: imageFilesFormSchema

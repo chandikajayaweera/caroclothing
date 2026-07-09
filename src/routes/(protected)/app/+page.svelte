@@ -30,15 +30,6 @@
 		});
 	}
 
-	function formatDateShort(date: Date | string | null | undefined) {
-		if (!date) return '—';
-		const d = typeof date === 'string' ? new Date(date) : date;
-		return d.toLocaleDateString('en-LK', {
-			month: 'short',
-			day: 'numeric'
-		});
-	}
-
 	function statusClass(status: string) {
 		switch (status) {
 			case 'confirmed':
@@ -65,8 +56,7 @@
 		<p class="mb-1 font-mono text-xs tracking-[0.2em] text-volt uppercase">Admin Dashboard</p>
 		<h1 class="font-display text-4xl tracking-wider text-bone uppercase">Overview</h1>
 		<p class="mt-2 max-w-2xl text-sm text-ash/80">
-			High-level operations cockpit for real-time overview of sales, inventory, active drops, and
-			recent orders.
+			High-level operations cockpit for real-time overview of sales, inventory, and recent orders.
 		</p>
 	</div>
 
@@ -75,19 +65,12 @@
 		<h2 class="mb-4 font-mono text-[10px] tracking-[0.25em] text-ash/40 uppercase">
 			Operational Shortcuts
 		</h2>
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
 			<a
 				href={resolve('/app/products/new')}
 				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:translate-y-[-1px] hover:border-volt/60 hover:bg-charcoal/25"
 			>
 				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">New Product</span>
-				<Plus size={14} class="text-volt" />
-			</a>
-			<a
-				href={resolve('/app/drops/new')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:translate-y-[-1px] hover:border-volt/60 hover:bg-charcoal/25"
-			>
-				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">Create Drop</span>
 				<Plus size={14} class="text-volt" />
 			</a>
 			<a
@@ -353,60 +336,8 @@
 			{/if}
 		</div>
 
-		<!-- Right Column: Active Drops & Low Stock Highlights (1 Column Width) -->
+		<!-- Right Column: Low Stock Highlights (1 Column Width) -->
 		<div class="space-y-6">
-			<!-- Drops Health / Active List -->
-			<div class="border border-charcoal bg-charcoal/25">
-				<div class="flex items-center justify-between border-b border-charcoal p-5">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Drops Overview</p>
-					<a
-						href={resolve('/app/drops')}
-						class="flex items-center gap-1 font-mono text-[9px] tracking-wider text-volt uppercase transition-colors hover:text-bone"
-					>
-						Manage <ArrowRight size={10} />
-					</a>
-				</div>
-				<div class="space-y-3 p-4">
-					{#if data.recentDrops && data.recentDrops.length > 0}
-						{#each data.recentDrops as drop (drop.id)}
-							<div
-								class="flex items-start justify-between gap-3 border border-charcoal bg-void/50 p-3"
-							>
-								<div class="min-w-0">
-									<p class="truncate font-mono text-[10px] font-bold text-bone uppercase">
-										{drop.name}
-									</p>
-									<p class="mt-1 font-mono text-[8px] text-ash/70 uppercase">
-										Status:
-										<span
-											class={drop.status === 'live'
-												? 'font-bold text-volt'
-												: drop.status === 'teaser'
-													? 'text-amber-400'
-													: 'text-ash'}
-										>
-											{drop.status}
-										</span>
-									</p>
-								</div>
-								{#if drop.launchAt}
-									<div class="shrink-0 text-right font-mono">
-										<p class="text-[8px] text-ash/50 uppercase">Launch</p>
-										<p class="mt-0.5 text-[9px] text-bone">{formatDateShort(drop.launchAt)}</p>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					{:else}
-						<div class="p-4 text-center">
-							<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
-								No active drops.
-							</p>
-						</div>
-					{/if}
-				</div>
-			</div>
-
 			<!-- Low Stock Highlights -->
 			<div class="border border-charcoal bg-charcoal/25">
 				<div class="flex items-center justify-between border-b border-charcoal p-5">

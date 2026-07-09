@@ -16,7 +16,6 @@ import { notificationCronActor, notificationQueueActor } from './actors';
 import { parseNotificationQueueMessageBody } from './queue-message';
 import { sendClaimedNotification } from './registry';
 import { isRetryableSendFailure } from './results';
-import { markDropLaunchWaitlistEntryNotified } from './waitlist';
 
 const QUEUE_BATCH_PROCESS_LIMIT = 50;
 const STALE_LOCK_RELEASE_LIMIT = 100;
@@ -126,7 +125,6 @@ export async function dispatchClaimedNotification(
 					sentAt: now
 				}
 			);
-			await markDropLaunchWaitlistEntryNotified(notification, now, actor);
 			logDispatchTiming(notification, 'sent', queueDelayMs, providerDurationMs);
 
 			return { id: notification.id, outcome: 'sent' };

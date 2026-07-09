@@ -7,8 +7,6 @@ export {
 	claimPendingNotifications,
 	enqueueAuthGoogleLinkedEmailTx,
 	enqueueAuthWelcomeEmailTx,
-	enqueueDropLaunchEmailTx,
-	enqueueDropLaunchSmsTx,
 	enqueueOrderConfirmationEmailTx,
 	enqueueOrderConfirmationSmsTx,
 	enqueueOrderStatusUpdateSmsTx,

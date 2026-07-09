@@ -47,9 +47,6 @@ async function applySchema(client: Client): Promise<void> {
 	const tableNames = new Set(await listUserTables(client));
 	for (const tableName of [
 		'product',
-		'drop',
-		'drop_product',
-		'drop_waitlist',
 		'inventory',
 		'inventory_movement',
 		'promo_code',

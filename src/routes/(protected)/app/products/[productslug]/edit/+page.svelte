@@ -1,10 +1,8 @@
 <script lang="ts">
 	import {
-		AlertTriangle,
 		ChevronDown,
 		FolderPlus,
 		ImageOff,
-		Layers,
 		Plus,
 		Star,
 		Trash2,
@@ -261,9 +259,6 @@
 		return data.categories.filter((c) => c.name.toLowerCase().includes(q));
 	});
 
-	const dropTierWithoutDrop = $derived(
-		$updateProductForm.tier === 'drop' && !$updateProductForm.dropId
-	);
 	const activeVariantCount = $derived(
 		activeLocalVariants.reduce((sum, v) => sum + v.sizes.length, 0)
 	);
@@ -312,9 +307,6 @@
 		if (activeLocalVariants.length === 0) {
 			warnings.push('At least one color variant is required');
 		}
-		if ($updateProductForm.tier === 'drop' && !$updateProductForm.dropId) {
-			warnings.push('Drop is required for Drop Tier');
-		}
 		if (activeLocalImages.length === 0) {
 			warnings.push('No product photography uploaded');
 		}
@@ -351,7 +343,6 @@
 		$updateProductForm.description = data.product.description;
 		$updateProductForm.shortDescription = data.product.shortDescription;
 		$updateProductForm.categoryId = data.product.categoryId;
-		$updateProductForm.tier = data.product.tier;
 		$updateProductForm.gender = data.product.gender;
 		$updateProductForm.fit = data.product.fit;
 		$updateProductForm.material = data.product.material;
@@ -363,7 +354,6 @@
 		$updateProductForm.metaDescription = data.product.metaDescription;
 		$updateProductForm.tagIds = data.product.tags.map((tag) => tag.id);
 		$updateProductForm.newTagNames = [];
-		$updateProductForm.dropId = data.product.dropAssignment?.id ?? null;
 	}
 
 	onDestroy(revokeImagePreviews);
@@ -525,7 +515,7 @@
 			colorId: assignedColor.id,
 			color: assignedColor.name,
 			colorHex: assignedColor.hex,
-			basePrice: $updateProductForm.tier === 'drop' ? 3000 : 2500,
+			basePrice: 2500,
 			compareAtPrice: null,
 			sortOrder: localVariants.length + 1,
 			sizes: ['M'],
@@ -866,36 +856,7 @@
 						</AdminButton>
 					</div>
 
-					<div class="grid gap-4 md:grid-cols-3">
-						<AdminSelect label="Tier" name="tier" bind:value={$updateProductForm.tier}>
-							{#each data.tierOptions as option (option.value)}
-								<option value={option.value}>{formatLabel(option.label)}</option>
-							{/each}
-						</AdminSelect>
-
-						{#if $updateProductForm.tier === 'drop'}
-							<AdminSelect label="Drop" name="dropId" bind:value={$updateProductForm.dropId}>
-								<option value="">No drop</option>
-								{#each data.drops as drop (drop.id)}
-									<option value={drop.id}>{drop.name} ({formatLabel(drop.status)})</option>
-								{/each}
-							</AdminSelect>
-
-							<AdminButton href="/app/drops" variant="outline" size="sm" class="self-end">
-								<Layers size={14} aria-hidden="true" />
-								New Drop
-							</AdminButton>
-
-							{#if dropTierWithoutDrop}
-								<p
-									class="flex items-start gap-2 border border-red-400/30 bg-red-950/20 px-4 py-3 font-sans text-xs text-red-300 md:col-span-3"
-								>
-									<AlertTriangle size={14} class="mt-0.5 shrink-0" aria-hidden="true" />
-									Please assign a drop to make this drop product active.
-								</p>
-							{/if}
-						{/if}
-
+					<div class="grid gap-4 md:grid-cols-2">
 						<AdminSelect label="Gender" name="gender" bind:value={$updateProductForm.gender}>
 							{#each data.genderOptions as option (option.value)}
 								<option value={option.value}>{formatLabel(option.label)}</option>
@@ -944,7 +905,6 @@
 							description="Visible to shoppers"
 							name="isActive"
 							bind:checked={$updateProductForm.isActive}
-							disabled={dropTierWithoutDrop}
 						/>
 
 						<AdminToggle
@@ -1661,12 +1621,6 @@
 					<div class="mt-5 flex justify-between gap-4 border-t border-ash/10 pt-4">
 						<span class="font-medium text-ash">Category</span>
 						<span class="text-right text-bone">{selectedCategoryName}</span>
-					</div>
-					<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
-						<span class="font-medium text-ash">Tier</span>
-						<span class="text-right text-bone uppercase"
-							>{formatLabel($updateProductForm.tier ?? '')}</span
-						>
 					</div>
 					<div class="flex justify-between gap-4 border-b border-ash/5 pb-2">
 						<span class="font-medium text-ash">Gender / Fit</span>

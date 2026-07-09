@@ -7,7 +7,6 @@ import {
 	inArray,
 	isNull,
 	like,
-	ne,
 	or,
 	sql,
 	type SQL
@@ -106,7 +105,6 @@ import type {
 	ListProductsOptions,
 	ListProductVariantsOptions,
 	ListTagsOptions,
-	ProductDropAssignmentDTO,
 	ProductDTO,
 	ProductImageDTO,
 	ProductListResult,
@@ -123,7 +121,6 @@ import type {
 	UpdateProductFullInput,
 	ProductStatsDTO
 } from './products.types';
-import { drop, dropProduct } from '../drops/drops.drizzle';
 
 type Db = ReturnType<typeof getDb>;
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -376,7 +373,6 @@ export async function createProduct(
 	const {
 		tagIds,
 		newTagNames,
-		dropId,
 		images,
 		primaryImageIndex,
 		variants,
@@ -384,17 +380,11 @@ export async function createProduct(
 		...rawData
 	} = input;
 	const data = parseInsertProduct(rawData);
-	data.tier ??= 'core';
-	const normalizedDropId = normalizeNullableId(dropId);
-
-	if (data.tier === 'drop' && !normalizedDropId) {
-		data.isActive = false;
-	}
 
 	const normalizedTagIds = normalizeTagIds(tagIds);
 	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
 	const productId = nanoid();
-	const prepared = prepareCreateProductVariants(productId, variants, data.tier);
+	const prepared = prepareCreateProductVariants(productId, variants);
 	const variantIdByClientId = new Map<string, string>(
 		prepared.colors.map((c) => [c.clientId, c.id!])
 	);
@@ -492,10 +482,6 @@ export async function createProduct(
 				);
 			}
 
-			if (data.tier === 'drop' && normalizedDropId) {
-				await setProductDropAssignmentTx(tx, row.id, normalizedDropId);
-			}
-
 			return row;
 		});
 
@@ -566,14 +552,8 @@ export async function updateProduct(
 		throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
 	}
 
-	const { tagIds, newTagNames, dropId, ...rawData } = input;
+	const { tagIds, newTagNames, ...rawData } = input;
 	const data = parseUpdateProduct(rawData);
-	const normalizedDropId = dropId === undefined ? undefined : normalizeNullableId(dropId);
-	const resolvedTier = data.tier ?? existing.tier;
-
-	if (resolvedTier === 'drop' && normalizedDropId === null) {
-		data.isActive = false;
-	}
 
 	const normalizedTagIds = normalizeTagIds(tagIds);
 	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
@@ -582,8 +562,7 @@ export async function updateProduct(
 	if (
 		Object.keys(updateValues).length === 0 &&
 		tagIds === undefined &&
-		newTagNames === undefined &&
-		dropId === undefined
+		newTagNames === undefined
 	) {
 		return hydrateProduct(existing, { includeInactiveRelations: true });
 	}
@@ -625,16 +604,6 @@ export async function updateProduct(
 				}
 			}
 
-			if (resolvedTier === 'core') {
-				await removeNonArchivedDropAssignmentsTx(tx, existing.id);
-			} else if (normalizedDropId !== undefined) {
-				if (normalizedDropId) {
-					await setProductDropAssignmentTx(tx, existing.id, normalizedDropId);
-				} else {
-					await removeNonArchivedDropAssignmentsTx(tx, existing.id);
-				}
-			}
-
 			return row;
 		});
 
@@ -660,7 +629,6 @@ export async function updateProductFull(
 	const {
 		tagIds,
 		newTagNames,
-		dropId,
 		variants: rawVariants = [],
 		images: rawImages = [],
 		newImageFiles = [],
@@ -668,17 +636,11 @@ export async function updateProductFull(
 	} = input;
 
 	const data = parseUpdateProduct(rawData);
-	const resolvedTier = data.tier ?? existing.tier;
-	const normalizedDropId = dropId === undefined ? undefined : normalizeNullableId(dropId);
-
-	if (resolvedTier === 'drop' && normalizedDropId === null) {
-		data.isActive = false;
-	}
 
 	const normalizedTagIds = normalizeTagIds(tagIds);
 	const normalizedNewTagNames = normalizeNewTagNames(newTagNames);
 	const updateValues = removeUndefinedValues(data);
-	const variants = normalizeUpdateProductDraftVariants(rawVariants, resolvedTier);
+	const variants = normalizeUpdateProductDraftVariants(rawVariants);
 	const images = normalizeUpdateProductDraftImages(rawImages);
 
 	await assertUpdateProductFullOwnership(existing.id, variants, images);
@@ -779,16 +741,6 @@ export async function updateProductFull(
 							tagId
 						}))
 					);
-				}
-			}
-
-			if (resolvedTier === 'core') {
-				await removeNonArchivedDropAssignmentsTx(tx, existing.id);
-			} else if (normalizedDropId !== undefined) {
-				if (normalizedDropId) {
-					await setProductDropAssignmentTx(tx, existing.id, normalizedDropId);
-				} else {
-					await removeNonArchivedDropAssignmentsTx(tx, existing.id);
 				}
 			}
 
@@ -1814,7 +1766,6 @@ function toProductDTO(
 		variants: ProductVariantDTO[];
 		images: ProductImage[];
 		tags: Tag[];
-		dropAssignment: ProductDropAssignmentDTO | null;
 	}
 ): ProductDTO {
 	const images = input.images.map(toProductImageDTO);
@@ -1828,7 +1779,6 @@ function toProductDTO(
 		shortDescription: row.shortDescription,
 		categoryId: row.categoryId,
 		category: input.category ? toCategoryDTO(input.category) : null,
-		tier: row.tier,
 		basePrice: primaryVariant ? primaryVariant.basePrice : 0,
 		compareAtPrice: primaryVariant ? primaryVariant.compareAtPrice : null,
 		gender: row.gender,
@@ -1845,7 +1795,6 @@ function toProductDTO(
 		variants: input.variants,
 		images,
 		tags: input.tags.map(toTagDTO),
-		dropAssignment: input.dropAssignment,
 		primaryImageUrl: resolvePrimaryImageUrl(images)
 	};
 }
@@ -1881,7 +1830,6 @@ function parseInsertProduct(
 		CreateProductInput,
 		| 'tagIds'
 		| 'newTagNames'
-		| 'dropId'
 		| 'images'
 		| 'primaryImageIndex'
 		| 'variants'
@@ -1899,9 +1847,7 @@ function parseInsertProduct(
 	return result.data;
 }
 
-function parseUpdateProduct(
-	input: Omit<UpdateProductInput, 'tagIds' | 'newTagNames' | 'dropId'>
-): UpdateProduct {
+function parseUpdateProduct(input: Omit<UpdateProductInput, 'tagIds' | 'newTagNames'>): UpdateProduct {
 	const result = updateProductSchema.safeParse(input);
 
 	if (!result.success) {
@@ -1913,10 +1859,7 @@ function parseUpdateProduct(
 	return result.data;
 }
 
-function normalizeUpdateProductDraftVariants(
-	input: unknown,
-	tier: Product['tier']
-): NormalizedUpdateProductVariant[] {
+function normalizeUpdateProductDraftVariants(input: unknown): NormalizedUpdateProductVariant[] {
 	const rows = readRecordArray(input, 'variants');
 	const seenIds = new Set<string>();
 	const seenColors = new Set<string>();
@@ -1939,7 +1882,7 @@ function normalizeUpdateProductDraftVariants(
 				colorId: null,
 				color: '',
 				colorHex: null,
-				basePrice: tier === 'drop' ? 3000 : 2500,
+				basePrice: 2500,
 				compareAtPrice: null,
 				sortOrder: 0,
 				sizes: [],
@@ -1979,7 +1922,7 @@ function normalizeUpdateProductDraftVariants(
 		});
 		const sizes = normalizeUpdateProductSizes(row.sizes, index);
 
-		validateResolvedProductPricing({ tier, basePrice, compareAtPrice });
+		validateResolvedProductPricing({ basePrice, compareAtPrice });
 
 		const colorId = readNullableString(row.colorId, `variants[${index}].colorId`, 64);
 
@@ -2352,8 +2295,7 @@ function parseInsertProductVariantColor(
 
 function prepareCreateProductVariants(
 	productId: string,
-	variants: CreateProductDraftVariantInput[] | undefined,
-	tier: Product['tier']
+	variants: CreateProductDraftVariantInput[] | undefined
 ): PreparedProductVariants {
 	if (!variants || variants.length === 0) return { colors: [], variants: [] };
 
@@ -2399,7 +2341,6 @@ function prepareCreateProductVariants(
 		});
 
 		validateResolvedProductPricing({
-			tier,
 			basePrice: parsedColor.basePrice,
 			compareAtPrice: parsedColor.compareAtPrice
 		});
@@ -2823,7 +2764,6 @@ function productListConditions(options: ListProductsOptions, includeInactive: bo
 		);
 	}
 
-	if (options.tier) conditions.push(eq(product.tier, options.tier));
 	if (options.gender) conditions.push(eq(product.gender, options.gender));
 	if (options.isFeatured !== undefined) conditions.push(eq(product.isFeatured, options.isFeatured));
 	if (options.isNewArrival !== undefined)
@@ -2923,90 +2863,6 @@ async function assertTagsExistTx(tx: Db | Tx, tagIds: string[]): Promise<void> {
 			tagIds: missingIds
 		});
 	}
-}
-
-type ProductDropAssignmentRow = ProductDropAssignmentDTO & {
-	productId: string;
-	dropId: string;
-};
-
-async function setProductDropAssignmentTx(
-	tx: Db | Tx,
-	productId: string,
-	dropId: string
-): Promise<void> {
-	await assertDropAcceptsAssignmentTx(tx, dropId);
-
-	const assignments = await findNonArchivedDropAssignmentsTx(tx, productId);
-	const alreadyAssigned = assignments.some((assignment) => assignment.dropId === dropId);
-
-	await removeNonArchivedDropAssignmentsTx(tx, productId, dropId);
-
-	if (alreadyAssigned) return;
-
-	await tx.insert(dropProduct).values({
-		dropId,
-		productId,
-		isHero: false,
-		sortOrder: await nextDropProductSortOrderTx(tx, dropId)
-	});
-}
-
-async function assertDropAcceptsAssignmentTx(tx: Db | Tx, dropId: string): Promise<void> {
-	const [row] = await tx.select().from(drop).where(eq(drop.id, dropId)).limit(1);
-
-	if (!row || row.status === 'archived') {
-		throw new ProductError('Drop not found.', ErrorCode.DROP_NOT_FOUND, { dropId });
-	}
-}
-
-async function removeNonArchivedDropAssignmentsTx(
-	tx: Db | Tx,
-	productId: string,
-	exceptDropId?: string
-): Promise<void> {
-	const assignments = await findNonArchivedDropAssignmentsTx(tx, productId);
-	const dropIds = assignments
-		.filter((assignment) => assignment.dropId !== exceptDropId)
-		.map((assignment) => assignment.dropId);
-
-	if (dropIds.length === 0) return;
-
-	await tx
-		.delete(dropProduct)
-		.where(and(eq(dropProduct.productId, productId), inArray(dropProduct.dropId, dropIds)));
-}
-
-async function findNonArchivedDropAssignmentsTx(
-	tx: Db | Tx,
-	productId: string
-): Promise<ProductDropAssignmentRow[]> {
-	return tx
-		.select({
-			productId: dropProduct.productId,
-			dropId: dropProduct.dropId,
-			id: drop.id,
-			slug: drop.slug,
-			name: drop.name,
-			status: drop.status,
-			launchAt: drop.launchAt,
-			endAt: drop.endAt,
-			isHero: dropProduct.isHero,
-			sortOrder: dropProduct.sortOrder
-		})
-		.from(dropProduct)
-		.innerJoin(drop, eq(dropProduct.dropId, drop.id))
-		.where(and(eq(dropProduct.productId, productId), ne(drop.status, 'archived')))
-		.orderBy(asc(dropProduct.sortOrder), asc(drop.name));
-}
-
-async function nextDropProductSortOrderTx(tx: Db | Tx, dropId: string): Promise<number> {
-	const rows = await tx
-		.select({ total: count() })
-		.from(dropProduct)
-		.where(eq(dropProduct.dropId, dropId));
-
-	return Number(rows[0]?.total ?? 0);
 }
 
 async function clearPrimaryProductImagesTx(
@@ -3143,23 +2999,6 @@ async function hydrateProducts(
 		.from(productImage)
 		.where(inArray(productImage.productId, productIds))
 		.orderBy(asc(productImage.position), asc(productImage.createdAt));
-	const dropAssignmentsPromise = db
-		.select({
-			productId: dropProduct.productId,
-			dropId: dropProduct.dropId,
-			id: drop.id,
-			slug: drop.slug,
-			name: drop.name,
-			status: drop.status,
-			launchAt: drop.launchAt,
-			endAt: drop.endAt,
-			isHero: dropProduct.isHero,
-			sortOrder: dropProduct.sortOrder
-		})
-		.from(dropProduct)
-		.innerJoin(drop, eq(dropProduct.dropId, drop.id))
-		.where(and(inArray(dropProduct.productId, productIds), ne(drop.status, 'archived')))
-		.orderBy(asc(dropProduct.sortOrder), asc(drop.name));
 	const tagsPromise = db
 		.select({
 			productId: productTag.productId,
@@ -3172,11 +3011,10 @@ async function hydrateProducts(
 		.where(inArray(productTag.productId, productIds))
 		.orderBy(asc(tag.name));
 
-	const [categories, variants, images, dropAssignments, tagRows] = await Promise.all([
+	const [categories, variants, images, tagRows] = await Promise.all([
 		categoryPromise,
 		variantsPromise,
 		imagesPromise,
-		dropAssignmentsPromise,
 		tagsPromise
 	]);
 	const categoryById = new Map(categories.map((row) => [row.id, row]));
@@ -3190,23 +3028,7 @@ async function hydrateProducts(
 	}
 
 	const imagesByProductId = groupByProductId(images);
-	const dropAssignmentByProductId = new Map<string, ProductDropAssignmentDTO>();
 	const tagsByProductId = new Map<string, Tag[]>();
-
-	for (const assignment of dropAssignments) {
-		if (dropAssignmentByProductId.has(assignment.productId)) continue;
-
-		dropAssignmentByProductId.set(assignment.productId, {
-			id: assignment.id,
-			slug: assignment.slug,
-			name: assignment.name,
-			status: assignment.status,
-			launchAt: assignment.launchAt,
-			endAt: assignment.endAt,
-			isHero: assignment.isHero,
-			sortOrder: assignment.sortOrder
-		});
-	}
 
 	for (const row of tagRows) {
 		const current = tagsByProductId.get(row.productId) ?? [];
@@ -3219,8 +3041,7 @@ async function hydrateProducts(
 			category: row.categoryId ? (categoryById.get(row.categoryId) ?? null) : null,
 			variants: variantsByProductId.get(row.id) ?? [],
 			images: imagesByProductId.get(row.id) ?? [],
-			tags: tagsByProductId.get(row.id) ?? [],
-			dropAssignment: dropAssignmentByProductId.get(row.id) ?? null
+			tags: tagsByProductId.get(row.id) ?? []
 		})
 	);
 }
@@ -3245,12 +3066,9 @@ function resolvePrimaryImageUrl(images: ProductImageDTO[]): string | null {
 }
 
 function validateResolvedProductPricing(input: {
-	tier?: Product['tier'];
 	basePrice?: number;
 	compareAtPrice?: number | null;
 }): void {
-	const tier = input.tier ?? 'core';
-
 	if (input.basePrice === undefined) return;
 
 	if (input.compareAtPrice != null && input.compareAtPrice <= input.basePrice) {
@@ -3261,19 +3079,11 @@ function validateResolvedProductPricing(input: {
 		);
 	}
 
-	if (tier === 'drop' && (input.basePrice < 3000 || input.basePrice > 4500)) {
+	if (input.basePrice < 2500 || input.basePrice > 3200) {
 		throw new ProductError(
-			'Drop product basePrice must be between 3000 and 4500.',
+			'Product basePrice must be between 2500 and 3200.',
 			ErrorCode.VALIDATION_ERROR,
-			{ tier, basePrice: input.basePrice }
-		);
-	}
-
-	if (tier === 'core' && (input.basePrice < 2500 || input.basePrice > 3200)) {
-		throw new ProductError(
-			'Core product basePrice must be between 2500 and 3200.',
-			ErrorCode.VALIDATION_ERROR,
-			{ tier, basePrice: input.basePrice }
+			{ basePrice: input.basePrice }
 		);
 	}
 }

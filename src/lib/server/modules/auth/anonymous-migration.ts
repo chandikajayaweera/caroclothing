@@ -2,10 +2,6 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { mergeUserBagIntoUserBagTx, type BagTx } from '$lib/server/modules/bag/bag.service';
 import {
-	linkDropWaitlistEntriesFromUserToUserTx,
-	type DropsTx
-} from '$lib/server/modules/drops/drops.service';
-import {
 	AuthError,
 	ErrorCode,
 	getErrorMessage,
@@ -43,10 +39,6 @@ export async function migrateAnonymousUserData(anonymousUserId: string, targetUs
 
 			await mergeUserBagIntoUserBagTx(tx as BagTx, ctx, { sourceUserId });
 			await mergeWishlistIntoUserTx(tx as WishlistTx, ctx, { sourceUserId });
-			await linkDropWaitlistEntriesFromUserToUserTx(tx as DropsTx, ctx, {
-				sourceUserId,
-				targetUserId: destinationUserId
-			});
 		});
 	} catch (error) {
 		if (isAppError(error)) throw error;

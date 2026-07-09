@@ -253,16 +253,6 @@
 							>
 								{review.product.name}
 							</a>
-							<div class="mt-1 flex items-center gap-1.5">
-								<span
-									class="border px-1 py-0.5 font-mono text-[8px] tracking-widest uppercase {review
-										.product.tier === 'drop'
-										? 'border-volt/40 text-volt'
-										: 'border-ash/30 text-ash'}"
-								>
-									{review.product.tier}
-								</span>
-							</div>
 						{:else}
 							<span class="font-mono text-xs text-ash/60">{review.productId}</span>
 						{/if}
@@ -543,14 +533,6 @@
 						>
 							{review.product.name}
 						</a>
-						<span
-							class="mt-1 inline-block border px-1.5 py-0.5 font-mono text-[8px] tracking-widest uppercase {review
-								.product.tier === 'drop'
-								? 'border-volt/40 text-volt'
-								: 'border-ash/30 text-ash'}"
-						>
-							{review.product.tier}
-						</span>
 					{:else}
 						<span class="font-mono text-xs text-ash/60">{review.productId}</span>
 					{/if}

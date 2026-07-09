@@ -41,7 +41,6 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 							id: prod.id,
 							name: prod.name,
 							slug: prod.slug,
-							tier: prod.tier,
 							basePrice: prod.basePrice,
 							compareAtPrice: prod.compareAtPrice,
 							imageUrl: prod.primaryImageUrl || prod.images?.[0]?.imageUrl || null

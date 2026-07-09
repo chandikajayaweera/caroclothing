@@ -1,5 +1,5 @@
 import type { InventoryMovement, InsertInventory, UpdateInventory } from './inventory.drizzle';
-import type { ProductTier, SizeTier } from '../products/products.drizzle';
+import type { SizeTier } from '../products/products.drizzle';
 
 export type InventoryDTO = {
 	id: string;
@@ -44,7 +44,6 @@ export type InventoryProductSummaryDTO = {
 	id: string;
 	name: string;
 	slug: string;
-	tier: ProductTier;
 	isActive: boolean;
 };
 

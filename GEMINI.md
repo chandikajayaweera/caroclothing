@@ -18,7 +18,7 @@ This file defines the foundational mandates and technical context for Caro Cloth
 - **ID Strategy**: Use `nanoid` for all primary keys.
 - **Media Handling**: Never store full URLs in the DB. Store R2 keys and resolve via `mediaUrl(key)` from `$lib/server/infrastructure/media`.
 - **Svelte 5 Runes**: Strictly use `$state`, `$derived`, `$effect`, and `$props`. Never use legacy Svelte 4 syntax.
-- **Two-Tier Product Model**: All products have a `tier` — either `drop` (limited, event-based, hype ritual) or `core` (always available, restockable). This distinction drives inventory behaviour, pricing bands, marketing mechanics, and UX patterns throughout the app.
+- **Product Catalog Model**: Products use one catalog model. Do not reintroduce catalog segmentation, event-release, waitlist, or launch mechanics without explicit approval.
 - **Centralized Errors**: ALWAYS use the structured custom errors defined in `src/lib/server/infrastructure/errors/index.ts` instead of throwing generic JavaScript `Error` objects. If a specific domain error class or `ErrorCode` does not exist for your use case, add it there first.
 - **Client Reactive State & Performance**: Strictly follow `docs/dev-notes.md` before editing Svelte 5 stores, `$effect` sync logic, debounced mutations, or UI transitions.
 
@@ -27,7 +27,7 @@ This file defines the foundational mandates and technical context for Caro Cloth
 ### Skills Usage
 
 - **Strategic Product & Architecture Decisions**: Use `caro-product-designer` whenever making decisions about what to build, what goes on a page, how to prioritize features, information architecture, conversion rate optimization, or how to balance brand identity against user needs and business goals.
-- **UX, UI & Flow Design**: Use `caro-ux-strategy` whenever designing or evaluating any customer-facing experience — component behaviour, shopping/checkout/auth flows, brand-to-UI translation, micro-copy, tier-aware experience differences (drop vs core), and trust patterns.
+- **UX, UI & Flow Design**: Use `caro-ux-strategy` whenever designing or evaluating any customer-facing experience — component behaviour, shopping/checkout/auth flows, brand-to-UI translation, micro-copy, catalog experience, and trust patterns.
 - **Email & SMS Notifications**: Use `caro-notifications` when adding/modifying email/SMS helpers, semantic senders, notification outbox state, Queue/Cron/DLQ transport, or waitlist notification marking.
 - **Architecture Compliance & Reviews**: Use `caro-review` when reviewing diffs for CaroClothing architecture compliance, service-layer correctness, notification boundaries, or safety checks.
 - **Route Refactoring**: Use `caro-route-refactor` when refactoring SvelteKit routes to call service functions and Superforms schemas instead of DB/R2 primitives.
@@ -65,7 +65,7 @@ Full brand system in `.gemini/skills/caro-ux-strategy/references/brand.md`. Quic
 
 - **Colors**: Void `#0A0A0A` · Bone `#F8F5F0` · Charcoal `#1C1C1C` · Ash `#B4AFA8` · Volt `#C8FF00`
 - **Typography**: Bebas Neue (display) · Space Mono (mono/metadata) · DM Sans (body/UI)
-- **Volt is sacred** — reserve for: primary CTAs, low-stock signals, drop announcements, active states. Nothing else.
+- **Volt is sacred** — reserve for: primary CTAs, low-stock signals, new-release announcements, active states. Nothing else.
 
 ## 🚀 Workflows
 

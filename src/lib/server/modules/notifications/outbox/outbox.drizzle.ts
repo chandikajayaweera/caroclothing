@@ -11,8 +11,7 @@ export const NOTIFICATION_OUTBOX_TYPES = [
 	'order_confirmation',
 	'shipping_update',
 	'payment_update',
-	'order_status_update',
-	'drop_launch'
+	'order_status_update'
 ] as const;
 
 export const NOTIFICATION_CHANNELS = ['email', 'sms'] as const;
@@ -27,7 +26,6 @@ export const NOTIFICATION_OUTBOX_STATUSES = [
 
 export const NOTIFICATION_AGGREGATE_TYPES = [
 	'order',
-	'drop',
 	'product',
 	'promotion',
 	'review',

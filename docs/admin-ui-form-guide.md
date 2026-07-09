@@ -108,7 +108,7 @@ For lengthy admin workflows on mobile and tablet screens, key page actions must 
 - Make the panel `sticky` on desktop.
 - Highlight validation warnings directly (e.g., "Missing product name", "No category assigned") in a high-contrast format.
 - Show variant pricing ranges instead of only one price.
-- Product edit snapshots should read like a compact storefront product card: main product image, title, selected color, selected size, selling price, optional original price with strikethrough, category/tier metadata, and warnings.
+- Product edit snapshots should read like a compact storefront product card: main product image, title, selected color, selected size, selling price, optional original price with strikethrough, category metadata, and warnings.
 - Snapshot thumbnail clicks should only change the selected preview image. The full image detail popup opens only from the large preview image.
 - Product image detail panels should allow editing image alt text and display order while preserving service-backed serialized image metadata.
 - **Carousel Arrow Controls**: Both the Snapshot sidebar preview image card and the detailed image preview modal must display Left/Right arrow overlay buttons when the variant has multiple images, allowing operators to easily cycle through the photography without closing the modal or clicking tiny thumbnails.
