@@ -21,9 +21,30 @@ function sentryLibsql404Error() {
 	});
 }
 
+function sentryTursoConnectionResetError() {
+	const fetchError = Object.assign(
+		new Error(
+			'request to https://staging-chandikajayaweera.aws-ap-south-1.turso.io/v2/pipeline failed, reason: read ECONNRESET'
+		),
+		{
+			name: 'FetchError',
+			code: 'ECONNRESET'
+		}
+	);
+
+	return Object.assign(new Error('Failed query: select * from product_variant'), {
+		name: 'DrizzleQueryError',
+		cause: fetchError
+	});
+}
+
 describe('transient database transport errors', () => {
 	it('detects the nested LibSQL HTTP 404 transport failure from Sentry', () => {
 		expect(isTransientDatabaseTransportError(sentryLibsql404Error())).toBe(true);
+	});
+
+	it('detects the nested Turso FetchError ECONNRESET transport failure from Sentry', () => {
+		expect(isTransientDatabaseTransportError(sentryTursoConnectionResetError())).toBe(true);
 	});
 
 	it('does not treat ordinary app or database errors as transient transport errors', () => {

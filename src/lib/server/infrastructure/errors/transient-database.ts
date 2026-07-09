@@ -23,6 +23,8 @@ export function isTransientDatabaseTransportError(error: unknown): boolean {
 		.toLowerCase();
 
 	return chain.some((entry) => {
+		if (entry.code === 'ECONNRESET') return true;
+
 		if (entry.code !== 'SERVER_ERROR') return false;
 		if (entry.status === 404) return true;
 

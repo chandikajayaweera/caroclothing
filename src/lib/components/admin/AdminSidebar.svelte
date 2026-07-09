@@ -3,7 +3,6 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { authClient, signOutSession } from '$lib/client/modules/auth';
-	import { Tooltip } from 'bits-ui';
 	import {
 		Archive,
 		BadgePercent,
@@ -221,59 +220,38 @@
 	</div>
 
 	<nav class="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-5">
-		<Tooltip.Provider>
-			{#each navGroups as group (group.label)}
-				<div class="mb-6">
-					{#if !collapsed}
-						<p class="mb-2 px-3 font-mono text-[8px] tracking-[0.2em] text-ash/40 uppercase">
-							{group.label}
-						</p>
-					{/if}
-					<div class="flex flex-col gap-1">
-						{#each group.items as item (item.href)}
-							{@const Icon = item.icon}
-							<Tooltip.Root delayDuration={100} disabled={!collapsed}>
-								<Tooltip.Trigger>
-									{#snippet child({ props })}
-										<a
-											href={resolve(item.href)}
-											{...props}
-											class="group flex h-11 items-center gap-3 border-l-2 px-3 font-mono text-[10px] tracking-widest uppercase transition-colors {isActive(
-												item.href
-											)
-												? 'border-volt bg-charcoal/60 text-volt'
-												: 'border-transparent text-ash hover:bg-charcoal/40 hover:text-bone'} {collapsed
-												? 'lg:justify-center'
-												: 'lg:justify-start'} cursor-pointer"
-											onclick={onClose}
-										>
-											<Icon size={18} aria-hidden="true" />
-											{#if !collapsed}
-												<span>{item.label}</span>
-											{/if}
-										</a>
-									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Portal>
-									<Tooltip.Content
-										side="right"
-										align="center"
-										sideOffset={12}
-										class="z-100 border border-charcoal bg-void px-3 py-1.5 font-mono text-[9px] tracking-widest text-bone uppercase shadow-lg shadow-black/40"
-									>
-										{#snippet child({ props })}
-											<div {...props}>
-												{item.label}
-											</div>
-										{/snippet}
-									</Tooltip.Content>
-								</Tooltip.Portal>
-							</Tooltip.Root>
-						{/each}
-					</div>
+		{#each navGroups as group (group.label)}
+			<div class="mb-6">
+				{#if !collapsed}
+					<p class="mb-2 px-3 font-mono text-[8px] tracking-[0.2em] text-ash/40 uppercase">
+						{group.label}
+					</p>
+				{/if}
+				<div class="flex flex-col gap-1">
+					{#each group.items as item (item.href)}
+						{@const Icon = item.icon}
+						<a
+							href={resolve(item.href)}
+							class="group flex h-11 items-center gap-3 border-l-2 px-3 font-mono text-[10px] tracking-widest uppercase transition-colors {isActive(
+								item.href
+							)
+								? 'border-volt bg-charcoal/60 text-volt'
+								: 'border-transparent text-ash hover:bg-charcoal/40 hover:text-bone'} {collapsed
+								? 'lg:justify-center'
+								: 'lg:justify-start'} cursor-pointer"
+							onclick={onClose}
+							aria-label={collapsed ? item.label : undefined}
+							title={collapsed ? item.label : undefined}
+						>
+							<Icon size={18} aria-hidden="true" />
+							{#if !collapsed}
+								<span>{item.label}</span>
+							{/if}
+						</a>
+					{/each}
 				</div>
-			{/each}
-		</Tooltip.Provider>
+			</div>
+		{/each}
 	</nav>
 
 	<!-- DESKTOP USER PROFILE SECTION -->
@@ -316,71 +294,70 @@
 			{/if}
 		</button>
 
-		{#if profileOpen}
-			<div
-				class="absolute bottom-full left-3 z-50 mb-3 w-[min(320px,calc(100vw-68px))] border border-charcoal bg-void shadow-2xl shadow-black/50 outline-none lg:w-80"
-			>
-				<div class="flex items-start justify-between gap-4 border-b border-charcoal p-4">
-					<div class="flex min-w-0 items-center gap-3">
-						{#if $session.data?.user.image}
-							<img src={$session.data.user.image} alt="" class="h-11 w-11 object-cover" />
-						{:else}
-							<div
-								class="grid h-11 w-11 shrink-0 place-items-center border border-charcoal bg-charcoal font-mono text-xs text-volt"
-								aria-hidden="true"
-							>
-								{userInitials}
-							</div>
-						{/if}
-						<div class="min-w-0">
-							<p class="truncate font-mono text-[11px] tracking-widest text-bone uppercase">
-								{$session.data?.user.name ?? 'Admin'}
-							</p>
-							<p class="mt-1 truncate font-mono text-[9px] tracking-widest text-ash uppercase">
-								{$session.data?.user.email ?? 'Admin session'}
-							</p>
+		<div
+			class="absolute bottom-full left-3 z-50 mb-3 w-[min(320px,calc(100vw-68px))] border border-charcoal bg-void shadow-2xl shadow-black/50 transition-opacity outline-none lg:w-80 {profileOpen
+				? 'pointer-events-auto opacity-100'
+				: 'pointer-events-none opacity-0'}"
+			aria-hidden={!profileOpen}
+		>
+			<div class="flex items-start justify-between gap-4 border-b border-charcoal p-4">
+				<div class="flex min-w-0 items-center gap-3">
+					{#if $session.data?.user.image}
+						<img src={$session.data.user.image} alt="" class="h-11 w-11 object-cover" />
+					{:else}
+						<div
+							class="grid h-11 w-11 shrink-0 place-items-center border border-charcoal bg-charcoal font-mono text-xs text-volt"
+							aria-hidden="true"
+						>
+							{userInitials}
 						</div>
+					{/if}
+					<div class="min-w-0">
+						<p class="truncate font-mono text-[11px] tracking-widest text-bone uppercase">
+							{$session.data?.user.name ?? 'Admin'}
+						</p>
+						<p class="mt-1 truncate font-mono text-[9px] tracking-widest text-ash uppercase">
+							{$session.data?.user.email ?? 'Admin session'}
+						</p>
 					</div>
-					<button
-						type="button"
-						class="cursor-pointer text-ash transition-colors hover:text-bone"
-						aria-label="Close profile menu"
-						onclick={() => (profileOpen = false)}
-					>
-						<X size={16} aria-hidden="true" />
-					</button>
 				</div>
-
-				<div class="p-2">
-					<div class="mb-2 flex items-center gap-3 border border-charcoal bg-charcoal/30 p-3">
-						<ShieldCheck size={16} class="text-volt" aria-hidden="true" />
-						<div>
-							<p class="font-mono text-[8px] tracking-[0.2em] text-ash/50 uppercase">Role</p>
-							<p class="mt-1 font-mono text-[10px] tracking-widest text-volt uppercase">
-								adminUser
-							</p>
-						</div>
-					</div>
-
-					<a
-						href={resolve('/account')}
-						class="flex h-11 cursor-pointer items-center gap-3 px-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors outline-none hover:bg-charcoal/50 hover:text-bone"
-						onclick={() => (profileOpen = false)}
-					>
-						<UserRoundPen size={16} aria-hidden="true" />
-						<span>Edit Profile</span>
-					</a>
-					<button
-						type="button"
-						class="flex h-11 w-full cursor-pointer items-center gap-3 px-3 text-left font-mono text-[10px] tracking-widest text-ash uppercase transition-colors outline-none hover:bg-charcoal/50 hover:text-bone"
-						onclick={signOut}
-					>
-						<LogOut size={16} aria-hidden="true" />
-						<span>Logout</span>
-					</button>
-				</div>
+				<button
+					type="button"
+					class="cursor-pointer text-ash transition-colors hover:text-bone"
+					aria-label="Close profile menu"
+					onclick={() => (profileOpen = false)}
+				>
+					<X size={16} aria-hidden="true" />
+				</button>
 			</div>
-		{/if}
+
+			<div class="p-2">
+				<div class="mb-2 flex items-center gap-3 border border-charcoal bg-charcoal/30 p-3">
+					<ShieldCheck size={16} class="text-volt" aria-hidden="true" />
+					<div>
+						<p class="font-mono text-[8px] tracking-[0.2em] text-ash/50 uppercase">Role</p>
+						<p class="mt-1 font-mono text-[10px] tracking-widest text-volt uppercase">adminUser</p>
+					</div>
+				</div>
+
+				<a
+					href={resolve('/account')}
+					class="flex h-11 cursor-pointer items-center gap-3 px-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors outline-none hover:bg-charcoal/50 hover:text-bone"
+					onclick={() => (profileOpen = false)}
+				>
+					<UserRoundPen size={16} aria-hidden="true" />
+					<span>Edit Profile</span>
+				</a>
+				<button
+					type="button"
+					class="flex h-11 w-full cursor-pointer items-center gap-3 px-3 text-left font-mono text-[10px] tracking-widest text-ash uppercase transition-colors outline-none hover:bg-charcoal/50 hover:text-bone"
+					onclick={signOut}
+				>
+					<LogOut size={16} aria-hidden="true" />
+					<span>Logout</span>
+				</button>
+			</div>
+		</div>
 	</div>
 
 	<!-- MOBILE USER PROFILE INLINE ACCORDION -->

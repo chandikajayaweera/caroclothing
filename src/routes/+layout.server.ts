@@ -1,4 +1,5 @@
 import type { LayoutServerLoad } from './$types';
+import { dev } from '$app/environment';
 import { getBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
 import { listWishlist } from '$lib/server/modules/wishlist';
 import {
@@ -54,7 +55,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				maxAge: 7 * 24 * 60 * 60, // 7 days
 				httpOnly: true,
 				sameSite: 'lax',
-				secure: true
+				secure: !dev
 			});
 		}
 		const bag = await loadGlobalBag(ctx, { sessionToken });

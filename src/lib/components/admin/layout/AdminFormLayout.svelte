@@ -1,13 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { HTMLFormAttributes } from 'svelte/elements';
 	import { resolve } from '$app/paths';
 	import { ArrowLeft } from 'lucide-svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-
-	type FormEnhanceAction = (
-		node: HTMLFormElement
-	) => void | { update?: (args: unknown) => void; destroy?: () => void };
 
 	let {
 		backHref,
@@ -19,9 +14,6 @@
 		submitLabel = 'Save',
 		cancelLabel = 'Cancel',
 		oncancel,
-		enhanceAction,
-		formElement = $bindable(),
-		formAttrs = {},
 		mainContent,
 		sidebarContent,
 		mobilePanel,
@@ -36,17 +28,11 @@
 		submitLabel?: string;
 		cancelLabel?: string;
 		oncancel?: () => void;
-		enhanceAction?: FormEnhanceAction;
-		formElement?: HTMLFormElement | null;
-		formAttrs?: HTMLFormAttributes;
 		mainContent: Snippet;
 		sidebarContent: Snippet;
 		mobilePanel?: Snippet;
 		showSubmitButton?: boolean;
 	} = $props();
-
-	const noopAction = () => {};
-	const activeEnhance = $derived(enhanceAction || noopAction);
 </script>
 
 <svelte:head>
@@ -89,12 +75,7 @@
 	{/if}
 
 	<!-- Columns Layout Grid -->
-	<form
-		bind:this={formElement}
-		{...formAttrs}
-		use:activeEnhance
-		class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"
-	>
+	<div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
 		<!-- Left Main Column -->
 		<div class="grid min-w-0 gap-6">
 			{@render mainContent()}
@@ -144,7 +125,7 @@
 				</div>
 			</div>
 		{/if}
-	</form>
+	</div>
 </section>
 
 <style>

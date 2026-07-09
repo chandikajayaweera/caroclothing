@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import type { PageServerLoad, Actions } from './$types';
 import { nanoid } from 'nanoid';
 import {
@@ -13,6 +14,7 @@ import {
 } from '$lib/server/modules/bag';
 import { ErrorCode, isAppError } from '$lib/server/infrastructure/errors';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import { withTransientDatabaseRetry } from '$lib/server/infrastructure/errors/transient-database';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -28,12 +30,12 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 			maxAge: 7 * 24 * 60 * 60, // 7 days
 			httpOnly: true,
 			sameSite: 'lax',
-			secure: true
+			secure: !dev
 		});
 	}
 
 	try {
-		const bag = await getOrCreateBag(ctx, { sessionToken });
+		const bag = await withTransientDatabaseRetry(() => getOrCreateBag(ctx, { sessionToken }));
 		return { bag };
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -88,7 +90,7 @@ export const actions: Actions = {
 				maxAge: 7 * 24 * 60 * 60, // 7 days
 				httpOnly: true,
 				sameSite: 'lax',
-				secure: true
+				secure: !dev
 			});
 		}
 

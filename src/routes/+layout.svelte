@@ -49,11 +49,20 @@
 
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) return;
-		return new Promise((resolve) => {
-			document.startViewTransition(async () => {
+		const fromPath = navigation.from?.url.pathname ?? page.url.pathname;
+		const toPath = navigation.to?.url.pathname;
+		if (isAppPathname(fromPath) || (toPath && isAppPathname(toPath))) return;
+
+		return new Promise<void>((resolve) => {
+			try {
+				const transition = document.startViewTransition(async () => {
+					resolve();
+					await navigation.complete;
+				});
+				void transition.finished.catch(() => {});
+			} catch {
 				resolve();
-				await navigation.complete;
-			});
+			}
 		});
 	});
 
@@ -74,12 +83,13 @@
 
 	const showFooterRoutes = ['/', '/about'];
 	const shouldShowFooter = $derived(showFooterRoutes.includes(page.url.pathname));
+	function isAppPathname(pathname: string): boolean {
+		return pathname === '/app' || pathname.startsWith('/app/');
+	}
 	const isAccountRoute = $derived(
 		page.url.pathname === '/account' || page.url.pathname.startsWith('/account/')
 	);
-	const isAppRoute = $derived(
-		page.url.pathname === '/app' || page.url.pathname.startsWith('/app/')
-	);
+	const isAppRoute = $derived(isAppPathname(page.url.pathname));
 	const routeAnimationKey = $derived.by(() => {
 		if (isAccountRoute) return '/account';
 		return page.url.pathname;

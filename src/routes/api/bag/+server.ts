@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import { nanoid } from 'nanoid';
 import {
 	getOrCreateBag,
@@ -12,6 +13,7 @@ import {
 } from '$lib/server/modules/bag';
 import { jsonFromRouteError } from '$lib/server/infrastructure/errors/route-adapter';
 import { isAppError } from '$lib/server/infrastructure/errors';
+import { withTransientDatabaseRetry } from '$lib/server/infrastructure/errors/transient-database';
 
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -27,12 +29,12 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 			maxAge: 7 * 24 * 60 * 60, // 7 days
 			httpOnly: true,
 			sameSite: 'lax',
-			secure: true
+			secure: !dev
 		});
 	}
 
 	try {
-		const bag = await getOrCreateBag(ctx, { sessionToken });
+		const bag = await withTransientDatabaseRetry(() => getOrCreateBag(ctx, { sessionToken }));
 		return json(bag, {
 			headers: {
 				'cache-control': 'no-store, max-age=0'
@@ -60,7 +62,7 @@ export const POST: RequestHandler = async ({ locals, cookies, request }) => {
 			maxAge: 7 * 24 * 60 * 60, // 7 days
 			httpOnly: true,
 			sameSite: 'lax',
-			secure: true
+			secure: !dev
 		});
 	}
 

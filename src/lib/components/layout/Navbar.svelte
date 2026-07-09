@@ -11,8 +11,12 @@
 
 	const session = authClient.useSession();
 	let scrolled = $state(false);
+	const isSignedIn = $derived(Boolean($session.data));
 	const isAdminUser = $derived($session.data?.user.role === 'adminUser');
 	const wishlistCount = $derived(wishlist.allIds.length);
+	const accountHref = $derived(isSignedIn ? '/account' : '/sign-in');
+	const accountLabel = $derived(isSignedIn ? 'Account' : 'Sign in');
+	const AccountIcon = $derived(isSignedIn ? User : LogIn);
 
 	const navLinks = [
 		{ label: 'Shop', href: '/shop' },
@@ -102,13 +106,15 @@
 					fill={wishlistCount > 0 ? 'var(--color-volt)' : 'none'}
 					class="transition-colors {wishlistCount > 0 ? 'text-volt' : ''}"
 				/>
-				{#if wishlistCount > 0}
-					<span
-						class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void"
-					>
-						{wishlistCount}
-					</span>
-				{/if}
+				<span
+					class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-volt font-mono text-[9px] leading-none text-void transition-opacity {wishlistCount >
+					0
+						? 'opacity-100'
+						: 'opacity-0'}"
+					aria-hidden={wishlistCount === 0}
+				>
+					{wishlistCount}
+				</span>
 			</button>
 
 			<!-- Bag (Desktop only) -->
@@ -125,31 +131,27 @@
 
 			<!-- Account / Sign In (Tablet/Desktop) -->
 			<a
-				href={resolve(($session.data ? '/account' : '/sign-in') as '/')}
-				class="hidden transition-colors md:block {isActive($session.data ? '/account' : '/sign-in')
+				href={resolve(accountHref as '/')}
+				class="hidden transition-colors md:block {isActive(accountHref)
 					? 'text-volt'
 					: 'text-bone hover:text-volt'}"
-				aria-label={$session.data ? 'Account' : 'Sign in'}
+				aria-label={accountLabel}
 			>
-				{#if $session.data}
-					<User size={20} strokeWidth={2} />
-				{:else}
-					<LogIn size={20} strokeWidth={2} />
-				{/if}
+				<AccountIcon size={20} strokeWidth={2} />
 			</a>
-			{#if $session.data}
-				{#if isAdminUser}
-					<a
-						href={resolve('/app')}
-						class="relative hidden transition-colors md:block {isActive('/app')
-							? 'text-volt'
-							: 'text-bone hover:text-volt'}"
-						aria-label="Admin dashboard"
-					>
-						<LayoutDashboard size={20} strokeWidth={2} />
-					</a>
-				{/if}
-			{/if}
+			<a
+				href={resolve('/app')}
+				class="relative hidden transition-colors {isAdminUser ? 'md:block' : 'md:hidden'} {isActive(
+					'/app'
+				)
+					? 'text-volt'
+					: 'text-bone hover:text-volt'}"
+				aria-label="Admin dashboard"
+				aria-hidden={!isAdminUser}
+				tabindex={isAdminUser ? undefined : -1}
+			>
+				<LayoutDashboard size={20} strokeWidth={2} />
+			</a>
 		</div>
 	</div>
 </nav>

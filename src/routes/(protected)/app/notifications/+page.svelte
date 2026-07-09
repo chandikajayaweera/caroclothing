@@ -17,6 +17,8 @@
 	let selectedLog = $state<NotificationOutboxDTO | null>(null);
 	let detailOpen = $state(false);
 
+	type PayloadView = Record<string, string | number | boolean | null | undefined>;
+
 	const byStatus = $derived(data.summary.byStatus);
 	const tracked = $derived(data.summary.total);
 	const unhealthy = $derived(data.summary.byStatus.failed ?? 0);
@@ -45,8 +47,7 @@
 
 	function getEmailSubject(type: string, payload: NotificationPayload) {
 		if (!payload) return 'No payload';
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const p = payload as any;
+		const p = payload as unknown as PayloadView;
 		switch (type) {
 			case 'auth_welcome':
 				return 'Welcome to Caro Clothing';
@@ -63,8 +64,7 @@
 
 	function getEmailHtmlSimulated(type: string, payload: NotificationPayload) {
 		if (!payload) return 'No payload data available.';
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const p = payload as any;
+		const p = payload as unknown as PayloadView;
 		switch (type) {
 			case 'auth_welcome':
 				return `
@@ -118,8 +118,7 @@
 
 	function getSmsTextSimulated(type: string, payload: NotificationPayload) {
 		if (!payload) return 'No payload data available.';
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const p = payload as any;
+		const p = payload as unknown as PayloadView;
 		switch (type) {
 			case 'order_confirmation':
 				return `CARO: Your order #${p.orderNumber || p.orderId} is confirmed! Total: ${p.total || '—'}. View details: ${p.orderUrl || '—'}. Thank you!`;
@@ -130,7 +129,9 @@
 			case 'order_status_update':
 				return `CARO: Order #${p.orderNumber || p.orderId} status updated: ${p.statusLabel || p.status}. Details: ${p.orderUrl || '—'}`;
 			default:
-				return p.message || `No message text parsed. Payload: ${JSON.stringify(payload)}`;
+				return p.message
+					? String(p.message)
+					: `No message text parsed. Payload: ${JSON.stringify(payload)}`;
 		}
 	}
 
@@ -340,13 +341,16 @@
 				<div class="flex items-start justify-between gap-2">
 					<div class="min-w-0">
 						<div class="flex items-center gap-2">
-							{#if log.channel === 'email'}
-								<Mail size={12} class="text-volt" />
-								<span class="font-mono text-[8px] tracking-widest text-ash uppercase">Email</span>
-							{:else}
-								<MessageSquare size={12} class="text-sky-400" />
-								<span class="font-mono text-[8px] tracking-widest text-sky-400 uppercase">SMS</span>
-							{/if}
+							<Mail size={12} class={log.channel === 'email' ? 'text-volt' : 'hidden'} />
+							<MessageSquare
+								size={12}
+								class={log.channel === 'email' ? 'hidden' : 'text-sky-400'}
+							/>
+							<span
+								class="font-mono text-[8px] tracking-widest uppercase {log.channel === 'email'
+									? 'text-ash'
+									: 'text-sky-400'}">{log.channel === 'email' ? 'Email' : 'SMS'}</span
+							>
 						</div>
 						<p class="mt-1.5 truncate font-mono text-xs text-bone">{log.recipient}</p>
 					</div>
@@ -385,13 +389,11 @@
 			<!-- Channel -->
 			<td class="px-5 py-4">
 				<div class="flex items-center gap-2">
-					{#if log.channel === 'email'}
-						<Mail size={14} class="text-volt" />
-						<span class="font-mono text-[9px] tracking-widest text-ash uppercase">Email</span>
-					{:else}
-						<MessageSquare size={14} class="text-sky-400" />
-						<span class="font-mono text-[9px] tracking-widest text-ash uppercase">SMS</span>
-					{/if}
+					<Mail size={14} class={log.channel === 'email' ? 'text-volt' : 'hidden'} />
+					<MessageSquare size={14} class={log.channel === 'email' ? 'hidden' : 'text-sky-400'} />
+					<span class="font-mono text-[9px] tracking-widest text-ash uppercase">
+						{log.channel === 'email' ? 'Email' : 'SMS'}
+					</span>
 				</div>
 			</td>
 
