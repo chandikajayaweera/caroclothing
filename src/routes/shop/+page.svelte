@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { SvelteURLSearchParams } from 'svelte/reactivity';
 	import type { PageData } from './$types';
 	import ProductCard from '$lib/components/product/ProductCard.svelte';
 
@@ -15,7 +17,7 @@
 	let activeSort = $derived(data.filters.sort);
 
 	function updateFilter(name: string, value: string) {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new SvelteURLSearchParams(page.url.searchParams);
 		if (value) {
 			params.set(name, value);
 		} else {
@@ -23,7 +25,7 @@
 		}
 		// Reset offset when changing filters
 		params.delete('offset');
-		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
+		goto(resolve(`?${params.toString()}` as '/'), { keepFocus: true, noScroll: true });
 	}
 
 	function handleCategoryClick(categoryId: string) {
@@ -31,12 +33,11 @@
 	}
 
 	function handlePageChange(offsetDelta: number) {
-		const limit = data.products.limit;
 		const currentOffset = data.products.offset;
 		const nextOffset = Math.max(0, currentOffset + offsetDelta);
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new SvelteURLSearchParams(page.url.searchParams);
 		params.set('offset', String(nextOffset));
-		goto(`?${params.toString()}`);
+		goto(resolve(`?${params.toString()}` as '/'));
 	}
 </script>
 
@@ -181,7 +182,7 @@
 							>Try relaxing your filters.</span
 						>
 						<a
-							href="/shop"
+							href={resolve('/shop')}
 							class="border border-bone px-6 py-3 font-mono text-xs tracking-widest text-bone uppercase transition-colors hover:bg-bone hover:text-void"
 						>
 							Reset Filters

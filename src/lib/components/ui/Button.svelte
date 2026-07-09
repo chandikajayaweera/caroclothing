@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { HTMLButtonAttributes, HTMLAnchorAttributes } from 'svelte/elements';
+	import { resolve } from '$app/paths';
 
 	interface Props {
 		children: Snippet;
@@ -10,7 +11,7 @@
 		disabled?: boolean;
 		type?: 'button' | 'submit' | 'reset';
 		onclick?: (e: MouseEvent) => void;
-		[key: string]: any;
+		[key: string]: unknown;
 	}
 
 	let {
@@ -40,7 +41,12 @@
 </script>
 
 {#if href}
-	<a {href} {onclick} class={combinedClasses} {...rest as HTMLAnchorAttributes}>
+	<a
+		href={resolve(href as '/')}
+		{onclick}
+		class={combinedClasses}
+		{...rest as HTMLAnchorAttributes}
+	>
 		{@render children()}
 	</a>
 {:else}

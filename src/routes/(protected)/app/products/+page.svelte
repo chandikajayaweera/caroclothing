@@ -74,7 +74,7 @@
 	});
 
 	function clearFilters() {
-		goto(`/app/products?includeInactive=${includeInactive}`);
+		goto(resolve(`/app/products?includeInactive=${includeInactive}`));
 	}
 
 	function formatMoney(value: number): string {
@@ -100,7 +100,7 @@
 	<AdminListLayout title="Products" loading={true} {tableHeaders} items={[]}>
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
-				{#each Array(5) as _}
+				{#each [0, 1, 2, 3, 4] as index (index)}
 					<div
 						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
 					>
@@ -165,7 +165,7 @@
 					name="includeInactive"
 					checked={includeInactive}
 					uncheckedValue="false"
-					onclick={(e: any) => {
+					onclick={(e: MouseEvent) => {
 						const form = (e.currentTarget as HTMLElement).closest('form');
 						if (form) {
 							setTimeout(() => {
@@ -237,7 +237,7 @@
 
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
-				{#each Array(5) as _}
+				{#each [0, 1, 2, 3, 4] as index (index)}
 					<div
 						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
 					>
@@ -257,7 +257,7 @@
 			</div>
 		{/snippet}
 
-		{#snippet card(product: any)}
+		{#snippet card(product: ProductItem)}
 			<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
 				<div
 					class="grid min-w-0 grid-cols-[72px_minmax(0,1fr)] gap-3 sm:grid-cols-[88px_minmax(0,1fr)]"
@@ -408,7 +408,7 @@
 			</article>
 		{/snippet}
 
-		{#snippet row(product: any)}
+		{#snippet row(product: ProductItem)}
 			<tr class="border-b border-charcoal/70 last:border-b-0">
 				<td class="px-5 py-4">
 					<div class="flex min-w-0 items-center gap-3">

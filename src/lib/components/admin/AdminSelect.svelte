@@ -3,6 +3,8 @@
 	import type { Snippet } from 'svelte';
 	import { ChevronDown, Check } from 'lucide-svelte';
 
+	type SelectValue = string | number | null | undefined;
+
 	let {
 		label,
 		name,
@@ -19,16 +21,16 @@
 	}: {
 		label?: string;
 		name: string;
-		value?: any;
+		value?: SelectValue;
 		disabled?: boolean;
 		required?: boolean;
 		error?: string | string[];
-		options?: { value: any; label: string }[];
+		options?: { value: SelectValue; label: string }[];
 		onchange?: (event: Event) => void;
 		placeholder?: string;
 		class?: string;
 		children?: Snippet;
-		[key: string]: any;
+		[key: string]: unknown;
 	} = $props();
 
 	const errorMessage = $derived(
@@ -37,6 +39,7 @@
 
 	let optionsList = $state<{ value: string; label: string }[]>([]);
 	let hiddenSelect = $state<HTMLSelectElement | null>(null);
+	let selectValue = $state(String(value ?? ''));
 
 	function syncOptions() {
 		if (hiddenSelect) {
@@ -57,12 +60,24 @@
 		}
 	});
 
-	const selectedOption = $derived(optionsList.find((o) => o.value === value));
-
-	let lastDispatchedValue = $state(value);
 	$effect(() => {
-		if (value !== lastDispatchedValue) {
-			lastDispatchedValue = value;
+		const next = String(value ?? '');
+		if (next !== selectValue) {
+			selectValue = next;
+		}
+	});
+
+	const selectedOption = $derived(optionsList.find((o) => o.value === selectValue));
+
+	let lastDispatchedValue = $state<string | null>(null);
+	$effect(() => {
+		if (lastDispatchedValue === null) {
+			lastDispatchedValue = selectValue;
+			return;
+		}
+		if (selectValue !== lastDispatchedValue) {
+			lastDispatchedValue = selectValue;
+			value = selectValue;
 			if (hiddenSelect) {
 				hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
 			}
@@ -86,7 +101,7 @@
 		{name}
 		{disabled}
 		{onchange}
-		bind:value
+		bind:value={selectValue}
 		aria-invalid={errorMessage ? 'true' : undefined}
 		class="hidden"
 		{...rest}
@@ -94,14 +109,14 @@
 		{#if children}
 			{@render children()}
 		{:else}
-			{#each options as option}
+			{#each options as option (option.value)}
 				<option value={option.value}>{option.label}</option>
 			{/each}
 		{/if}
 	</select>
 
 	<!-- Bits UI Custom Dropdown -->
-	<Select.Root type="single" bind:value={value as any} items={optionsList} {disabled}>
+	<Select.Root type="single" bind:value={selectValue} items={optionsList} {disabled}>
 		<Select.Trigger
 			class="flex min-h-11 w-full items-center justify-between border bg-void px-3.5 py-3 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:cursor-not-allowed disabled:opacity-40 {errorMessage
 				? 'border-red-400/50 focus:border-red-400'

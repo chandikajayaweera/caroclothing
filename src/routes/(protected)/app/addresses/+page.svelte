@@ -1,26 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
 	import { Dialog } from 'bits-ui';
 	import { fade } from 'svelte/transition';
-	import {
-		MapPin,
-		User,
-		Phone,
-		Calendar,
-		Clock,
-		ExternalLink,
-		Copy,
-		Check,
-		X,
-		FileText
-	} from 'lucide-svelte';
+	import { MapPin, Calendar, Clock, ExternalLink, Copy, Check, X } from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -79,7 +66,7 @@
 	}
 
 	function clearFilters() {
-		goto(`/app/addresses`);
+		goto(resolve('/app/addresses'));
 	}
 
 	function formatDate(date: Date | string | null | undefined): string {
@@ -99,7 +86,7 @@
 	<AdminListLayout title="Addresses" kicker="Customers" loading={true} {tableHeaders} items={[]}>
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
-				{#each Array(5) as _}
+				{#each [0, 1, 2, 3, 4] as index (index)}
 					<div
 						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
 					>
@@ -157,7 +144,7 @@
 					}}
 				>
 					<option value="">All districts</option>
-					{#each data.districtOptions as districtOption}
+					{#each data.districtOptions as districtOption (districtOption.value)}
 						<option value={districtOption.value}>
 							{districtOption.label}
 						</option>
@@ -213,7 +200,7 @@
 			</div>
 		{/snippet}
 
-		{#snippet card(addr: any)}
+		{#snippet card(addr: AddressItem)}
 			<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
 				<div class="flex flex-col gap-3">
 					<div class="flex items-start justify-between gap-2">
@@ -274,7 +261,7 @@
 			</article>
 		{/snippet}
 
-		{#snippet row(addr: any)}
+		{#snippet row(addr: AddressItem)}
 			<tr class="border-b border-charcoal/70 last:border-b-0">
 				<td class="px-5 py-4">
 					<div class="min-w-0">

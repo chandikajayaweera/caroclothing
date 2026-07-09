@@ -1,10 +1,22 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { fly, fade } from 'svelte/transition';
 	import { uiStore, closeWishlistDrawer } from '$lib/client/modules/stores/ui';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import Button from '../ui/Button.svelte';
 
-	let wishlistItems = $state<any[]>([]);
+	type WishlistDrawerItem = {
+		id: string;
+		productId: string;
+		imageUrl?: string | null;
+		effectivePrice: number;
+		product: {
+			name: string;
+			slug: string;
+		};
+	};
+
+	let wishlistItems = $state<WishlistDrawerItem[]>([]);
 	let isLoading = $state(false);
 
 	// Watch allIds and wishlistDrawerOpen to fetch item details dynamically
@@ -20,7 +32,7 @@
 				const query = ids.length > 0 ? `?ids=${ids.join(',')}` : '';
 				const res = await fetch(`/api/wishlist${query}`);
 				if (res.ok) {
-					const data = (await res.json()) as { items?: any[] };
+					const data = (await res.json()) as { items?: WishlistDrawerItem[] };
 					wishlistItems = data.items || [];
 				}
 			} catch (err) {
@@ -92,7 +104,7 @@
 					{#each wishlistItems as item (item.id)}
 						<div class="flex gap-4 border-b border-charcoal/50 pb-4">
 							<a
-								href="/shop/{item.product.slug}"
+								href={resolve(`/shop/${item.product.slug}`)}
 								onclick={closeWishlistDrawer}
 								class="h-20 w-16 shrink-0 overflow-hidden bg-charcoal"
 							>
@@ -105,7 +117,7 @@
 							<div class="flex flex-1 flex-col justify-between">
 								<div>
 									<a
-										href="/shop/{item.product.slug}"
+										href={resolve(`/shop/${item.product.slug}`)}
 										onclick={closeWishlistDrawer}
 										class="line-clamp-1 font-sans text-sm font-medium text-bone hover:text-volt"
 									>

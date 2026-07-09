@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { fade, scale } from 'svelte/transition';
 	import {
 		ShoppingBag,
@@ -12,7 +13,6 @@
 		Info,
 		Lock,
 		Eye,
-		Settings2,
 		FileWarning
 	} from 'lucide-svelte';
 	import type { AdminBagDTO } from '$lib/server/modules/bag';
@@ -24,7 +24,6 @@
 
 	let selectedBag = $state<AdminBagDTO | null>(null);
 	let detailOpen = $state(false);
-	let filterUserId = $derived(data.filters.userId ?? '');
 
 	let showFilters = $state(false);
 	const hasActiveFilters = $derived(
@@ -47,19 +46,8 @@
 		}).format(new Date(value));
 	}
 
-	function getFilterUrl(key: string, value: string | undefined): string {
-		const url = new URL(page.url);
-		if (value) {
-			url.searchParams.set(key, value);
-		} else {
-			url.searchParams.delete(key);
-		}
-		url.searchParams.delete('offset'); // Reset paging
-		return url.pathname + url.search;
-	}
-
 	function clearFilters() {
-		goto('/app/bag');
+		goto(resolve('/app/bag'));
 	}
 
 	function openDetails(bag: AdminBagDTO) {
@@ -96,8 +84,11 @@
 				selectedBag = null;
 				// Reload page state silently
 				const url = new URL(page.url);
-				// eslint-disable-next-line svelte/no-navigation-without-resolve
-				goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+				goto(resolve(`${url.pathname}${url.search}` as '/'), {
+					keepFocus: true,
+					noScroll: true,
+					invalidateAll: true
+				});
 			}
 		} catch (err) {
 			console.error('[admin:bag] Failed to delete bag:', err);
@@ -270,7 +261,7 @@
 		</div>
 	{/snippet}
 
-	{#snippet card(bag: any)}
+	{#snippet card(bag: AdminBagDTO)}
 		{@const isExpired = bag.expiresAt && new Date(bag.expiresAt) <= new Date()}
 		<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
 			<div class="flex flex-col gap-3">
@@ -341,7 +332,7 @@
 		</article>
 	{/snippet}
 
-	{#snippet row(bag: any)}
+	{#snippet row(bag: AdminBagDTO)}
 		{@const isExpired = bag.expiresAt && new Date(bag.expiresAt) <= new Date()}
 		<tr class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/10">
 			<!-- Owner -->

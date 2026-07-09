@@ -1,26 +1,11 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import {
-		Heart,
-		Search,
-		Users,
-		RadioTower,
-		ChevronLeft,
-		ChevronRight,
-		Eye,
-		UserCheck,
-		Package,
-		AlertTriangle,
-		EyeOff
-	} from 'lucide-svelte';
+	import { Heart, Users, UserCheck, Package, EyeOff } from 'lucide-svelte';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminTableGrid from '$lib/components/admin/AdminTableGrid.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
 
@@ -33,13 +18,8 @@
 	let filters = $derived(data.filters);
 
 	// Client-side states bound to AdminListLayout's query
-	let searchQuery = $state('');
+	let searchQuery = $derived(data.filters.query || '');
 	let showFilters = $state(false);
-
-	// Ensure search query updates when url filter changes
-	$effect(() => {
-		searchQuery = data.filters.query || '';
-	});
 
 	// Automatically open filters if there are search results (to choose users easily)
 	$effect(() => {
@@ -78,16 +58,7 @@
 			url.searchParams.set(name, value);
 		}
 		url.searchParams.delete('offset'); // Reset paging on filter change
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true });
-	}
-
-	function handleTabChange(tab: string) {
-		const url = new URL(page.url);
-		url.searchParams.set('tab', tab);
-		url.searchParams.delete('query');
-		url.searchParams.delete('offset');
-		url.searchParams.delete('userId');
-		goto(url.pathname + url.search, { noScroll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), { keepFocus: true, noScroll: true });
 	}
 
 	function selectUser(id: string) {
@@ -95,7 +66,7 @@
 		url.searchParams.set('userId', id);
 		url.searchParams.delete('offset');
 		showFilters = false; // close filter panel after selection
-		goto(url.pathname + url.search, { noScroll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), { noScroll: true });
 	}
 
 	function clearSignalFilters() {
@@ -105,7 +76,7 @@
 		url.searchParams.delete('includeUnavailable');
 		url.searchParams.delete('alertLevel');
 		url.searchParams.delete('offset');
-		goto(url.pathname + url.search, { noScroll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), { noScroll: true });
 	}
 
 	function clearUserFilters() {
@@ -114,7 +85,7 @@
 		url.searchParams.delete('query');
 		url.searchParams.delete('userId');
 		url.searchParams.delete('offset');
-		goto(url.pathname + url.search, { noScroll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), { noScroll: true });
 	}
 
 	function formatDate(value: Date | string | null | undefined): string {
@@ -154,7 +125,7 @@
 						{ value: 'signals', label: 'Signals' },
 						{ value: 'users', label: 'User Saves' }
 					]}
-					onchange={(e: any) => {
+					onchange={(e) => {
 						const form = (e.currentTarget as HTMLElement).closest('form');
 						if (form) form.requestSubmit();
 					}}
@@ -164,7 +135,8 @@
 					label="Alert Level"
 					name="alertLevel"
 					value={filters.alertLevel}
-					onchange={(e: any) => updateQueryParam('alertLevel', e.target.value)}
+					onchange={(e) =>
+						updateQueryParam('alertLevel', (e.currentTarget as HTMLSelectElement).value)}
 					options={[
 						{ value: 'all', label: 'All Alerts' },
 						{ value: 'high', label: 'High Risk' },
@@ -374,7 +346,7 @@
 							{ value: 'signals', label: 'Signals' },
 							{ value: 'users', label: 'User Saves' }
 						]}
-						onchange={(e: any) => {
+						onchange={(e) => {
 							const form = (e.currentTarget as HTMLElement).closest('form');
 							if (form) form.requestSubmit();
 						}}

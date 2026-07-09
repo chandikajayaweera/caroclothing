@@ -107,7 +107,7 @@
 					closeDrawer();
 				} else {
 					const fieldErrors = Object.entries(form.errors)
-						.filter(([_, errs]) => errs && errs.length > 0)
+						.filter(([, errs]) => errs && errs.length > 0)
 						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
 						.join('; ');
 					toastMessage =
@@ -148,7 +148,7 @@
 					updateSettingsHasError = false;
 				} else {
 					const fieldErrors = Object.entries(form.errors)
-						.filter(([_, errs]) => errs && errs.length > 0)
+						.filter(([, errs]) => errs && errs.length > 0)
 						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
 						.join('; ');
 					toastMessage =
@@ -188,7 +188,7 @@
 					restockHasError = false;
 				} else {
 					const fieldErrors = Object.entries(form.errors)
-						.filter(([_, errs]) => errs && errs.length > 0)
+						.filter(([, errs]) => errs && errs.length > 0)
 						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
 						.join('; ');
 					toastMessage =
@@ -224,7 +224,7 @@
 					adjustHasError = false;
 				} else {
 					const fieldErrors = Object.entries(form.errors)
-						.filter(([_, errs]) => errs && errs.length > 0)
+						.filter(([, errs]) => errs && errs.length > 0)
 						.map(([field, errs]) => `${field}: ${errs.join(', ')}`)
 						.join('; ');
 					toastMessage =

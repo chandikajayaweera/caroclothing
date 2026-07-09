@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import { superForm } from 'sveltekit-superforms';
 	import { goto } from '$app/navigation';
-	import { Tag, RotateCw, Play, Pause, Edit2, Settings } from 'lucide-svelte';
+	import { RotateCw, Play, Pause, Edit2, Settings } from 'lucide-svelte';
 	import { fade } from 'svelte/transition';
 	import { Dialog } from 'bits-ui';
 	import AdminDateTimePicker from '$lib/components/admin/AdminDateTimePicker.svelte';

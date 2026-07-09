@@ -1,7 +1,6 @@
 <script lang="ts">
 	interface Props {
 		review: {
-			id: string;
 			user: string;
 			rating: number;
 			title: string;
@@ -21,7 +20,7 @@
 			<span class="font-mono text-[9px] tracking-widest text-ash uppercase">{review.date}</span>
 		</div>
 		<div class="flex gap-0.5 text-volt">
-			{#each Array(5) as _, i}
+			{#each [0, 1, 2, 3, 4] as i (i)}
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					width="12"

@@ -1,5 +1,19 @@
 <script lang="ts">
-	let { reviews = [] }: { reviews?: any[] } = $props();
+	import { resolve } from '$app/paths';
+
+	type ReviewSource = {
+		id: string;
+		reviewerName?: string | null;
+		rating: number;
+		body?: string | null;
+		isVerifiedPurchase?: boolean | null;
+		product?: {
+			name?: string | null;
+			slug?: string | null;
+		} | null;
+	};
+
+	let { reviews = [] }: { reviews?: ReviewSource[] } = $props();
 
 	const displayReviews = $derived(
 		reviews.map((r) => ({
@@ -31,13 +45,13 @@
 			<div
 				class="no-scrollbar scroll-snap-x flex gap-4 overflow-x-auto pb-4 md:grid md:grid-cols-3 md:pb-0"
 			>
-				{#each displayReviews as review}
+				{#each displayReviews as review (review.id)}
 					<div
 						class="scroll-snap-align-start flex min-w-[280px] flex-col gap-4 border border-charcoal bg-charcoal/40 p-6 transition-colors hover:border-volt/30 md:min-w-0"
 					>
 						<div class="flex items-start justify-between">
 							<div class="flex gap-0.5 text-bone">
-								{#each Array(5) as _, i}
+								{#each [0, 1, 2, 3, 4] as i (i)}
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
 										width="12"
@@ -92,7 +106,7 @@
 							</div>
 							{#if review.productSlug}
 								<a
-									href="/shop/{review.productSlug}"
+									href={resolve(`/shop/${review.productSlug}`)}
 									class="font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:text-volt"
 								>
 									{review.productName}

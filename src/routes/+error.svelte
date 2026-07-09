@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 
 	const isNotFound = $derived(page.status === 404);
@@ -63,13 +64,13 @@
 
 			<div class="mt-8 flex flex-col gap-3 sm:flex-row md:mt-10">
 				<a
-					href={primaryHref}
+					href={resolve(primaryHref as '/')}
 					class="bg-volt px-8 py-4 text-center font-mono text-[10px] tracking-widest text-void uppercase transition-colors hover:bg-bone"
 				>
 					{primaryLabel}
 				</a>
 				<a
-					href={secondaryHref}
+					href={resolve(secondaryHref as '/')}
 					class="border border-ash/30 px-8 py-4 text-center font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:border-volt hover:text-volt"
 				>
 					{secondaryLabel}

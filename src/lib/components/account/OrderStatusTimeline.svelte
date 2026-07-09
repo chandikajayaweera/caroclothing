@@ -11,7 +11,7 @@
 </script>
 
 <div class="mt-8 flex flex-col gap-0">
-	{#each steps as step, i}
+	{#each steps as step, i (step.label)}
 		<div class="relative flex items-start gap-4 pb-8 last:pb-0">
 			<!-- Connecting line -->
 			{#if i < steps.length - 1}

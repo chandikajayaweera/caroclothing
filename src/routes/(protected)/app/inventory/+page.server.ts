@@ -73,7 +73,7 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 		if (openId) {
 			try {
 				activeDetail = await getInventory(ctx, { variantId: openId });
-			} catch (e) {
+			} catch {
 				// Ignore if the variant ID is invalid or doesn't exist
 			}
 		}

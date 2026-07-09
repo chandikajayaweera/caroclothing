@@ -1,7 +1,14 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import ProductCard from '../product/ProductCard.svelte';
 
-	let { products = [] }: { products?: any[] } = $props();
+	type ProductTile = {
+		id: string;
+		slug: string;
+		name: string;
+	};
+
+	let { products = [] }: { products?: ProductTile[] } = $props();
 </script>
 
 {#if products.length > 0}
@@ -10,7 +17,7 @@
 			<div class="mb-6 flex items-baseline justify-between md:mb-10 lg:mb-12">
 				<h2 class="font-display text-5xl text-bone uppercase md:text-6xl lg:text-8xl">New In</h2>
 				<a
-					href="/shop?sort=new"
+					href={resolve('/shop?sort=new')}
 					class="font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:text-volt"
 				>
 					[View All]
@@ -18,7 +25,7 @@
 			</div>
 
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 lg:gap-4">
-				{#each products as product}
+				{#each products as product (product.id ?? product.slug)}
 					<ProductCard {product} />
 				{/each}
 			</div>

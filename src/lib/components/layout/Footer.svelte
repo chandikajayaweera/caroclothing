@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+
 	const tagline = 'WEAR THE NEXT GENERATION';
 	const columns = [
 		{
@@ -42,9 +44,10 @@
 				<span class="mb-6 block font-display text-4xl tracking-[0.2em] text-bone">CARO</span>
 				<p class="mb-6 max-w-[200px] font-display text-4xl leading-tight text-bone">{tagline}</p>
 				<div class="flex gap-4">
-					{#each social as item}
-						<a
-							href={item.href}
+					{#each social as item (item.href)}
+						<button
+							type="button"
+							onclick={() => window.open(item.href, '_blank', 'noopener,noreferrer')}
 							class="text-ash transition-colors hover:text-volt"
 							aria-label={item.label}
 						>
@@ -83,21 +86,21 @@
 									<circle cx="18" cy="16" r="3" />
 								</svg>
 							{/if}
-						</a>
+						</button>
 					{/each}
 				</div>
 			</div>
 
 			<!-- Col 2 & 3 -->
-			{#each columns as column}
+			{#each columns as column (column.heading)}
 				<div>
 					<h3 class="mb-6 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
 						{column.heading}
 					</h3>
 					<div class="flex flex-col gap-3">
-						{#each column.links as link}
+						{#each column.links as link (link.href)}
 							<a
-								href={link.href}
+								href={resolve(link.href as '/')}
 								class="font-mono text-[10px] tracking-[0.15em] text-ash uppercase transition-colors hover:text-bone"
 							>
 								{link.label}
@@ -112,13 +115,13 @@
 				<h3 class="mb-6 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Legal</h3>
 				<div class="flex flex-col gap-3">
 					<a
-						href="/privacy"
+						href={resolve('/privacy' as '/')}
 						class="font-mono text-[10px] tracking-[0.15em] text-ash uppercase transition-colors hover:text-bone"
 					>
 						Privacy
 					</a>
 					<a
-						href="/terms"
+						href={resolve('/terms' as '/')}
 						class="font-mono text-[10px] tracking-[0.15em] text-ash uppercase transition-colors hover:text-bone"
 					>
 						Terms
@@ -133,7 +136,7 @@
 			<p class="mb-8 font-display text-4xl leading-tight text-bone">{tagline}</p>
 
 			<div class="border-t border-void/40">
-				{#each columns as column}
+				{#each columns as column (column.heading)}
 					<div class="border-b border-void/40">
 						<button
 							class="flex w-full items-center justify-between py-4 font-mono text-[10px] tracking-[0.2em] text-ash uppercase"
@@ -144,8 +147,11 @@
 						</button>
 						{#if activeMobileColumn === column.heading}
 							<div class="flex flex-col gap-2 pb-4">
-								{#each column.links as link}
-									<a href={link.href} class="block py-1 font-mono text-xs text-ash hover:text-bone">
+								{#each column.links as link (link.href)}
+									<a
+										href={resolve(link.href as '/')}
+										class="block py-1 font-mono text-xs text-ash hover:text-bone"
+									>
 										{link.label}
 									</a>
 								{/each}
@@ -156,9 +162,10 @@
 			</div>
 
 			<div class="mt-8 flex gap-4">
-				{#each social as item}
-					<a
-						href={item.href}
+				{#each social as item (item.href)}
+					<button
+						type="button"
+						onclick={() => window.open(item.href, '_blank', 'noopener,noreferrer')}
 						class="text-ash transition-colors hover:text-volt"
 						aria-label={item.label}
 					>
@@ -197,7 +204,7 @@
 								<circle cx="18" cy="16" r="3" />
 							</svg>
 						{/if}
-					</a>
+					</button>
 				{/each}
 			</div>
 

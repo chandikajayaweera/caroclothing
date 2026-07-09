@@ -9,6 +9,8 @@
 
 	let { data }: { data: PageData } = $props();
 
+	type ProductDetail = Awaited<PageData['streamed']['product']>;
+
 	type ColorCard = {
 		variantColorId: string;
 		color: string;
@@ -18,22 +20,23 @@
 		variants: { id: string; size: string; isActive: boolean; sortOrder: number }[];
 	};
 
-	function buildColorCards(product: any): ColorCard[] {
-		const cardsMap = new Map<string, ColorCard>();
+	function buildColorCards(product: ProductDetail): ColorCard[] {
+		const cards: ColorCard[] = [];
 
 		for (const variant of product.variants) {
 			const colorId = variant.variantColorId;
-			if (!cardsMap.has(colorId)) {
-				cardsMap.set(colorId, {
+			let card = cards.find((item) => item.variantColorId === colorId);
+			if (!card) {
+				card = {
 					variantColorId: colorId,
 					color: variant.color,
 					colorHex: variant.colorHex,
 					basePrice: variant.basePrice,
 					compareAtPrice: variant.compareAtPrice,
 					variants: []
-				});
+				};
+				cards.push(card);
 			}
-			const card = cardsMap.get(colorId)!;
 			card.variants.push({
 				id: variant.id,
 				size: variant.size,
@@ -42,7 +45,7 @@
 			});
 		}
 
-		return Array.from(cardsMap.values()).sort((a, b) => {
+		return cards.sort((a, b) => {
 			const aSort = a.variants[0]?.sortOrder ?? 0;
 			const bSort = b.variants[0]?.sortOrder ?? 0;
 			return aSort - bSort;
@@ -71,11 +74,11 @@
 		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
 	}
 
-	function imagesForColorCard(product: any, variantColorId: string) {
-		return product.images.filter((image: any) => image.variantId === variantColorId);
+	function imagesForColorCard(product: ProductDetail, variantColorId: string) {
+		return product.images.filter((image) => image.variantId === variantColorId);
 	}
 
-	let resolvedProduct = $state<any>(null);
+	let resolvedProduct = $state<ProductDetail | null>(null);
 	$effect(() => {
 		data.streamed.product
 			.then((p) => {
@@ -125,7 +128,7 @@
 		<div class="mt-8 grid animate-pulse gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
 			<AdminCard kicker="Details" title="Catalog Data" border="border border-ash/15">
 				<div class="grid gap-px bg-charcoal md:grid-cols-2">
-					{#each Array(6) as _}
+					{#each [0, 1, 2, 3, 4, 5] as index (index)}
 						<div class="bg-void p-5">
 							<div class="h-3 w-16 rounded bg-charcoal"></div>
 							<div class="mt-3 h-5 w-24 rounded bg-charcoal"></div>
@@ -153,7 +156,7 @@
 					<div class="p-5">
 						<div class="mb-3 h-3 w-16 rounded bg-charcoal"></div>
 						<div class="grid grid-cols-3 gap-3 text-center">
-							{#each Array(3) as _}
+							{#each [0, 1, 2] as index (index)}
 								<div class="border border-charcoal/40 bg-void p-3">
 									<div class="mx-auto h-8 w-8 animate-pulse rounded bg-charcoal"></div>
 									<div class="mx-auto mt-2 h-2 w-10 animate-pulse rounded bg-charcoal"></div>
@@ -166,8 +169,8 @@
 		</div>
 	{:then product}
 		{@const primaryImage =
-			product.images.find((image: any) => image.isPrimary) ?? product.images[0] ?? null}
-		{@const activeVariantCount = product.variants.filter((variant: any) => variant.isActive).length}
+			product.images.find((image) => image.isPrimary) ?? product.images[0] ?? null}
+		{@const activeVariantCount = product.variants.filter((variant) => variant.isActive).length}
 		{@const colorCards = buildColorCards(product)}
 		{@const activeImage =
 			activeImageIndex === null ? null : (product.images[activeImageIndex] ?? null)}
@@ -307,7 +310,7 @@
 										<div>
 											<p class="mb-2 font-sans text-xs text-ash">Sizes Available</p>
 											<div class="flex flex-wrap gap-2">
-												{#each card.variants as v}
+												{#each card.variants as v (v.id)}
 													<span
 														class="inline-flex min-h-9 items-center border px-3 py-2 font-mono text-[10px] tracking-wider uppercase {v.isActive
 															? 'border-volt bg-volt font-bold text-void'
@@ -325,7 +328,7 @@
 											</p>
 											{#if imagesForColorCard(product, card.variantColorId).length > 0}
 												<div class="flex flex-wrap gap-2">
-													{#each imagesForColorCard(product, card.variantColorId) as img}
+													{#each imagesForColorCard(product, card.variantColorId) as img (img.id)}
 														{@const imgIndex = product.images.indexOf(img)}
 														<button
 															type="button"

@@ -1,8 +1,13 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { Action } from 'svelte/action';
+	import type { HTMLFormAttributes } from 'svelte/elements';
+	import { resolve } from '$app/paths';
 	import { ArrowLeft } from 'lucide-svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+
+	type FormEnhanceAction = (
+		node: HTMLFormElement
+	) => void | { update?: (args: unknown) => void; destroy?: () => void };
 
 	let {
 		backHref,
@@ -31,9 +36,9 @@
 		submitLabel?: string;
 		cancelLabel?: string;
 		oncancel?: () => void;
-		enhanceAction?: Action<HTMLFormElement, any>;
+		enhanceAction?: FormEnhanceAction;
 		formElement?: HTMLFormElement | null;
-		formAttrs?: any;
+		formAttrs?: HTMLFormAttributes;
 		mainContent: Snippet;
 		sidebarContent: Snippet;
 		mobilePanel?: Snippet;
@@ -57,7 +62,7 @@
 	<!-- Page Header -->
 	<div class="border-b border-charcoal pb-4 md:pb-6">
 		<a
-			href={backHref}
+			href={resolve(backHref as '/')}
 			class="inline-flex min-h-11 items-center gap-2 font-mono text-[10px] tracking-widest text-ash uppercase hover:text-volt"
 		>
 			<ArrowLeft size={14} aria-hidden="true" />

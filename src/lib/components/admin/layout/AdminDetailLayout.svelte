@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { resolve } from '$app/paths';
 	import { ArrowLeft } from 'lucide-svelte';
 	import { fade } from 'svelte/transition';
 
@@ -39,7 +40,7 @@
 	>
 		<div class="flex items-center gap-4">
 			<a
-				href={backHref}
+				href={resolve(backHref as '/')}
 				class="group flex h-10 w-10 items-center justify-center border border-charcoal bg-void text-ash transition-colors hover:border-volt hover:text-volt"
 				aria-label={backLabel}
 			>

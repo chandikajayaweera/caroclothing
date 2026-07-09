@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { authClient } from '$lib/client/modules/auth';
@@ -59,10 +60,10 @@
 	class="pb-safe fixed inset-x-0 bottom-0 z-50 h-[calc(60px+env(safe-area-inset-bottom))] border-t border-charcoal bg-void/80 px-2 pt-2 backdrop-blur-md md:hidden"
 >
 	<div class="flex h-full items-center justify-around">
-		{#each navItems as item}
+		{#each navItems as item (item.href)}
 			{@const IconComponent = item.icon}
 			<a
-				href={item.href}
+				href={resolve((item.href === '#wishlist' ? page.url.pathname : item.href) as '/')}
 				onclick={(e) => {
 					if (item.label === 'Wishlist') {
 						e.preventDefault();

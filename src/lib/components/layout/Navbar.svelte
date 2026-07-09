@@ -4,6 +4,7 @@
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
 	import { authClient } from '$lib/client/modules/auth';
 	import { Heart, ShoppingBag, User, LogIn, LayoutDashboard } from 'lucide-svelte';
 	import NavBadge from './NavBadge.svelte';
@@ -59,22 +60,22 @@
 	<div class="flex h-full items-center justify-between px-4 md:px-6 lg:px-8">
 		<!-- Left: Logo (Desktop) -->
 		<div class="hidden lg:block">
-			<a href="/">
+			<a href={resolve('/')}>
 				<span class="font-display text-3xl tracking-[0.2em] text-bone">CARO</span>
 			</a>
 		</div>
 
 		<!-- Center: Logo (Mobile/Tablet) / Nav Links (Desktop) -->
 		<div class="absolute left-1/2 -translate-x-1/2 lg:hidden">
-			<a href="/">
+			<a href={resolve('/')}>
 				<span class="font-display text-2xl tracking-[0.2em] text-bone md:text-3xl">CARO</span>
 			</a>
 		</div>
 
 		<div class="hidden items-center gap-8 lg:flex">
-			{#each navLinks as link}
+			{#each navLinks as link (link.href)}
 				<a
-					href={link.href}
+					href={resolve(link.href as '/')}
 					class="font-mono text-[10px] tracking-[0.15em] uppercase transition-colors lg:text-xs
           {isActive(link.href)
 						? 'border-b border-volt pb-px text-volt'
@@ -124,7 +125,7 @@
 
 			<!-- Account / Sign In (Tablet/Desktop) -->
 			<a
-				href={$session.data ? '/account' : '/sign-in'}
+				href={resolve(($session.data ? '/account' : '/sign-in') as '/')}
 				class="hidden transition-colors md:block {isActive($session.data ? '/account' : '/sign-in')
 					? 'text-volt'
 					: 'text-bone hover:text-volt'}"
@@ -139,7 +140,7 @@
 			{#if $session.data}
 				{#if isAdminUser}
 					<a
-						href="/app"
+						href={resolve('/app')}
 						class="relative hidden transition-colors md:block {isActive('/app')
 							? 'text-volt'
 							: 'text-bone hover:text-volt'}"

@@ -18,7 +18,7 @@
 	}: {
 		label?: string;
 		name: string;
-		value?: any;
+		value?: string | number | null;
 		type?: string;
 		placeholder?: string;
 		disabled?: boolean;
@@ -28,7 +28,7 @@
 		class?: string;
 		oninput?: (event: Event) => void;
 		onkeydown?: (event: KeyboardEvent) => void;
-		[key: string]: any;
+		[key: string]: unknown;
 	} = $props();
 
 	const errorMessage = $derived(

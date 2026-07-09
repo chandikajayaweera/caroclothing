@@ -14,7 +14,7 @@
 		label?: string;
 		description?: string;
 		name?: string;
-		checked?: boolean | null;
+		checked?: boolean;
 		disabled?: boolean;
 		standalone?: boolean;
 		onclick?: (event: MouseEvent) => void;
@@ -33,7 +33,7 @@
 		<input type="hidden" {name} value={checked ? 'true' : 'false'} />
 	{/if}
 	<Switch.Root
-		bind:checked={checked as any}
+		bind:checked
 		{disabled}
 		{onclick}
 		class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-ash/30 bg-void transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-volt focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:border-transparent data-[state=checked]:bg-volt {className}"
@@ -60,7 +60,7 @@
 		{/if}
 
 		<Switch.Root
-			bind:checked={checked as any}
+			bind:checked
 			{disabled}
 			{onclick}
 			class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-ash/30 bg-void transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-volt focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 data-[state=checked]:border-transparent data-[state=checked]:bg-volt"

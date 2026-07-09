@@ -37,8 +37,7 @@
 		constraints: updateProductConstraints,
 		message: updateProductMessage,
 		enhance: updateProductEnhance,
-		submitting: updateProductSubmitting,
-		isTainted: isUpdateProductTainted
+		submitting: updateProductSubmitting
 	} = superForm(
 		initialForm(() => data.updateProductForm),
 		{
@@ -253,8 +252,6 @@
 	const activeVariantCount = $derived(
 		activeLocalVariants.reduce((sum, v) => sum + v.sizes.length, 0)
 	);
-	const actionMessage = $derived(actionData?.form?.message);
-
 	const selectedTags = $derived(
 		data.tags.filter((tag) => $updateProductForm.tagIds.includes(tag.id))
 	);
@@ -308,43 +305,6 @@
 		for (const preview of imagePreviews) {
 			URL.revokeObjectURL(preview.url);
 		}
-	}
-
-	function resetState() {
-		localVariants = buildLocalVariants(data.product);
-		localImages = buildLocalImages(data.product);
-
-		// Revoke object URLs and clear new uploads
-		revokeImagePreviews();
-		newImageFiles = [];
-		imagePreviews = [];
-		$imageFiles = createFileList([]);
-		activeImageId = null;
-		carouselImageId = null;
-		selectedSnapshotVariantId = null;
-		selectedSnapshotSize = null;
-		expandedColorCards = {};
-	}
-
-	function discardChanges() {
-		resetState();
-		// Re-sync form fields from data.product
-		$updateProductForm.name = data.product.name;
-		$updateProductForm.slug = data.product.slug;
-		$updateProductForm.description = data.product.description;
-		$updateProductForm.shortDescription = data.product.shortDescription;
-		$updateProductForm.categoryId = data.product.categoryId;
-		$updateProductForm.gender = data.product.gender;
-		$updateProductForm.fit = data.product.fit;
-		$updateProductForm.material = data.product.material;
-		$updateProductForm.careInstructions = data.product.careInstructions;
-		$updateProductForm.isActive = data.product.isActive;
-		$updateProductForm.isFeatured = data.product.isFeatured;
-		$updateProductForm.isNewArrival = data.product.isNewArrival;
-		$updateProductForm.metaTitle = data.product.metaTitle;
-		$updateProductForm.metaDescription = data.product.metaDescription;
-		$updateProductForm.tagIds = data.product.tags.map((tag) => tag.id);
-		$updateProductForm.newTagNames = [];
 	}
 
 	onDestroy(revokeImagePreviews);

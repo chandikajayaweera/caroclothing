@@ -1,7 +1,22 @@
 <script lang="ts">
 	import ReviewCard from './ReviewCard.svelte';
 
-	let { summary, reviews } = $props();
+	type Review = {
+		id: string;
+		user: string;
+		rating: number;
+		title: string;
+		body: string;
+		isVerifiedPurchase: boolean;
+		date: string;
+	};
+
+	type ReviewSummary = {
+		average: number;
+		count: number;
+	};
+
+	let { summary, reviews }: { summary: ReviewSummary; reviews: Review[] } = $props();
 
 	const distribution = [
 		{ stars: 5, count: 15 },
@@ -22,7 +37,7 @@
 				<span class="font-display text-6xl leading-none text-volt">{summary.average}</span>
 				<div class="flex flex-col">
 					<div class="flex text-volt">
-						{#each Array(5) as _, i}
+						{#each [0, 1, 2, 3, 4] as i (i)}
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								width="14"
@@ -47,7 +62,7 @@
 
 			<!-- Distribution bars -->
 			<div class="flex flex-col gap-2">
-				{#each distribution as dist}
+				{#each distribution as dist (dist.stars)}
 					<div class="flex items-center gap-3">
 						<span class="w-2 font-mono text-[9px] text-ash">{dist.stars}</span>
 						<div class="h-1 flex-1 overflow-hidden rounded-full bg-charcoal">
@@ -64,7 +79,7 @@
 
 		<!-- Review cards -->
 		<div class="flex flex-col gap-4 md:grid md:grid-cols-2 md:gap-4 lg:grid-cols-2">
-			{#each reviews as review}
+			{#each reviews as review (review.id)}
 				<ReviewCard {review} />
 			{/each}
 		</div>

@@ -72,6 +72,7 @@
 				#
 			</span>
 			<input
+				id={clientId}
 				value={value ? value.replace('#', '') : ''}
 				{placeholder}
 				{disabled}

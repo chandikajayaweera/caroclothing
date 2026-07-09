@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { DatePicker, Label } from 'bits-ui';
 	import { Calendar, ChevronLeft, ChevronRight } from 'lucide-svelte';
-	import { CalendarDateTime } from '@internationalized/date';
+	import { CalendarDateTime, type DateValue } from '@internationalized/date';
 
 	let {
 		label,
@@ -22,7 +22,7 @@
 		disabled?: boolean;
 		error?: string | string[];
 		class?: string;
-		[key: string]: any;
+		[key: string]: unknown;
 	} = $props();
 
 	const errorMessage = $derived(
@@ -44,28 +44,36 @@
 	}
 
 	// Helper to convert CalendarDateTime to UNIX timestamp
-	function toTimestamp(calVal: CalendarDateTime | undefined | null): number | null {
+	function toTimestamp(calVal: DateValue | undefined | null): number | null {
 		if (!calVal) return null;
-		const d = new Date(calVal.year, calVal.month - 1, calVal.day, calVal.hour, calVal.minute);
+		const dateTime = calVal as DateValue & { hour?: number; minute?: number };
+		const d = new Date(
+			dateTime.year,
+			dateTime.month - 1,
+			dateTime.day,
+			dateTime.hour ?? 0,
+			dateTime.minute ?? 0
+		);
 		return d.getTime();
 	}
 
 	// Internal state mapped from bindable value
-	let internalValue = $state<any>(toCalendarDateTime(value));
+	let internalValue = $state<DateValue | undefined>(toCalendarDateTime(value));
 
 	// Sync value -> internalValue
 	$effect(() => {
 		const expected = toCalendarDateTime(value);
+		const current = internalValue as (DateValue & { hour?: number; minute?: number }) | undefined;
 		if (
 			(!internalValue && expected) ||
 			(internalValue && !expected) ||
-			(internalValue &&
+			(current &&
 				expected &&
-				(internalValue.year !== expected.year ||
-					internalValue.month !== expected.month ||
-					internalValue.day !== expected.day ||
-					internalValue.hour !== expected.hour ||
-					internalValue.minute !== expected.minute))
+				(current.year !== expected.year ||
+					current.month !== expected.month ||
+					current.day !== expected.day ||
+					current.hour !== expected.hour ||
+					current.minute !== expected.minute))
 		) {
 			internalValue = expected;
 		}
@@ -80,7 +88,7 @@
 	});
 
 	// Calendar viewport/placeholder state
-	let placeholder = $state<any>(
+	let placeholder = $state<CalendarDateTime>(
 		toCalendarDateTime(value) ||
 			(() => {
 				const now = new Date();
@@ -112,12 +120,12 @@
 	<DatePicker.Root
 		value={internalValue}
 		onValueChange={(v) => {
-			internalValue = v as any;
-			value = toTimestamp(v as any);
+			internalValue = v;
+			value = toTimestamp(v);
 		}}
 		bind:placeholder
 		hourCycle={24}
-		minValue={minCalValue as any}
+		minValue={minCalValue}
 		{disabled}
 	>
 		<DatePicker.Input
@@ -127,7 +135,7 @@
 			{...rest}
 		>
 			{#snippet children({ segments })}
-				{#each segments as { part, value: segmentVal }}
+				{#each segments as { part, value: segmentVal } (`${part}-${segmentVal}`)}
 					{#if part === 'literal'}
 						<DatePicker.Segment {part} class="p-0.5 text-ash/40 select-none">
 							{segmentVal}
@@ -175,11 +183,11 @@
 						</DatePicker.Header>
 
 						<div class="flex flex-col gap-4 sm:flex-row">
-							{#each months as month}
+							{#each months as month (month.value.toString())}
 								<DatePicker.Grid class="w-full border-collapse">
 									<DatePicker.GridHead>
 										<DatePicker.GridRow class="mb-1 flex w-full">
-											{#each weekdays as day}
+											{#each weekdays as day (day)}
 												<DatePicker.HeadCell
 													class="w-8 text-center font-sans text-[10px] font-medium text-ash/60 uppercase"
 												>
@@ -189,9 +197,9 @@
 										</DatePicker.GridRow>
 									</DatePicker.GridHead>
 									<DatePicker.GridBody class="space-y-1">
-										{#each month.weeks as weekDates}
+										{#each month.weeks as weekDates, weekIndex (weekIndex)}
 											<DatePicker.GridRow class="flex w-full">
-												{#each weekDates as date}
+												{#each weekDates as date (date.toString())}
 													<DatePicker.Cell
 														{date}
 														month={month.value}

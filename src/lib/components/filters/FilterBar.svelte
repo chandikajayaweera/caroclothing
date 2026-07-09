@@ -12,7 +12,7 @@
 	<!-- Mobile/Tablet: Horizontal Scroll -->
 	<div class="flex h-14 items-center lg:hidden">
 		<div class="no-scrollbar flex flex-1 gap-2 overflow-x-auto px-4">
-			{#each genderOptions as gender}
+			{#each genderOptions as gender (gender)}
 				<button
 					onclick={() => (activeGender = gender)}
 					class="border px-3 py-1.5 font-mono text-[9px] tracking-[0.15em] whitespace-nowrap uppercase transition-colors
@@ -22,7 +22,7 @@
 				</button>
 			{/each}
 			<div class="h-4 w-px self-center bg-charcoal"></div>
-			{#each fitOptions as fit}
+			{#each fitOptions as fit (fit)}
 				<button
 					onclick={() => (activeFit = fit)}
 					class="border px-3 py-1.5 font-mono text-[9px] tracking-[0.15em] whitespace-nowrap uppercase transition-colors
@@ -58,7 +58,7 @@
 	<div class="hidden items-center justify-between px-8 py-4 lg:flex">
 		<div class="flex items-center gap-8">
 			<div class="flex items-center gap-3">
-				{#each genderOptions as gender}
+				{#each genderOptions as gender (gender)}
 					<button
 						onclick={() => (activeGender = gender)}
 						class="border px-4 py-2 font-mono text-[10px] tracking-[0.15em] uppercase transition-colors
@@ -72,7 +72,7 @@
 			</div>
 			<div class="h-6 w-px bg-charcoal"></div>
 			<div class="flex items-center gap-3">
-				{#each fitOptions as fit}
+				{#each fitOptions as fit (fit)}
 					<button
 						onclick={() => (activeFit = fit)}
 						class="border px-4 py-2 font-mono text-[10px] tracking-[0.15em] uppercase transition-colors

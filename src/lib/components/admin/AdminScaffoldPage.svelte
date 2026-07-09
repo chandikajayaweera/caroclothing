@@ -48,7 +48,7 @@
 		<aside class="border border-charcoal bg-void p-5">
 			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Build next</p>
 			<div class="mt-5 flex flex-col gap-3">
-				{#each items as item}
+				{#each items as item (item)}
 					<div class="border border-charcoal bg-charcoal/30 p-3">
 						<p class="font-mono text-[10px] tracking-widest text-ash uppercase">{item}</p>
 					</div>

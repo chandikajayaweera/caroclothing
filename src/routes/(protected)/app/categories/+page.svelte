@@ -13,6 +13,9 @@
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
+	type CategoryItem = Awaited<PageData['streamed']['categories']>['items'][number];
+	type AllCategoryItem = Awaited<PageData['streamed']['allCategories']>[number];
+
 	let includeInactive = $derived(data.filters.includeInactive);
 
 	const tableHeaders = [
@@ -71,10 +74,10 @@
 	});
 
 	function clearFilters() {
-		goto(`/app/categories?includeInactive=${includeInactive}`);
+		goto(resolve(`/app/categories?includeInactive=${includeInactive}`));
 	}
 
-	function parentCategoryName(parentId: string | null, allCategories: any[]): string {
+	function parentCategoryName(parentId: string | null, allCategories: AllCategoryItem[]): string {
 		if (!parentId) return 'Root';
 		const parent = allCategories.find((c) => c.id === parentId);
 		return parent ? parent.name : 'Unknown';
@@ -89,7 +92,7 @@
 	<AdminListLayout title="Categories" loading={true} {tableHeaders} items={[]}>
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
-				{#each Array(5) as _}
+				{#each [0, 1, 2, 3, 4] as index (index)}
 					<div
 						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
 					>
@@ -154,7 +157,7 @@
 					name="includeInactive"
 					checked={includeInactive}
 					uncheckedValue="false"
-					onclick={(e: any) => {
+					onclick={(e: MouseEvent) => {
 						const form = (e.currentTarget as HTMLElement).closest('form');
 						if (form) {
 							setTimeout(() => {
@@ -186,7 +189,7 @@
 
 		{#snippet skeleton()}
 			<div class="animate-pulse space-y-4 p-5">
-				{#each Array(5) as _}
+				{#each [0, 1, 2, 3, 4] as index (index)}
 					<div
 						class="flex items-center justify-between gap-4 border-b border-charcoal pb-4 last:border-b-0 last:pb-0"
 					>
@@ -205,7 +208,7 @@
 			</div>
 		{/snippet}
 
-		{#snippet card(category: any)}
+		{#snippet card(category: CategoryItem)}
 			<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
 				<div
 					class="grid min-w-0 grid-cols-[72px_minmax(0,1fr)] gap-3 sm:grid-cols-[88px_minmax(0,1fr)]"
@@ -314,7 +317,7 @@
 			</article>
 		{/snippet}
 
-		{#snippet row(category: any)}
+		{#snippet row(category: CategoryItem)}
 			<tr class="border-b border-charcoal/70 last:border-b-0">
 				<td class="px-5 py-4">
 					<div class="flex min-w-0 items-center gap-3">

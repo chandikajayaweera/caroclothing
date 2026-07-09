@@ -1,23 +1,11 @@
 <script lang="ts">
-	import type { ActionData, PageData } from './$types';
+	import type { PageData } from './$types';
 	import { superForm } from 'sveltekit-superforms';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
-	import {
-		Plus,
-		Pencil,
-		Trash2,
-		MapPin,
-		Truck,
-		Map as MapIcon,
-		X,
-		Check,
-		Eye,
-		Link
-	} from 'lucide-svelte';
-	import { fade, scale } from 'svelte/transition';
-	import { Dialog } from 'bits-ui';
+	import { Plus, Pencil, Trash2, MapPin, Map as MapIcon } from 'lucide-svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
@@ -27,7 +15,11 @@
 	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 
-	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
+	let { data }: { data: PageData } = $props();
+	type ShippingMethod = PageData['methods']['items'][number];
+	type ShippingZone = PageData['zones']['items'][number];
+	type ShippingCarrier = PageData['carriers'][number];
+	type ShippingDistrict = PageData['setZoneForm']['data']['district'];
 
 	// ── Tab Management ──
 	let activeTab = $state<'methods' | 'zones' | 'carriers'>(
@@ -39,7 +31,11 @@
 		const url = new URL(page.url);
 		url.searchParams.set('tab', tab);
 		url.searchParams.delete('offset'); // Reset pagination offset on tab change
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), {
+			keepFocus: true,
+			noScroll: true,
+			invalidateAll: true
+		});
 	}
 
 	// ── Modal Dialog States ──
@@ -48,8 +44,6 @@
 	let setZoneOpen = $state(false);
 	let addCarrierOpen = $state(false);
 	let editCarrierOpen = $state(false);
-
-	let selectedCarrier = $state<any | null>(null);
 
 	// ── Form/Toast Messages ──
 	let toastMessage = $state<string | null>(null);
@@ -212,19 +206,22 @@
 
 	// ── Mappings & Derived Stats ──
 	const methodNamesById = $derived(
-		new Map(data.methods.items.map((method: any) => [method.id, method.name]))
+		new Map(data.methods.items.map((method: ShippingMethod) => [method.id, method.name]))
 	);
 
 	const carriersById = $derived(
 		new Map(
-			data.carriers.map((c: any) => [c.id, `${c.name} (${c.urlTemplate ? 'Auto' : 'Manual'})`])
+			data.carriers.map((c: ShippingCarrier) => [
+				c.id,
+				`${c.name} (${c.urlTemplate ? 'Auto' : 'Manual'})`
+			])
 		)
 	);
 
 	const methodStats = $derived({
 		total: data.methods.total,
-		active: data.methods.items.filter((m: any) => m.isActive).length,
-		inactive: data.methods.items.filter((m: any) => !m.isActive).length
+		active: data.methods.items.filter((m: ShippingMethod) => m.isActive).length,
+		inactive: data.methods.items.filter((m: ShippingMethod) => !m.isActive).length
 	});
 
 	const zoneStats = $derived({
@@ -235,12 +232,12 @@
 
 	const carrierStats = $derived({
 		total: data.carriers.length,
-		active: data.carriers.filter((c: any) => c.isActive).length,
-		inactive: data.carriers.filter((c: any) => !c.isActive).length
+		active: data.carriers.filter((c: ShippingCarrier) => c.isActive).length,
+		inactive: data.carriers.filter((c: ShippingCarrier) => !c.isActive).length
 	});
 
 	// ── Action Starters ──
-	function startEditMethod(event: MouseEvent, method: any) {
+	function startEditMethod(event: MouseEvent, method: ShippingMethod) {
 		event.stopPropagation();
 		$updateForm.shippingMethodId = method.id;
 		$updateForm.name = method.name;
@@ -255,7 +252,7 @@
 		editMethodOpen = true;
 	}
 
-	function startEditZone(event: MouseEvent, zone: any) {
+	function startEditZone(event: MouseEvent, zone: ShippingZone) {
 		event.stopPropagation();
 		$setZoneFormState.shippingMethodId = zone.shippingMethodId;
 		$setZoneFormState.district = zone.district;
@@ -267,7 +264,7 @@
 		setZoneOpen = true;
 	}
 
-	function startEditCarrier(event: MouseEvent, carrierRow: any) {
+	function startEditCarrier(event: MouseEvent, carrierRow: ShippingCarrier) {
 		event.stopPropagation();
 		$updateCarrierFormState.carrierId = carrierRow.id;
 		$updateCarrierFormState.name = carrierRow.name;
@@ -280,11 +277,11 @@
 
 	// ── Filters & Form Interception ──
 	function clearMethodFilters() {
-		goto('?tab=methods', { invalidateAll: true });
+		goto(resolve('?tab=methods' as '/'), { invalidateAll: true });
 	}
 
 	function clearZoneFilters() {
-		goto('?tab=zones', { invalidateAll: true });
+		goto(resolve('?tab=zones' as '/'), { invalidateAll: true });
 	}
 
 	function handleFormSubmit(event: SubmitEvent) {
@@ -307,7 +304,11 @@
 				}
 			}
 
-			goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+			goto(resolve(`${url.pathname}${url.search}` as '/'), {
+				keepFocus: true,
+				noScroll: true,
+				invalidateAll: true
+			});
 		}
 	}
 
@@ -634,7 +635,7 @@
 						onclick={(e) => {
 							e.stopPropagation();
 							$setZoneFormState.shippingMethodId = '';
-							$setZoneFormState.district = '' as any;
+							$setZoneFormState.district = '' as ShippingDistrict;
 							$setZoneFormState.priceOverride = 0;
 							$setZoneFormState.estimatedDaysMin = 1;
 							$setZoneFormState.estimatedDaysMax = 3;

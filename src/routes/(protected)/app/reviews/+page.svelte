@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { superForm } from 'sveltekit-superforms';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { slide } from 'svelte/transition';
 	import type { ActionData, PageData } from './$types';
 	import {
@@ -19,6 +20,7 @@
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
+	type ReviewItem = PageData['reviews']['items'][number];
 
 	function initialForm<T>(getValue: () => T): T {
 		return getValue();
@@ -55,7 +57,7 @@
 	);
 
 	let toastMessage = $state<string | null>(null);
-	let openNotes = $state(new Set<string>());
+	const openNotes = new SvelteSet<string>();
 
 	$effect(() => {
 		if (actionMessage) {
@@ -64,13 +66,11 @@
 	});
 
 	function toggleNote(id: string) {
-		const next = new Set(openNotes);
-		if (next.has(id)) {
-			next.delete(id);
+		if (openNotes.has(id)) {
+			openNotes.delete(id);
 		} else {
-			next.add(id);
+			openNotes.add(id);
 		}
-		openNotes = next;
 	}
 
 	function formatDate(value: Date | string): string {
@@ -80,22 +80,15 @@
 		}).format(new Date(value));
 	}
 
-	function getFilterUrl(key: string, value: string): string {
-		const url = new URL(page.url);
-		if (value) {
-			url.searchParams.set(key, value);
-		} else {
-			url.searchParams.delete(key);
-		}
-		url.searchParams.delete('offset'); // Reset to page 1 on filter change
-		return url.pathname + url.search;
-	}
-
 	function clearFilters() {
-		goto('/app/reviews');
+		goto(resolve('/app/reviews'));
 	}
 
-	function getReorderedIds(media: any[], index: number, direction: 'left' | 'right'): string[] {
+	function getReorderedIds(
+		media: ReviewItem['media'],
+		index: number,
+		direction: 'left' | 'right'
+	): string[] {
 		const copy = [...media];
 		const swapIndex = direction === 'left' ? index - 1 : index + 1;
 		const temp = copy[index];
@@ -208,7 +201,7 @@
 		</div>
 	{/snippet}
 
-	{#snippet row(review: any)}
+	{#snippet row(review: ReviewItem)}
 		<tr class="border-b border-charcoal/50 text-sm transition-colors hover:bg-charcoal/10">
 			<!-- Rating & Review -->
 			<td class="max-w-sm px-5 py-4">
@@ -248,7 +241,7 @@
 					<div class="min-w-0">
 						{#if review.product}
 							<a
-								href="/app/products/{review.product.slug}"
+								href={resolve(`/app/products/${review.product.slug}`)}
 								class="block truncate font-mono text-xs tracking-wider text-bone hover:text-volt"
 							>
 								{review.product.name}
@@ -317,7 +310,7 @@
 										class="inline"
 									>
 										<input type="hidden" name="reviewId" value={review.id} />
-										{#each getReorderedIds(review.media, i, 'left') as id}
+										{#each getReorderedIds(review.media, i, 'left') as id (id)}
 											<input type="hidden" name="mediaIdsInOrder" value={id} />
 										{/each}
 										<button type="submit" class="p-0.5 text-ash hover:text-volt" title="Move left">
@@ -343,7 +336,7 @@
 										class="inline"
 									>
 										<input type="hidden" name="reviewId" value={review.id} />
-										{#each getReorderedIds(review.media, i, 'right') as id}
+										{#each getReorderedIds(review.media, i, 'right') as id (id)}
 											<input type="hidden" name="mediaIdsInOrder" value={id} />
 										{/each}
 										<button type="submit" class="p-0.5 text-ash hover:text-volt" title="Move right">
@@ -476,7 +469,7 @@
 		</tr>
 	{/snippet}
 
-	{#snippet card(review: any)}
+	{#snippet card(review: ReviewItem)}
 		<article class="flex flex-col gap-4 border border-charcoal bg-void p-4">
 			<!-- Header (Rating, status, verified) -->
 			<div class="flex items-start justify-between gap-2">
@@ -524,7 +517,7 @@
 				<div class="min-w-0 flex-1">
 					{#if review.product}
 						<a
-							href="/app/products/{review.product.slug}"
+							href={resolve(`/app/products/${review.product.slug}`)}
 							class="block truncate font-mono text-xs tracking-wider text-bone uppercase hover:text-volt"
 						>
 							{review.product.name}
@@ -566,7 +559,7 @@
 							{#if i > 0}
 								<form method="POST" action="?/reorderMedia" use:reorderMediaEnhance class="inline">
 									<input type="hidden" name="reviewId" value={review.id} />
-									{#each getReorderedIds(review.media, i, 'left') as id}
+									{#each getReorderedIds(review.media, i, 'left') as id (id)}
 										<input type="hidden" name="mediaIdsInOrder" value={id} />
 									{/each}
 									<button type="submit" class="text-ash hover:text-volt" title="Move left">
@@ -585,7 +578,7 @@
 							{#if i < review.media.length - 1}
 								<form method="POST" action="?/reorderMedia" use:reorderMediaEnhance class="inline">
 									<input type="hidden" name="reviewId" value={review.id} />
-									{#each getReorderedIds(review.media, i, 'right') as id}
+									{#each getReorderedIds(review.media, i, 'right') as id (id)}
 										<input type="hidden" name="mediaIdsInOrder" value={id} />
 									{/each}
 									<button type="submit" class="text-ash hover:text-volt" title="Move right">

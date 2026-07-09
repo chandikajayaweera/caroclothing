@@ -41,7 +41,7 @@
 		</div>
 
 		<div class="flex flex-col">
-			{#each sortOptions as option}
+			{#each sortOptions as option (option.value)}
 				<button
 					class="flex items-center justify-between border-b border-void/40 px-5 py-4 text-left font-sans text-sm text-bone transition-colors hover:bg-void/20"
 					onclick={() => {

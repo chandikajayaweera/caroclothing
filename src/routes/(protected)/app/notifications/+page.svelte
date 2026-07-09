@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { fade, scale } from 'svelte/transition';
-	import { Mail, MessageSquare, AlertTriangle, X, Info, Lock, Eye, Settings2 } from 'lucide-svelte';
+	import { Mail, MessageSquare, AlertTriangle, X, Info, Lock, Eye } from 'lucide-svelte';
 	import type {
 		NotificationOutboxDTO,
 		NotificationPayload
@@ -15,7 +16,6 @@
 
 	let selectedLog = $state<NotificationOutboxDTO | null>(null);
 	let detailOpen = $state(false);
-	let searchQuery = $derived(data.filters.query ?? '');
 
 	const byStatus = $derived(data.summary.byStatus);
 	const tracked = $derived(data.summary.total);
@@ -151,19 +151,8 @@
 		}
 	}
 
-	function getFilterUrl(key: string, value: string | undefined): string {
-		const url = new URL(page.url);
-		if (value) {
-			url.searchParams.set(key, value);
-		} else {
-			url.searchParams.delete(key);
-		}
-		url.searchParams.delete('offset'); // Reset paging
-		return url.pathname + url.search;
-	}
-
 	function clearFilters() {
-		goto('/app/notifications');
+		goto(resolve('/app/notifications'));
 	}
 
 	function openDetails(log: NotificationOutboxDTO) {
@@ -196,8 +185,11 @@
 				selectedLog.lastError = 'Cancelled via Admin Dashboard';
 				// Reload page state silently
 				const url = new URL(page.url);
-				// eslint-disable-next-line svelte/no-navigation-without-resolve
-				goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+				goto(resolve(`${url.pathname}${url.search}` as '/'), {
+					keepFocus: true,
+					noScroll: true,
+					invalidateAll: true
+				});
 			}
 		} catch (err) {
 			console.error('[admin:notifications] Failed to cancel notification:', err);
@@ -342,7 +334,7 @@
 		</div>
 	{/snippet}
 
-	{#snippet card(log: any)}
+	{#snippet card(log: NotificationOutboxDTO)}
 		<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
 			<div class="flex flex-col gap-3">
 				<div class="flex items-start justify-between gap-2">
@@ -388,7 +380,7 @@
 		</article>
 	{/snippet}
 
-	{#snippet row(log: any)}
+	{#snippet row(log: NotificationOutboxDTO)}
 		<tr class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/10">
 			<!-- Channel -->
 			<td class="px-5 py-4">

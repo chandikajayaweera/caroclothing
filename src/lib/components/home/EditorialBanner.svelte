@@ -1,23 +1,33 @@
 <script lang="ts">
-	import Button from '../ui/Button.svelte';
+	import { resolve } from '$app/paths';
 
-	let { featuredProduct = null }: { featuredProduct?: any } = $props();
+	type FeaturedProduct = {
+		name: string;
+		slug: string;
+		primaryImageUrl?: string | null;
+		shortDescription?: string | null;
+		material?: string | null;
+		fit?: string | null;
+		gender?: string | null;
+	};
+
+	let { featuredProduct = null }: { featuredProduct?: FeaturedProduct | null } = $props();
 
 	const hasProduct = $derived(featuredProduct !== null);
 	const imageUrl = $derived(featuredProduct?.primaryImageUrl ?? '/images/editorial.jpg');
 
 	const lines = $derived(
-		hasProduct ? [featuredProduct.name, 'FEATURED STYLE'] : ['FROM COLOMBO', 'TO EVERYWHERE.']
+		featuredProduct ? [featuredProduct.name, 'FEATURED STYLE'] : ['FROM COLOMBO', 'TO EVERYWHERE.']
 	);
 
 	const footnote = $derived(
-		hasProduct
+		featuredProduct
 			? featuredProduct.shortDescription || 'Sri Lankan-made. Global vision.'
 			: 'Sri Lankan-made. Global vision. Est. 2026.'
 	);
 
 	const stats = $derived(
-		hasProduct
+		featuredProduct
 			? [
 					featuredProduct.material || 'PREMIUM COTTON',
 					`FIT: ${featuredProduct.fit || 'STANDARD'}`,
@@ -26,7 +36,7 @@
 			: ['220GSM COTTON', 'MADE IN COLOMBO', 'SHIPS ISLAND-WIDE']
 	);
 
-	const href = $derived(hasProduct ? `/shop/${featuredProduct.slug}` : '/about');
+	const href = $derived(featuredProduct ? `/shop/${featuredProduct.slug}` : '/about');
 	const ctaLabel = $derived(hasProduct ? 'Shop Featured Style →' : 'Our Story →');
 </script>
 
@@ -54,7 +64,7 @@
 
 		<!-- Brand Stats -->
 		<div class="mb-8 flex flex-wrap gap-x-4 gap-y-2 md:mb-12">
-			{#each stats as stat, i}
+			{#each stats as stat, i (stat)}
 				<span
 					class="font-mono text-[10px] tracking-[0.2em] whitespace-nowrap text-ash uppercase md:text-xs"
 				>
@@ -68,7 +78,7 @@
 
 		<div class="flex flex-col gap-8 md:flex-row md:items-center">
 			<a
-				{href}
+				href={resolve(href as '/')}
 				class="w-fit border border-ash/30 px-8 py-3 font-mono text-[10px] tracking-widest text-ash uppercase transition-all duration-300 hover:border-volt hover:text-volt"
 			>
 				{ctaLabel}

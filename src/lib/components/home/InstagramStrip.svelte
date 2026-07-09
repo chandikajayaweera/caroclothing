@@ -1,5 +1,14 @@
 <script lang="ts">
-	let { products = [] }: { products?: any[] } = $props();
+	import { resolve } from '$app/paths';
+
+	type ProductTile = {
+		id?: string;
+		slug: string;
+		name: string;
+		primaryImageUrl?: string | null;
+	};
+
+	let { products = [] }: { products?: ProductTile[] } = $props();
 	const handle = '@CAROAPPAREL';
 	const hashtag = '#CAROAPPAREL';
 </script>
@@ -22,10 +31,10 @@
 		<div
 			class="no-scrollbar flex gap-4 overflow-x-auto pb-6 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0"
 		>
-			{#each products.slice(0, 5) as product}
+			{#each products.slice(0, 5) as product (product.id ?? product.slug)}
 				{@const primaryImage = product.primaryImageUrl ?? '/images/placeholder.jpg'}
 				<a
-					href="/shop/{product.slug}"
+					href={resolve(`/shop/${product.slug}`)}
 					class="group flex aspect-square min-w-[200px] items-center justify-center overflow-hidden border border-charcoal bg-charcoal transition-all duration-500 hover:border-volt/40 md:min-w-0"
 				>
 					<img
@@ -35,7 +44,7 @@
 					/>
 				</a>
 			{:else}
-				{#each Array(5) as _}
+				{#each [0, 1, 2, 3, 4] as index (index)}
 					<div
 						class="group flex aspect-square min-w-[200px] items-center justify-center border border-charcoal bg-charcoal transition-all duration-500 hover:border-ash/20 md:min-w-0"
 					>

@@ -129,11 +129,12 @@
 	let activeRefundPaymentId = $state<string | null>(null);
 	let selectedCarrierId = $state('');
 
+	type CarrierOption = NonNullable<PageData['carriers']>[number];
 	const carriers = $derived(data.carriers ?? []);
 
 	$effect(() => {
 		if (selectedCarrierId) {
-			const selected = carriers.find((c: any) => c.id === selectedCarrierId);
+			const selected = carriers.find((c: CarrierOption) => c.id === selectedCarrierId);
 			if (selected) {
 				$fulfillmentForm.trackingCarrier = selected.code;
 				const trackNum = $fulfillmentForm.trackingNumber || '';
@@ -147,7 +148,7 @@
 	$effect(() => {
 		const trackNum = $fulfillmentForm.trackingNumber;
 		if (selectedCarrierId) {
-			const selected = carriers.find((c: any) => c.id === selectedCarrierId);
+			const selected = carriers.find((c: CarrierOption) => c.id === selectedCarrierId);
 			if (selected && selected.urlTemplate) {
 				$fulfillmentForm.trackingUrl = selected.urlTemplate.replace(
 					'{trackingNumber}',

@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { generateSlug } from '$lib/shared/slug';
-	import { ArrowLeft, FolderOpen, Upload, X } from 'lucide-svelte';
+	import { FolderOpen, Upload, X } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { superForm } from 'sveltekit-superforms';
@@ -34,8 +33,7 @@
 		constraints: updateCategoryConstraints,
 		message: updateCategoryMessage,
 		enhance: updateCategoryEnhance,
-		submitting: updateCategorySubmitting,
-		isTainted: isUpdateCategoryTainted
+		submitting: updateCategorySubmitting
 	} = updateCategorySuperform;
 
 	let slugManuallyEdited = $state(false);
@@ -138,25 +136,6 @@
 
 		return buildNode(parent);
 	});
-
-	function getCategoryPath(catId: string | null): string {
-		if (!catId) return 'Root';
-		const path: string[] = [];
-		let currentId: string | null = catId;
-		const visited = new SvelteSet<string>();
-
-		while (currentId && !visited.has(currentId)) {
-			visited.add(currentId);
-			const current = data.allCategories.find((c) => c.id === currentId);
-			if (current) {
-				path.unshift(current.name);
-				currentId = current.parentId;
-			} else {
-				break;
-			}
-		}
-		return ['Root', ...path].join(' > ');
-	}
 
 	function openNodeDetails(node: TreeNode) {
 		selectedNode = node;

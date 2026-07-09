@@ -54,11 +54,7 @@
 	let addToBagLoading = $state(false);
 	let addedToBag = $state(false);
 	let addToBagError = $state('');
-	let availability = $state<StorefrontVariantAvailabilityDTO[]>([]);
-
-	$effect(() => {
-		availability = data.availability;
-	});
+	let availability = $derived(data.availability);
 
 	let quantitySelected = $state(1);
 

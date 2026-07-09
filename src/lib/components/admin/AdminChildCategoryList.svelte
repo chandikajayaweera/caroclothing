@@ -21,6 +21,8 @@
 		imageIndex?: number | null;
 	};
 
+	type FieldErrors = Record<string, string | string[] | undefined>;
+
 	// ─── Props ────────────────────────────────────────────────────────────────────
 
 	let {
@@ -33,7 +35,7 @@
 		children: DraftChild[];
 		childImages: string[];
 		childFiles: (File | null)[];
-		errors?: any;
+		errors?: FieldErrors[] | Record<number, FieldErrors>;
 		onsync?: () => void;
 	} = $props();
 

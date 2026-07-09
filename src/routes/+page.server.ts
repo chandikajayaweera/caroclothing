@@ -3,6 +3,7 @@ import { listProducts } from '$lib/server/modules/products';
 import { listRecentApprovedReviews } from '$lib/server/modules/reviews';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import type { ProductDTO } from '$lib/server/modules/products/products.types';
 
 export const load: PageServerLoad = async ({ locals, setHeaders }) => {
 	setHeaders({
@@ -33,7 +34,7 @@ export const load: PageServerLoad = async ({ locals, setHeaders }) => {
 			variantIds.length > 0 ? await getInventoryAvailabilityByVariantIds(ctx, { variantIds }) : [];
 		const availabilityMap = new Map(availability.map((a) => [a.variantId, a]));
 
-		const mapStockStatus = (p: any) => {
+		const mapStockStatus = (p: ProductDTO) => {
 			let totalStock = 0;
 			let trackAny = false;
 			let hasAvailable = false;

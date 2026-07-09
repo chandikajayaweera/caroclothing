@@ -87,7 +87,7 @@
 					Subcategories
 				</h2>
 				<div class="mt-4 grid animate-pulse gap-3 sm:grid-cols-2">
-					{#each Array(2) as _}
+					{#each [0, 1] as index (index)}
 						<div class="h-20 border border-charcoal bg-void p-4">
 							<div class="h-4 w-1/3 rounded bg-charcoal"></div>
 							<div class="mt-2 h-3 w-1/2 rounded bg-charcoal"></div>
@@ -198,7 +198,7 @@
 					Products
 				</p>
 				<div class="mt-4 grid animate-pulse gap-3">
-					{#each Array(2) as _}
+					{#each [0, 1] as index (index)}
 						<div class="flex gap-3 border border-charcoal bg-void p-3">
 							<div class="h-10 w-8 rounded-sm bg-charcoal"></div>
 							<div class="flex-1 space-y-2">

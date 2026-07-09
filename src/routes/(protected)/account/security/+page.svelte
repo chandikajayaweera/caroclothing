@@ -29,7 +29,7 @@
 	$effect(() => {
 		if (data.oauthError) {
 			providerError = data.oauthError;
-			goto('/account/security', { replaceState: true, noScroll: true, keepFocus: true });
+			goto(resolve('/account/security'), { replaceState: true, noScroll: true, keepFocus: true });
 		}
 	});
 

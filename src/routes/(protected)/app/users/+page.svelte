@@ -1,22 +1,16 @@
 <script lang="ts">
-	import type { ActionData, PageData } from './$types';
+	import type { PageData } from './$types';
 	import { superForm } from 'sveltekit-superforms';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import {
-		Search,
-		Shield,
 		ShieldAlert,
 		User,
 		UserCheck,
-		UserX,
 		Ban,
 		Key,
-		RefreshCw,
 		X,
-		Calendar,
-		Mail,
 		Phone,
 		LogOut,
 		Clock,
@@ -24,7 +18,6 @@
 	} from 'lucide-svelte';
 	import { fade } from 'svelte/transition';
 	import { Dialog } from 'bits-ui';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
@@ -32,7 +25,8 @@
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 
-	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
+	let { data }: { data: PageData } = $props();
+	type UserItem = PageData['users']['items'][number];
 
 	// ── Toast Notifications ──
 	let toastMessage = $state<string | null>(null);
@@ -81,7 +75,7 @@
 			}
 		}
 	);
-	const { form: roleForm, enhance: roleEnhance, submitting: roleSubmitting } = setRoleSuperform;
+	const { enhance: roleEnhance, submitting: roleSubmitting } = setRoleSuperform;
 
 	// 2. Ban User
 	const banSuperform = superForm(
@@ -165,11 +159,7 @@
 			}
 		}
 	);
-	const {
-		form: repairForm,
-		enhance: repairEnhance,
-		submitting: repairSubmitting
-	} = repairEmailSuperform;
+	const { enhance: repairEnhance, submitting: repairSubmitting } = repairEmailSuperform;
 
 	function triggerSuspendUser(userId: string, userName: string) {
 		$banForm.userId = userId;
@@ -253,20 +243,32 @@
 	function selectUser(userId: string) {
 		const url = new URL(page.url);
 		url.searchParams.set('userId', userId);
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), {
+			keepFocus: true,
+			noScroll: true,
+			invalidateAll: true
+		});
 	}
 
 	function closeUserDrawer() {
 		userDrawerOpen = false;
 		const url = new URL(page.url);
 		url.searchParams.delete('userId');
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), {
+			keepFocus: true,
+			noScroll: true,
+			invalidateAll: true
+		});
 	}
 
 	function refreshDrawer(userId: string) {
 		const url = new URL(page.url);
 		url.searchParams.set('userId', userId);
-		goto(url.pathname + url.search, { keepFocus: true, noScroll: true, invalidateAll: true });
+		goto(resolve(`${url.pathname}${url.search}` as '/'), {
+			keepFocus: true,
+			noScroll: true,
+			invalidateAll: true
+		});
 	}
 
 	$effect(() => {
@@ -317,8 +319,8 @@
 
 	const userStats = $derived({
 		total: data.users.total,
-		active: data.users.items.filter((u: any) => !u.isBanned).length,
-		inactive: data.users.items.filter((u: any) => u.isBanned).length
+		active: data.users.items.filter((u: UserItem) => !u.isBanned).length,
+		inactive: data.users.items.filter((u: UserItem) => u.isBanned).length
 	});
 
 	const hasActiveFilters = $derived(
@@ -331,7 +333,15 @@
 	);
 
 	function clearFilters() {
-		goto(page.url.pathname, { invalidateAll: true });
+		goto(resolve(page.url.pathname as '/'), { invalidateAll: true });
+	}
+
+	function updateFilter(key: string, value: string) {
+		const url = new URL(page.url);
+		if (value) url.searchParams.set(key, value);
+		else url.searchParams.delete(key);
+		url.searchParams.delete('offset');
+		goto(resolve(`${url.pathname}${url.search}` as '/'), { invalidateAll: true });
 	}
 </script>
 
@@ -375,13 +385,7 @@
 				label="Filter Role"
 				name="role"
 				value={data.filters.role}
-				onchange={(e: any) => {
-					const url = new URL(page.url);
-					if (e.target.value) url.searchParams.set('role', e.target.value);
-					else url.searchParams.delete('role');
-					url.searchParams.delete('offset');
-					goto(url.pathname + url.search, { invalidateAll: true });
-				}}
+				onchange={(e) => updateFilter('role', (e.currentTarget as HTMLSelectElement).value)}
 			>
 				<option value="">All Roles</option>
 				<option value="customerUser">Customer</option>
@@ -392,13 +396,7 @@
 				label="Filter Status"
 				name="banned"
 				value={data.filters.banned}
-				onchange={(e: any) => {
-					const url = new URL(page.url);
-					if (e.target.value) url.searchParams.set('banned', e.target.value);
-					else url.searchParams.delete('banned');
-					url.searchParams.delete('offset');
-					goto(url.pathname + url.search, { invalidateAll: true });
-				}}
+				onchange={(e) => updateFilter('banned', (e.currentTarget as HTMLSelectElement).value)}
 			>
 				<option value="">All Statuses</option>
 				<option value="false">Active Only</option>
@@ -409,13 +407,7 @@
 				label="Auth Provider"
 				name="provider"
 				value={data.filters.provider}
-				onchange={(e: any) => {
-					const url = new URL(page.url);
-					if (e.target.value) url.searchParams.set('provider', e.target.value);
-					else url.searchParams.delete('provider');
-					url.searchParams.delete('offset');
-					goto(url.pathname + url.search, { invalidateAll: true });
-				}}
+				onchange={(e) => updateFilter('provider', (e.currentTarget as HTMLSelectElement).value)}
 			>
 				<option value="">All Providers</option>
 				<option value="google">Google Link</option>
@@ -429,13 +421,8 @@
 					<input
 						type="date"
 						value={data.filters.createdAfter}
-						onchange={(e: any) => {
-							const url = new URL(page.url);
-							if (e.target.value) url.searchParams.set('createdAfter', e.target.value);
-							else url.searchParams.delete('createdAfter');
-							url.searchParams.delete('offset');
-							goto(url.pathname + url.search, { invalidateAll: true });
-						}}
+						onchange={(e) =>
+							updateFilter('createdAfter', (e.currentTarget as HTMLInputElement).value)}
 						class="w-full border border-ash/30 bg-void px-3 py-1.5 font-sans text-sm text-bone outline-none focus:border-volt"
 					/>
 				</label>
@@ -445,13 +432,8 @@
 					<input
 						type="date"
 						value={data.filters.createdBefore}
-						onchange={(e: any) => {
-							const url = new URL(page.url);
-							if (e.target.value) url.searchParams.set('createdBefore', e.target.value);
-							else url.searchParams.delete('createdBefore');
-							url.searchParams.delete('offset');
-							goto(url.pathname + url.search, { invalidateAll: true });
-						}}
+						onchange={(e) =>
+							updateFilter('createdBefore', (e.currentTarget as HTMLInputElement).value)}
 						class="w-full border border-ash/30 bg-void px-3 py-1.5 font-sans text-sm text-bone outline-none focus:border-volt"
 					/>
 				</label>
@@ -684,7 +666,7 @@
 							</span>
 
 							<!-- Auth Methods Badges -->
-							{#each userRow.authMethods || [] as method}
+							{#each userRow.authMethods || [] as method (`${method.type}-${method.label}`)}
 								<span
 									class="border border-ash/20 bg-void/50 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-ash uppercase"
 								>
@@ -1008,7 +990,7 @@
 										</h3>
 										<div class="mt-3 flex flex-col gap-2">
 											{#if selectedUser.authMethods && selectedUser.authMethods.length > 0}
-												{#each selectedUser.authMethods as method}
+												{#each selectedUser.authMethods as method (`${method.type}-${method.label}`)}
 													<div
 														class="flex items-center justify-between rounded-[2px] border border-ash/5 bg-void/35 p-3"
 													>
@@ -1098,7 +1080,7 @@
 
 										<div class="mt-3 flex max-h-[220px] flex-col gap-2 overflow-y-auto pr-1">
 											{#if data.selectedUserSessions && data.selectedUserSessions.length > 0}
-												{#each data.selectedUserSessions as session}
+												{#each data.selectedUserSessions as session (session.id)}
 													<div
 														class="flex items-center justify-between rounded-[2px] border border-ash/5 bg-void/35 p-3 transition-colors hover:border-ash/10"
 													>

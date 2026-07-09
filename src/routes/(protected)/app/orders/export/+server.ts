@@ -1,4 +1,3 @@
-import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listAllOrdersForExport, listOrdersFormSchema } from '$lib/server/modules/orders';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';

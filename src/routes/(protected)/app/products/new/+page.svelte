@@ -32,7 +32,6 @@
 	type DraftVariant = CreateProductData['variants'][number];
 	type SizeType = DraftVariant['sizes'][number];
 	type ImageMetadata = CreateProductData['imageMetadata'][number];
-	type RedirectTarget = 'products' | 'categories';
 
 	type ImagePreview = {
 		url: string;

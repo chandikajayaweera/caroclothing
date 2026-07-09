@@ -5,7 +5,6 @@
 	import type { PageData } from './$types';
 	import { slide } from 'svelte/transition';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';

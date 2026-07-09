@@ -19,7 +19,7 @@ import {
 	updateInventorySettings,
 	type InventoryTx
 } from '$lib/server/modules/inventory/inventory.service';
-import { productVariant, type Product, type ProductVariant } from '../products/products.drizzle';
+import { productVariant, type ProductVariant } from '../products/products.drizzle';
 import { createTestDatabase, type TestDatabaseHarness } from '../../../../tests/db';
 import { makeAdminCtx, makeCustomerCtx } from '../../../../tests/context';
 import { seedInventory } from '../../../../tests/factories/inventory';
