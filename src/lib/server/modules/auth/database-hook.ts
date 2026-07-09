@@ -321,11 +321,7 @@ async function setBanCookieIfActive(userId: string, ctx?: any) {
 
 		if (ctx && typeof ctx.setCookie === 'function') {
 			try {
-				ctx.setCookie(
-					'caro_temp_ban_info',
-					cookieData,
-					{ path: '/', maxAge: 10, httpOnly: true }
-				);
+				ctx.setCookie('caro_temp_ban_info', cookieData, { path: '/', maxAge: 10, httpOnly: true });
 				logger.info(`[auth] Set temp ban cookie via Better Auth context for user ${userId}`);
 				return;
 			} catch (error) {
@@ -336,11 +332,11 @@ async function setBanCookieIfActive(userId: string, ctx?: any) {
 		try {
 			const event = getRequestEvent();
 			if (event) {
-				event.cookies.set(
-					'caro_temp_ban_info',
-					cookieData,
-					{ path: '/', maxAge: 10, httpOnly: true }
-				);
+				event.cookies.set('caro_temp_ban_info', cookieData, {
+					path: '/',
+					maxAge: 10,
+					httpOnly: true
+				});
 				logger.info(`[auth] Set temp ban cookie via SvelteKit cookies for user ${userId}`);
 			}
 		} catch (error) {

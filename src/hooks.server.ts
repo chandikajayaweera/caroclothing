@@ -32,10 +32,7 @@ function isExpectedClientError(input: Parameters<HandleServerError>[0]) {
 	return !event.route?.id && Boolean(stack?.startsWith('Error: Not found:'));
 }
 
-async function captureAndFlushCloudflareRuntimeError(
-	error: unknown,
-	mechanismType: string
-) {
+async function captureAndFlushCloudflareRuntimeError(error: unknown, mechanismType: string) {
 	try {
 		if (!Sentry.isEnabled()) return undefined;
 
@@ -54,10 +51,7 @@ async function captureAndFlushCloudflareRuntimeError(
 	}
 }
 
-async function runCloudflareRuntimeWithSentry<T>(
-	mechanismType: string,
-	task: () => Promise<T>
-) {
+async function runCloudflareRuntimeWithSentry<T>(mechanismType: string, task: () => Promise<T>) {
 	try {
 		return await task();
 	} catch (error) {

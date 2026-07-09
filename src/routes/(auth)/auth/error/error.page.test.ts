@@ -6,7 +6,9 @@ import { ErrorCode } from '$lib/server/infrastructure/errors';
 describe('auth error page load handler', () => {
 	it('formats message when a temporary ban cookie is present with expiry', async () => {
 		const mockCookies = {
-			get: vi.fn().mockReturnValue(JSON.stringify({ banExpires: 1782255660000, banReason: 'Testing' })),
+			get: vi
+				.fn()
+				.mockReturnValue(JSON.stringify({ banExpires: 1782255660000, banReason: 'Testing' })),
 			delete: vi.fn(),
 			set: vi.fn(),
 			getAll: vi.fn(),
@@ -32,7 +34,9 @@ describe('auth error page load handler', () => {
 
 		expect(result.error.code).toBe(ErrorCode.ACCOUNT_SUSPENDED);
 		expect(result.error.message).toContain('Account is suspended until');
-		expect(result.error.message).toContain('Please contact support if you believe this is an error.');
+		expect(result.error.message).toContain(
+			'Please contact support if you believe this is an error.'
+		);
 		expect(mockCookies.delete).toHaveBeenCalledWith('caro_temp_ban_info', { path: '/' });
 	});
 
@@ -63,7 +67,9 @@ describe('auth error page load handler', () => {
 		} as any)) as any;
 
 		expect(result.error.code).toBe(ErrorCode.ACCOUNT_SUSPENDED);
-		expect(result.error.message).toBe('Account is suspended.\nPlease contact support if you believe this is an error.');
+		expect(result.error.message).toBe(
+			'Account is suspended.\nPlease contact support if you believe this is an error.'
+		);
 		expect(mockCookies.delete).toHaveBeenCalledWith('caro_temp_ban_info', { path: '/' });
 	});
 
@@ -128,6 +134,8 @@ describe('auth error page load handler', () => {
 		} as any)) as any;
 
 		expect(result.error.code).toBe(ErrorCode.ACCOUNT_SUSPENDED);
-		expect(result.error.message).toBe('Account is suspended.\nPlease contact support if you believe this is an error.');
+		expect(result.error.message).toBe(
+			'Account is suspended.\nPlease contact support if you believe this is an error.'
+		);
 	});
 });

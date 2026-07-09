@@ -450,7 +450,6 @@
 						</div>
 					</div>
 				</div>
-
 			{/snippet}
 		</AdminDetailLayout>
 

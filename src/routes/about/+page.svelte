@@ -41,8 +41,8 @@
 				>
 				<h3 class="font-display text-2xl text-bone uppercase">Always Available</h3>
 				<p class="font-sans text-sm leading-relaxed text-ash">
-					We maintain a lineup of Core staples. High-grade blanks, durable fabrics, and perfect
-					fits that remain restockable all year round.
+					We maintain a lineup of Core staples. High-grade blanks, durable fabrics, and perfect fits
+					that remain restockable all year round.
 				</p>
 			</div>
 

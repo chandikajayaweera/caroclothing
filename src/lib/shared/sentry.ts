@@ -7,7 +7,8 @@ type SentryFetchNoiseEvent = Pick<SentryErrorEvent, 'breadcrumbs' | 'exception' 
 const DEFAULT_TRACES_SAMPLE_RATE = 0.1;
 const DEFAULT_REPLAYS_SESSION_SAMPLE_RATE = 0.05;
 const DEFAULT_REPLAYS_ON_ERROR_SAMPLE_RATE = 1;
-const LOCALHOST_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|192\.168\.\d+\.\d+)(?::\d+)?\//;
+const LOCALHOST_RE =
+	/^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|192\.168\.\d+\.\d+)(?::\d+)?\//;
 const SVELTEKIT_DATA_RE = /\/__data\.json(?:\?|$)/;
 const PUBLIC_SENTRY_ENV_KEYS = [
 	'PUBLIC_SENTRY_DSN',

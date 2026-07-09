@@ -11,4 +11,3 @@ export function requireAccountContext(event: Pick<RequestEvent, 'locals' | 'url'
 
 	return { actor: locals.user };
 }
-

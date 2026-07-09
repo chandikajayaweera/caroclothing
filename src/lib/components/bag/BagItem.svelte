@@ -52,7 +52,10 @@
 			<span class="truncate font-sans text-sm font-medium text-bone"
 				>{item.productName ?? 'Product'}</span
 			>
-			<button class="ml-2 font-mono text-xs text-ash/50 hover:text-volt" onclick={() => bag.removeItem(item.id)}>
+			<button
+				class="ml-2 font-mono text-xs text-ash/50 hover:text-volt"
+				onclick={() => bag.removeItem(item.id)}
+			>
 				×
 			</button>
 		</div>

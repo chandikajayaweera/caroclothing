@@ -352,7 +352,9 @@ export async function validatePromoCodeForBagTx(
 	const row = await loadPromoCodeByCodeTx(tx, code);
 
 	if (!row || !row.isActive) {
-		throw new PromotionError('Invalid or inactive promo code.', ErrorCode.PROMO_NOT_FOUND, { code });
+		throw new PromotionError('Invalid or inactive promo code.', ErrorCode.PROMO_NOT_FOUND, {
+			code
+		});
 	}
 
 	return validatePromoCodeRowForBagTx(tx, row, { subtotal, userId, now });

@@ -82,7 +82,9 @@
 			{:else if bag.isPromoMinNotMet}
 				<div transition:slide={{ duration: 200 }} class="overflow-hidden">
 					<p class="mt-2 font-mono text-[9px] text-amber-400 uppercase">
-						Promo {bag.promoCode} requires min. LKR {(bag.promoMinOrderAmount ?? 0).toLocaleString()}
+						Promo {bag.promoCode} requires min. LKR {(
+							bag.promoMinOrderAmount ?? 0
+						).toLocaleString()}
 					</p>
 				</div>
 			{/if}

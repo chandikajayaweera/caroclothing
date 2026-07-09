@@ -4,15 +4,7 @@
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
 	import { authClient } from '$lib/client/modules/auth';
 	import { toggleWishlistDrawer, uiStore } from '$lib/client/modules/stores/ui';
-	import {
-		Home,
-		Store,
-		ShoppingBag,
-		Heart,
-		User,
-		LogIn,
-		LayoutDashboard
-	} from 'lucide-svelte';
+	import { Home, Store, ShoppingBag, Heart, User, LogIn, LayoutDashboard } from 'lucide-svelte';
 	import NavBadge from './NavBadge.svelte';
 
 	const session = authClient.useSession();

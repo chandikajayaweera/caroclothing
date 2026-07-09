@@ -19,12 +19,12 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 	try {
 		const [ordersResult, analytics, productStats, inventorySummary, lowStockInventory] =
 			await Promise.all([
-			listOrders(ctx, { limit: 5 }),
-			getOrderAnalytics(ctx),
-			getProductStats(ctx),
-			getInventorySummary(ctx),
-			listInventory(ctx, { stockStatus: 'low', limit: 5 })
-		]);
+				listOrders(ctx, { limit: 5 }),
+				getOrderAnalytics(ctx),
+				getProductStats(ctx),
+				getInventorySummary(ctx),
+				listInventory(ctx, { stockStatus: 'low', limit: 5 })
+			]);
 
 		return {
 			recentOrders: ordersResult.items,

@@ -4,11 +4,7 @@ import { seedUser } from '../../../../tests/factories/auth';
 import { seedProduct, seedVariant, seedVariantColor } from '../../../../tests/factories/products';
 import { seedPromoCode } from '../../../../tests/factories/promotions';
 import { makeCustomerCtx } from '../../../../tests/context';
-import {
-	addItemToBag,
-	applyPromoCodeToBag,
-	updateBagItemQuantity
-} from './bag.service';
+import { addItemToBag, applyPromoCodeToBag, updateBagItemQuantity } from './bag.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
 
