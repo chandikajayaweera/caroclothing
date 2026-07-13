@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { applyAction, deserialize, enhance } from '$app/forms';
 	import { beforeNavigate, goto, onNavigate } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import type { ActionResult } from '@sveltejs/kit';
 	import {
 		AlertTriangle,
 		ArrowLeft,
@@ -15,12 +16,21 @@
 	import { Dialog } from 'bits-ui';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { closeBagDrawer } from '$lib/client/modules/stores/ui';
+	import {
+		createPayPalPaymentSession,
+		paymentErrorMessage,
+		startPayHerePayment,
+		type PayPalPaymentSession
+	} from '$lib/client/modules/payments/sdk';
 	import CheckoutProgress from '$lib/components/checkout/CheckoutProgress.svelte';
 	import CheckoutOrderSummary from '$lib/components/checkout/CheckoutOrderSummary.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import type { AddressDTO } from '$lib/server/modules/addresses/addresses.types';
 	import type { ShippingQuoteDTO } from '$lib/server/modules/shipping/shipping.types';
-	import type { CheckoutPaymentMethodDTO } from '$lib/server/modules/payments/payments.types';
+	import type {
+		CheckoutPaymentMethodDTO,
+		CreateCheckoutPaymentSessionResult
+	} from '$lib/server/modules/payments/payments.types';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -85,6 +95,9 @@
 	let customerNote = $state('');
 	let localErrors = $state<FieldErrors>({});
 	let isSubmitting = $state(false);
+	let paymentProviderError = $state('');
+	let paypalReady = $state(false);
+	let paymentAttemptId = $state<string | null>(null);
 	let saveAddressOpen = $state(false);
 	let saveAddressStage = $state<'decision' | 'label'>('decision');
 	let saveAddressLabel = $state('');
@@ -96,6 +109,9 @@
 	let remainingSeconds = $state(remainingCheckoutSeconds());
 	let expiryRedirectStarted = false;
 	let checkoutCancelRequest: Promise<void> | null = null;
+	let paypalSession: PayPalPaymentSession | null = null;
+	let paypalSessionLoad: Promise<PayPalPaymentSession> | null = null;
+	let paymentNavigationStarted = false;
 
 	function initialBillingEmail() {
 		return data.user?.email ?? '';
@@ -121,7 +137,7 @@
 			.toString()
 			.padStart(2, '0')}:${(remainingSeconds % 60).toString().padStart(2, '0')}`
 	);
-	let actionMessage = $derived(readActionMessage(form));
+	let actionMessage = $derived(paymentProviderError || readActionMessage(form));
 	let actionErrors = $derived(readActionErrors(form));
 	let primaryActionLabel = $derived(
 		currentStep === 1
@@ -311,31 +327,119 @@
 		return 3;
 	}
 
-	function continueToPaymentProvider(paymentSession: {
-		redirectUrl?: string;
-		paymentData?: Record<string, string>;
-	}) {
-		if (!paymentSession.redirectUrl) return false;
+	async function finishPaymentFlow(attemptId: string, notice: string) {
+		if (paymentNavigationStarted) return;
+		paymentNavigationStarted = true;
 		leavingCheckout = true;
+		await goto(resolve(`/checkout/payment/${attemptId}?payment=${encodeURIComponent(notice)}`));
+	}
 
-		if (!paymentSession.paymentData) {
-			window.location.assign(paymentSession.redirectUrl);
-			return true;
+	async function capturePayPalOrder(paypalOrderId: string) {
+		const response = await fetch(resolve('/api/payments/paypal/capture'), {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ paypalOrderId })
+		});
+		const body = (await response.json()) as {
+			success?: boolean;
+			orderId?: string;
+			error?: { message?: string } | string;
+			message?: string;
+		};
+		if (!response.ok || !body.success || !body.orderId) {
+			const message =
+				typeof body.error === 'string'
+					? body.error
+					: (body.error?.message ?? body.message ?? 'PayPal payment could not be confirmed.');
+			throw new Error(message);
+		}
+		leavingCheckout = true;
+		await goto(resolve(`/checkout/confirmation/${body.orderId}?payment=completed`));
+	}
+
+	function ensurePayPalSession(config: { clientId: string; sdkUrl: string }) {
+		if (paypalSession) return Promise.resolve(paypalSession);
+		if (paypalSessionLoad) return paypalSessionLoad;
+
+		paypalReady = false;
+		paypalSessionLoad = createPayPalPaymentSession({
+			...config,
+			onApprove: async ({ orderId }) => capturePayPalOrder(orderId),
+			onCancel: () => {
+				if (paymentAttemptId) void finishPaymentFlow(paymentAttemptId, 'cancelled');
+				else isSubmitting = false;
+			},
+			onError: (error) => {
+				console.error('[checkout] PayPal SDK error:', error);
+				if (paymentAttemptId) void finishPaymentFlow(paymentAttemptId, 'failed');
+				else isSubmitting = false;
+			}
+		})
+			.then((session) => {
+				paypalSession = session;
+				paypalReady = true;
+				return session;
+			})
+			.catch((error) => {
+				paypalSessionLoad = null;
+				paypalReady = false;
+				paymentProviderError = paymentErrorMessage(error, 'PayPal could not be loaded.');
+				throw error;
+			});
+		return paypalSessionLoad;
+	}
+
+	async function submitPlaceOrder(formElement: HTMLFormElement): Promise<{ orderId: string }> {
+		const response = await fetch(formElement.action, {
+			method: 'POST',
+			body: new FormData(formElement),
+			headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
+			credentials: 'same-origin'
+		});
+		const result = deserialize(await response.text()) as ActionResult;
+
+		if (result.type === 'failure') {
+			const resultErrors = readActionErrors(result.data);
+			currentStep = stepForActionErrors(resultErrors);
+			isSubmitting = false;
+			await applyAction(result);
+			window.scrollTo({ top: 0, behavior: 'smooth' });
+			throw new Error('Checkout details require attention.');
+		}
+		if (result.type === 'redirect') {
+			leavingCheckout = true;
+			await applyAction(result);
+			throw new Error('Checkout redirected.');
+		}
+		if (result.type !== 'success' || !result.data) {
+			await applyAction(result);
+			throw new Error('Order placement failed.');
 		}
 
-		const postForm = document.createElement('form');
-		postForm.method = 'POST';
-		postForm.action = paymentSession.redirectUrl;
-		for (const [key, value] of Object.entries(paymentSession.paymentData)) {
-			const input = document.createElement('input');
-			input.type = 'hidden';
-			input.name = key;
-			input.value = value;
-			postForm.appendChild(input);
+		const paymentSession = (result.data as { paymentSession?: CreateCheckoutPaymentSessionResult })
+			.paymentSession;
+		if (!paymentSession || paymentSession.method !== 'paypal') {
+			throw new Error('PayPal session was not created.');
 		}
-		document.body.appendChild(postForm);
-		postForm.submit();
-		return true;
+		paymentAttemptId = paymentSession.attemptId;
+		leavingCheckout = true;
+		return { orderId: paymentSession.paypalOrderId };
+	}
+
+	async function startPayHereFlow(paymentSession: CreateCheckoutPaymentSessionResult) {
+		if (paymentSession.method !== 'payhere') return;
+		paymentAttemptId = paymentSession.attemptId;
+		leavingCheckout = true;
+		try {
+			const outcome = await startPayHerePayment(paymentSession.paymentData);
+			await finishPaymentFlow(
+				paymentSession.attemptId,
+				outcome === 'completed' ? 'processing' : 'cancelled'
+			);
+		} catch (error) {
+			console.error('[checkout] PayHere SDK error:', error);
+			await finishPaymentFlow(paymentSession.attemptId, 'setup_failed');
+		}
 	}
 
 	function isCheckoutDestination(url: URL) {
@@ -373,6 +477,13 @@
 
 	$effect(() => {
 		closeBagDrawer();
+	});
+
+	$effect(() => {
+		const config = selectedPaymentMethod === 'paypal' ? selectedPayment?.clientConfig : undefined;
+		if (!config) return;
+		paymentProviderError = '';
+		void ensurePayPalSession(config).catch(() => undefined);
 	});
 
 	$effect(() => {
@@ -438,7 +549,7 @@
 		) {
 			return;
 		}
-		return cancelCheckoutReservation();
+		void cancelCheckoutReservation(true);
 	});
 
 	beforeNavigate((navigation) => {
@@ -494,12 +605,12 @@
 			/>
 			<div class="min-w-0">
 				<p class="font-mono text-[10px] tracking-[0.14em] text-bone uppercase">
-					{checkoutExpired ? 'Reservation expired' : 'Stock reserved for this checkout'}
+					{checkoutExpired ? 'Checkout expired' : 'Secure checkout window'}
 				</p>
 				<p class="mt-1 truncate font-sans text-xs text-ash">
 					{checkoutExpired
 						? 'Returning you to your saved bag.'
-						: 'Complete the order before the timer ends.'}
+						: 'Stock is verified when payment completes.'}
 				</p>
 			</div>
 		</div>
@@ -520,7 +631,7 @@
 			method="POST"
 			action="?/placeOrder"
 			class="min-w-0"
-			use:enhance={({ cancel, submitter }) => {
+			use:enhance={({ cancel, submitter, formElement }) => {
 				if (checkoutExpired) {
 					cancel();
 					returnToBagAfterExpiry();
@@ -540,17 +651,45 @@
 					return;
 				}
 
+				paymentProviderError = '';
 				isSubmitting = true;
+				if (selectedPaymentMethod === 'paypal') {
+					cancel();
+					if (!paypalSession) {
+						isSubmitting = false;
+						paymentProviderError = 'PayPal is still loading. Try again.';
+						return;
+					}
+
+					const createOrder = submitPlaceOrder(formElement);
+					void paypalSession
+						.start({ presentationMode: 'auto' }, createOrder)
+						.catch(async (error) => {
+							try {
+								await createOrder;
+							} catch {
+								// The action result already owns form errors or redirects.
+							}
+							console.error('[checkout] PayPal payment failed:', error);
+							if (paymentAttemptId) {
+								await finishPaymentFlow(paymentAttemptId, 'failed');
+							} else {
+								isSubmitting = false;
+							}
+						});
+					return;
+				}
+
 				return async ({ result, update }) => {
 					if (result.type === 'success' && result.data) {
 						const resultData = result.data as {
-							paymentSession?: {
-								redirectUrl?: string;
-								paymentData?: Record<string, string>;
-							};
+							paymentSession?: CreateCheckoutPaymentSessionResult;
 						};
 						const paymentSession = resultData.paymentSession;
-						if (paymentSession && continueToPaymentProvider(paymentSession)) return;
+						if (paymentSession?.method === 'payhere') {
+							void startPayHereFlow(paymentSession);
+							return;
+						}
 					}
 
 					if (result.type === 'redirect') leavingCheckout = true;
@@ -1038,7 +1177,9 @@
 						<Button
 							type="submit"
 							variant="primary"
-							disabled={isSubmitting || checkoutExpired}
+							disabled={isSubmitting ||
+								checkoutExpired ||
+								(selectedPaymentMethod === 'paypal' && !paypalReady)}
 							class="min-h-12 flex-1 px-5 lg:flex-none lg:px-10"
 							data-place-order="true"
 						>

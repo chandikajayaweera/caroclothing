@@ -3,6 +3,7 @@ import { getEnv } from '$lib/server/infrastructure/env';
 import type { LayoutServerLoad } from './$types';
 
 const DEFAULT_AUTH_REDIRECT = '/account';
+const VIEW_ORDER_PATH = /^\/view-order\/[A-Za-z0-9_-]{1,50}$/;
 const ALLOWED_REDIRECT_PATHS = new Set([
 	'/',
 	'/account',
@@ -25,7 +26,12 @@ function getSafeRedirectTo(value: string | null): string {
 		return DEFAULT_AUTH_REDIRECT;
 	}
 
-	if (!ALLOWED_REDIRECT_PATHS.has(redirectUrl.pathname)) return DEFAULT_AUTH_REDIRECT;
+	if (
+		!ALLOWED_REDIRECT_PATHS.has(redirectUrl.pathname) &&
+		!VIEW_ORDER_PATH.test(redirectUrl.pathname)
+	) {
+		return DEFAULT_AUTH_REDIRECT;
+	}
 
 	return `${redirectUrl.pathname}${redirectUrl.search}${redirectUrl.hash}`;
 }

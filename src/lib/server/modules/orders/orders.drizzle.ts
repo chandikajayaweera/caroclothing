@@ -77,7 +77,7 @@ export const order = sqliteTable(
 			.primaryKey()
 			.$defaultFn(() => nanoid()),
 		// Human-readable order number shown to customers and used in support.
-		// Format: CARO-YYYYMMDD-XXXXX. Generated at the application layer.
+		// Format: YYMMDD-XXXXX. Generated at the application layer.
 		orderNumber: text('order_number').notNull().unique(),
 		// null if placed by a guest
 		userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),

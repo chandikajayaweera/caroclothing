@@ -8,12 +8,15 @@ import { seedPromoCode } from '../../../../tests/factories/promotions';
 import { seedProductWithVariant } from '../../../../tests/scenarios/products';
 import { makeAdminCtx, makeCustomerCtx } from '../../../../tests/context';
 import { inventory, inventoryMovement } from '../inventory/inventory.drizzle';
-import { bag as bagTable } from './bag.drizzle';
+import { bag as bagTable, bagItem as bagItemTable } from './bag.drizzle';
 import {
 	addItemToBag,
 	applyPromoCodeToBag,
 	expireDueBagCheckouts,
+	getBag,
+	getCheckoutBagForOrderTx,
 	getStorefrontVariantAvailability,
+	removePromoCodeFromBag,
 	startCheckout,
 	updateBagItemQuantity
 } from './bag.service';
@@ -96,7 +99,106 @@ describe('bag service integration', () => {
 		expect(bag4.discountAmount).toBe(1000);
 	});
 
-	it("does not release another shopper's expired checkout during availability reads", async () => {
+	it('ignores and removes a retained promo after its minimum is no longer met', async () => {
+		const user = await seedUser(db(), { id: 'bag-invalid-promo-user' });
+		const ctx = makeCustomerCtx(user.id, { now });
+		const prod = await seedProduct(db());
+		const varColor = await seedVariantColor(db(), prod.id, { basePrice: 5000 });
+		const variant = await seedVariant(db(), prod.id, varColor.id);
+		await seedInventory(db(), variant.id, { quantity: 10, reservedQuantity: 0 });
+		await seedPromoCode(db(), {
+			code: 'MIN10K',
+			discountType: 'fixed',
+			discountValue: 1000,
+			minOrderAmount: 10000,
+			isActive: true
+		});
+
+		const added = await addItemToBag(ctx, { variantId: variant.id, quantity: 2, now });
+		const applied = await applyPromoCodeToBag(ctx, { code: 'MIN10K', now });
+		const belowMinimum = await updateBagItemQuantity(ctx, {
+			bagItemId: applied.items[0].id,
+			quantity: 1,
+			now
+		});
+		expect(belowMinimum.promoCode).toBe('MIN10K');
+		expect(belowMinimum.promoCodeId).toBeNull();
+
+		await startCheckout(ctx, { now });
+		const checkoutBag = await db().transaction((tx) => getCheckoutBagForOrderTx(tx, ctx, { now }));
+		expect(checkoutBag.promoCode).toBe('MIN10K');
+		expect(checkoutBag.promoCodeId).toBeNull();
+
+		const removed = await removePromoCodeFromBag(ctx, { now });
+		expect(removed.promoCode).toBeNull();
+		expect(removed.promoCodeId).toBeNull();
+		expect(removed.discountAmount).toBe(0);
+		expect(added.id).toBe(removed.id);
+	});
+
+	it('rejects additions and quantity increases beyond tracked available stock', async () => {
+		const user = await seedUser(db(), { id: 'bag-stock-limit-user' });
+		const ctx = makeCustomerCtx(user.id, { now });
+		const { variant } = await seedProductWithVariant(db(), {
+			product: { slug: 'bag-stock-limit-product' }
+		});
+		await seedInventory(db(), variant.id, { quantity: 2, reservedQuantity: 0 });
+
+		const added = await addItemToBag(ctx, { variantId: variant.id, quantity: 1, now });
+		const bagItemId = added.items[0].id;
+
+		await expect(
+			addItemToBag(ctx, { variantId: variant.id, quantity: 2, now })
+		).rejects.toMatchObject({
+			code: 'INSUFFICIENT_STOCK',
+			details: { requestedQuantity: 3, availableQuantity: 2 }
+		});
+		await expect(updateBagItemQuantity(ctx, { bagItemId, quantity: 3, now })).rejects.toMatchObject(
+			{
+				code: 'INSUFFICIENT_STOCK',
+				details: { requestedQuantity: 3, availableQuantity: 2 }
+			}
+		);
+
+		await expect(getBag(ctx, { now })).resolves.toMatchObject({
+			items: [{ id: bagItemId, quantity: 1 }]
+		});
+	});
+
+	it('labels a partial shortage accurately and still allows reducing the quantity', async () => {
+		const user = await seedUser(db(), { id: 'bag-partial-shortage-user' });
+		const ctx = makeCustomerCtx(user.id, { now });
+		const { variant } = await seedProductWithVariant(db(), {
+			product: { slug: 'bag-partial-shortage-product' }
+		});
+		await seedInventory(db(), variant.id, { quantity: 3, reservedQuantity: 0 });
+		const added = await addItemToBag(ctx, { variantId: variant.id, quantity: 3, now });
+		const bagItemId = added.items[0].id;
+
+		await db().update(inventory).set({ quantity: 2 }).where(eq(inventory.variantId, variant.id));
+		const staleBag = await getBag(ctx, { now });
+
+		expect(staleBag).toMatchObject({
+			hasUnavailableItems: false,
+			hasInsufficientItems: true,
+			items: [
+				{
+					id: bagItemId,
+					quantity: 3,
+					availableQuantity: 2,
+					availabilityStatus: 'insufficient'
+				}
+			]
+		});
+
+		const reduced = await updateBagItemQuantity(ctx, { bagItemId, quantity: 2, now });
+		expect(reduced.items[0]).toMatchObject({ quantity: 2, availabilityStatus: 'available' });
+		await expect(
+			db().select().from(bagItemTable).where(eq(bagItemTable.id, bagItemId)).get()
+		).resolves.toMatchObject({ quantity: 2 });
+	});
+
+	it('keeps checkout windows reservation-free and availability reads non-mutating', async () => {
 		const holder = await seedUser(db(), { id: 'checkout-holder' });
 		const observer = await seedUser(db(), { id: 'availability-observer' });
 		const { variant } = await seedProductWithVariant(db(), {
@@ -116,11 +218,11 @@ describe('bag service integration', () => {
 
 		expect(availability).toMatchObject({
 			variantId: variant.id,
-			reservedQuantity: 1,
-			availableQuantity: 0,
+			reservedQuantity: 0,
+			availableQuantity: 1,
 			checkoutHeldQuantity: 0,
 			checkoutHoldExpiresAt: null,
-			availabilityStatus: 'unavailable'
+			availabilityStatus: 'available'
 		});
 		await expect(
 			db().select().from(bagTable).where(eq(bagTable.id, checkoutBag.id)).get()
@@ -130,10 +232,10 @@ describe('bag service integration', () => {
 		});
 		await expect(
 			db().select().from(inventory).where(eq(inventory.variantId, variant.id)).get()
-		).resolves.toMatchObject({ reservedQuantity: 1 });
+		).resolves.toMatchObject({ reservedQuantity: 0 });
 		await expect(
 			db().select().from(inventoryMovement).where(eq(inventoryMovement.variantId, variant.id))
-		).resolves.toMatchObject([{ type: 'reserved', reservedQuantityDelta: 1 }]);
+		).resolves.toEqual([]);
 
 		const cleanup = await expireDueBagCheckouts(makeAdminCtx({ now: expiredNow }), {
 			now: expiredNow
@@ -141,7 +243,7 @@ describe('bag service integration', () => {
 
 		expect(cleanup).toMatchObject({
 			expiredCount: 1,
-			releasedQuantity: 1,
+			releasedQuantity: 0,
 			failedCount: 0
 		});
 		await expect(

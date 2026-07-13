@@ -98,6 +98,7 @@ export function bagItemAvailabilityVariant(status: string): BadgeVariant {
 		case 'available':
 			return 'success';
 		case 'backorder':
+		case 'insufficient':
 			return 'warning';
 		case 'unavailable':
 			return 'danger';

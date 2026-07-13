@@ -56,7 +56,6 @@ import {
 	enqueueOrderStatusUpdateSmsTx,
 	enqueuePaymentUpdateSmsTx,
 	enqueueShippingUpdateEmailTx,
-	enqueueShippingUpdateSmsTx,
 	publishNotificationWakeups,
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
@@ -98,6 +97,11 @@ import {
 	type Payment,
 	type PaymentStatus
 } from './orders.drizzle';
+import {
+	buildOrderNumber,
+	shouldSendOrderStatusSms,
+	shouldSendPaymentStatusSms
+} from './orders.logic';
 import type {
 	CancelExpiredPendingOrdersInput,
 	CancelExpiredPendingOrdersResult,
@@ -195,7 +199,9 @@ export async function placeOrderFromBag(
 	try {
 		const placedOrder = await getDb().transaction(async (tx) => {
 			const orderDto = await placeOrderFromBagTx(tx, ctx, input);
-			notificationsToPublish = await enqueueOrderConfirmationNotificationsTx(tx, orderDto);
+			if (orderDto.status === 'confirmed') {
+				notificationsToPublish = await enqueueOrderConfirmationNotificationsTx(tx, orderDto);
+			}
 			return orderDto;
 		});
 		await publishNotificationWakeups(ctx, notificationsToPublish);
@@ -288,6 +294,16 @@ export async function placeOrderFromBagTx(
 			});
 		}
 
+		const quantityStillNeeded = previewItem.quantity - released.releasedQuantity;
+		if (quantityStillNeeded > 0) {
+			await reserveInventoryTx(tx as InventoryTx, {
+				variantId: previewItem.variantId,
+				quantity: quantityStillNeeded,
+				referenceId: orderItemId,
+				now
+			});
+		}
+
 		createdItems.push(createdItem);
 	}
 
@@ -299,9 +315,7 @@ export async function placeOrderFromBagTx(
 		status: 'pending',
 		transactionId: null,
 		gatewayResponse: null,
-		refundAmount: null,
-		bankSlipR2Key: input.bankSlipR2Key ?? null,
-		bankReference: input.bankReference ?? null
+		refundAmount: null
 	});
 	const [createdPayment] = await tx.insert(payment).values(paymentValues).returning();
 	if (!createdPayment) {
@@ -843,7 +857,7 @@ async function hydrateOrderTx(
 	});
 }
 
-async function enqueueOrderConfirmationNotificationsTx(
+export async function enqueueOrderConfirmationNotificationsTx(
 	tx: OrdersTx,
 	orderDto: OrderDTO
 ): Promise<NotificationOutboxDTO[]> {
@@ -876,10 +890,11 @@ async function enqueueOrderConfirmationNotificationsTx(
 						shipping: formatCurrency(orderDto.shippingAmount),
 						total: formatCurrency(orderDto.totalAmount),
 						shippingAddress: formatAddressSnapshot(orderDto.shippingAddressSnapshot),
-						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText,
+						orderUrl: buildOrderUrl(orderDto)
 					},
 					metadata: { orderNumber: orderDto.orderNumber },
-					now: orderDto.createdAt
+					now: orderDto.updatedAt
 				})
 			);
 		}
@@ -898,11 +913,24 @@ async function enqueueOrderConfirmationNotificationsTx(
 				orderUrl: buildOrderUrl(orderDto)
 			},
 			metadata: { orderNumber: orderDto.orderNumber },
-			now: orderDto.createdAt
+			now: orderDto.updatedAt
 		})
 	);
 
 	return notifications;
+}
+
+export async function enqueueOrderConfirmationNotificationsForOrderTx(
+	tx: OrdersTx,
+	orderId: string
+): Promise<NotificationOutboxDTO[]> {
+	const orderRow = await loadOrderByIdTx(tx, orderId);
+	const orderDto = await hydrateOrderTx(tx, orderRow, {
+		includeItems: true,
+		includePayments: true,
+		includeStatusHistory: false
+	});
+	return enqueueOrderConfirmationNotificationsTx(tx, orderDto);
 }
 
 async function enqueueShippingUpdateNotificationsTx(
@@ -934,7 +962,8 @@ async function enqueueShippingUpdateNotificationsTx(
 						trackingUrl: orderDto.trackingUrl ?? undefined,
 						carrier:
 							orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
-						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
+						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText,
+						orderUrl: buildOrderUrl(orderDto)
 					},
 					metadata: { orderNumber: orderDto.orderNumber },
 					now: orderDto.updatedAt
@@ -942,24 +971,6 @@ async function enqueueShippingUpdateNotificationsTx(
 			);
 		}
 	}
-
-	notifications.push(
-		await enqueueShippingUpdateSmsTx(tx as NotificationOutboxTx, {
-			orderId: orderDto.id,
-			recipientUserId: orderDto.userId,
-			payload: {
-				to: orderDto.shippingAddressSnapshot.phone,
-				orderId: orderDto.id,
-				orderNumber: orderDto.orderNumber,
-				trackingNumber: orderDto.trackingNumber,
-				trackingUrl: orderDto.trackingUrl ?? undefined,
-				carrier: orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
-				estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText
-			},
-			metadata: { orderNumber: orderDto.orderNumber },
-			now: orderDto.updatedAt
-		})
-	);
 
 	return notifications;
 }
@@ -987,7 +998,9 @@ export async function enqueuePaymentUpdateNotificationTx(
 		includeStatusHistory: false
 	});
 
-	if (!orderDto.shippingAddressSnapshot) return null;
+	if (!orderDto.shippingAddressSnapshot || !shouldSendPaymentStatusSms(paymentDto.status)) {
+		return null;
+	}
 
 	return enqueuePaymentUpdateSmsTx(tx as NotificationOutboxTx, {
 		orderId: orderDto.id,
@@ -998,7 +1011,9 @@ export async function enqueuePaymentUpdateNotificationTx(
 			orderId: orderDto.id,
 			orderNumber: orderDto.orderNumber,
 			status: paymentDto.status,
-			statusLabel: formatPaymentStatus(paymentDto.status),
+			statusLabel: paymentDto.requiresManualReview
+				? `${formatPaymentStatus(paymentDto.status)}; support review required`
+				: formatPaymentStatus(paymentDto.status),
 			amount: formatCurrency(paymentDto.amount),
 			paymentUrl: buildOrderUrl(orderDto)
 		},
@@ -1062,13 +1077,7 @@ function shouldEnqueueShippingUpdateForFulfillment(existing: Order, updated: Ord
 }
 
 function shouldEnqueueOrderStatusSms(status: OrderStatus): boolean {
-	return (
-		status === 'confirmed' ||
-		status === 'processing' ||
-		status === 'delivered' ||
-		status === 'cancelled' ||
-		status === 'refunded'
-	);
+	return shouldSendOrderStatusSms(status);
 }
 
 function toOrderEmailItem(item: OrderItemDTO): { name: string; quantity: number; price: string } {
@@ -1110,7 +1119,7 @@ function formatOrderStatus(status: OrderStatus): string {
 
 function buildOrderUrl(orderDto: OrderDTO): string {
 	const baseUrl = getEnv().PUBLIC_APP_URL.replace(/\/+$/, '');
-	return `${baseUrl}/account/orders/${orderDto.id}`;
+	return `${baseUrl}/view-order/${encodeURIComponent(orderDto.orderNumber)}`;
 }
 
 function formatEmailDate(value: Date): string {
@@ -1470,7 +1479,7 @@ async function loadOrderStatusHistoryForOrderTx(
 
 async function generateUniqueOrderNumberTx(tx: QueryExecutor, now: Date): Promise<string> {
 	for (let attempt = 0; attempt < 5; attempt += 1) {
-		const candidate = `CARO-${formatOrderNumberDate(now)}-${orderNumberSuffix()}`;
+		const candidate = buildOrderNumber(now, orderNumberSuffix());
 		const [existing] = await tx
 			.select({ id: order.id })
 			.from(order)
@@ -1612,10 +1621,6 @@ function normalizeNullableText(
 	}
 
 	return normalized;
-}
-
-function formatOrderNumberDate(now: Date): string {
-	return now.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 function dateToTimestampMs(value: Date | null | undefined): number | null | undefined {

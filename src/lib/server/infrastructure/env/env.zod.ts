@@ -44,12 +44,10 @@ export const envSchema = z.object({
 	// Payments
 	PAYHERE_MERCHANT_ID: z.string().optional(),
 	PAYHERE_MERCHANT_SECRET: z.string().optional(),
-	PAYHERE_IS_SANDBOX: z.string().optional().default('true'),
+	PAYHERE_IS_SANDBOX: z.enum(['true', 'false']).optional().default('true'),
 	PAYPAL_CLIENT_ID: z.string().optional(),
 	PAYPAL_CLIENT_SECRET: z.string().optional(),
-	PAYPAL_IS_SANDBOX: z.string().optional().default('true'),
-	PAYKOKO_API_KEY: z.string().optional(),
-	MINTPAY_API_KEY: z.string().optional()
+	PAYPAL_IS_SANDBOX: z.enum(['true', 'false']).optional().default('true')
 });
 
 export type Env = z.infer<typeof envSchema>;

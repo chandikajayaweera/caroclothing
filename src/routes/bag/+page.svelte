@@ -11,7 +11,12 @@
 		'Some items cannot be checked out yet. Review their availability and try again.';
 	const pageError = $derived.by(() => {
 		const error = page.url.searchParams.get('error');
-		if (error === checkoutAvailabilityError && !bag.hasReservedItems && !bag.hasUnavailableItems) {
+		if (
+			error === checkoutAvailabilityError &&
+			!bag.hasReservedItems &&
+			!bag.hasUnavailableItems &&
+			!bag.hasInsufficientItems
+		) {
 			return null;
 		}
 		return error;
@@ -102,7 +107,12 @@
 								One or more items in your bag are out of stock. Remove them to checkout.
 							</div>
 						{/if}
-						{#if bag.hasReservedItems || bag.hasUnavailableItems}
+						{#if bag.hasInsufficientItems}
+							<p class="font-mono text-[10px] text-amber-300 uppercase">
+								Reduce quantities to the available stock before checkout.
+							</p>
+						{/if}
+						{#if bag.hasReservedItems || bag.hasUnavailableItems || bag.hasInsufficientItems}
 							<Button
 								variant="primary"
 								class="mb-4 w-full cursor-not-allowed py-4 opacity-50"

@@ -109,3 +109,10 @@
 
 - **DON'T DO THIS**: Do not return generic error strings (such as `"Minimum order value not met."` or `"Invalid code."`) from domain services or display different error text on the client for the same failure condition. Generic error text frustrates users and creates inconsistency between client-derived notices and server API responses.
 - **INSTEAD DO THIS**: Include specific entity identifiers and requirement details directly in domain error messages (e.g. `Promo ${code} requires min. LKR ${minOrderAmount.toLocaleString()}`). Ensure client components use identical wording for matching failure conditions.
+
+---
+
+### 17. Separate Payment Attempts from Orders
+
+- **DON'T DO THIS**: Do not create a pending order, transfer inventory reservations, or delete the bag before an online provider has verified payment. Provider setup, cancellation, or failure must never leave a customer with a phantom order or held stock.
+- **INSTEAD DO THIS**: Persist a short-lived `payment_attempt` containing the validated checkout intent. On signed PayHere success or verified PayPal capture, revalidate the live bag and create the confirmed order/payment, inventory sale, bag deletion, and confirmation outbox rows in one transaction. If finalization fails after provider capture, retain no partial order and mark the attempt `review_required` for support.

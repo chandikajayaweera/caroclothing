@@ -30,9 +30,11 @@
 		| '/app'
 		| '/bag'
 		| '/checkout'
-		| '/shop';
+		| '/shop'
+		| `/view-order/${string}`;
 
 	const DEFAULT_REDIRECT_TO: RedirectPath = '/';
+	const VIEW_ORDER_PATH = /^\/view-order\/[A-Za-z0-9_-]{1,50}$/;
 	const ALLOWED_REDIRECT_PATHS = new Set<string>([
 		'/',
 		'/account',
@@ -71,7 +73,9 @@
 		}
 
 		const pathname = redirectUrl.pathname;
-		if (!ALLOWED_REDIRECT_PATHS.has(pathname)) return getDefaultRedirectTarget();
+		if (!ALLOWED_REDIRECT_PATHS.has(pathname) && !VIEW_ORDER_PATH.test(pathname)) {
+			return getDefaultRedirectTarget();
+		}
 		const suffix = `${redirectUrl.search}${redirectUrl.hash}`;
 		return { pathname: pathname as RedirectPath, suffix, href: `${pathname}${suffix}` };
 	}
@@ -199,8 +203,9 @@
 			view = 'name-prompt';
 			redirecting = false;
 		} else {
+			// The target is validated as a same-origin allowlisted path above.
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(`${resolve(redirectTarget.pathname)}${redirectTarget.suffix}`);
+			await goto(redirectTarget.href);
 		}
 	}
 
@@ -326,8 +331,9 @@
 				setErrorMessage(parseAuthError(err));
 				return;
 			}
+			// The target is validated as a same-origin allowlisted path above.
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			await goto(`${resolve(redirectTarget.pathname)}${redirectTarget.suffix}`);
+			await goto(redirectTarget.href);
 		} catch (e) {
 			setErrorMessage(parseUnknownError(e));
 		} finally {

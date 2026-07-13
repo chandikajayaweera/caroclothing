@@ -483,6 +483,13 @@
 											>
 												Backorder
 											</AdminBadge>
+										{:else if item.availabilityStatus === 'insufficient'}
+											<AdminBadge
+												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
+												size="xs"
+											>
+												Only {item.availableQuantity ?? 0} available
+											</AdminBadge>
 										{:else if item.availabilityStatus === 'untracked'}
 											<AdminBadge
 												variant={bagItemAvailabilityVariant(item.availabilityStatus)}

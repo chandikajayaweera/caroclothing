@@ -30,12 +30,13 @@ shipping
 promotions
 inventory
 orders
+payments
 reviews
 ```
 
 `inventory` exposes curated admin inventory APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` continue to support bag/order-style transaction workflows and should be imported directly only by server internals that are already inside a transaction.
 
-Bag stock rule: bag writes never reserve inventory. `startCheckout` owns the 10-minute reservation transaction. When shoppers contend for the last stock, one reservation wins; later shoppers see the active hold countdown instead of out-of-stock when those held units could satisfy their quantity. Bag items and the selected product-detail variant use bounded visible-tab refreshes, stale-on-focus refreshes, and known-deadline projection refreshes so new holds appear without 3-second request loops. Availability and hydration reads are projections; they must not release other shoppers' reservations. A deadline refresh can remove an expired hold from the projection before stock is released. Bag mutations or checkout exit cancel active holds; the owner bag read and bounded minute Cron release expired stock while preserving bag items.
+Bag stock rule: bag writes and `startCheckout` never reserve inventory. `startCheckout` opens a 10-minute validation window only. Quantity increases are rejected when the desired line quantity exceeds tracked available stock, while stale over-quantity lines hydrate as `insufficient` and remain reducible. Online checkout stores only a durable `payment_attempt` until the gateway verifies success. Verified capture revalidates the bag and, in one transaction, creates the order/payment, reserves then consumes inventory, deletes the bag, and enqueues confirmation intent. Failed, cancelled, or provider-setup attempts leave the bag intact and create no order or stock reservation. Availability and hydration reads remain projections and never mutate another shopper's inventory state.
 
 Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must release checkout inventory, remove profile-owned waitlist state, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
 

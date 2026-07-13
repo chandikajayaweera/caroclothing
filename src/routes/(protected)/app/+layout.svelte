@@ -29,7 +29,7 @@
 	{/if}
 	<AdminSidebar
 		collapsed={sidebarCollapsed}
-		mobileOpen={mobileSidebarOpen}
+		bind:mobileOpen={mobileSidebarOpen}
 		onClose={() => (mobileSidebarOpen = false)}
 		onToggleCollapse={() => (sidebarCollapsed = !sidebarCollapsed)}
 	/>

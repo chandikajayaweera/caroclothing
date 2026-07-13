@@ -21,13 +21,21 @@
 </script>
 
 <div class="mt-4 border-t border-charcoal/30 pt-4">
-	{#if bag.isPromoActive}
+	{#if bag.promoCode}
 		<div transition:slide={{ duration: 250 }} class="overflow-hidden">
-			<div class="flex items-center justify-between border border-volt/20 bg-volt/5 p-3">
+			<div
+				class="flex items-center justify-between border p-3 {bag.isPromoActive
+					? 'border-volt/20 bg-volt/5'
+					: 'border-amber-400/20 bg-amber-400/5'}"
+			>
 				<div class="flex flex-col">
-					<span class="font-mono text-[9px] tracking-wider text-ash uppercase">Applied Promo</span>
-					<span class="font-mono text-xs font-bold text-volt uppercase"
-						>{bag.promoCode || 'Applied'}</span
+					<span class="font-mono text-[9px] tracking-wider text-ash uppercase">
+						{bag.isPromoActive ? 'Applied Promo' : 'Promo Not Applied'}
+					</span>
+					<span
+						class="font-mono text-xs font-bold uppercase {bag.isPromoActive
+							? 'text-volt'
+							: 'text-amber-400'}">{bag.promoCode || 'Applied'}</span
 					>
 				</div>
 				<button
@@ -44,6 +52,11 @@
 					{/if}
 				</button>
 			</div>
+			{#if bag.isPromoMinNotMet}
+				<p class="mt-2 font-mono text-[9px] text-amber-400 uppercase">
+					Promo {bag.promoCode} requires min. LKR {(bag.promoMinOrderAmount ?? 0).toLocaleString()}
+				</p>
+			{/if}
 		</div>
 	{:else}
 		<div transition:slide={{ duration: 250 }} class="overflow-hidden">
@@ -77,14 +90,6 @@
 				<div transition:slide={{ duration: 200 }} class="overflow-hidden">
 					<p class="mt-2 font-mono text-[9px] text-red-500 uppercase">
 						{bag.promoError}
-					</p>
-				</div>
-			{:else if bag.isPromoMinNotMet}
-				<div transition:slide={{ duration: 200 }} class="overflow-hidden">
-					<p class="mt-2 font-mono text-[9px] text-amber-400 uppercase">
-						Promo {bag.promoCode} requires min. LKR {(
-							bag.promoMinOrderAmount ?? 0
-						).toLocaleString()}
 					</p>
 				</div>
 			{/if}

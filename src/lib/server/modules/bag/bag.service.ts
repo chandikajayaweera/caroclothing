@@ -45,7 +45,6 @@ import {
 	getOutstandingReservedQuantitiesByReferenceIds,
 	getOutstandingReservedQuantitiesByReferenceIdsTx,
 	releaseInventoryReservationTx,
-	reserveInventoryTx,
 	type InventoryTx
 } from '../inventory/inventory.service';
 import type { InventoryAvailabilityDTO } from '../inventory/inventory.types';
@@ -133,7 +132,7 @@ type BagDeleteResult = {
 };
 
 const GUEST_BAG_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const CHECKOUT_HOLD_MS = 10 * 60 * 1000;
+const CHECKOUT_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const CLEANUP_DEFAULT_LIMIT = 100;
@@ -190,6 +189,9 @@ export async function updateBagItemQuantity(
 			await cancelCheckoutTx(tx, row.bag, now);
 
 			const delta = quantity - row.item.quantity;
+			if (delta > 0) {
+				await assertBagQuantityAvailableTx(tx, row.item.variantId, quantity);
+			}
 
 			if (delta !== 0) {
 				const [updated] = await tx
@@ -338,7 +340,7 @@ export async function startCheckout(
 				});
 			}
 
-			const checkoutExpiresAt = new Date(now.getTime() + CHECKOUT_HOLD_MS);
+			const checkoutExpiresAt = new Date(now.getTime() + CHECKOUT_WINDOW_MS);
 			const [claimed] = await tx
 				.update(bagTable)
 				.set({
@@ -355,21 +357,6 @@ export async function startCheckout(
 					return toCheckoutBagDTO(await hydrateBagTx(tx, raced, now), true);
 				}
 				throw new BagError('Checkout could not be started.', ErrorCode.CONFLICT);
-			}
-
-			const items = await tx
-				.select()
-				.from(bagItemTable)
-				.where(eq(bagItemTable.bagId, claimed.id))
-				.orderBy(asc(bagItemTable.addedAt));
-
-			for (const item of items) {
-				await reserveInventoryTx(tx as InventoryTx, {
-					variantId: item.variantId,
-					quantity: item.quantity,
-					referenceId: item.id,
-					now
-				});
 			}
 
 			return toCheckoutBagDTO(await hydrateBagTx(tx, claimed, now), true);
@@ -743,12 +730,14 @@ async function addItemToBagWithRetry(
 			if (existing) {
 				const nextQuantity = existing.quantity + quantity;
 				validateBagItemQuantity(nextQuantity, 'quantity');
+				await assertBagQuantityAvailableTx(tx, variantId, nextQuantity);
 
 				await tx
 					.update(bagItemTable)
 					.set(parseUpdateBagItemQuantity(nextQuantity, now))
 					.where(eq(bagItemTable.id, existing.id));
 			} else {
+				await assertBagQuantityAvailableTx(tx, variantId, quantity);
 				const bagItemId = nanoid();
 				const values = parseNewBagItem({
 					id: bagItemId,
@@ -1228,7 +1217,6 @@ async function hydrateCheckoutOrderBagTx(
 
 	return {
 		...bagWithItems,
-		promoCodeId: row.promoCodeId ?? null,
 		canCheckout: blockingReasons.length === 0,
 		blockingReasons
 	};
@@ -1372,6 +1360,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 			discountAmount,
 			totalBeforeShipping: Math.max(0, subtotal - discountAmount),
 			hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
+			hasInsufficientItems: items.some((item) => item.availabilityStatus === 'insufficient'),
 			hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
 			promoCodeId: effectivePromoCodeId,
 			promoCode: promoCodeCode,
@@ -1598,7 +1587,36 @@ function resolveBagItemAvailability(input: {
 		}
 	}
 
-	return { status: 'unavailable', availableQuantity, reservationExpiresAt: null };
+	return {
+		status: availableQuantity > 0 ? 'insufficient' : 'unavailable',
+		availableQuantity,
+		reservationExpiresAt: null
+	};
+}
+
+async function assertBagQuantityAvailableTx(
+	tx: Tx,
+	variantId: string,
+	desiredQuantity: number
+): Promise<void> {
+	const [availability] = await getInventoryAvailabilityByVariantIdsTx(tx, {
+		variantIds: [variantId]
+	});
+
+	// Existing behavior permits products whose inventory row has not been initialized;
+	// hydration still blocks checkout until an admin configures that inventory.
+	if (!availability || !availability.trackInventory || availability.allowBackorder) return;
+	if (desiredQuantity <= availability.availableQuantity) return;
+
+	throw new BagError(
+		`Only ${availability.availableQuantity} unit${availability.availableQuantity === 1 ? '' : 's'} available.`,
+		ErrorCode.INSUFFICIENT_STOCK,
+		{
+			variantId,
+			requestedQuantity: desiredQuantity,
+			availableQuantity: availability.availableQuantity
+		}
+	);
 }
 
 function parseNewBagItem(input: NewBagItem): NewBagItem {
@@ -1680,6 +1698,9 @@ function checkoutBlockingReasons(
 
 	if (bag.items.length === 0) reasons.push('Bag is empty.');
 	if (bag.hasUnavailableItems) reasons.push('One or more bag items are unavailable.');
+	if (bag.hasInsufficientItems) {
+		reasons.push('Reduce one or more bag quantities to the available stock.');
+	}
 	if (bag.hasReservedItems) {
 		reasons.push('One or more bag items are temporarily reserved by another checkout.');
 	}

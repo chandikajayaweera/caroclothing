@@ -142,9 +142,7 @@ export const previewOrderFromBagFormSchema = z.object({
 
 export const placeOrderFromBagFormSchema = previewOrderFromBagFormSchema.safeExtend({
 	paymentMethod: z.enum(PAYMENT_METHODS),
-	customerNote: optionalNullableStringSchema(1000),
-	bankSlipR2Key: optionalNullableStringSchema(500),
-	bankReference: optionalNullableStringSchema(100)
+	customerNote: optionalNullableStringSchema(1000)
 });
 
 export const getOrderFormSchema = z.object({

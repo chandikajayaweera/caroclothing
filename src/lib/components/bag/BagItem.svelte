@@ -66,6 +66,10 @@
 			</span>
 		{:else if item.availabilityStatus === 'unavailable'}
 			<span class="font-mono text-[9px] text-red-400 uppercase">Out of Stock</span>
+		{:else if item.availabilityStatus === 'insufficient'}
+			<span class="font-mono text-[9px] text-amber-300 uppercase">
+				Only {item.availableQuantity ?? 0} available — reduce quantity
+			</span>
 		{:else if item.availabilityStatus === 'available' && item.availableQuantity !== null && item.availableQuantity < 5}
 			<span class="font-mono text-[9px] text-volt uppercase"
 				>Only {item.availableQuantity} left</span

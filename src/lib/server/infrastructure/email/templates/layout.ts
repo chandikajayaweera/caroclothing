@@ -4,11 +4,15 @@ import { h } from './escape';
 interface LayoutOptions {
 	previewText?: string;
 	content: string;
+	footerReason?: string;
 }
 
-export function baseLayout({ previewText = '', content }: LayoutOptions): string {
+export function baseLayout({ previewText = '', content, footerReason }: LayoutOptions): string {
 	const appName = h(getEnv().PUBLIC_APP_NAME);
 	const safePreviewText = h(previewText);
+	const safeFooterReason = h(
+		footerReason ?? 'You received this because you have an account with us.'
+	);
 	const brandColors = {
 		void: '#0A0A0A',
 		bone: '#F8F5F0',
@@ -65,7 +69,7 @@ export function baseLayout({ previewText = '', content }: LayoutOptions): string
                 ${appName} / Sri Lanka / Est. 2026
               </p>
               <p style="margin:0;font-size:12px;color:${brandColors.bone};line-height:1.6;opacity:0.6;">
-                You received this because you have an account with us.<br/>
+				${safeFooterReason}<br/>
                 Made here. Worn everywhere.
               </p>
             </td>

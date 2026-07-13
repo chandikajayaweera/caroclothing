@@ -20,10 +20,14 @@ class BagState {
 	hasUnavailableItems = $derived(
 		this.items.some((item) => item.availabilityStatus === 'unavailable')
 	);
+	hasInsufficientItems = $derived(
+		this.items.some((item) => item.availabilityStatus === 'insufficient')
+	);
 	hasReservedItems = $derived(this.items.some((item) => item.availabilityStatus === 'reserved'));
 
 	isPromoActive = $derived(
-		this.promoCode !== null &&
+		this.promoCodeId !== null &&
+			this.promoCode !== null &&
 			(this.promoMinOrderAmount === null || this.subtotal >= this.promoMinOrderAmount)
 	);
 	isPromoMinNotMet = $derived(

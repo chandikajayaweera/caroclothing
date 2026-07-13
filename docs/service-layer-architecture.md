@@ -18,25 +18,28 @@ shipping
 promotions
 inventory
 orders
+payments
 reviews
 ```
 
 `inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and are imported directly by server internals when needed.
 
+`payments` supports PayHere, PayPal, and cash on delivery only. PayHere checkout uses the official JavaScript SDK while signed server webhooks own payment truth. PayPal checkout uses JavaScript SDK v6 with server-created and server-captured Orders API transactions. Online checkout persists only a `payment_attempt` before provider success; no order/payment row or stock reservation exists yet. Verified capture revalidates the live bag and atomically creates and confirms the order, records the captured payment, consumes stock, deletes the bag, and enqueues confirmation intent. Cash-on-delivery confirmation still occurs at placement.
+
 Bag and checkout inventory lifecycle:
 
 - Adding, removing, or changing bag items does not reserve stock.
-- `startCheckout` validates the bag and reserves available stock in one transaction for 10 minutes.
-- When shoppers contend for the last stock, the first successful checkout reservation wins.
-- Later shoppers see a temporary checkout-hold status and countdown when active holds could satisfy their requested quantity.
+- `startCheckout` validates the bag and opens a 10-minute checkout window without reserving stock.
+- Bag additions and upward quantity changes reject desired line quantities above tracked available stock unless backorders are allowed.
+- A stale line that exceeds available stock is labelled `insufficient` with its exact available quantity, not `out of stock`; customers can still reduce it.
 - Bag availability uses bounded visible-tab refreshes, stale-on-focus refreshes, and a projection refresh after a known hold deadline.
 - The selected product-detail variant is seeded by its server-rendered snapshot, then uses bounded visible-tab refreshes, failure backoff, stale-on-focus refreshes, and the same checkout-aware status and hold countdown as the bag. A deadline refresh removes the expired hold from the projection; bounded Cron releases authoritative reserved inventory within the following minute.
 - Re-entering an active checkout keeps its original deadline.
-- Navigating away from checkout without placing an order cancels the checkout and releases its reservation.
-- Any bag mutation cancels the active checkout and releases its reservation.
-- Checkout expiry releases reserved stock and clears only checkout timestamps; bag items remain.
-- Successful order placement transfers reservation references from bag items to order items before deleting the bag.
-- Cron expires due checkout holds every minute; an owner bag read lazily releases only that bag's expired hold. Availability and bag-hydration projections never release other shoppers' reservations.
+- Navigating away from checkout or mutating the bag cancels the checkout window without clearing bag items.
+- Checkout expiry clears checkout timestamps; new checkout windows hold no stock. Cleanup still safely releases any legacy reservation references.
+- Online provider setup creates a `payment_attempt` only. Failure or cancellation leaves the bag intact and creates no order or reservation.
+- Verified capture reserves order-item quantities and consumes them during the same order-confirmation transaction before deleting the bag.
+- Cron expires due checkout windows every minute. Availability and bag-hydration projections never release another shopper's reservations.
 - Storefront availability combines bounded read-only projections without opening a libSQL write transaction. A concurrent checkout can make one projection momentarily stale; checkout/order write transactions remain authoritative and revalidate stock.
 
 Customer account lifecycle:

@@ -65,6 +65,7 @@ export interface OrderConfirmationInput {
 	total: string;
 	shippingAddress: string;
 	estimatedDelivery?: string;
+	orderUrl?: string;
 }
 
 export interface ShippingUpdateInput {
@@ -76,6 +77,7 @@ export interface ShippingUpdateInput {
 	trackingUrl?: string;
 	estimatedDelivery?: string;
 	carrier?: string;
+	orderUrl?: string;
 }
 
 // Marketing

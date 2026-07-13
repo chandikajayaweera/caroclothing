@@ -33,5 +33,9 @@ export function buildPromotionalEmail(input: PromotionalEmailInput): string {
     </div>
   `;
 
-	return baseLayout({ previewText: input.previewText, content });
+	return baseLayout({
+		previewText: input.previewText,
+		content,
+		footerReason: 'You received this because you opted in to Caro updates.'
+	});
 }

@@ -13,7 +13,7 @@ describe('payment provider logic', () => {
 	it('rejects internal placeholder emails', () => {
 		expect(resolvePublicPaymentEmail('buyer@example.com')).toBe('buyer@example.com');
 		expect(resolvePublicPaymentEmail('94770000000@phone.caroclothing.lk')).toBeNull();
-		expect(resolvePublicPaymentEmail('guest@anonymous.caroclothing.lk')).toBeNull();
+		expect(resolvePublicPaymentEmail('guest@anon.caroclothing.lk')).toBeNull();
 	});
 
 	it('rounds and locks the PayPal USD quote', () => {

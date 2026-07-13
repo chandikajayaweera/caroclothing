@@ -46,9 +46,9 @@
 			case 'auth_google_linked':
 				return 'Google Account Linked';
 			case 'order_confirmation':
-				return `Order Confirmation - #${value('orderNumber', value('orderId'))}`;
+				return `Order #${value('orderNumber', value('orderId'))} received`;
 			case 'shipping_update':
-				return `Shipping Update - Order #${value('orderNumber', value('orderId'))}`;
+				return `Order #${value('orderNumber', value('orderId'))} shipped`;
 			case 'payment_update':
 				return `Payment Update - Order #${value('orderNumber', value('orderId'))}`;
 			case 'order_status_update':
@@ -133,14 +133,22 @@
 	const trackingUrl = $derived(safeHttpUrl(values.trackingUrl));
 	const smsText = $derived.by(() => {
 		switch (type) {
-			case 'order_confirmation':
-				return `CARO: Order #${value('orderNumber', value('orderId'))} confirmed. Total: ${value('total')}.`;
-			case 'shipping_update':
-				return `CARO: Order #${value('orderNumber', value('orderId'))} shipped via ${value('carrier', 'courier')}. Tracking: ${value('trackingNumber')}.`;
-			case 'payment_update':
-				return `CARO: Payment ${value('amount')} for order #${value('orderNumber', value('orderId'))}: ${value('statusLabel', value('status'))}.`;
-			case 'order_status_update':
-				return `CARO: Order #${value('orderNumber', value('orderId'))} status: ${value('statusLabel', value('status'))}.`;
+			case 'order_confirmation': {
+				const orderUrl = value('orderUrl', '');
+				return `Order ${value('orderNumber', value('orderId'))} received. Total ${value('total')}.${orderUrl ? ` View ${orderUrl}` : ''}`;
+			}
+			case 'shipping_update': {
+				const trackingUrl = value('trackingUrl', '');
+				return `Order ${value('orderNumber', value('orderId'))} shipped. ${value('carrier', 'Courier')}. Tracking ${value('trackingNumber')}.${trackingUrl ? ` Track ${trackingUrl}` : ''}`;
+			}
+			case 'payment_update': {
+				const paymentUrl = value('paymentUrl', '');
+				return `Order ${value('orderNumber', value('orderId'))} payment ${value('statusLabel', value('status'))}. Amount ${value('amount')}.${paymentUrl ? ` View ${paymentUrl}` : ''}`;
+			}
+			case 'order_status_update': {
+				const orderUrl = value('orderUrl', '');
+				return `Order ${value('orderNumber', value('orderId'))} ${value('statusLabel', value('status'))}.${orderUrl ? ` View ${orderUrl}` : ''}`;
+			}
 			default:
 				return value('message', 'No formatted SMS preview is available for this type.');
 		}

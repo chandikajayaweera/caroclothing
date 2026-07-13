@@ -15,29 +15,35 @@ interface SecurityTemplateInput {
 }
 
 export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTemplateResult {
-	const EVENT_COPY: Record<SecurityEventType, { subject: string; headline: string; body: string }> =
-		{
-			new_login: {
-				subject: `Security: New sign-in detected`,
-				headline: 'New sign-in detected',
-				body: 'New sign-in on your account. If this was you, no action is needed.'
-			},
-			password_changed: {
-				subject: `Security: Password changed`,
-				headline: 'Password changed',
-				body: 'Your account password changed.'
-			},
-			email_changed: {
-				subject: `Security: Email updated`,
-				headline: 'Email updated',
-				body: 'The email address on your account changed.'
-			},
-			account_linked: {
-				subject: `Security: Account linked`,
-				headline: 'Account linked',
-				body: 'A sign-in method was linked to your account.'
-			}
-		};
+	const EVENT_COPY: Record<
+		SecurityEventType,
+		{ subject: string; headline: string; body: string; action: string }
+	> = {
+		new_login: {
+			subject: `Security: New sign-in detected`,
+			headline: 'New sign-in detected',
+			body: 'A new device signed in to your account.',
+			action: "If this wasn't you, secure your account immediately."
+		},
+		password_changed: {
+			subject: `Security: Password changed`,
+			headline: 'Password changed',
+			body: 'Your account password was changed.',
+			action: "If you didn't make this change, secure your account immediately."
+		},
+		email_changed: {
+			subject: `Security: Email updated`,
+			headline: 'Email updated',
+			body: 'The email address on your account was changed.',
+			action: "If you didn't make this change, secure your account immediately."
+		},
+		account_linked: {
+			subject: `Security: Account linked`,
+			headline: 'Account linked',
+			body: 'A new sign-in method was linked to your account.',
+			action: "If you didn't link it, secure your account immediately."
+		}
+	};
 
 	const copy = EVENT_COPY[input.event];
 
@@ -58,7 +64,7 @@ export function buildSecurityEmail(input: SecurityTemplateInput): SecurityTempla
     
     <div style="background:#0A0A0A;padding:24px;margin-top:32px;border:1px solid #0A0A0A;">
       <p style="margin:0 0 16px;font-size:14px;color:#F8F5F0;font-weight:500;">
-        If this wasn't you, secure your account immediately.
+		${copy.action}
       </p>
       <a href="${getEnv().PUBLIC_APP_URL}/account/security" 
          style="display:inline-block;background:#C8FF00;color:#0A0A0A;text-decoration:none;padding:12px 24px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:0;">

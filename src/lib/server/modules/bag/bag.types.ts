@@ -6,6 +6,7 @@ export type BagCheckoutStatus = 'inactive' | 'active' | 'expired';
 
 export type BagItemAvailabilityStatus =
 	| 'available'
+	| 'insufficient'
 	| 'reserved'
 	| 'backorder'
 	| 'unavailable'
@@ -92,6 +93,7 @@ export type BagDTO = {
 	discountAmount: number;
 	totalBeforeShipping: number;
 	hasUnavailableItems: boolean;
+	hasInsufficientItems: boolean;
 	hasReservedItems: boolean;
 	promoCodeId: string | null;
 	promoCode: string | null;

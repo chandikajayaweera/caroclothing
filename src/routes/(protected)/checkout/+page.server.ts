@@ -11,7 +11,7 @@ import { getCheckoutCustomer } from '$lib/server/modules/auth';
 import { listShippingDistrictOptions, listShippingQuotes } from '$lib/server/modules/shipping';
 import { checkoutPlaceOrderFormSchema, placeOrderFromBag } from '$lib/server/modules/orders';
 import {
-	createPaymentSession,
+	createCheckoutPaymentSession,
 	listAvailableCheckoutPaymentMethods,
 	validateCheckoutPaymentSelection
 } from '$lib/server/modules/payments';
@@ -140,15 +140,38 @@ export const actions: Actions = {
 					postalCode: values.postalCode
 				};
 
-		let order;
+		if (paymentSelection.method === 'cash_on_delivery') {
+			let order;
+			try {
+				order = await placeOrderFromBag(ctx, {
+					sessionToken,
+					shippingAddress,
+					shippingMethodId: values.shippingMethodId,
+					paymentMethod: paymentSelection.method,
+					customerNote: values.customerNote
+				});
+			} catch (error) {
+				if (isAppError(error) && error.code === ErrorCode.CHECKOUT_SESSION_EXPIRED) {
+					throw redirect(
+						303,
+						`/bag?error=${encodeURIComponent('Checkout expired. Start checkout again when you are ready.')}`
+					);
+				}
+				return failFromAppError(error);
+			}
+			throw redirect(303, `/checkout/confirmation/${order.id}`);
+		}
+
 		try {
-			order = await placeOrderFromBag(ctx, {
+			const paymentSession = await createCheckoutPaymentSession(ctx, {
 				sessionToken,
 				shippingAddress,
 				shippingMethodId: values.shippingMethodId,
 				paymentMethod: paymentSelection.method,
+				billingEmail: paymentSelection.billingEmail,
 				customerNote: values.customerNote
 			});
+			return { success: true, paymentSession };
 		} catch (error) {
 			if (isAppError(error) && error.code === ErrorCode.CHECKOUT_SESSION_EXPIRED) {
 				throw redirect(
@@ -158,30 +181,5 @@ export const actions: Actions = {
 			}
 			return failFromAppError(error);
 		}
-
-		if (paymentSelection.method === 'cash_on_delivery') {
-			throw redirect(303, `/checkout/confirmation/${order.id}`);
-		}
-
-		let sessionResult;
-		try {
-			sessionResult = await createPaymentSession(ctx, {
-				orderId: order.id,
-				method: paymentSelection.method,
-				billingEmail: paymentSelection.billingEmail
-			});
-		} catch (error) {
-			console.error('[checkout] Payment session setup failed after order placement.', {
-				orderId: order.id,
-				error
-			});
-			throw redirect(303, `/checkout/confirmation/${order.id}?payment=setup_failed`);
-		}
-
-		return {
-			success: true,
-			order,
-			paymentSession: sessionResult
-		};
 	}
 };

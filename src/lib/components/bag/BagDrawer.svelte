@@ -82,7 +82,12 @@
 						Remove out-of-stock items to checkout
 					</p>
 				{/if}
-				{#if bag.hasReservedItems || bag.hasUnavailableItems}
+				{#if bag.hasInsufficientItems}
+					<p class="mb-3 font-mono text-[9px] text-amber-300 uppercase">
+						Reduce quantities to the available stock
+					</p>
+				{/if}
+				{#if bag.hasReservedItems || bag.hasUnavailableItems || bag.hasInsufficientItems}
 					<Button variant="primary" class="w-full cursor-not-allowed opacity-50" disabled={true}
 						>{bag.hasReservedItems ? 'Waiting for stock' : 'Checkout'}</Button
 					>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { Info, Plus, Settings, TrendingUp } from 'lucide-svelte';
@@ -14,7 +14,7 @@
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
-	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminInventoryAdjustmentReviewDialog from '$lib/components/admin/AdminInventoryAdjustmentReviewDialog.svelte';
 	import AdminTabs from '$lib/components/admin/AdminTabs.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
@@ -78,8 +78,8 @@
 	// Drawer state
 	let drawerOpen = $state(false);
 	let drawerTab = $state<DrawerTab>('restock');
-	let removeConfirmOpen = $state(false);
-	let removalConfirmed = $state(false);
+	let adjustmentReviewOpen = $state(false);
+	let adjustmentConfirmed = $state(false);
 	let adjustFormElement = $state<HTMLFormElement | null>(null);
 
 	// Local state for stock adjustments (prevents negative entry input UX)
@@ -171,6 +171,7 @@
 					toastMessage = form.message ?? 'Inventory settings updated.';
 					toastType = 'success';
 					updateSettingsHasError = false;
+					void invalidateAll();
 				} else {
 					const fieldErrors = Object.entries(form.errors)
 						.filter(([, errs]) => errs && errs.length > 0)
@@ -196,10 +197,6 @@
 		submitting: updateSettingsSubmitting,
 		message: updateSettingsMessage
 	} = updateSettingsSuperform;
-
-	// Safe initial defaults to prevent Svelte 5 props_invalid_value on mount
-	$updateSettingsForm.trackInventory = true;
-	$updateSettingsForm.allowBackorder = false;
 
 	const restockSuperform = superForm(
 		initialForm(() => data.restockForm),
@@ -242,13 +239,24 @@
 		{
 			resetForm: true,
 			id: 'adjustInventory',
+			onSubmit({ cancel }) {
+				if (!adjustmentConfirmed) {
+					cancel();
+					if (adjustFormElement?.reportValidity() && !removalExceedsAvailable) {
+						adjustmentReviewOpen = true;
+					}
+					return;
+				}
+
+				adjustmentConfirmed = false;
+			},
 			onUpdated({ form }) {
 				if (form.valid) {
 					toastMessage = form.message ?? 'Stock level adjusted.';
 					toastType = 'success';
 					adjustHasError = false;
-					removeConfirmOpen = false;
-					removalConfirmed = false;
+					adjustmentReviewOpen = false;
+					adjustmentConfirmed = false;
 				} else {
 					const fieldErrors = Object.entries(form.errors)
 						.filter(([, errs]) => errs && errs.length > 0)
@@ -339,8 +347,8 @@
 	}
 
 	function closeDrawer() {
-		removeConfirmOpen = false;
-		removalConfirmed = false;
+		adjustmentReviewOpen = false;
+		adjustmentConfirmed = false;
 		drawerOpen = false;
 		const url = new URL(page.url);
 		url.searchParams.delete('open');
@@ -353,17 +361,10 @@
 		});
 	}
 
-	function handleAdjustSubmit(event: SubmitEvent) {
-		if (adjustType !== 'remove' || removalConfirmed) return;
-		event.preventDefault();
-		removeConfirmOpen = true;
-	}
-
-	function confirmStockRemoval() {
-		removalConfirmed = true;
-		removeConfirmOpen = false;
+	function confirmStockAdjustment() {
+		adjustmentConfirmed = true;
+		adjustmentReviewOpen = false;
 		adjustFormElement?.requestSubmit();
-		removalConfirmed = false;
 	}
 
 	function getStatusLabel(item: InventoryItem): string {
@@ -896,7 +897,6 @@
 							method="POST"
 							action="?/adjust"
 							use:adjustEnhance
-							onsubmit={handleAdjustSubmit}
 							class="space-y-4"
 						>
 							<input type="hidden" name="variantId" value={detail.variantId} />
@@ -998,7 +998,7 @@
 									? 'Updating...'
 									: adjustType === 'remove'
 										? 'Review Stock Removal'
-										: 'Add Stock'}
+										: 'Review Stock Addition'}
 							</AdminButton>
 						</form>
 					</div>
@@ -1158,13 +1158,20 @@
 	</AdminDrawer>
 {/if}
 
-<AdminConfirmDialog
-	bind:open={removeConfirmOpen}
-	title="Confirm stock removal"
-	message={`Remove ${adjustAmount ?? 0} units? Physical stock will change from ${currentPhysicalQuantity} to ${projectedPhysicalQuantity}, leaving ${projectedAvailableQuantity ?? 'untracked'} available.`}
-	confirmLabel="Remove stock"
+<AdminInventoryAdjustmentReviewDialog
+	bind:open={adjustmentReviewOpen}
+	action={adjustType}
+	variantLabel={data.activeDetail
+		? `${data.activeDetail.product.name} / ${data.activeDetail.variant.size} / ${data.activeDetail.variant.color}`
+		: 'Selected variant'}
+	amount={adjustAmount ?? 0}
+	physicalBefore={currentPhysicalQuantity}
+	physicalAfter={projectedPhysicalQuantity}
+	reserved={currentReservedQuantity}
+	availableAfter={projectedAvailableQuantity}
+	note={$adjustForm.note ?? ''}
 	loading={$adjustSubmitting}
-	onconfirm={confirmStockRemoval}
+	onconfirm={confirmStockAdjustment}
 />
 
 <!-- Global Toast message adapter -->

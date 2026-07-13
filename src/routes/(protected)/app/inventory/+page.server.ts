@@ -59,15 +59,13 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const listOptions = parsed.success ? parsed.data : { limit: 50, offset: 0 };
 
 	try {
-		const [summary, inventoryResult, initializeForm, updateSettingsForm, restockForm, adjustForm] =
-			await Promise.all([
-				getInventorySummary(ctx),
-				listInventory(ctx, listOptions),
-				superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
-				superValidate(zod4(updateInventorySettingsFormSchema), { id: 'updateInventorySettings' }),
-				superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
-				superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
-			]);
+		const [summary, inventoryResult, initializeForm, restockForm, adjustForm] = await Promise.all([
+			getInventorySummary(ctx),
+			listInventory(ctx, listOptions),
+			superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
+			superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
+			superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
+		]);
 
 		let activeDetail = null;
 		if (openId) {
@@ -77,6 +75,22 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				// Ignore if the variant ID is invalid or doesn't exist
 			}
 		}
+
+		const updateSettingsForm = activeDetail?.inventory
+			? await superValidate(
+					{
+						variantId: activeDetail.variantId,
+						lowStockThreshold: activeDetail.inventory.lowStockThreshold,
+						trackInventory: activeDetail.inventory.trackInventory,
+						allowBackorder: activeDetail.inventory.allowBackorder
+					},
+					zod4(updateInventorySettingsFormSchema),
+					{ id: 'updateInventorySettings', errors: false }
+				)
+			: await superValidate(zod4(updateInventorySettingsFormSchema), {
+					id: 'updateInventorySettings',
+					errors: false
+				});
 
 		return {
 			summary,

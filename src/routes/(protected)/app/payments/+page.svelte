@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { AlertTriangle, Eye, ArrowUpRight } from 'lucide-svelte';
+	import { AlertTriangle, ArrowUpRight } from 'lucide-svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
@@ -17,11 +17,7 @@
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import { paymentStatusVariant } from '$lib/shared/admin/status';
-	import {
-		formatAdminMoney,
-		formatAdminDateTime,
-		formatAdminStatus
-	} from '$lib/shared/admin/format';
+	import { formatAdminMoney, formatAdminStatus } from '$lib/shared/admin/format';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -39,10 +35,7 @@
 		{ value: '', label: 'All Methods' },
 		{ value: 'payhere', label: 'PayHere.lk' },
 		{ value: 'paypal', label: 'PayPal' },
-		{ value: 'bank_transfer', label: 'Bank Transfer' },
-		{ value: 'cash_on_delivery', label: 'Cash on Delivery' },
-		{ value: 'paykoko', label: 'Koko (paykoko.com)' },
-		{ value: 'mintpay', label: 'Mintpay' }
+		{ value: 'cash_on_delivery', label: 'Cash on Delivery' }
 	];
 
 	const recordablePaymentStatuses = [
@@ -72,7 +65,6 @@
 	// ── Dialog States ───────────────────────────────────────────────────────
 	let paymentModalOpen = $state(false);
 	let refundModalOpen = $state(false);
-	let slipModalOpen = $state(false);
 	let selectedPayment = $state<PagePayment | null>(null);
 	let refundConfirming = $state(false);
 
@@ -112,7 +104,7 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
-					toastMessage = form.message ?? 'Refund successfully processed.';
+					toastMessage = form.message ?? 'Refund recorded.';
 					refundConfirming = false;
 					refundModalOpen = false;
 				}
@@ -175,11 +167,6 @@
 		$refundForm.refundAmount = p.amount - (p.refundAmount || 0);
 		refundConfirming = false;
 		refundModalOpen = true;
-	}
-
-	function openSlipModal(p: PagePayment) {
-		selectedPayment = p;
-		slipModalOpen = true;
 	}
 </script>
 
@@ -324,17 +311,6 @@
 			</td>
 			<td class="px-5 py-4 text-right">
 				<div class="flex items-center justify-end gap-2">
-					{#if payment.bankSlipR2Key}
-						<AdminButton
-							onclick={() => openSlipModal(payment)}
-							variant="charcoal"
-							size="icon"
-							title="View Uploaded Bank Slip"
-						>
-							<Eye size={14} />
-						</AdminButton>
-					{/if}
-
 					{#if payment.status === 'pending' || payment.status === 'failed'}
 						<AdminButton onclick={() => openRecordPayment(payment)} variant="volt" size="sm">
 							Verify
@@ -411,12 +387,6 @@
 
 			{#snippet actions()}
 				<div class="flex justify-end gap-2 border-t border-charcoal/50 pt-3">
-					{#if payment.bankSlipR2Key}
-						<AdminButton onclick={() => openSlipModal(payment)} variant="outline" size="sm">
-							View Slip
-						</AdminButton>
-					{/if}
-
 					{#if payment.status === 'pending' || payment.status === 'failed'}
 						<AdminButton onclick={() => openRecordPayment(payment)} variant="volt" size="sm">
 							Verify
@@ -438,69 +408,6 @@
 		/>
 	{/snippet}
 </AdminListLayout>
-
-<!-- ── MODAL: VIEW BANK SLIP ────────────────────────────────────────────── -->
-{#if slipModalOpen && selectedPayment}
-	<AdminModal bind:open={slipModalOpen} kicker="Review Slip" title="Bank Transfer Proof" size="2xl">
-		<div class="grid grid-cols-1 gap-6 md:grid-cols-[1fr_220px]">
-			<!-- Left: Slip Image -->
-			<div class="flex min-h-75 items-center justify-center border border-charcoal bg-void p-2">
-				{#if selectedPayment.bankSlipR2Key}
-					<img
-						src={resolve('/media/[...key]', { key: selectedPayment.bankSlipR2Key })}
-						alt="Uploaded bank slip"
-						class="max-h-100 max-w-full object-contain"
-					/>
-				{:else}
-					<span class="font-mono text-xs text-ash/40">No slip image uploaded</span>
-				{/if}
-			</div>
-
-			<!-- Right: Slip details & manual action link -->
-			<div class="flex flex-col justify-between gap-5">
-				<AdminMetaGrid cols={1} class="mt-0">
-					<div>
-						<span class="text-ash">Reference No: </span><span class="break-all text-bone"
-							>{selectedPayment.bankReference || 'None'}</span
-						>
-					</div>
-					<div>
-						<span class="text-ash">Amount Due: </span><span class="text-volt"
-							>{formatAdminMoney(selectedPayment.amount)}</span
-						>
-					</div>
-					<div>
-						<span class="text-ash">Submitted At: </span><span class="text-bone/60"
-							>{formatAdminDateTime(selectedPayment.createdAt)}</span
-						>
-					</div>
-				</AdminMetaGrid>
-
-				<div class="flex flex-col gap-2">
-					{#if selectedPayment.status === 'pending'}
-						<AdminButton
-							onclick={() => {
-								slipModalOpen = false;
-								openRecordPayment(selectedPayment!);
-							}}
-							variant="volt"
-							class="w-full py-2.5 font-mono text-[9px] tracking-widest uppercase"
-						>
-							Approve Payment
-						</AdminButton>
-					{/if}
-					<AdminButton
-						onclick={() => (slipModalOpen = false)}
-						variant="outline"
-						class="w-full border-ash/10 py-2.5 font-mono text-[9px] tracking-widest text-ash uppercase hover:text-bone"
-					>
-						Close
-					</AdminButton>
-				</div>
-			</div>
-		</div>
-	</AdminModal>
-{/if}
 
 <!-- ── MODAL: RECORD PAYMENT ────────────────────────────────────────────── -->
 {#if paymentModalOpen}
@@ -553,9 +460,13 @@
 
 <!-- ── MODAL: PROCESS REFUND ────────────────────────────────────────────── -->
 {#if refundModalOpen}
-	<AdminModal bind:open={refundModalOpen} kicker="Process Returns" title="Process Refund" size="md">
+	<AdminModal bind:open={refundModalOpen} kicker="Provider Ledger" title="Record Refund" size="md">
 		<form method="POST" action="?/recordRefund" use:refundEnhance class="flex flex-col gap-5">
 			<input type="hidden" name="paymentId" bind:value={$refundForm.paymentId} />
+			<p class="border border-amber-400/30 bg-amber-400/5 p-3 font-sans text-xs text-amber-100">
+				This records a refund already completed in PayHere, PayPal, or the COD workflow. It does not
+				send funds to the customer.
+			</p>
 
 			<div class="flex flex-col gap-2">
 				<label class="font-mono text-[9px] tracking-widest text-ash uppercase" for="pay-ref-disp"
@@ -607,7 +518,7 @@
 			<div class="mt-4 grid gap-2 sm:grid-cols-2">
 				{#if refundConfirming}
 					<AdminButton type="submit" disabled={$refundSubmitting} variant="danger">
-						{#if $refundSubmitting}Processing...{:else}Confirm Refund{/if}
+						{#if $refundSubmitting}Recording...{:else}Record Refund{/if}
 					</AdminButton>
 					<AdminButton
 						type="button"

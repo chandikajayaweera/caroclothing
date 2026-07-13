@@ -1,4 +1,3 @@
-import { getEnv } from '$lib/server/infrastructure/env';
 import { sendSms } from '../client';
 import type {
 	OrderConfirmationSmsInput,
@@ -14,10 +13,12 @@ export async function sendOrderConfirmationSms(
 	return sendSms({
 		to: input.to,
 		senderPurpose: 'transactional',
-		message: compactMessage([
-			`${getEnv().PUBLIC_APP_NAME}: Order ${formatOrderRef(input)} received.`,
-			`Total ${input.total}.`,
-			input.orderUrl ? `View: ${input.orderUrl}` : 'We will update you when it ships.'
+		message: formatMessage([
+			'Your order has been placed.',
+			`Order ID: ${formatOrderRef(input)}`,
+			`Total: ${input.total}`,
+			input.orderUrl ? `View your order: ${input.orderUrl}` : null,
+			'Thank you for shopping with us.'
 		])
 	});
 }
@@ -26,12 +27,13 @@ export async function sendShippingUpdateSms(input: ShippingUpdateSmsInput): Prom
 	return sendSms({
 		to: input.to,
 		senderPurpose: 'transactional',
-		message: compactMessage([
-			`${getEnv().PUBLIC_APP_NAME}: Order ${formatOrderRef(input)} shipped.`,
-			input.carrier ? `${input.carrier}.` : null,
-			`Tracking: ${input.trackingNumber}.`,
-			input.estimatedDelivery ? `ETA: ${input.estimatedDelivery}.` : null,
-			input.trackingUrl ? `Track: ${input.trackingUrl}` : null
+		message: formatMessage([
+			'Your order is on the way.',
+			`Order ID: ${formatOrderRef(input)}`,
+			input.carrier ? `Carrier: ${input.carrier}` : null,
+			`Tracking: ${input.trackingNumber}`,
+			input.estimatedDelivery ? `Estimated delivery: ${input.estimatedDelivery}` : null,
+			input.trackingUrl ? `Track your order: ${input.trackingUrl}` : null
 		])
 	});
 }
@@ -40,10 +42,14 @@ export async function sendPaymentUpdateSms(input: PaymentUpdateSmsInput): Promis
 	return sendSms({
 		to: input.to,
 		senderPurpose: 'transactional',
-		message: compactMessage([
-			`${getEnv().PUBLIC_APP_NAME}: Payment ${input.statusLabel ?? input.status} for order ${formatOrderRef(input)}.`,
-			input.amount ? `Amount ${input.amount}.` : null,
-			input.paymentUrl ? `View: ${input.paymentUrl}` : null
+		message: formatMessage([
+			paymentHeadline(input.status),
+			`Order ID: ${formatOrderRef(input)}`,
+			input.amount ? `Amount: ${input.amount}` : null,
+			input.paymentUrl ? `View your order: ${input.paymentUrl}` : null,
+			input.status === 'refunded'
+				? 'Your bank may take several business days to show the refund.'
+				: null
 		])
 	});
 }
@@ -54,9 +60,15 @@ export async function sendOrderStatusUpdateSms(
 	return sendSms({
 		to: input.to,
 		senderPurpose: 'transactional',
-		message: compactMessage([
-			`${getEnv().PUBLIC_APP_NAME}: Order ${formatOrderRef(input)} is ${input.statusLabel ?? input.status}.`,
-			input.orderUrl ? `View: ${input.orderUrl}` : null
+		message: formatMessage([
+			orderStatusHeadline(input.status, input.statusLabel),
+			`Order ID: ${formatOrderRef(input)}`,
+			input.orderUrl ? `View your order: ${input.orderUrl}` : null,
+			input.status === 'delivered' ? 'Thank you for shopping with us.' : null,
+			input.status === 'refunded'
+				? 'Your bank may take several business days to show the refund.'
+				: null,
+			input.status === 'cancelled' ? 'Need help? Reply to this message.' : null
 		])
 	});
 }
@@ -65,6 +77,23 @@ function formatOrderRef(input: { orderNumber?: string; orderId: string }): strin
 	return input.orderNumber ?? input.orderId;
 }
 
-function compactMessage(parts: Array<string | null | undefined>): string {
-	return parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+function formatMessage(parts: Array<string | null | undefined>): string {
+	return parts
+		.filter((part): part is string => Boolean(part))
+		.map((part) => part.replace(/[ \t]+/g, ' ').trim())
+		.join('\n');
+}
+
+function paymentHeadline(status: string): string {
+	if (status === 'refunded') return 'Your payment has been refunded.';
+	if (status === 'captured') return 'Your payment has been received.';
+	if (status === 'failed') return 'Your payment was not completed.';
+	return `Payment update: ${status.replaceAll('_', ' ')}.`;
+}
+
+function orderStatusHeadline(status: string, statusLabel?: string): string {
+	if (status === 'delivered') return 'Your order has been delivered.';
+	if (status === 'cancelled') return 'Your order has been cancelled.';
+	if (status === 'refunded') return 'Your order has been refunded.';
+	return `Order update: ${statusLabel ?? status}.`;
 }

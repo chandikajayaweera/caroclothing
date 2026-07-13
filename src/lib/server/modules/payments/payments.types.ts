@@ -1,5 +1,6 @@
 import type { OrderStatus } from '../orders/orders.drizzle';
-import type { PaymentMethod, PaymentStatus } from './payments.drizzle';
+import type { PaymentAttemptStatus, PaymentMethod, PaymentStatus } from './payments.drizzle';
+import type { CheckoutShippingAddressInput } from '../orders/orders.types';
 
 export type PaymentDTO = {
 	id: string;
@@ -14,8 +15,6 @@ export type PaymentDTO = {
 	refundAmount: number | null;
 	refundedAt: Date | null;
 	paidAt: Date | null;
-	bankSlipR2Key: string | null;
-	bankReference: string | null;
 	requiresManualReview: boolean;
 	reviewReason: string | null;
 	createdAt: Date;
@@ -29,6 +28,10 @@ export type CheckoutPaymentMethodDTO = {
 	kind: 'online' | 'offline';
 	badge?: string;
 	requiresBillingEmail: boolean;
+	clientConfig?: {
+		clientId: string;
+		sdkUrl: string;
+	};
 };
 
 export type ValidateCheckoutPaymentSelectionInput = {
@@ -45,15 +48,49 @@ export type CreatePaymentSessionInput = {
 	orderId: string;
 	method: PaymentMethod;
 	billingEmail?: string | null;
-	bankSlipR2Key?: string | null;
-	bankReference?: string | null;
+};
+
+export type CreateCheckoutPaymentSessionInput = {
+	sessionToken?: string | null;
+	shippingAddress: CheckoutShippingAddressInput;
+	shippingMethodId: string;
+	paymentMethod: Extract<PaymentMethod, 'payhere' | 'paypal'>;
+	billingEmail?: string | null;
+	customerNote?: string | null;
+};
+
+export type PaymentAttemptCheckoutInput = Omit<CreateCheckoutPaymentSessionInput, 'billingEmail'>;
+
+export type PayHerePaymentData = Record<string, string | boolean> & {
+	sandbox: boolean;
 };
 
 export type CreatePaymentSessionResult = {
 	paymentId: string;
-	method: PaymentMethod;
-	redirectUrl?: string; // Redirect url for online gateways
-	paymentData?: Record<string, string>; // Extra form parameters if needed (e.g. PayHere form parameters)
+	orderId: string;
+} & (
+	| { method: 'payhere'; paymentData: PayHerePaymentData }
+	| { method: 'paypal'; paypalOrderId: string }
+);
+
+export type CreateCheckoutPaymentSessionResult = {
+	attemptId: string;
+} & (
+	| { method: 'payhere'; paymentData: PayHerePaymentData }
+	| { method: 'paypal'; paypalOrderId: string }
+);
+
+export type CheckoutPaymentAttemptDTO = {
+	id: string;
+	method: Extract<PaymentMethod, 'payhere' | 'paypal'>;
+	status: PaymentAttemptStatus;
+	amount: number;
+	currency: string;
+	orderId: string | null;
+	failureReason: string | null;
+	expiresAt: Date;
+	createdAt: Date;
+	updatedAt: Date;
 };
 
 export type ProcessPayHereWebhookInput = {
@@ -61,9 +98,8 @@ export type ProcessPayHereWebhookInput = {
 	headers: Record<string, string>;
 };
 
-export type CapturePayPalReturnInput = {
+export type CapturePayPalPaymentInput = {
 	paypalOrderId: string;
-	payerId?: string | null;
 };
 
 export type PaymentGatewayResult = {
@@ -107,8 +143,6 @@ export type RecordPaymentInput = {
 	transactionId?: string | null;
 	gatewayResponse?: unknown | null;
 	paidAt?: Date | null;
-	bankSlipR2Key?: string | null;
-	bankReference?: string | null;
 };
 
 export type RecordRefundInput = {

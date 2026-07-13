@@ -13,22 +13,22 @@ export function buildOTPEmail(otp: string, type: OTPType): OTPTemplateResult {
 		'sign-in': {
 			subject: `${getEnv().PUBLIC_APP_NAME}: Sign-in code`,
 			action: 'sign in',
-			note: "If you didn't try to sign in, ignore this email."
+			note: "If you didn't try to sign in, ignore this email. Never share this code."
 		},
 		'email-verification': {
 			subject: `Verify your email - ${getEnv().PUBLIC_APP_NAME}`,
 			action: 'verify your email',
-			note: "If you didn't create an account, ignore this email."
+			note: "If you didn't create an account, ignore this email. Never share this code."
 		},
 		'forget-password': {
 			subject: `Reset password - ${getEnv().PUBLIC_APP_NAME}`,
 			action: 'reset your password',
-			note: "If you didn't request a reset, ignore this email."
+			note: "If you didn't request a reset, ignore this email. Never share this code."
 		},
 		'change-email': {
 			subject: `Confirm new email - ${getEnv().PUBLIC_APP_NAME}`,
 			action: 'confirm your new email',
-			note: "If you didn't request this, secure your account."
+			note: "If you didn't request this, secure your account. Never share this code."
 		}
 	};
 

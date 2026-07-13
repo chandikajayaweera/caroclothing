@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { OrderStatus } from '../orders/orders.drizzle';
 import type { PaymentStatus } from './payments.drizzle';
 
-const TEMPORARY_EMAIL_DOMAINS = ['@phone.caroclothing.lk', '@anonymous.caroclothing.lk'];
+const TEMPORARY_EMAIL_DOMAINS = ['@phone.caroclothing.lk', '@anon.caroclothing.lk'];
 const emailSchema = z.email();
 
 export type PayPalFxQuote = {

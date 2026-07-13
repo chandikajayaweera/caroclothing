@@ -37,12 +37,12 @@ For notification work, also inspect:
 
 ## Current Service Status
 
-- Implemented service modules: `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
+- Implemented service modules: `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, `reviews`.
 - Inventory exposes public admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and should be imported directly only by server internals already inside a transaction.
-- Bag mutations do not reserve stock. Starting checkout reserves available stock for 10 minutes.
-- Leaving checkout without placing an order cancels checkout and releases its reservation.
-- Any bag mutation cancels an active checkout and releases its reservation. Expiry releases reservations without clearing bag items.
-- Successful order placement transfers the checkout reservation to order-item reservation references, then deletes the bag.
+- Bag mutations and checkout start do not reserve stock. Starting checkout opens a 10-minute validation window only.
+- Leaving checkout or mutating the bag cancels that checkout window without clearing bag items.
+- Online checkout persists only a `payment_attempt` before gateway success; failed or cancelled payment creates no order/payment row and holds no stock.
+- Verified online capture revalidates the bag, creates the order/payment, reserves and consumes stock, deletes the bag, and enqueues confirmation notifications in one transaction.
 - Implemented foundations: `context.ts`, `guards.ts`, `utils.ts`, and `errors/route-adapter.ts`.
 - Schema-only business modules needing service plans: none in current core service rollout.
 - Implemented notification state: `src/lib/server/modules/notifications/outbox` owns `notification_outbox` schema, types, idempotency, retry/audit state, and claim/mark/cancel APIs.

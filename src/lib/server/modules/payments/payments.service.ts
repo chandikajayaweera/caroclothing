@@ -3,7 +3,7 @@ import { getDb } from '$lib/server/db';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { ErrorCode, PaymentError, getErrorMessage } from '$lib/server/infrastructure/errors';
-import type { ServiceContext } from '$lib/server/foundation/context';
+import type { ServiceActor, ServiceContext } from '$lib/server/foundation/context';
 import {
 	resolveNow,
 	removeUndefinedValues,
@@ -12,11 +12,13 @@ import {
 } from '$lib/server/foundation/utils';
 import {
 	payment as paymentTable,
+	paymentAttempt as paymentAttemptTable,
 	paymentWebhookLog as paymentWebhookLogTable,
 	insertPaymentSchema,
 	updatePaymentSchema,
 	CHECKOUT_PAYMENT_METHODS,
 	type Payment,
+	type PaymentAttempt,
 	type PaymentMethod,
 	type NewPayment,
 	type PaymentStatus
@@ -25,6 +27,10 @@ import { user as userTable } from '../auth/auth.drizzle';
 import { order as orderTable, type OrderStatus } from '../orders/orders.drizzle';
 import {
 	transitionOrderStatusTx,
+	placeOrderFromBagTx,
+	previewOrderFromBag,
+	enqueueOrderConfirmationNotificationsForOrderTx,
+	enqueueOrderConfirmationNotificationsTx,
 	enqueuePaymentUpdateNotificationTx
 } from '../orders/orders.service';
 import { publishNotificationWakeups } from '../notifications/outbox/outbox.service';
@@ -43,13 +49,17 @@ import {
 	type PayPalFxQuote
 } from './payments.logic';
 import type {
-	CapturePayPalReturnInput,
+	CapturePayPalPaymentInput,
+	CheckoutPaymentAttemptDTO,
 	CheckoutPaymentMethodDTO,
+	CreateCheckoutPaymentSessionInput,
+	CreateCheckoutPaymentSessionResult,
 	PaymentDTO,
 	CreatePaymentSessionInput,
 	CreatePaymentSessionResult,
 	PaymentDashboardSummaryDTO,
 	PaymentGatewayResult,
+	PaymentAttemptCheckoutInput,
 	ProcessPayHereWebhookInput,
 	ValidateCheckoutPaymentSelectionInput,
 	ValidatedCheckoutPaymentSelection,
@@ -65,6 +75,7 @@ export type PaymentsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const PAYMENT_PROVIDER_TIMEOUT_MS = 10_000;
+const PAYMENT_ATTEMPT_TTL_MS = 10 * 60 * 1000;
 const checkoutPaymentMethodSet = new Set<string>(CHECKOUT_PAYMENT_METHODS);
 
 // ---------------------------------------------------------------------------
@@ -103,7 +114,11 @@ export function listAvailableCheckoutPaymentMethods(
 			title: 'PayPal',
 			description: 'Pay through PayPal in USD using a locked checkout exchange quote.',
 			kind: 'online',
-			requiresBillingEmail: false
+			requiresBillingEmail: false,
+			clientConfig: {
+				clientId: env.PAYPAL_CLIENT_ID!,
+				sdkUrl: getPayPalSdkUrl(env.PAYPAL_IS_SANDBOX === 'true')
+			}
 		});
 	}
 
@@ -138,6 +153,187 @@ export async function validateCheckoutPaymentSelection(
 	}
 
 	return { method, billingEmail };
+}
+
+export async function createCheckoutPaymentSession(
+	ctx: ServiceContext,
+	input: CreateCheckoutPaymentSessionInput
+): Promise<CreateCheckoutPaymentSessionResult> {
+	const actor = requireActor(ctx.actor);
+	const env = getEnv();
+	const now = resolveNow(ctx);
+	const method = assertCheckoutPaymentMethodAvailable(ctx, input.paymentMethod);
+	if (method === 'cash_on_delivery') {
+		throw new PaymentError(
+			'Cash on delivery does not require a payment session.',
+			ErrorCode.PAYMENT_ALREADY_PROCESSED
+		);
+	}
+
+	const preview = await previewOrderFromBag(ctx, {
+		sessionToken: input.sessionToken,
+		shippingAddress: input.shippingAddress,
+		shippingMethodId: input.shippingMethodId,
+		now
+	});
+	if (!preview.canCheckout || !preview.bag.userId) {
+		throw new PaymentError('Checkout is no longer available.', ErrorCode.CHECKOUT_SESSION_EXPIRED, {
+			blockingReasons: preview.blockingReasons
+		});
+	}
+
+	const checkoutInput: PaymentAttemptCheckoutInput = {
+		sessionToken: input.sessionToken,
+		shippingAddress: input.shippingAddress,
+		shippingMethodId: input.shippingMethodId,
+		paymentMethod: method,
+		customerNote: input.customerNote
+	};
+	const attemptId = crypto.randomUUID();
+	const expiresAt =
+		preview.bag.checkoutExpiresAt ?? new Date(now.getTime() + PAYMENT_ATTEMPT_TTL_MS);
+	let billingEmail: string | null = null;
+	let providerMetadata: GatewayMetadata = {};
+
+	if (method === 'payhere') {
+		const [customer] = await getDb()
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(eq(userTable.id, actor.id))
+			.limit(1);
+		billingEmail =
+			resolvePublicPaymentEmail(input.billingEmail) ??
+			resolvePublicPaymentEmail(customer?.email) ??
+			null;
+		if (!billingEmail) {
+			throw new PaymentError(
+				'Enter a valid billing email to continue with card payment.',
+				ErrorCode.VALIDATION_ERROR,
+				{ field: 'billingEmail' }
+			);
+		}
+	}
+
+	if (method === 'paypal') {
+		const quote = await createPayPalFxQuote(preview.totalAmount, now);
+		providerMetadata = {
+			paypalFxQuote: quote,
+			paypalRequestIds: {
+				create: `${attemptId}-create`,
+				capture: `${attemptId}-capture`
+			}
+		};
+	}
+
+	await getDb()
+		.insert(paymentAttemptTable)
+		.values({
+			id: attemptId,
+			userId: preview.bag.userId,
+			bagId: preview.bag.id,
+			method,
+			status: 'pending',
+			amount: preview.totalAmount,
+			currency: 'LKR',
+			checkoutInput,
+			billingEmail,
+			providerResponse:
+				Object.keys(providerMetadata).length > 0
+					? mergeGatewayEnvelope(null, { metadata: providerMetadata })
+					: null,
+			expiresAt,
+			createdAt: now,
+			updatedAt: now
+		});
+
+	try {
+		if (method === 'payhere') {
+			const { merchantId, merchantSecret } = getPayHereConfiguration(env);
+			const [customer] = await getDb()
+				.select({ name: userTable.name })
+				.from(userTable)
+				.where(eq(userTable.id, actor.id))
+				.limit(1);
+			if (!customer) {
+				throw new PaymentError('Customer details could not be loaded.', ErrorCode.INTERNAL_ERROR);
+			}
+			const customerFields = buildPayHereCustomerFields(preview.shippingAddressSnapshot, {
+				name: customer.name,
+				email: billingEmail!
+			});
+			const amount = formatPayHereAmount(preview.totalAmount);
+
+			return {
+				attemptId,
+				method,
+				paymentData: {
+					sandbox: env.PAYHERE_IS_SANDBOX === 'true',
+					merchant_id: merchantId,
+					notify_url: `${env.PUBLIC_APP_URL}/api/payments/webhooks/payhere`,
+					order_id: attemptId,
+					items: `Checkout ${attemptId.slice(0, 8)}`,
+					first_name: customerFields.firstName,
+					last_name: customerFields.lastName,
+					email: customerFields.email,
+					phone: customerFields.phone,
+					address: customerFields.address,
+					city: customerFields.city,
+					country: customerFields.country,
+					currency: 'LKR',
+					amount,
+					hash: generatePayHereCheckoutHash(merchantId, attemptId, amount, 'LKR', merchantSecret)
+				}
+			};
+		}
+
+		const quote = providerMetadata.paypalFxQuote!;
+		const requestIds = providerMetadata.paypalRequestIds!;
+		const { clientId, clientSecret } = getPayPalConfiguration(env);
+		const isSandbox = env.PAYPAL_IS_SANDBOX === 'true';
+		const token = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
+		const paypalOrderId = await createPayPalOrder(
+			token,
+			attemptId,
+			attemptId,
+			quote.usdAmount,
+			requestIds.create,
+			isSandbox,
+			env.PUBLIC_APP_URL,
+			env.PUBLIC_APP_NAME,
+			`/checkout/payment/${attemptId}`
+		);
+		await getDb()
+			.update(paymentAttemptTable)
+			.set({ providerOrderId: paypalOrderId, updatedAt: now })
+			.where(eq(paymentAttemptTable.id, attemptId));
+
+		return { attemptId, method, paypalOrderId };
+	} catch (error) {
+		await getDb()
+			.update(paymentAttemptTable)
+			.set({ status: 'failed', failureReason: getErrorMessage(error), updatedAt: now })
+			.where(eq(paymentAttemptTable.id, attemptId));
+		throw error;
+	}
+}
+
+export async function getCheckoutPaymentAttempt(
+	ctx: ServiceContext,
+	attemptId: string
+): Promise<CheckoutPaymentAttemptDTO> {
+	const id = normalizeGatewayId(attemptId, 'attemptId');
+	const [row] = await getDb()
+		.select()
+		.from(paymentAttemptTable)
+		.where(eq(paymentAttemptTable.id, id))
+		.limit(1);
+	if (!row) {
+		throw new PaymentError('Payment attempt not found.', ErrorCode.PAYMENT_NOT_FOUND, {
+			attemptId: id
+		});
+	}
+	requireOwnerOrAdmin(ctx.actor, row.userId);
+	return toCheckoutPaymentAttemptDTO(row);
 }
 
 export async function createPaymentSession(
@@ -223,8 +419,6 @@ export async function createPaymentSession(
 				.update(paymentTable)
 				.set({
 					status: 'pending',
-					bankSlipR2Key: input.bankSlipR2Key ?? null,
-					bankReference: input.bankReference ?? null,
 					amount: orderRow.totalAmount,
 					updatedAt: now
 				})
@@ -239,9 +433,7 @@ export async function createPaymentSession(
 					amount: orderRow.totalAmount,
 					currency: 'LKR',
 					method,
-					status: 'pending',
-					bankSlipR2Key: input.bankSlipR2Key ?? null,
-					bankReference: input.bankReference ?? null
+					status: 'pending'
 				})
 				.returning();
 			return toPaymentDTO(created, orderRow.status);
@@ -251,9 +443,6 @@ export async function createPaymentSession(
 	if (method === 'payhere') {
 		const { merchantId, merchantSecret } = getPayHereConfiguration(env);
 		const isSandbox = env.PAYHERE_IS_SANDBOX === 'true';
-		const checkoutUrl = isSandbox
-			? 'https://sandbox.payhere.lk/pay/checkout'
-			: 'https://www.payhere.lk/pay/checkout';
 
 		if (!orderRow.userId) {
 			throw new PaymentError(
@@ -320,12 +509,11 @@ export async function createPaymentSession(
 
 		return {
 			paymentId: paymentDto.id,
+			orderId: orderRow.id,
 			method,
-			redirectUrl: checkoutUrl,
 			paymentData: {
+				sandbox: isSandbox,
 				merchant_id: merchantId,
-				return_url: `${env.PUBLIC_APP_URL}/checkout/confirmation/${orderRow.id}`,
-				cancel_url: `${env.PUBLIC_APP_URL}/checkout/confirmation/${orderRow.id}?payment=cancelled`,
 				notify_url: `${env.PUBLIC_APP_URL}/api/payments/webhooks/payhere`,
 				order_id: orderRow.id,
 				items: `Order ${orderRow.orderNumber}`,
@@ -361,14 +549,16 @@ export async function createPaymentSession(
 		};
 
 		const token = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
-		const { id: paypalOrderId, approveUrl } = await createPayPalOrder(
+		const paypalOrderId = await createPayPalOrder(
 			token,
 			orderRow.id,
 			orderRow.orderNumber,
 			quote.usdAmount,
 			requestIds.create,
 			isSandbox,
-			env.PUBLIC_APP_URL
+			env.PUBLIC_APP_URL,
+			env.PUBLIC_APP_NAME,
+			`/checkout/confirmation/${orderRow.id}`
 		);
 
 		await db
@@ -384,8 +574,9 @@ export async function createPaymentSession(
 
 		return {
 			paymentId: paymentDto.id,
+			orderId: orderRow.id,
 			method,
-			redirectUrl: approveUrl
+			paypalOrderId
 		};
 	}
 
@@ -426,6 +617,59 @@ export async function processPayHereWebhook(
 				'PayHere webhook signature verification failed.',
 				ErrorCode.VALIDATION_ERROR
 			);
+		}
+
+		const [attemptRow] = await getDb()
+			.select()
+			.from(paymentAttemptTable)
+			.where(and(eq(paymentAttemptTable.id, orderId), eq(paymentAttemptTable.method, 'payhere')))
+			.limit(1);
+		if (attemptRow) {
+			if (currency !== attemptRow.currency || amount !== formatPayHereAmount(attemptRow.amount)) {
+				throw new PaymentError(
+					'PayHere webhook amount or currency does not match the checkout attempt.',
+					ErrorCode.VALIDATION_ERROR,
+					{
+						attemptId: attemptRow.id,
+						expectedAmount: formatPayHereAmount(attemptRow.amount),
+						expectedCurrency: attemptRow.currency
+					}
+				);
+			}
+
+			let result: PaymentGatewayResult;
+			if (statusCode === '2') {
+				result = await finalizeCapturedPaymentAttempt(ctx, attemptRow, {
+					transactionId: providerPaymentId,
+					providerResponse: payload,
+					now: resolveNow(ctx)
+				});
+			} else {
+				const attemptStatus =
+					statusCode === '-1' ? 'cancelled' : statusCode === '0' ? 'pending' : 'failed';
+				await getDb()
+					.update(paymentAttemptTable)
+					.set({
+						status: attemptStatus,
+						providerOrderId: providerPaymentId,
+						providerResponse: payload,
+						failureReason:
+							attemptStatus === 'pending'
+								? null
+								: (readOptionalGatewayString(payload, 'status_message') ??
+									'Payment was not completed.'),
+						updatedAt: resolveNow(ctx)
+					})
+					.where(eq(paymentAttemptTable.id, attemptRow.id));
+				result = {
+					success: false,
+					status: attemptStatus === 'pending' ? 'pending' : 'failed',
+					errorMessage: attemptStatus === 'pending' ? undefined : 'Payment was not completed.'
+				};
+			}
+
+			await writeWebhookLog('payhere', payload, 'processed', null);
+			return result;
 		}
 
 		const [paymentRow] = await getDb()
@@ -474,12 +718,93 @@ export async function processPayHereWebhook(
 	}
 }
 
-export async function capturePayPalReturn(
+export async function capturePayPalPayment(
 	ctx: ServiceContext,
-	input: CapturePayPalReturnInput
+	input: CapturePayPalPaymentInput
 ): Promise<PaymentGatewayResult> {
+	requireActor(ctx.actor);
 	const env = getEnv();
 	const paypalOrderId = normalizeGatewayId(input.paypalOrderId, 'paypalOrderId');
+	const [attemptRow] = await getDb()
+		.select()
+		.from(paymentAttemptTable)
+		.where(
+			and(
+				eq(paymentAttemptTable.providerOrderId, paypalOrderId),
+				eq(paymentAttemptTable.method, 'paypal')
+			)
+		)
+		.limit(1);
+
+	if (attemptRow) {
+		requireOwnerOrAdmin(ctx.actor, attemptRow.userId);
+		if (attemptRow.status === 'captured' && attemptRow.orderId) {
+			const [capturedPayment] = await getDb()
+				.select({ id: paymentTable.id })
+				.from(paymentTable)
+				.where(eq(paymentTable.orderId, attemptRow.orderId))
+				.limit(1);
+			return {
+				success: true,
+				paymentId: capturedPayment?.id,
+				orderId: attemptRow.orderId,
+				status: 'captured'
+			};
+		}
+		if (attemptRow.status !== 'pending') {
+			throw new PaymentError(
+				'This payment attempt can no longer be completed.',
+				ErrorCode.PAYMENT_ALREADY_PROCESSED,
+				{ attemptId: attemptRow.id, status: attemptRow.status }
+			);
+		}
+
+		const metadata = getGatewayMetadata(attemptRow.providerResponse);
+		const quote = metadata.paypalFxQuote;
+		const captureRequestId = metadata.paypalRequestIds?.capture;
+		if (!quote || !captureRequestId) {
+			throw new PaymentError(
+				'The PayPal payment session is missing its locked exchange quote.',
+				ErrorCode.PAYMENT_FAILED,
+				{ attemptId: attemptRow.id }
+			);
+		}
+
+		const { clientId, clientSecret } = getPayPalConfiguration(env);
+		const isSandbox = env.PAYPAL_IS_SANDBOX === 'true';
+		const accessToken = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
+		const capture = await capturePayPalOrder(
+			accessToken,
+			paypalOrderId,
+			captureRequestId,
+			isSandbox
+		);
+		const capturedPayment = readPayPalCapture(capture);
+		if (
+			capture.status !== 'COMPLETED' ||
+			capturedPayment.status !== 'COMPLETED' ||
+			capturedPayment.currency !== 'USD' ||
+			capturedPayment.value !== quote.usdAmount
+		) {
+			throw new PaymentError(
+				'PayPal did not confirm the expected payment amount.',
+				ErrorCode.PAYMENT_FAILED,
+				{
+					attemptId: attemptRow.id,
+					expectedCurrency: 'USD',
+					expectedAmount: quote.usdAmount,
+					providerStatus: capture.status
+				}
+			);
+		}
+
+		return finalizeCapturedPaymentAttempt(ctx, attemptRow, {
+			transactionId: capturedPayment.id,
+			providerResponse: { capture },
+			now: resolveNow(ctx)
+		});
+	}
+
 	const [paymentRow] = await getDb()
 		.select()
 		.from(paymentTable)
@@ -491,18 +816,42 @@ export async function capturePayPalReturn(
 			paypalOrderId
 		});
 	}
+	const [orderRow] = await getDb()
+		.select()
+		.from(orderTable)
+		.where(eq(orderTable.id, paymentRow.orderId))
+		.limit(1);
+	if (!orderRow) {
+		throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
+			orderId: paymentRow.orderId
+		});
+	}
+	requireOwnerOrAdmin(ctx.actor, orderRow.userId);
 
 	if (
 		paymentRow.status === 'captured' ||
 		paymentRow.status === 'partially_refunded' ||
 		paymentRow.status === 'refunded'
 	) {
-		const [orderRow] = await getDb()
-			.select({ status: orderTable.status })
-			.from(orderTable)
-			.where(eq(orderTable.id, paymentRow.orderId))
-			.limit(1);
-		return toGatewayResult(toPaymentDTO(paymentRow, orderRow?.status ?? null));
+		return toGatewayResult(toPaymentDTO(paymentRow, orderRow.status));
+	}
+	const now = resolveNow(ctx);
+	if (orderRow.status !== 'pending') {
+		throw new PaymentError(
+			'Payment can no longer be captured for this order.',
+			ErrorCode.PAYMENT_ALREADY_PROCESSED,
+			{ orderId: orderRow.id, orderStatus: orderRow.status }
+		);
+	}
+	if (orderRow.paymentExpiresAt && orderRow.paymentExpiresAt.getTime() <= now.getTime()) {
+		throw new PaymentError(
+			'The payment window for this order has expired.',
+			ErrorCode.PAYMENT_FAILED,
+			{
+				orderId: orderRow.id,
+				paymentExpiresAt: orderRow.paymentExpiresAt.toISOString()
+			}
+		);
 	}
 
 	const metadata = getGatewayMetadata(paymentRow.gatewayResponse);
@@ -520,11 +869,12 @@ export async function capturePayPalReturn(
 	const isSandbox = env.PAYPAL_IS_SANDBOX === 'true';
 	const accessToken = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
 	const capture = await capturePayPalOrder(accessToken, paypalOrderId, captureRequestId, isSandbox);
-	const capturedAmount = readPayPalCaptureAmount(capture);
+	const capturedPayment = readPayPalCapture(capture);
 	if (
 		capture.status !== 'COMPLETED' ||
-		capturedAmount.currency !== 'USD' ||
-		capturedAmount.value !== quote.usdAmount
+		capturedPayment.status !== 'COMPLETED' ||
+		capturedPayment.currency !== 'USD' ||
+		capturedPayment.value !== quote.usdAmount
 	) {
 		throw new PaymentError(
 			'PayPal did not confirm the expected payment amount.',
@@ -543,12 +893,179 @@ export async function capturePayPalReturn(
 		status: 'captured',
 		transactionId: paypalOrderId,
 		providerResponse: {
-			capture,
-			payerId: input.payerId ?? null
+			capture
 		},
 		note: 'PayPal payment captured.',
-		now: resolveNow(ctx)
+		now
 	});
+}
+
+async function finalizeCapturedPaymentAttempt(
+	ctx: ServiceContext,
+	attempt: PaymentAttempt,
+	input: { transactionId: string; providerResponse: unknown; now: Date }
+): Promise<PaymentGatewayResult> {
+	let notifications: NotificationOutboxDTO[] = [];
+
+	try {
+		const result = await getDb().transaction(async (tx) => {
+			const [currentAttempt] = await tx
+				.select()
+				.from(paymentAttemptTable)
+				.where(eq(paymentAttemptTable.id, attempt.id))
+				.limit(1);
+			if (!currentAttempt) {
+				throw new PaymentError('Payment attempt not found.', ErrorCode.PAYMENT_NOT_FOUND, {
+					attemptId: attempt.id
+				});
+			}
+
+			if (currentAttempt.status === 'captured' && currentAttempt.orderId) {
+				const [existingPayment] = await tx
+					.select({ id: paymentTable.id })
+					.from(paymentTable)
+					.where(eq(paymentTable.orderId, currentAttempt.orderId))
+					.limit(1);
+				return {
+					success: true,
+					paymentId: existingPayment?.id,
+					orderId: currentAttempt.orderId,
+					status: 'captured' as const
+				};
+			}
+			if (currentAttempt.status !== 'pending') {
+				throw new PaymentError(
+					'This payment attempt can no longer create an order.',
+					ErrorCode.PAYMENT_ALREADY_PROCESSED,
+					{ attemptId: currentAttempt.id, status: currentAttempt.status }
+				);
+			}
+			if (currentAttempt.expiresAt.getTime() <= input.now.getTime()) {
+				throw new PaymentError(
+					'Payment completed after the checkout expired. Support review is required.',
+					ErrorCode.PAYMENT_FAILED,
+					{ attemptId: currentAttempt.id }
+				);
+			}
+
+			const [customer] = await tx
+				.select({ id: userTable.id, role: userTable.role, isAnonymous: userTable.isAnonymous })
+				.from(userTable)
+				.where(eq(userTable.id, currentAttempt.userId))
+				.limit(1);
+			if (!customer) {
+				throw new PaymentError('Checkout customer no longer exists.', ErrorCode.PAYMENT_FAILED, {
+					attemptId: currentAttempt.id
+				});
+			}
+
+			const checkoutInput = currentAttempt.checkoutInput as PaymentAttemptCheckoutInput;
+			const customerActor: ServiceActor = {
+				id: customer.id,
+				role: customer.role,
+				isAnonymous: customer.isAnonymous
+			};
+			const order = await placeOrderFromBagTx(
+				tx,
+				{ ...ctx, actor: customerActor, now: input.now },
+				{
+					...checkoutInput,
+					paymentMethod: currentAttempt.method,
+					now: input.now
+				}
+			);
+			if (order.totalAmount !== currentAttempt.amount) {
+				throw new PaymentError(
+					'Checkout total changed before payment completed. Support review is required.',
+					ErrorCode.PAYMENT_FAILED,
+					{
+						attemptId: currentAttempt.id,
+						paidAmount: currentAttempt.amount,
+						currentAmount: order.totalAmount
+					}
+				);
+			}
+
+			const paymentId = order.payments?.[0]?.id;
+			if (!paymentId) {
+				throw new PaymentError('Order payment was not created.', ErrorCode.INTERNAL_ERROR);
+			}
+			const [updatedPayment] = await tx
+				.update(paymentTable)
+				.set({
+					status: 'captured',
+					transactionId: input.transactionId,
+					gatewayResponse: mergeGatewayEnvelope(currentAttempt.providerResponse, {
+						provider: input.providerResponse,
+						metadata: getGatewayMetadata(currentAttempt.providerResponse)
+					}),
+					paidAt: input.now,
+					updatedAt: input.now
+				})
+				.where(eq(paymentTable.id, paymentId))
+				.returning();
+			if (!updatedPayment) {
+				throw new PaymentError('Order payment was not updated.', ErrorCode.INTERNAL_ERROR);
+			}
+
+			await tx
+				.update(orderTable)
+				.set({ paymentExpiresAt: null, updatedAt: input.now })
+				.where(eq(orderTable.id, order.id));
+			const confirmedOrder = await transitionOrderStatusTx(
+				tx,
+				{ ...ctx, actor: customerActor, now: input.now },
+				{
+					orderId: order.id,
+					toStatus: 'confirmed',
+					note: `${currentAttempt.method === 'paypal' ? 'PayPal' : 'PayHere'} payment captured.`,
+					now: input.now
+				}
+			);
+			notifications = await enqueueOrderConfirmationNotificationsTx(tx, confirmedOrder);
+
+			await tx
+				.update(paymentAttemptTable)
+				.set({
+					status: 'captured',
+					providerOrderId: currentAttempt.providerOrderId ?? input.transactionId,
+					providerResponse: input.providerResponse,
+					orderId: order.id,
+					failureReason: null,
+					updatedAt: input.now
+				})
+				.where(eq(paymentAttemptTable.id, currentAttempt.id));
+
+			return {
+				success: true,
+				paymentId,
+				orderId: order.id,
+				status: 'captured' as const
+			};
+		});
+
+		await publishNotificationWakeups(ctx, notifications);
+		return result;
+	} catch (error) {
+		const reason = getErrorMessage(error);
+		await getDb()
+			.update(paymentAttemptTable)
+			.set({
+				status: 'review_required',
+				providerOrderId: attempt.providerOrderId ?? input.transactionId,
+				providerResponse: input.providerResponse,
+				failureReason: reason,
+				updatedAt: input.now
+			})
+			.where(eq(paymentAttemptTable.id, attempt.id));
+
+		return {
+			success: false,
+			status: 'captured',
+			requiresManualReview: true,
+			errorMessage: reason
+		};
+	}
 }
 
 type ApplyGatewayPaymentResultInput = {
@@ -564,7 +1081,7 @@ async function applyGatewayPaymentResult(
 	ctx: ServiceContext,
 	input: ApplyGatewayPaymentResultInput
 ): Promise<PaymentGatewayResult> {
-	let notification: NotificationOutboxDTO | null = null;
+	let notifications: NotificationOutboxDTO[] = [];
 	const result = await getDb().transaction(async (tx) => {
 		const [paymentRow] = await tx
 			.select()
@@ -599,16 +1116,29 @@ async function applyGatewayPaymentResult(
 				: 'none';
 		let nextOrderStatus = orderRow.status;
 		let manualReviewReason: string | null = getManualReviewReason(paymentRow.gatewayResponse);
+		let confirmedOrder: Awaited<ReturnType<typeof transitionOrderStatusTx>> | null = null;
+
+		if (terminalPayment && input.status !== paymentRow.status) {
+			manualReviewReason = `Provider reported ${input.status} after payment reached ${paymentRow.status}. Manual review required.`;
+		}
+		if (
+			terminalPayment &&
+			paymentRow.transactionId &&
+			input.transactionId &&
+			input.transactionId !== paymentRow.transactionId
+		) {
+			manualReviewReason = `Provider reported transaction ${input.transactionId} after ${paymentRow.transactionId} was finalized. Manual review required.`;
+		}
 
 		if (!terminalPayment && input.status === 'captured') {
 			if (captureAction === 'confirm') {
-				const confirmed = await transitionOrderStatusTx(tx, ctx, {
+				confirmedOrder = await transitionOrderStatusTx(tx, ctx, {
 					orderId: orderRow.id,
 					toStatus: 'confirmed',
 					note: input.note,
 					now: input.now
 				});
-				nextOrderStatus = confirmed.status;
+				nextOrderStatus = confirmedOrder.status;
 			} else if (captureAction === 'cancel_and_review') {
 				const cancelled = await transitionOrderStatusTx(tx, ctx, {
 					orderId: orderRow.id,
@@ -640,15 +1170,19 @@ async function applyGatewayPaymentResult(
 					: {})
 			}
 		});
+		const nextTransactionId =
+			terminalPayment && paymentRow.transactionId
+				? paymentRow.transactionId
+				: (input.transactionId ?? paymentRow.transactionId);
 		const changed =
 			nextStatus !== paymentRow.status ||
-			input.transactionId !== paymentRow.transactionId ||
+			nextTransactionId !== paymentRow.transactionId ||
 			manualReviewReason !== getManualReviewReason(paymentRow.gatewayResponse);
 		const [updated] = await tx
 			.update(paymentTable)
 			.set({
 				status: nextStatus,
-				transactionId: input.transactionId ?? paymentRow.transactionId,
+				transactionId: nextTransactionId,
 				gatewayResponse,
 				paidAt: nextStatus === 'captured' ? (paymentRow.paidAt ?? input.now) : paymentRow.paidAt,
 				updatedAt: input.now
@@ -660,18 +1194,19 @@ async function applyGatewayPaymentResult(
 		}
 
 		const dto = toPaymentDTO(updated, nextOrderStatus);
-		if (changed && !dto.requiresManualReview) {
-			notification = await enqueuePaymentUpdateNotificationTx(
+		if (changed && confirmedOrder) {
+			notifications = await enqueueOrderConfirmationNotificationsTx(tx, confirmedOrder);
+		} else if (changed) {
+			const notification = await enqueuePaymentUpdateNotificationTx(
 				tx as unknown as Parameters<typeof enqueuePaymentUpdateNotificationTx>[0],
 				dto
 			);
+			if (notification) notifications = [notification];
 		}
 		return dto;
 	});
 
-	if (notification) {
-		await publishNotificationWakeups(ctx, [notification]);
-	}
+	await publishNotificationWakeups(ctx, notifications);
 	return toGatewayResult(result);
 }
 
@@ -773,12 +1308,24 @@ export async function recordPayment(
 	>[] = [];
 	try {
 		const result = await getDb().transaction(async (tx) => {
+			const [orderBefore] = await tx
+				.select({ status: orderTable.status })
+				.from(orderTable)
+				.where(eq(orderTable.id, input.orderId))
+				.limit(1);
 			const paymentDto = await recordPaymentTx(tx, ctx, input);
-			const notification = await enqueuePaymentUpdateNotificationTx(
-				tx as unknown as Parameters<typeof enqueuePaymentUpdateNotificationTx>[0],
-				paymentDto
-			);
-			if (notification) notificationsToPublish = [notification];
+			if (orderBefore?.status === 'pending' && paymentDto.orderStatus === 'confirmed') {
+				notificationsToPublish = await enqueueOrderConfirmationNotificationsForOrderTx(
+					tx,
+					paymentDto.orderId
+				);
+			} else {
+				const notification = await enqueuePaymentUpdateNotificationTx(
+					tx as unknown as Parameters<typeof enqueuePaymentUpdateNotificationTx>[0],
+					paymentDto
+				);
+				if (notification) notificationsToPublish = [notification];
+			}
 			return paymentDto;
 		});
 		await publishNotificationWakeups(ctx, notificationsToPublish);
@@ -858,9 +1405,7 @@ export async function recordPaymentTx(
 			status: nextStatus,
 			transactionId: input.transactionId ?? null,
 			gatewayResponse: input.gatewayResponse ?? null,
-			refundAmount: null,
-			bankSlipR2Key: input.bankSlipR2Key ?? null,
-			bankReference: input.bankReference ?? null
+			refundAmount: null
 		});
 
 		const [created] = await tx.insert(paymentTable).values(createdValues).returning();
@@ -1004,8 +1549,6 @@ function toPaymentDTO(row: Payment, orderStatus: OrderStatus | null = null): Pay
 		refundAmount: row.refundAmount,
 		refundedAt: row.refundedAt,
 		paidAt: row.paidAt,
-		bankSlipR2Key: row.bankSlipR2Key,
-		bankReference: row.bankReference,
 		requiresManualReview: Boolean(reviewReason),
 		reviewReason,
 		createdAt: row.createdAt,
@@ -1110,6 +1653,12 @@ function hasPayHereConfiguration(env: ReturnType<typeof getEnv>): boolean {
 
 function hasPayPalConfiguration(env: ReturnType<typeof getEnv>): boolean {
 	return Boolean(env.PAYPAL_CLIENT_ID?.trim() && env.PAYPAL_CLIENT_SECRET?.trim());
+}
+
+function getPayPalSdkUrl(isSandbox: boolean): string {
+	return isSandbox
+		? 'https://www.sandbox.paypal.com/web-sdk/v6/core'
+		: 'https://www.paypal.com/web-sdk/v6/core';
 }
 
 function assertCheckoutPaymentMethodAvailable(
@@ -1271,8 +1820,10 @@ async function createPayPalOrder(
 	usdAmount: string,
 	requestId: string,
 	isSandbox: boolean,
-	appUrl: string
-): Promise<{ id: string; approveUrl: string }> {
+	appUrl: string,
+	appName: string,
+	returnPath: string
+): Promise<string> {
 	const host = isSandbox ? 'https://api-m.sandbox.paypal.com' : 'https://api-m.paypal.com';
 	const res = await fetchWithTimeout(`${host}/v2/checkout/orders`, {
 		method: 'POST',
@@ -1283,6 +1834,17 @@ async function createPayPalOrder(
 		},
 		body: JSON.stringify({
 			intent: 'CAPTURE',
+			payment_source: {
+				paypal: {
+					experience_context: {
+						brand_name: appName,
+						shipping_preference: 'NO_SHIPPING',
+						user_action: 'PAY_NOW',
+						return_url: `${appUrl}${returnPath}`,
+						cancel_url: `${appUrl}${returnPath}?payment=cancelled`
+					}
+				}
+			},
 			purchase_units: [
 				{
 					reference_id: orderNumber,
@@ -1291,28 +1853,18 @@ async function createPayPalOrder(
 						value: usdAmount
 					}
 				}
-			],
-			application_context: {
-				brand_name: 'Caro Clothing',
-				landing_page: 'NO_PREFERENCE',
-				user_action: 'PAY_NOW',
-				return_url: `${appUrl}/api/payments/paypal/return?orderId=${encodeURIComponent(orderId)}`,
-				cancel_url: `${appUrl}/checkout/confirmation/${orderId}?payment=cancelled`
-			}
+			]
 		})
 	});
 	if (!res.ok) {
 		console.error('[payments] PayPal order creation failed:', { status: res.status, orderId });
 		throw new PaymentError('PayPal could not start the payment.', ErrorCode.PAYMENT_FAILED);
 	}
-	const data = (await res.json()) as { id?: string; links?: { rel: string; href: string }[] };
-	const approveLink = data.links?.find(
-		(l: { rel: string; href: string }) => l.rel === 'approve' || l.rel === 'payer-action'
-	);
-	if (!data.id || !approveLink) {
+	const data = (await res.json()) as { id?: string };
+	if (!data.id) {
 		throw new PaymentError('PayPal could not start the payment.', ErrorCode.PAYMENT_FAILED);
 	}
-	return { id: data.id, approveUrl: approveLink.href };
+	return data.id;
 }
 
 type PayPalCaptureResponse = {
@@ -1321,6 +1873,7 @@ type PayPalCaptureResponse = {
 		payments?: {
 			captures?: Array<{
 				id?: string;
+				status?: string;
 				amount?: {
 					currency_code?: string;
 					value?: string;
@@ -1355,18 +1908,26 @@ async function capturePayPalOrder(
 	return (await res.json()) as PayPalCaptureResponse;
 }
 
-function readPayPalCaptureAmount(capture: PayPalCaptureResponse): {
+function readPayPalCapture(capture: PayPalCaptureResponse): {
+	id: string;
+	status: string;
 	currency: string;
 	value: string;
 } {
-	const amount = capture.purchase_units?.[0]?.payments?.captures?.[0]?.amount;
-	if (!amount?.currency_code || !amount.value) {
+	const capturedPayment = capture.purchase_units?.[0]?.payments?.captures?.[0];
+	const amount = capturedPayment?.amount;
+	if (!capturedPayment?.id || !capturedPayment.status || !amount?.currency_code || !amount.value) {
 		throw new PaymentError(
-			'PayPal did not return captured amount details.',
+			'PayPal did not return complete capture details.',
 			ErrorCode.PAYMENT_FAILED
 		);
 	}
-	return { currency: amount.currency_code, value: amount.value };
+	return {
+		id: capturedPayment.id,
+		status: capturedPayment.status,
+		currency: amount.currency_code,
+		value: amount.value
+	};
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
@@ -1391,6 +1952,11 @@ function readRequiredGatewayString(payload: Record<string, unknown>, field: stri
 	return value.trim();
 }
 
+function readOptionalGatewayString(payload: Record<string, unknown>, field: string): string | null {
+	const value = payload[field];
+	return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
 function normalizeGatewayId(value: string, field: string): string {
 	const normalized = value.trim();
 	if (!normalized || normalized.length > 255) {
@@ -1406,6 +1972,21 @@ function toGatewayResult(payment: PaymentDTO): PaymentGatewayResult {
 		orderId: payment.orderId,
 		status: payment.status,
 		requiresManualReview: payment.requiresManualReview
+	};
+}
+
+function toCheckoutPaymentAttemptDTO(row: PaymentAttempt): CheckoutPaymentAttemptDTO {
+	return {
+		id: row.id,
+		method: row.method,
+		status: row.status,
+		amount: row.amount,
+		currency: row.currency,
+		orderId: row.orderId,
+		failureReason: row.failureReason,
+		expiresAt: row.expiresAt,
+		createdAt: row.createdAt,
+		updatedAt: row.updatedAt
 	};
 }
 

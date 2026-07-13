@@ -1,6 +1,5 @@
 import { sendSms } from '../client';
 import type { SmsResult } from '../types';
-import { getEnv } from '$lib/server/infrastructure/env';
 
 /**
  * Sends a phone OTP code via SMS. Called by the better-auth phoneNumber plugin's sendOTP hook.
@@ -9,6 +8,6 @@ export async function sendOtpSms(phoneNumber: string, code: string): Promise<Sms
 	return sendSms({
 		to: phoneNumber,
 		senderPurpose: 'otp',
-		message: `${getEnv().PUBLIC_APP_NAME} code: ${code}\nValid for 10 minutes. Do not share.`
+		message: `Code ${code}. Valid 10 min. Do not share.`
 	});
 }

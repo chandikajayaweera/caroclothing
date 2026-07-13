@@ -8,7 +8,7 @@
 
 	let {
 		collapsed = false,
-		mobileOpen = false,
+		mobileOpen = $bindable(false),
 		onClose = () => {},
 		onToggleCollapse = () => {}
 	}: {
@@ -21,7 +21,7 @@
 
 <div class="lg:hidden">
 	<AdminDrawer
-		open={mobileOpen}
+		bind:open={mobileOpen}
 		title="CARO"
 		kicker="Admin navigation"
 		description="Admin sections and account controls"

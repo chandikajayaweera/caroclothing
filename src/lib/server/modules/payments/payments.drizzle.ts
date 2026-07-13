@@ -8,26 +8,16 @@ import { order } from '../orders/orders.drizzle';
 // ---------------------------------------------------------------------------
 // PAYMENT METHODS
 // ---------------------------------------------------------------------------
-export const PAYMENT_METHODS = [
-	'payhere',
-	'paypal',
-	'bank_transfer',
-	'cash_on_delivery',
-	'paykoko',
-	'mintpay'
-] as const;
+export const PAYMENT_METHODS = ['payhere', 'paypal', 'cash_on_delivery'] as const;
 
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const ONLINE_PAYMENT_METHODS = [
 	'payhere',
-	'paypal',
-	'paykoko',
-	'mintpay'
+	'paypal'
 ] as const satisfies readonly PaymentMethod[];
 
 export const OFFLINE_PAYMENT_METHODS = [
-	'bank_transfer',
 	'cash_on_delivery'
 ] as const satisfies readonly PaymentMethod[];
 
@@ -50,6 +40,59 @@ export const PAYMENT_STATUSES = [
 ] as const;
 
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_ATTEMPT_STATUSES = [
+	'pending',
+	'captured',
+	'failed',
+	'cancelled',
+	'review_required'
+] as const;
+
+export type PaymentAttemptStatus = (typeof PAYMENT_ATTEMPT_STATUSES)[number];
+
+// A gateway session is durable checkout orchestration state, not an order.
+// It stores the validated checkout intent until the provider confirms payment.
+export const paymentAttempt = sqliteTable(
+	'payment_attempt',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => nanoid()),
+		userId: text('user_id').notNull(),
+		bagId: text('bag_id').notNull(),
+		method: text('method', { enum: ONLINE_PAYMENT_METHODS }).notNull(),
+		status: text('status', { enum: PAYMENT_ATTEMPT_STATUSES }).default('pending').notNull(),
+		amount: integer('amount').notNull(),
+		currency: text('currency').default('LKR').notNull(),
+		checkoutInput: text('checkout_input', { mode: 'json' }).notNull(),
+		billingEmail: text('billing_email'),
+		providerOrderId: text('provider_order_id'),
+		providerResponse: text('provider_response', { mode: 'json' }),
+		orderId: text('order_id').references(() => order.id, { onDelete: 'set null' }),
+		failureReason: text('failure_reason'),
+		expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+			.$onUpdate(() => new Date())
+			.notNull()
+	},
+	(table) => [
+		index('payment_attempt_user_idx').on(table.userId),
+		index('payment_attempt_bag_idx').on(table.bagId),
+		index('payment_attempt_provider_order_idx').on(table.providerOrderId),
+		index('payment_attempt_status_expiry_idx').on(table.status, table.expiresAt),
+		check('payment_attempt_amount_positive', sql`${table.amount} > 0`),
+		check('payment_attempt_checkout_input_valid', sql`json_valid(${table.checkoutInput})`),
+		check(
+			'payment_attempt_provider_response_valid',
+			sql`${table.providerResponse} IS NULL OR json_valid(${table.providerResponse})`
+		)
+	]
+);
 
 // ---------------------------------------------------------------------------
 // PAYMENTS TABLE
@@ -74,9 +117,6 @@ export const payment = sqliteTable(
 		refundAmount: integer('refund_amount'),
 		refundedAt: integer('refunded_at', { mode: 'timestamp_ms' }),
 		paidAt: integer('paid_at', { mode: 'timestamp_ms' }),
-		// Bank transfer specific fields
-		bankSlipR2Key: text('bank_slip_r2_key'),
-		bankReference: text('bank_reference'),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull(),
@@ -148,9 +188,7 @@ export const insertPaymentBaseSchema = createInsertSchema(payment, {
 	status: z.enum(PAYMENT_STATUSES).optional(),
 	transactionId: z.string().max(255).optional().nullable(),
 	gatewayResponse: z.any().optional().nullable(),
-	refundAmount: z.number().int().min(0).optional().nullable(),
-	bankSlipR2Key: z.string().max(500).optional().nullable(),
-	bankReference: z.string().max(100).optional().nullable()
+	refundAmount: z.number().int().min(0).optional().nullable()
 }).omit({
 	id: true,
 	refundedAt: true,
@@ -175,9 +213,7 @@ export const updatePaymentSchema = createUpdateSchema(payment, {
 	gatewayResponse: z.any().optional().nullable(),
 	refundAmount: z.number().int().min(0).optional().nullable(),
 	refundedAt: timestampMsSchema.optional().nullable(),
-	paidAt: timestampMsSchema.optional().nullable(),
-	bankSlipR2Key: z.string().max(500).optional().nullable(),
-	bankReference: z.string().max(100).optional().nullable()
+	paidAt: timestampMsSchema.optional().nullable()
 }).omit({
 	id: true,
 	orderId: true,
@@ -202,6 +238,9 @@ export type NewPayment = typeof payment.$inferInsert;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type SelectPayment = z.infer<typeof selectPaymentSchema>;
 export type UpdatePayment = z.infer<typeof updatePaymentSchema>;
+
+export type PaymentAttempt = typeof paymentAttempt.$inferSelect;
+export type NewPaymentAttempt = typeof paymentAttempt.$inferInsert;
 
 export type PaymentWebhookLog = typeof paymentWebhookLog.$inferSelect;
 export type NewPaymentWebhookLog = typeof paymentWebhookLog.$inferInsert;

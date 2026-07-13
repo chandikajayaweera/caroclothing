@@ -153,8 +153,6 @@ export type PreviewOrderFromBagInput = {
 export type PlaceOrderFromBagInput = PreviewOrderFromBagInput & {
 	paymentMethod: PaymentMethod;
 	customerNote?: string | null;
-	bankSlipR2Key?: string | null;
-	bankReference?: string | null;
 };
 
 export type GetOrderInput = {

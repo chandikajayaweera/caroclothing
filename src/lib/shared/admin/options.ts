@@ -1,10 +1,7 @@
 export const adminPaymentMethodOptions = [
 	{ value: 'payhere', label: 'PayHere' },
 	{ value: 'paypal', label: 'PayPal' },
-	{ value: 'bank_transfer', label: 'Bank transfer' },
-	{ value: 'cash_on_delivery', label: 'Cash on delivery' },
-	{ value: 'paykoko', label: 'PayKoko' },
-	{ value: 'mintpay', label: 'Mintpay' }
+	{ value: 'cash_on_delivery', label: 'Cash on delivery' }
 ] as const;
 
 export const adminPaymentStatusOptions = [
