@@ -36,10 +36,10 @@
 	};
 
 	const sizeClasses = {
-		sm: 'min-h-9 px-3 py-1.5 text-xs font-sans font-medium',
+		sm: 'min-h-11 px-3 py-1.5 text-xs font-sans font-medium sm:min-h-9',
 		md: 'min-h-11 px-5 py-3 text-xs tracking-widest font-mono uppercase font-bold',
 		lg: 'min-h-12 px-6 py-3.5 text-sm tracking-widest font-mono uppercase font-bold',
-		icon: 'min-h-0 h-7 w-7 p-0 shrink-0'
+		icon: 'h-11 w-11 p-0 shrink-0 sm:h-9 sm:w-9'
 	};
 
 	const baseClasses =

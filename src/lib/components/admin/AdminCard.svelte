@@ -24,23 +24,23 @@
 	} = $props();
 </script>
 
-<div class="{bg} {border} {padding} {className}">
+<div class="max-w-full min-w-0 {bg} {border} {padding} {className}">
 	{#if title || kicker || headerActions}
-		<div class="mb-5 flex items-end justify-between gap-4 border-b border-ash/10 pb-4">
+		<div class="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-ash/10 pb-4">
 			<div class="min-w-0">
 				{#if kicker}
 					<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">{kicker}</p>
 				{/if}
 				{#if title}
 					<h2
-						class="mt-1 font-display {titleSize} truncate leading-none tracking-wide text-bone uppercase"
+						class="mt-1 font-display wrap-break-word {titleSize} leading-none tracking-wide text-bone uppercase"
 					>
 						{title}
 					</h2>
 				{/if}
 			</div>
 			{#if headerActions}
-				<div class="flex shrink-0 items-center gap-2">
+				<div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
 					{@render headerActions()}
 				</div>
 			{/if}

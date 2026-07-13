@@ -1,17 +1,21 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { generateSlug } from '$lib/shared/slug';
 	import { FolderOpen, AlertTriangle } from 'lucide-svelte';
 	import { filesProxy, superForm } from 'sveltekit-superforms';
 	import type { PageData } from './$types';
 	import { slide } from 'svelte/transition';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminFormLayout from '$lib/components/admin/layout/AdminFormLayout.svelte';
 	import AdminImageUpload from '$lib/components/admin/AdminImageUpload.svelte';
 	import AdminChildCategoryList from '$lib/components/admin/AdminChildCategoryList.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminUnsavedChangesGuard from '$lib/components/admin/AdminUnsavedChangesGuard.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -32,7 +36,8 @@
 		errors: createCategoryErrors,
 		message: createCategoryMessage,
 		enhance: createCategoryEnhance,
-		submitting: createCategorySubmitting
+		submitting: createCategorySubmitting,
+		tainted: createCategoryTainted
 	} = createCategorySuperform;
 
 	const imagesProxy = filesProxy(createCategorySuperform, 'images');
@@ -45,6 +50,11 @@
 	// ── Child categories state ────────────────────────────────────────────
 	let childImages = $state<string[]>([]);
 	let childFiles = $state<(File | null)[]>([]);
+	const hasUnsavedChanges = $derived(
+		Boolean($createCategoryTainted) ||
+			rootImageFile !== null ||
+			childFiles.some((file) => file !== null)
+	);
 
 	// ── Toast state ───────────────────────────────────────────────────────
 	let toastMessage = $state<string | null>(null);
@@ -215,6 +225,19 @@
 							helpText="Lower number = higher priority in menus"
 						/>
 					{/if}
+
+					<div
+						class="grid gap-2 border border-charcoal bg-void/40 p-3 sm:col-span-2 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center"
+					>
+						<AdminBadge variant={$createCategoryForm.parentId ? 'info' : 'accent'}>
+							{$createCategoryForm.parentId ? 'Child batch mode' : 'Root category mode'}
+						</AdminBadge>
+						<p class="font-sans text-xs leading-relaxed text-ash">
+							{$createCategoryForm.parentId
+								? 'Add one or more child categories beneath the selected parent.'
+								: 'Create one top-level category with its own storefront image and menu order.'}
+						</p>
+					</div>
 				</div>
 			</AdminCard>
 
@@ -244,22 +267,15 @@
 						/>
 					</div>
 
-					<div class="mt-4 grid gap-1.5">
-						<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-							>Description</span
-						>
-						<textarea
-							name="description"
-							bind:value={$createCategoryForm.description}
-							placeholder="Describe the designs, silhouettes, and fabric weight featured in this category..."
-							class="min-h-28 w-full resize-y border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-						></textarea>
-						{#if $createCategoryErrors.description}
-							<span class="font-sans text-xs text-red-400"
-								>{$createCategoryErrors.description[0]}</span
-							>
-						{/if}
-					</div>
+					<AdminTextarea
+						label="Description"
+						name="description"
+						rows={4}
+						bind:value={$createCategoryForm.description}
+						placeholder="Describe the designs, silhouettes, and fabric weight featured in this category..."
+						error={$createCategoryErrors.description}
+						class="mt-4"
+					/>
 				</AdminCard>
 
 				<!-- ── Category Image ──────────────────────────────────────── -->
@@ -426,10 +442,17 @@
 	</AdminFormLayout>
 </form>
 
+<AdminUnsavedChangesGuard
+	dirty={hasUnsavedChanges && !$createCategorySubmitting}
+	title="Leave new category?"
+	description="Category fields, child categories, and selected images have not been saved."
+	onsave={() => formElement?.requestSubmit()}
+/>
+
 <!-- ── Server Error Toast ──────────────────────────────────────────── -->
 <AdminToast
 	message={toastMessage}
-	type="error"
+	type={page.status >= 400 ? 'error' : 'success'}
 	duration={6000}
 	onclose={() => (toastMessage = null)}
 />

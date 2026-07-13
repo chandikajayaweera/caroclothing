@@ -48,7 +48,8 @@ function getZoneOptions(url: URL): ListShippingZonesOptions {
 	return {
 		shippingMethodId: url.searchParams.get('shippingMethodId')?.trim() || undefined,
 		district: getDistrict(url.searchParams.get('district')),
-		limit: 100
+		limit: getIntegerParam(url.searchParams.get('zoneLimit')) ?? 25,
+		offset: getIntegerParam(url.searchParams.get('zoneOffset'))
 	};
 }
 
@@ -78,6 +79,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	try {
 		const [
 			methods,
+			methodOptionsResult,
 			zones,
 			carriers,
 			createMethodForm,
@@ -89,6 +91,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			deleteCarrierForm
 		] = await Promise.all([
 			listShippingMethods(ctx, methodOptions),
+			listShippingMethods(ctx, { limit: 100 }),
 			listShippingZones(ctx, zoneOptions),
 			listCarriers(ctx),
 			superValidate(zod4(createShippingMethodFormSchema), {
@@ -116,6 +119,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		return {
 			methods,
+			methodOptions: methodOptionsResult.items,
 			zones,
 			carriers,
 			districts: listShippingDistrictOptions(),

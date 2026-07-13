@@ -3,11 +3,19 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { Heart, Users, UserCheck, Package, EyeOff } from 'lucide-svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import { UserCheck, Package } from 'lucide-svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminTabs from '$lib/components/admin/AdminTabs.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
+	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
+	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
+	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
+	import { formatAdminDateTime, formatAdminMoney } from '$lib/shared/admin/format';
+	import { booleanStatusVariant, wishlistAlertVariant } from '$lib/shared/admin/status';
 
 	let { data }: { data: PageData } = $props();
 
@@ -87,22 +95,29 @@
 		url.searchParams.delete('offset');
 		goto(resolve(`${url.pathname}${url.search}` as '/'), { noScroll: true });
 	}
-
-	function formatDate(value: Date | string | null | undefined): string {
-		if (!value) return 'Never';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
 </script>
+
+{#snippet wishlistTabs()}
+	<AdminTabs
+		label="Wishlist views"
+		value={currentTab}
+		items={[
+			{ value: 'signals', label: 'Demand Signals', href: '/app/wishlist?tab=signals' },
+			{ value: 'users', label: 'User Saves', href: '/app/wishlist?tab=users' }
+		]}
+	/>
+{/snippet}
 
 {#if currentTab === 'signals'}
 	<!-- DEMAND SIGNALS TAB -->
 	<AdminListLayout
 		title="Wishlist"
 		kicker="Customers"
-		stats={data.stats}
+		metrics={[
+			{ label: 'Total Saves', value: data.stats.total },
+			{ label: 'Products Saved', value: data.stats.active, tone: 'info' },
+			{ label: 'High-risk Variants', value: data.stats.inactive, tone: 'warning' }
+		]}
 		loading={false}
 		bind:query={searchQuery}
 		searchPlaceholder="Search by Product ID..."
@@ -111,26 +126,17 @@
 		offset={filters.offset}
 		tableHeaders={signalHeaders}
 		items={signals.items}
+		preserveParams={['tab']}
 		bind:showFilters
 		hasActiveFilters={filters.alertLevel !== 'all' || filters.includeUnavailable}
 		onclearfilters={clearSignalFilters}
 	>
-		{#snippet advancedFilters()}
-			<div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-				<AdminSelect
-					label="View Mode"
-					name="tab"
-					value={data.tab}
-					options={[
-						{ value: 'signals', label: 'Signals' },
-						{ value: 'users', label: 'User Saves' }
-					]}
-					onchange={(e) => {
-						const form = (e.currentTarget as HTMLElement).closest('form');
-						if (form) form.requestSubmit();
-					}}
-				/>
+		{#snippet headerActions()}
+			{@render wishlistTabs()}
+		{/snippet}
 
+		{#snippet advancedFilters()}
+			<AdminFilterBar cols={2} class="mt-2">
 				<AdminSelect
 					label="Alert Level"
 					name="alertLevel"
@@ -154,7 +160,7 @@
 						}, 0);
 					}}
 				/>
-			</div>
+			</AdminFilterBar>
 		{/snippet}
 
 		{#snippet row(signal)}
@@ -201,118 +207,89 @@
 					{/if}
 				</td>
 				<td class="px-5 py-4 font-mono text-[10px] tracking-wider uppercase">
-					{#if signal.isAvailable}
-						<span class="font-semibold text-volt">Active</span>
-					{:else}
-						<span class="text-red-300">Inactive</span>
-					{/if}
+					<AdminBadge variant={booleanStatusVariant(signal.isAvailable)}>
+						{signal.isAvailable ? 'Active' : 'Inactive'}
+					</AdminBadge>
 				</td>
 				<td class="px-5 py-4 font-mono text-[10px]">
-					{#if signal.alertStatus === 'high'}
-						<span
-							class="inline-block border border-volt bg-volt/10 px-2 py-0.5 text-[9px] font-bold tracking-wider text-volt uppercase"
-							title="High saves count relative to very low stock levels (Stock <= 5)"
-						>
-							High Risk
-						</span>
-					{:else if signal.alertStatus === 'watch'}
-						<span
-							class="inline-block border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] tracking-wider text-amber-400 uppercase"
-							title="Moderately low stock relative to demand (Stock <= 15)"
-						>
-							Watch
-						</span>
-					{:else}
-						<span
-							class="inline-block border border-charcoal bg-charcoal/30 px-2 py-0.5 text-[9px] tracking-wider text-ash/60 uppercase"
-							title="Stock levels are healthy relative to saves count"
-						>
-							Normal
-						</span>
-					{/if}
+					<AdminBadge variant={wishlistAlertVariant(signal.alertStatus)}>
+						{signal.alertStatus === 'high' ? 'High Risk' : signal.alertStatus}
+					</AdminBadge>
 				</td>
 				<td class="px-5 py-4 text-right font-display text-xl text-bone">
 					{signal.saveCount}
 				</td>
 				<td class="px-5 py-4 text-right font-mono text-[10px] text-ash">
-					{formatDate(signal.lastSavedAt)}
+					{formatAdminDateTime(signal.lastSavedAt, 'Never')}
 				</td>
 			</tr>
 		{/snippet}
 
 		{#snippet card(signal)}
-			<AdminCard>
-				<div class="flex items-start gap-3">
-					{#if signal.imageUrl}
-						<img
-							src={signal.imageUrl}
-							alt=""
-							class="h-12 w-12 border border-charcoal bg-void object-cover"
-						/>
-					{:else}
-						<div
-							class="flex h-12 w-12 shrink-0 items-center justify-center border border-charcoal bg-void text-ash/30"
-						>
-							<Package size={16} />
-						</div>
-					{/if}
-					<div class="min-w-0 flex-1">
-						<h3 class="truncate font-display text-lg leading-tight text-bone uppercase">
-							{signal.product.name}
-						</h3>
-						<p class="mt-0.5 truncate font-mono text-[9px] tracking-wider text-ash/60">
-							{signal.productId}
-						</p>
+			<AdminEntityCard>
+				{#snippet header()}
+					<div class="flex items-start gap-3">
+						{#if signal.imageUrl}
+							<img
+								src={signal.imageUrl}
+								alt=""
+								class="h-12 w-12 border border-charcoal bg-void object-cover"
+							/>
+						{:else}
+							<div
+								class="flex h-12 w-12 shrink-0 items-center justify-center border border-charcoal bg-void text-ash/30"
+							>
+								<Package size={16} />
+							</div>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<h3 class="truncate font-display text-lg leading-tight text-bone uppercase">
+								{signal.product.name}
+							</h3>
+							<p class="mt-0.5 truncate font-mono text-[9px] tracking-wider text-ash/60">
+								{signal.productId}
+							</p>
 
-						<div class="mt-2 flex flex-wrap gap-1.5 font-mono text-[8px] tracking-wider uppercase">
-							{#if signal.variant}
-								<span class="border border-charcoal bg-charcoal/50 px-1.5 py-0.5 text-bone">
-									{signal.variant.color} / {signal.variant.size}
-								</span>
-								{#if signal.variant.trackInventory}
-									<span class="border border-charcoal bg-charcoal/50 px-1.5 py-0.5 text-ash">
-										Stock: {signal.variant.inventoryQuantity ?? 0}
-									</span>
+							<div
+								class="mt-2 flex flex-wrap gap-1.5 font-mono text-[8px] tracking-wider uppercase"
+							>
+								{#if signal.variant}
+									<AdminBadge variant="neutral" size="xs">
+										{signal.variant.color} / {signal.variant.size}
+									</AdminBadge>
+									{#if signal.variant.trackInventory}
+										<AdminBadge variant="neutral" size="xs">
+											Stock: {signal.variant.inventoryQuantity ?? 0}
+										</AdminBadge>
+									{/if}
 								{/if}
-							{/if}
 
-							{#if signal.alertStatus === 'high'}
-								<span class="border border-volt bg-volt/10 px-1.5 py-0.5 font-bold text-volt">
-									High Risk
-								</span>
-							{:else if signal.alertStatus === 'watch'}
-								<span
-									class="border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-amber-400"
-								>
-									Watch
-								</span>
-							{/if}
+								<AdminBadge variant={wishlistAlertVariant(signal.alertStatus)} size="xs">
+									{signal.alertStatus === 'high' ? 'High Risk' : signal.alertStatus}
+								</AdminBadge>
+							</div>
 						</div>
 					</div>
-				</div>
-				<div class="mt-4 flex items-center justify-between border-t border-charcoal/50 pt-3">
-					<div>
-						<p class="font-mono text-[8px] tracking-[0.08em] text-ash uppercase">Saves</p>
-						<p class="mt-0.5 font-display text-xl leading-none text-volt">{signal.saveCount}</p>
-					</div>
-					<div class="text-right">
-						<p class="font-mono text-[8px] tracking-[0.08em] text-ash uppercase">Last Saved</p>
-						<p class="mt-0.5 font-mono text-[9px] leading-none text-bone">
-							{formatDate(signal.lastSavedAt)}
-						</p>
-					</div>
-				</div>
-			</AdminCard>
+				{/snippet}
+				{#snippet metadata()}
+					<AdminMetaGrid>
+						<div>
+							<p class="text-ash/60">Saves</p>
+							<p class="mt-0.5 text-bone">{signal.saveCount}</p>
+						</div>
+						<div>
+							<p class="text-ash/60">Last Saved</p>
+							<p class="mt-0.5 text-bone">
+								{formatAdminDateTime(signal.lastSavedAt, 'Never')}
+							</p>
+						</div>
+					</AdminMetaGrid>
+				{/snippet}
+			</AdminEntityCard>
 		{/snippet}
 
 		{#snippet emptyState()}
-			<div class="py-6 text-center">
-				<EyeOff class="mx-auto mb-3 text-ash/20" size={40} />
-				<p class="font-display text-2xl text-bone uppercase">No demand signals found</p>
-				<p class="mt-1 font-mono text-[9px] tracking-widest text-ash uppercase">
-					Adjust query or check filters.
-				</p>
-			</div>
+			<AdminEmptyState title="No demand signals found" description="Adjust query or filters." />
 		{/snippet}
 	</AdminListLayout>
 {:else if currentTab === 'users'}
@@ -320,7 +297,11 @@
 	<AdminListLayout
 		title="Wishlist"
 		kicker="Customers"
-		stats={data.stats}
+		metrics={[
+			{ label: 'Selected User Saves', value: userWishlist?.total ?? 0, tone: 'accent' },
+			{ label: 'Matching Users', value: searchedUsers.total, tone: 'info' },
+			{ label: 'Tracked Products', value: signals.total }
+		]}
 		loading={false}
 		bind:query={searchQuery}
 		searchPlaceholder="Search user name, email, or phone..."
@@ -329,42 +310,30 @@
 		offset={filters.offset}
 		tableHeaders={wishlistHeaders}
 		items={userWishlist?.items ?? []}
+		preserveParams={['tab', 'userId']}
 		bind:showFilters
 		hasActiveFilters={filters.userId !== ''}
 		onclearfilters={clearUserFilters}
 		actionMessage={selectedUserLabel ? `Viewing saves for: ${selectedUserLabel}` : null}
 		actionMessageClass="border-volt/30 bg-volt/10 text-volt"
 	>
+		{#snippet headerActions()}
+			{@render wishlistTabs()}
+		{/snippet}
+
 		{#snippet advancedFilters()}
 			<div class="mt-2">
-				<div class="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-					<AdminSelect
-						label="View Mode"
-						name="tab"
-						value={data.tab}
-						options={[
-							{ value: 'signals', label: 'Signals' },
-							{ value: 'users', label: 'User Saves' }
-						]}
-						onchange={(e) => {
-							const form = (e.currentTarget as HTMLElement).closest('form');
-							if (form) form.requestSubmit();
-						}}
-					/>
-				</div>
-
 				<p class="mb-3 font-mono text-[8px] tracking-[0.2em] text-volt uppercase">
 					Matching Users ({searchedUsers.items.length})
 				</p>
 				<div class="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2 md:grid-cols-3">
 					{#each searchedUsers.items as user (user.id)}
-						<button
+						<AdminButton
 							type="button"
+							size="lg"
+							variant={filters.userId === user.id ? 'volt' : 'outline'}
 							onclick={() => selectUser(user.id)}
-							class="flex w-full items-center justify-between border p-3 text-left transition-colors hover:border-volt {filters.userId ===
-							user.id
-								? 'border-volt bg-volt/10'
-								: 'border-charcoal bg-void/50'}"
+							class="w-full justify-between text-left"
 						>
 							<div>
 								<p class="font-sans text-xs leading-tight font-semibold text-bone">
@@ -378,7 +347,7 @@
 								size={14}
 								class={filters.userId === user.id ? 'text-volt' : 'text-ash/40'}
 							/>
-						</button>
+						</AdminButton>
 					{/each}
 				</div>
 			</div>
@@ -421,83 +390,79 @@
 					{/if}
 				</td>
 				<td class="px-5 py-4 font-mono text-xs font-medium text-volt">
-					LKR {item.effectivePrice.toLocaleString('en-LK')}
+					{formatAdminMoney(item.effectivePrice)}
 				</td>
 				<td class="px-5 py-4 text-right font-mono text-[10px] text-ash">
-					{formatDate(item.addedAt)}
+					{formatAdminDateTime(item.addedAt, 'Never')}
 				</td>
 			</tr>
 		{/snippet}
 
 		{#snippet card(item)}
-			<AdminCard>
-				<div class="flex items-start gap-3">
-					{#if item.imageUrl}
-						<img
-							src={item.imageUrl}
-							alt=""
-							class="h-12 w-12 border border-charcoal bg-void object-cover"
-						/>
-					{:else}
-						<div
-							class="flex h-12 w-12 shrink-0 items-center justify-center border border-charcoal bg-void text-ash/30"
-						>
-							<Package size={16} />
-						</div>
-					{/if}
-					<div class="min-w-0 flex-1">
-						<h3 class="truncate font-display text-lg leading-tight text-bone uppercase">
-							{item.product.name}
-						</h3>
-						<p class="mt-0.5 truncate font-mono text-[9px] tracking-wider text-ash/60">
-							{item.productId}
-						</p>
-
-						{#if item.variant}
-							<div class="mt-2">
-								<span
-									class="border border-charcoal bg-charcoal/50 px-1.5 py-0.5 font-mono text-[8px] font-semibold tracking-wider text-bone uppercase"
-								>
-									{item.variant.color} / {item.variant.size}
-								</span>
+			<AdminEntityCard>
+				{#snippet header()}
+					<div class="flex items-start gap-3">
+						{#if item.imageUrl}
+							<img
+								src={item.imageUrl}
+								alt=""
+								class="h-12 w-12 border border-charcoal bg-void object-cover"
+							/>
+						{:else}
+							<div
+								class="flex h-12 w-12 shrink-0 items-center justify-center border border-charcoal bg-void text-ash/30"
+							>
+								<Package size={16} />
 							</div>
 						{/if}
+						<div class="min-w-0 flex-1">
+							<h3 class="truncate font-display text-lg leading-tight text-bone uppercase">
+								{item.product.name}
+							</h3>
+							<p class="mt-0.5 truncate font-mono text-[9px] tracking-wider text-ash/60">
+								{item.productId}
+							</p>
+
+							{#if item.variant}
+								<div class="mt-2">
+									<AdminBadge variant="neutral" size="xs">
+										{item.variant.color} / {item.variant.size}
+									</AdminBadge>
+								</div>
+							{/if}
+						</div>
 					</div>
-				</div>
-				<div class="mt-4 flex items-center justify-between border-t border-charcoal/50 pt-3">
-					<div>
-						<p class="font-mono text-[8px] tracking-[0.08em] text-ash uppercase">Price</p>
-						<p class="mt-0.5 font-mono text-xs leading-none text-volt">
-							LKR {item.effectivePrice.toLocaleString('en-LK')}
-						</p>
-					</div>
-					<div class="text-right">
-						<p class="font-mono text-[8px] tracking-[0.08em] text-ash uppercase">Added At</p>
-						<p class="mt-0.5 font-mono text-[9px] leading-none text-bone">
-							{formatDate(item.addedAt)}
-						</p>
-					</div>
-				</div>
-			</AdminCard>
+				{/snippet}
+				{#snippet metadata()}
+					<AdminMetaGrid>
+						<div>
+							<p class="text-ash/60">Price</p>
+							<p class="mt-0.5 text-bone">
+								{formatAdminMoney(item.effectivePrice)}
+							</p>
+						</div>
+						<div>
+							<p class="text-ash/60">Added At</p>
+							<p class="mt-0.5 text-bone">
+								{formatAdminDateTime(item.addedAt, 'Never')}
+							</p>
+						</div>
+					</AdminMetaGrid>
+				{/snippet}
+			</AdminEntityCard>
 		{/snippet}
 
 		{#snippet emptyState()}
 			{#if !filters.userId}
-				<div class="py-6 text-center">
-					<Users class="mx-auto mb-3 text-ash/25" size={40} />
-					<p class="font-display text-2xl text-bone uppercase">No user selected</p>
-					<p class="mt-1 font-mono text-[9px] tracking-widest text-ash uppercase">
-						Search and select a user from the filter panel.
-					</p>
-				</div>
+				<AdminEmptyState
+					title="No user selected"
+					description="Search and select a user from the filter panel."
+				/>
 			{:else}
-				<div class="py-6 text-center">
-					<Heart class="mx-auto mb-3 text-ash/25" size={40} />
-					<p class="font-display text-2xl text-bone uppercase">Wishlist is empty</p>
-					<p class="mt-1 font-mono text-[9px] tracking-widest text-ash uppercase">
-						This user has not wishlisted any active products.
-					</p>
-				</div>
+				<AdminEmptyState
+					title="Wishlist is empty"
+					description="This user has not wishlisted any active products."
+				/>
 			{/if}
 		{/snippet}
 	</AdminListLayout>

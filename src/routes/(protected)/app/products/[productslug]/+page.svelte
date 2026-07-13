@@ -1,11 +1,18 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { fade } from 'svelte/transition';
-	import { AlertTriangle, ArrowLeft, ImageOff, Pencil, Star, X } from 'lucide-svelte';
+	import { AlertTriangle, ArrowLeft, ImageOff, Pencil, Star } from 'lucide-svelte';
 	import type { PageData } from './$types';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminModal from '$lib/components/admin/AdminModal.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminDetailLayout from '$lib/components/admin/layout/AdminDetailLayout.svelte';
+	import {
+		formatAdminDateTime,
+		formatAdminMoney,
+		formatAdminStatus
+	} from '$lib/shared/admin/format';
 
 	let { data }: { data: PageData } = $props();
 
@@ -53,22 +60,6 @@
 	}
 
 	let activeImageIndex = $state<number | null>(null);
-
-	function formatMoney(value: number): string {
-		return `LKR ${value.toLocaleString('en-LK')}`;
-	}
-
-	function formatLabel(value: string): string {
-		return value.replace(/_/g, ' ');
-	}
-
-	function formatDate(value: Date | string | null): string {
-		if (!value) return 'None';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
 
 	function isValidHex(value: string | null | undefined): value is string {
 		return /^#[0-9A-Fa-f]{6}$/.test(value ?? '');
@@ -203,17 +194,17 @@
 					<div class="grid gap-px bg-charcoal md:grid-cols-2">
 						<div class="bg-void p-5">
 							<p class="font-sans text-xs text-ash">State</p>
-							<p
-								class="mt-2 font-mono text-sm tracking-widest uppercase {product.isActive
-									? 'font-bold text-volt'
-									: 'font-bold text-red-400'}"
-							>
-								{product.isActive ? 'Active' : 'Inactive'}
-							</p>
+							<div class="mt-2">
+								<AdminBadge variant={product.isActive ? 'success' : 'danger'}>
+									{product.isActive ? 'Active' : 'Inactive'}
+								</AdminBadge>
+							</div>
 						</div>
 						<div class="bg-void p-5">
 							<p class="font-sans text-xs text-ash">Starting Price</p>
-							<p class="mt-2 font-mono text-sm text-bone">{formatMoney(product.basePrice)}</p>
+							<p class="mt-2 font-mono text-sm text-bone">
+								{formatAdminMoney(product.basePrice)}
+							</p>
 						</div>
 						<div class="bg-void p-5">
 							<p class="font-sans text-xs text-ash">Category</p>
@@ -222,12 +213,9 @@
 							</p>
 						</div>
 						<div class="bg-void p-5">
-							<p class="font-sans text-xs text-ash">Tier</p>
-						</div>
-						<div class="bg-void p-5">
 							<p class="font-sans text-xs text-ash">Gender / Fit</p>
 							<p class="mt-2 font-sans text-sm text-bone">
-								{formatLabel(product.gender)} / {formatLabel(product.fit)}
+								{formatAdminStatus(product.gender)} / {formatAdminStatus(product.fit)}
 							</p>
 						</div>
 						<div class="bg-void p-5">
@@ -256,11 +244,7 @@
 							{#if product.tags.length > 0}
 								<div class="mt-3 flex flex-wrap gap-2">
 									{#each product.tags as tag (tag.id)}
-										<span
-											class="border border-charcoal bg-void px-3 py-2 font-mono text-[10px] tracking-widest text-bone uppercase"
-										>
-											{tag.name}
-										</span>
+										<AdminBadge variant="neutral">{tag.name}</AdminBadge>
 									{/each}
 								</div>
 							{:else}
@@ -299,10 +283,10 @@
 										<div class="font-mono text-sm text-bone">
 											{#if card.compareAtPrice}
 												<span class="mr-2 text-ash line-through"
-													>{formatMoney(card.compareAtPrice)}</span
+													>{formatAdminMoney(card.compareAtPrice)}</span
 												>
 											{/if}
-											<span class="font-bold text-volt">{formatMoney(card.basePrice)}</span>
+											<span class="font-bold text-volt">{formatAdminMoney(card.basePrice)}</span>
 										</div>
 									</div>
 
@@ -311,13 +295,9 @@
 											<p class="mb-2 font-sans text-xs text-ash">Sizes Available</p>
 											<div class="flex flex-wrap gap-2">
 												{#each card.variants as v (v.id)}
-													<span
-														class="inline-flex min-h-9 items-center border px-3 py-2 font-mono text-[10px] tracking-wider uppercase {v.isActive
-															? 'border-volt bg-volt font-bold text-void'
-															: 'border-charcoal bg-void text-ash/45 line-through'}"
-													>
+													<AdminBadge variant={v.isActive ? 'success' : 'neutral'}>
 														{v.size}
-													</span>
+													</AdminBadge>
 												{/each}
 											</div>
 										</div>
@@ -330,10 +310,13 @@
 												<div class="flex flex-wrap gap-2">
 													{#each imagesForColorCard(product, card.variantColorId) as img (img.id)}
 														{@const imgIndex = product.images.indexOf(img)}
-														<button
+														<AdminButton
 															type="button"
+															size="icon"
+															variant="outline"
 															onclick={() => (activeImageIndex = imgIndex)}
-															class="relative block cursor-pointer border border-charcoal transition-colors hover:border-volt"
+															class="relative h-14 w-14 overflow-hidden p-0"
+															aria-label={`View ${card.color || 'variant'} image`}
 														>
 															<img src={img.imageUrl} alt="" class="h-14 w-14 object-cover" />
 															{#if img.isPrimary}
@@ -342,7 +325,7 @@
 																	>Primary</span
 																>
 															{/if}
-														</button>
+														</AdminButton>
 													{/each}
 												</div>
 											{:else}
@@ -356,12 +339,7 @@
 							{/each}
 						</div>
 					{:else}
-						<div class="p-10 text-center">
-							<p class="font-display text-3xl text-bone uppercase">No variants</p>
-							<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-								Add variants from edit.
-							</p>
-						</div>
+						<AdminEmptyState title="No variants" description="Add variants from edit." />
 					{/if}
 				</AdminCard>
 
@@ -370,10 +348,12 @@
 					{#if product.images.length > 0}
 						<div class="animate-fade-in grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
 							{#each product.images as image, idx (image.id)}
-								<button
+								<AdminButton
 									type="button"
+									variant="outline"
 									onclick={() => (activeImageIndex = idx)}
-									class="block w-full cursor-pointer border border-charcoal bg-void text-left transition-colors hover:border-volt"
+									class="block h-auto w-full p-0 text-left normal-case"
+									aria-label={`View ${image.altText ?? 'product image'}`}
 								>
 									<div class="relative">
 										<img
@@ -407,14 +387,11 @@
 											</p>
 										{/if}
 									</div>
-								</button>
+								</AdminButton>
 							{/each}
 						</div>
 					{:else}
-						<div class="p-10 text-center">
-							<ImageOff size={28} class="mx-auto text-ash/50" aria-hidden="true" />
-							<p class="mt-4 font-display text-3xl text-bone uppercase">No images</p>
-						</div>
+						<AdminEmptyState title="No images" description="Upload product media from edit." />
 					{/if}
 				</AdminCard>
 			{/snippet}
@@ -456,73 +433,61 @@
 			{/snippet}
 		</AdminDetailLayout>
 
-		<!-- Large Image Preview Modal -->
-		{#if activeImage}
-			<div
-				class="fixed inset-0 z-50 grid min-h-0 min-w-0 bg-void/95 transition-opacity sm:grid-cols-[1fr_360px]"
-				transition:fade={{ duration: 150 }}
-				role="dialog"
-				aria-modal="true"
-			>
-				<div class="flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-void">
-					<img
-						src={activeImage.imageUrl}
-						alt={activeImage.altText ?? ''}
-						class="mx-auto max-h-[58vh] w-full min-w-0 object-contain sm:max-h-[64vh] lg:max-h-[92vh]"
-					/>
-				</div>
-				<div class="grid min-w-0 content-start gap-4 border-l border-charcoal bg-charcoal p-5">
-					<div class="animate-fade-in flex items-start justify-between gap-4">
-						<div class="min-w-0">
-							<p class="font-sans text-xs font-bold tracking-wider text-volt uppercase">
-								Image Detail
-							</p>
-							<h2
-								class="wrap-break-words mt-2 font-display text-2xl leading-none text-bone uppercase sm:text-3xl"
-							>
-								{activeImage.altText ?? 'Product Image'}
-							</h2>
-							{#if activeImage.variantId}
-								{@const variantColor = colorCards.find(
-									(c) => c.variantColorId === activeImage.variantId
-								)}
-								<p class="mt-2 font-mono text-xs tracking-widest text-volt uppercase">
-									Linked to: {variantColor?.color ?? 'Color swatch'}
-								</p>
-							{:else}
-								<p class="mt-2 font-sans text-xs tracking-widest text-ash uppercase">
-									Product-wide image
-								</p>
-							{/if}
-						</div>
-						<button
-							type="button"
-							onclick={() => (activeImageIndex = null)}
-							class="grid h-11 w-11 shrink-0 cursor-pointer place-items-center border border-ash/30 text-ash transition-colors hover:border-volt hover:text-volt"
-							aria-label="Close image detail"
-						>
-							<X size={15} aria-hidden="true" />
-						</button>
+		<AdminModal
+			open={activeImage !== null}
+			title={activeImage?.altText ?? 'Product Image'}
+			kicker="Image detail"
+			size="5xl"
+			onOpenChange={(open) => {
+				if (!open) activeImageIndex = null;
+			}}
+		>
+			{#if activeImage}
+				<div
+					class="grid min-w-0 overflow-hidden border border-ash/15 bg-void lg:grid-cols-[minmax(0,1fr)_340px]"
+				>
+					<div class="flex min-h-0 min-w-0 items-center justify-center overflow-hidden bg-void">
+						<img
+							src={activeImage.imageUrl}
+							alt={activeImage.altText ?? ''}
+							class="mx-auto max-h-[64vh] w-full min-w-0 object-contain"
+						/>
 					</div>
-					<div class="grid gap-3 border-t border-charcoal pt-4 font-mono text-xs uppercase">
-						<div class="flex justify-between gap-4">
-							<span class="font-sans text-xs text-ash">Role</span>
-							<span class="text-right font-sans text-sm text-bone"
-								>{activeImage.isPrimary ? 'Primary Image' : 'Gallery Image'}</span
-							>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="font-sans text-xs text-ash">Order Position</span>
-							<span class="text-right text-bone">{activeImage.position}</span>
-						</div>
-						<div class="flex justify-between gap-4">
-							<span class="font-sans text-xs text-ash">Uploaded</span>
-							<span class="text-right text-bone">{formatDate(activeImage.createdAt)}</span>
+					<div
+						class="grid min-w-0 content-start gap-4 border-t border-charcoal bg-charcoal p-5 lg:border-t-0 lg:border-l"
+					>
+						{#if activeImage.variantId}
+							{@const variantColor = colorCards.find(
+								(c) => c.variantColorId === activeImage.variantId
+							)}
+							<AdminBadge variant="accent">
+								Linked to {variantColor?.color ?? 'color swatch'}
+							</AdminBadge>
+						{:else}
+							<AdminBadge variant="neutral">Product-wide image</AdminBadge>
+						{/if}
+						<div class="grid gap-3 border-t border-charcoal pt-4 font-mono text-xs uppercase">
+							<div class="flex justify-between gap-4">
+								<span class="font-sans text-xs text-ash">Role</span>
+								<span class="text-right font-sans text-sm text-bone">
+									{activeImage.isPrimary ? 'Primary Image' : 'Gallery Image'}
+								</span>
+							</div>
+							<div class="flex justify-between gap-4">
+								<span class="font-sans text-xs text-ash">Order Position</span>
+								<span class="text-right text-bone">{activeImage.position}</span>
+							</div>
+							<div class="flex justify-between gap-4">
+								<span class="font-sans text-xs text-ash">Uploaded</span>
+								<span class="text-right text-bone">
+									{formatAdminDateTime(activeImage.createdAt, 'None')}
+								</span>
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
-		{/if}
+			{/if}
+		</AdminModal>
 	{:catch error}
 		<div class="mt-8 border border-red-500/30 bg-red-950/20 p-6 text-center text-red-200">
 			<AlertTriangle size={36} class="mx-auto mb-2 text-red-400" />

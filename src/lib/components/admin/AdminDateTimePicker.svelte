@@ -135,7 +135,7 @@
 			{...rest}
 		>
 			{#snippet children({ segments })}
-				{#each segments as { part, value: segmentVal } (`${part}-${segmentVal}`)}
+				{#each segments as { part, value: segmentVal }, segmentIndex (segmentIndex)}
 					{#if part === 'literal'}
 						<DatePicker.Segment {part} class="p-0.5 text-ash/40 select-none">
 							{segmentVal}
@@ -150,7 +150,8 @@
 					{/if}
 				{/each}
 				<DatePicker.Trigger
-					class="ml-auto inline-flex size-6 items-center justify-center text-ash/60 transition-colors hover:text-volt focus:outline-none focus-visible:text-volt"
+					class="ml-auto inline-flex size-10 shrink-0 items-center justify-center text-ash/60 transition-colors hover:text-volt focus:outline-none focus-visible:ring-2 focus-visible:ring-volt sm:size-8"
+					aria-label="Open calendar"
 				>
 					<Calendar size={16} />
 				</DatePicker.Trigger>
@@ -159,7 +160,7 @@
 
 		<DatePicker.Portal>
 			<DatePicker.Content
-				class="z-50 border border-charcoal bg-charcoal p-4 shadow-xl outline-none"
+				class="z-50 max-w-[calc(100vw-1rem)] overflow-x-auto border border-ash/20 bg-charcoal p-3 shadow-xl outline-none sm:p-4"
 				sideOffset={4}
 			>
 				<DatePicker.Calendar>
@@ -168,7 +169,8 @@
 							class="mb-3 flex items-center justify-between border-b border-charcoal/60 pb-3"
 						>
 							<DatePicker.PrevButton
-								class="grid h-8 w-8 place-items-center border border-ash/20 bg-void text-ash transition-colors hover:border-volt hover:text-volt"
+								class="grid h-11 w-11 place-items-center border border-ash/20 bg-void text-ash transition-colors hover:border-volt hover:text-volt sm:h-9 sm:w-9"
+								aria-label="Previous month"
 							>
 								<ChevronLeft size={16} />
 							</DatePicker.PrevButton>
@@ -176,7 +178,8 @@
 								class="font-mono text-xs font-bold tracking-widest text-bone uppercase"
 							/>
 							<DatePicker.NextButton
-								class="grid h-8 w-8 place-items-center border border-ash/20 bg-void text-ash transition-colors hover:border-volt hover:text-volt"
+								class="grid h-11 w-11 place-items-center border border-ash/20 bg-void text-ash transition-colors hover:border-volt hover:text-volt sm:h-9 sm:w-9"
+								aria-label="Next month"
 							>
 								<ChevronRight size={16} />
 							</DatePicker.NextButton>
@@ -189,7 +192,7 @@
 										<DatePicker.GridRow class="mb-1 flex w-full">
 											{#each weekdays as day (day)}
 												<DatePicker.HeadCell
-													class="w-8 text-center font-sans text-[10px] font-medium text-ash/60 uppercase"
+													class="w-10 text-center font-sans text-[10px] font-medium text-ash/60 uppercase sm:w-9"
 												>
 													{day.slice(0, 2)}
 												</DatePicker.HeadCell>
@@ -203,7 +206,7 @@
 													<DatePicker.Cell
 														{date}
 														month={month.value}
-														class="relative h-8 w-8 p-0 text-center"
+														class="relative h-10 w-10 p-0 text-center sm:h-9 sm:w-9"
 													>
 														<DatePicker.Day
 															class="flex h-full w-full cursor-pointer items-center justify-center font-mono text-xs text-bone transition-colors hover:bg-ash/10 hover:text-volt focus:outline-none focus-visible:ring-1 focus-visible:ring-volt

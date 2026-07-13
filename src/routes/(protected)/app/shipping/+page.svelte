@@ -5,15 +5,27 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import { Plus, Pencil, Trash2, MapPin, Map as MapIcon } from 'lucide-svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminTabs from '$lib/components/admin/AdminTabs.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
 	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
+	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
+	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
+	import AdminRowActions from '$lib/components/admin/data-display/AdminRowActions.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
+	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
+	import { formatAdminDateTime, formatAdminMoney } from '$lib/shared/admin/format';
+	import { booleanStatusVariant } from '$lib/shared/admin/status';
 
 	let { data }: { data: PageData } = $props();
 	type ShippingMethod = PageData['methods']['items'][number];
@@ -22,12 +34,18 @@
 	type ShippingDistrict = PageData['setZoneForm']['data']['district'];
 
 	// ── Tab Management ──
-	let activeTab = $state<'methods' | 'zones' | 'carriers'>(
-		(page.url.searchParams.get('tab') as 'methods' | 'zones' | 'carriers') || 'methods'
-	);
+	type ShippingTab = 'methods' | 'zones' | 'carriers';
 
-	function setTab(tab: 'methods' | 'zones' | 'carriers') {
-		activeTab = tab;
+	function isShippingTab(value: string | null): value is ShippingTab {
+		return value === 'methods' || value === 'zones' || value === 'carriers';
+	}
+
+	const activeTab = $derived.by<ShippingTab>(() => {
+		const tab = page.url.searchParams.get('tab');
+		return isShippingTab(tab) ? tab : 'methods';
+	});
+
+	function setTab(tab: ShippingTab) {
 		const url = new URL(page.url);
 		url.searchParams.set('tab', tab);
 		url.searchParams.delete('offset'); // Reset pagination offset on tab change
@@ -42,11 +60,39 @@
 	let addMethodOpen = $state(false);
 	let editMethodOpen = $state(false);
 	let setZoneOpen = $state(false);
+	let editingZoneKey = $state(false);
 	let addCarrierOpen = $state(false);
 	let editCarrierOpen = $state(false);
+	let removeZoneConfirmOpen = $state(false);
+	let deleteCarrierConfirmOpen = $state(false);
+	let pendingZoneRemoval = $state<{ shippingMethodId: string; district: string } | null>(null);
+	let pendingCarrierDelete = $state<ShippingCarrier | null>(null);
+	let removeZoneFormElement = $state<HTMLFormElement | null>(null);
+	let deleteCarrierFormElement = $state<HTMLFormElement | null>(null);
 
 	// ── Form/Toast Messages ──
 	let toastMessage = $state<string | null>(null);
+	let toastType = $state<'success' | 'error'>('success');
+	let statusUpdatingId = $state<string | null>(null);
+
+	const enhanceStatusToggle: SubmitFunction = ({ formData }) => {
+		statusUpdatingId = String(formData.get('shippingMethodId') ?? formData.get('carrierId') ?? '');
+		return async ({ result, update }) => {
+			await update({ reset: false });
+			if (result.type === 'success') {
+				toastType = 'success';
+				toastMessage = 'Status updated.';
+			} else if (result.type === 'failure') {
+				const resultData = result.data as { message?: string } | undefined;
+				toastType = 'error';
+				toastMessage = resultData?.message ?? 'Status update failed.';
+			} else {
+				toastType = 'error';
+				toastMessage = 'Status update failed.';
+			}
+			statusUpdatingId = null;
+		};
+	};
 
 	function initialForm<T>(getValue: () => T): T {
 		return getValue();
@@ -62,8 +108,12 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					addMethodOpen = false;
 					toastMessage = form.message ?? 'Shipping method created.';
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Shipping method could not be created.';
 				}
 			}
 		}
@@ -83,8 +133,12 @@
 			resetForm: false,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					editMethodOpen = false;
 					toastMessage = form.message ?? 'Shipping method updated.';
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Shipping method could not be updated.';
 				}
 			}
 		}
@@ -104,8 +158,13 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					setZoneOpen = false;
+					editingZoneKey = false;
 					toastMessage = form.message ?? 'Shipping zone override saved.';
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Shipping zone override could not be saved.';
 				}
 			}
 		}
@@ -125,12 +184,18 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					toastMessage = form.message ?? 'Shipping zone override removed.';
+					pendingZoneRemoval = null;
+					removeZoneConfirmOpen = false;
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Shipping zone override could not be removed.';
 				}
 			}
 		}
 	);
-	const { enhance: removeZoneEnhance } = removeZoneSuperform;
+	const { enhance: removeZoneEnhance, submitting: removeZoneSubmitting } = removeZoneSuperform;
 
 	// 5. Create Carrier
 	const createCarrierSuperform = superForm(
@@ -140,8 +205,12 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					addCarrierOpen = false;
 					toastMessage = form.message ?? 'Carrier created.';
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Carrier could not be created.';
 				}
 			}
 		}
@@ -161,8 +230,12 @@
 			resetForm: false,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					editCarrierOpen = false;
 					toastMessage = form.message ?? 'Carrier updated.';
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Carrier could not be updated.';
 				}
 			}
 		}
@@ -182,31 +255,26 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
+					toastType = 'success';
 					toastMessage = form.message ?? 'Carrier deleted.';
+					pendingCarrierDelete = null;
+					deleteCarrierConfirmOpen = false;
+				} else {
+					toastType = 'error';
+					toastMessage = form.message ?? 'Carrier could not be deleted.';
 				}
 			}
 		}
 	);
-	const { enhance: deleteCarrierEnhance } = deleteCarrierSuperform;
+	const { enhance: deleteCarrierEnhance, submitting: deleteCarrierSubmitting } =
+		deleteCarrierSuperform;
 
 	// (templates superforms removed)
 
 	// ── Formatting Helpers ──
-	function formatMoney(value: number | null): string {
-		if (value === null) return 'Never';
-		return `LKR ${value.toLocaleString('en-LK')}`;
-	}
-
-	function formatDate(value: Date | string): string {
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
-
 	// ── Mappings & Derived Stats ──
 	const methodNamesById = $derived(
-		new Map(data.methods.items.map((method: ShippingMethod) => [method.id, method.name]))
+		new Map(data.methodOptions.map((method: ShippingMethod) => [method.id, method.name]))
 	);
 
 	const carriersById = $derived(
@@ -218,23 +286,45 @@
 		)
 	);
 
-	const methodStats = $derived({
-		total: data.methods.total,
-		active: data.methods.items.filter((m: ShippingMethod) => m.isActive).length,
-		inactive: data.methods.items.filter((m: ShippingMethod) => !m.isActive).length
-	});
+	const methodMetrics = $derived([
+		{ label: 'Filtered Methods', value: data.methods.total },
+		{
+			label: 'Active on Page',
+			value: data.methods.items.filter((method: ShippingMethod) => method.isActive).length,
+			tone: 'success' as const
+		},
+		{
+			label: 'Inactive on Page',
+			value: data.methods.items.filter((method: ShippingMethod) => !method.isActive).length
+		}
+	]);
 
-	const zoneStats = $derived({
-		total: data.zones.total,
-		active: data.zones.total,
-		inactive: 0
-	});
+	const zoneMetrics = $derived([
+		{ label: 'Filtered Overrides', value: data.zones.total },
+		{
+			label: 'Available on Page',
+			value: data.zones.items.filter((zone: ShippingZone) => zone.isAvailable).length,
+			tone: 'success' as const
+		},
+		{
+			label: 'Unavailable on Page',
+			value: data.zones.items.filter((zone: ShippingZone) => !zone.isAvailable).length,
+			tone: 'warning' as const
+		}
+	]);
 
-	const carrierStats = $derived({
-		total: data.carriers.length,
-		active: data.carriers.filter((c: ShippingCarrier) => c.isActive).length,
-		inactive: data.carriers.filter((c: ShippingCarrier) => !c.isActive).length
-	});
+	const carrierMetrics = $derived([
+		{ label: 'Carriers', value: data.carriers.length },
+		{
+			label: 'Active',
+			value: data.carriers.filter((carrier: ShippingCarrier) => carrier.isActive).length,
+			tone: 'success' as const
+		},
+		{
+			label: 'Inactive',
+			value: data.carriers.filter((carrier: ShippingCarrier) => !carrier.isActive).length
+		}
+	]);
 
 	// ── Action Starters ──
 	function startEditMethod(event: MouseEvent, method: ShippingMethod) {
@@ -252,6 +342,30 @@
 		editMethodOpen = true;
 	}
 
+	function openAddMethod(): void {
+		addMethodOpen = true;
+	}
+
+	function openSetZone(): void {
+		$setZoneFormState.shippingMethodId = '';
+		$setZoneFormState.district = '' as ShippingDistrict;
+		$setZoneFormState.priceOverride = 0;
+		$setZoneFormState.estimatedDaysMin = 1;
+		$setZoneFormState.estimatedDaysMax = 3;
+		$setZoneFormState.isAvailable = true;
+		$setZoneFormState.carrierIdOverride = '';
+		editingZoneKey = false;
+		setZoneOpen = true;
+	}
+
+	function openAddCarrier(): void {
+		$createCarrierFormState.name = '';
+		$createCarrierFormState.code = '';
+		$createCarrierFormState.notes = '';
+		$createCarrierFormState.isActive = true;
+		addCarrierOpen = true;
+	}
+
 	function startEditZone(event: MouseEvent, zone: ShippingZone) {
 		event.stopPropagation();
 		$setZoneFormState.shippingMethodId = zone.shippingMethodId;
@@ -261,6 +375,7 @@
 		$setZoneFormState.estimatedDaysMax = zone.estimatedDaysMax;
 		$setZoneFormState.isAvailable = zone.isAvailable;
 		$setZoneFormState.carrierIdOverride = zone.carrierIdOverride ?? '';
+		editingZoneKey = true;
 		setZoneOpen = true;
 	}
 
@@ -273,6 +388,27 @@
 		$updateCarrierFormState.notes = carrierRow.notes ?? '';
 		$updateCarrierFormState.isActive = carrierRow.isActive;
 		editCarrierOpen = true;
+	}
+
+	function requestZoneRemoval(zone: ShippingZone) {
+		pendingZoneRemoval = {
+			shippingMethodId: zone.shippingMethodId,
+			district: zone.district
+		};
+		removeZoneConfirmOpen = true;
+	}
+
+	function requestCarrierDelete(carrier: ShippingCarrier) {
+		pendingCarrierDelete = carrier;
+		deleteCarrierConfirmOpen = true;
+	}
+
+	function confirmZoneRemoval() {
+		removeZoneFormElement?.requestSubmit();
+	}
+
+	function confirmCarrierDelete() {
+		deleteCarrierFormElement?.requestSubmit();
 	}
 
 	// ── Filters & Form Interception ──
@@ -344,7 +480,47 @@
 	];
 </script>
 
-<AdminToast message={toastMessage} onclose={() => (toastMessage = null)} />
+<AdminToast message={toastMessage} type={toastType} onclose={() => (toastMessage = null)} />
+
+{#snippet tabControls()}
+	<AdminTabs
+		label="Shipping views"
+		value={activeTab}
+		items={[
+			{ value: 'methods', label: 'Methods', count: data.methods.total },
+			{ value: 'zones', label: 'Zones', count: data.zones.total },
+			{ value: 'carriers', label: 'Carriers', count: data.carriers.length }
+		]}
+		onchange={(tab) => setTab(tab as ShippingTab)}
+		class="w-full md:w-auto"
+	/>
+{/snippet}
+
+{#snippet shippingHeaderActions()}
+	<AdminActionToolbar ariaLabel="Shipping page actions">
+		{#snippet views()}
+			{@render tabControls()}
+		{/snippet}
+		{#snippet primary()}
+			{#if activeTab === 'methods'}
+				<AdminButton type="button" variant="volt" onclick={openAddMethod}>
+					<Plus size={14} aria-hidden="true" />
+					Add method
+				</AdminButton>
+			{:else if activeTab === 'zones'}
+				<AdminButton type="button" variant="volt" onclick={openSetZone}>
+					<Plus size={14} aria-hidden="true" />
+					Set override
+				</AdminButton>
+			{:else}
+				<AdminButton type="button" variant="volt" onclick={openAddCarrier}>
+					<Plus size={14} aria-hidden="true" />
+					Add carrier
+				</AdminButton>
+			{/if}
+		{/snippet}
+	</AdminActionToolbar>
+{/snippet}
 
 <div onsubmit={handleFormSubmit}>
 	{#if activeTab === 'methods'}
@@ -352,70 +528,24 @@
 			title="Shipping Methods"
 			kicker="Operations"
 			actionMessage={null}
-			stats={methodStats}
+			metrics={methodMetrics}
 			totalItems={data.methods.total}
 			limit={data.methods.limit}
 			offset={data.methods.offset}
 			tableHeaders={methodHeaders}
 			items={data.methods.items}
+			preserveParams={['tab']}
 			query={data.filters.query}
 			searchPlaceholder="Search shipping methods..."
 			hasActiveFilters={!!data.filters.status || !!data.filters.query}
 			onclearfilters={clearMethodFilters}
 		>
 			{#snippet headerActions()}
-				<div class="mt-5 flex items-center gap-2 md:mt-0">
-					<!-- Tab Buttons -->
-					<div class="mr-2 flex border border-charcoal bg-void p-1">
-						<button
-							type="button"
-							onclick={() => setTab('methods')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'methods'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Methods
-						</button>
-						<button
-							type="button"
-							onclick={() => setTab('zones')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'zones'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Zones
-						</button>
-						<button
-							type="button"
-							onclick={() => setTab('carriers')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'carriers'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Carriers
-						</button>
-					</div>
-
-					<AdminButton
-						type="button"
-						variant="volt"
-						size="md"
-						onclick={(e) => {
-							e.stopPropagation();
-							addMethodOpen = true;
-						}}
-					>
-						<Plus size={14} aria-hidden="true" />
-						Add Method
-					</AdminButton>
-				</div>
+				{@render shippingHeaderActions()}
 			{/snippet}
 
 			{#snippet advancedFilters()}
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				<AdminFilterBar cols={2}>
 					<AdminSelect
 						label="Status"
 						name="status"
@@ -429,7 +559,7 @@
 						<option value="active">Active only</option>
 						<option value="inactive">Inactive only</option>
 					</AdminSelect>
-				</div>
+				</AdminFilterBar>
 			{/snippet}
 
 			{#snippet row(method)}
@@ -450,17 +580,17 @@
 						</div>
 					</td>
 					<td class="px-5 py-4 font-mono text-xs text-bone">
-						{formatMoney(method.price)}
+						{formatAdminMoney(method.price)}
 					</td>
 					<td class="px-5 py-4 font-mono text-xs text-bone">
-						{formatMoney(method.freeShippingThreshold)}
+						{formatAdminMoney(method.freeShippingThreshold, 0, 'Never')}
 					</td>
 					<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">
 						{method.etaText}
 					</td>
 					<td class="px-5 py-4">
 						<span class="font-mono text-xs text-bone">
-							{carriersById.get(method.carrierId) ?? 'None'}
+							{carriersById.get(method.carrierId || '') ?? 'None'}
 						</span>
 					</td>
 					<td class="px-5 py-4 font-mono text-xs text-bone">
@@ -470,31 +600,29 @@
 						</span>
 					</td>
 					<td class="px-5 py-4 font-mono text-[10px] text-ash">
-						{formatDate(method.updatedAt)}
+						{formatAdminDateTime(method.updatedAt, '—')}
 					</td>
 					<td class="px-5 py-4">
 						<form
 							method="POST"
 							action="?/updateMethod"
-							use:enhance={() => {
-								return async ({ result }) => {
-									if (result.type === 'success') {
-										toastMessage = 'Status updated.';
-									}
-								};
-							}}
+							use:enhance={enhanceStatusToggle}
 							class="flex justify-end"
 						>
 							<input type="hidden" name="shippingMethodId" value={method.id} />
 							<input type="hidden" name="isActive" value={method.isActive ? 'false' : 'true'} />
-							<button
+							<AdminButton
 								type="submit"
-								class="font-mono text-[10px] font-semibold tracking-widest uppercase transition-colors {method.isActive
-									? 'text-volt hover:text-red-400'
-									: 'text-ash/60 hover:text-volt'}"
+								variant="outline"
+								size="sm"
+								disabled={statusUpdatingId === method.id}
 							>
-								{method.isActive ? 'Active' : 'Inactive'}
-							</button>
+								{statusUpdatingId === method.id
+									? 'Updating...'
+									: method.isActive
+										? 'Deactivate'
+										: 'Activate'}
+							</AdminButton>
 						</form>
 					</td>
 					<td class="px-5 py-4">
@@ -509,70 +637,69 @@
 			{/snippet}
 
 			{#snippet card(method)}
-				<AdminCard class="relative">
-					<div class="flex items-start justify-between gap-4">
-						<div>
-							<h3 class="mt-1 font-display text-2xl leading-none text-bone uppercase">
-								{method.name}
-							</h3>
+				<AdminEntityCard>
+					{#snippet header()}
+						<div class="flex items-start justify-between gap-4">
+							<div>
+								<h3 class="mt-1 font-display text-2xl leading-none text-bone uppercase">
+									{method.name}
+								</h3>
+							</div>
+							<span class="font-mono text-xs text-volt uppercase">{method.etaText}</span>
 						</div>
-						<span class="font-mono text-xs text-volt uppercase">{method.etaText}</span>
-					</div>
+					{/snippet}
 
-					<div
-						class="mt-4 grid grid-cols-2 gap-3 border-t border-ash/10 pt-3 font-mono text-[10px] text-ash"
-					>
-						<div>
-							<p class="text-[9px] uppercase">Base Price</p>
-							<p class="mt-0.5 text-bone">{formatMoney(method.price)}</p>
-						</div>
-						<div>
-							<p class="text-[9px] uppercase">Free Over</p>
-							<p class="mt-0.5 text-bone">{formatMoney(method.freeShippingThreshold)}</p>
-						</div>
-					</div>
+					{#snippet metadata()}
+						<AdminMetaGrid>
+							<div>
+								<p class="text-ash/60">Base Price</p>
+								<p class="mt-0.5 text-bone">{formatAdminMoney(method.price)}</p>
+							</div>
+							<div>
+								<p class="text-ash/60">Free Over</p>
+								<p class="mt-0.5 text-bone">
+									{formatAdminMoney(method.freeShippingThreshold, 0, 'Never')}
+								</p>
+							</div>
+							<div class="min-[430px]:col-span-2">
+								<p class="text-ash/60">Zone Overrides</p>
+								<p class="mt-0.5 text-bone">{method.zones?.length ?? 0}</p>
+							</div>
+						</AdminMetaGrid>
+					{/snippet}
 
-					<div class="mt-4 flex items-center justify-between border-t border-ash/10 pt-3">
-						<div class="font-mono text-[10px] text-ash">
-							Zones: <span class="text-bone">{method.zones?.length ?? 0}</span>
-						</div>
-						<div class="flex items-center gap-3">
-							<form
-								method="POST"
-								action="?/updateMethod"
-								use:enhance={() => {
-									return async ({ result }) => {
-										if (result.type === 'success') {
-											toastMessage = 'Status updated.';
-										}
-									};
-								}}
-							>
+					{#snippet actions()}
+						<AdminRowActions cols={2} ariaLabel={`Actions for ${method.name}`}>
+							<form method="POST" action="?/updateMethod" use:enhance={enhanceStatusToggle}>
 								<input type="hidden" name="shippingMethodId" value={method.id} />
 								<input type="hidden" name="isActive" value={method.isActive ? 'false' : 'true'} />
-								<button
+								<AdminButton
 									type="submit"
-									class="font-mono text-[9px] tracking-wider uppercase {method.isActive
-										? 'text-volt'
-										: 'text-ash/60'}"
+									variant="outline"
+									size="sm"
+									disabled={statusUpdatingId === method.id}
 								>
-									{method.isActive ? 'Active' : 'Inactive'}
-								</button>
+									{statusUpdatingId === method.id
+										? 'Updating...'
+										: method.isActive
+											? 'Deactivate'
+											: 'Activate'}
+								</AdminButton>
 							</form>
 
-							<AdminButton variant="charcoal" size="sm" onclick={(e) => startEditMethod(e, method)}>
+							<AdminButton variant="outline" size="sm" onclick={(e) => startEditMethod(e, method)}>
 								Edit
 							</AdminButton>
-						</div>
-					</div>
-				</AdminCard>
+						</AdminRowActions>
+					{/snippet}
+				</AdminEntityCard>
 			{/snippet}
 
 			{#snippet emptyState()}
-				<p class="font-display text-4xl text-bone uppercase">No shipping methods found</p>
-				<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-					Add a shipping method to support order checkout queries.
-				</p>
+				<AdminEmptyState
+					title="No shipping methods found"
+					description="Add a method to support checkout delivery options."
+				/>
 			{/snippet}
 		</AdminListLayout>
 	{:else if activeTab === 'zones'}
@@ -581,77 +708,26 @@
 			title="District Overrides"
 			kicker="Operations"
 			actionMessage={null}
-			stats={zoneStats}
+			metrics={zoneMetrics}
 			totalItems={data.zones.total}
 			limit={data.zones.limit}
 			offset={data.zones.offset}
+			paginationOffsetParam="zoneOffset"
+			filterLimitParam="zoneLimit"
+			filterOffsetParam="zoneOffset"
 			tableHeaders={zoneHeaders}
 			items={data.zones.items}
-			query=""
-			searchPlaceholder=""
+			preserveParams={['tab']}
+			showSearch={false}
 			hasActiveFilters={!!data.filters.shippingMethodId || !!data.filters.district}
 			onclearfilters={clearZoneFilters}
 		>
 			{#snippet headerActions()}
-				<div class="mt-5 flex items-center gap-2 md:mt-0">
-					<!-- Tab Buttons -->
-					<div class="mr-2 flex border border-charcoal bg-void p-1">
-						<button
-							type="button"
-							onclick={() => setTab('methods')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'methods'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Methods
-						</button>
-						<button
-							type="button"
-							onclick={() => setTab('zones')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'zones'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Zones
-						</button>
-						<button
-							type="button"
-							onclick={() => setTab('carriers')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'carriers'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Carriers
-						</button>
-					</div>
-
-					<AdminButton
-						type="button"
-						variant="volt"
-						size="md"
-						onclick={(e) => {
-							e.stopPropagation();
-							$setZoneFormState.shippingMethodId = '';
-							$setZoneFormState.district = '' as ShippingDistrict;
-							$setZoneFormState.priceOverride = 0;
-							$setZoneFormState.estimatedDaysMin = 1;
-							$setZoneFormState.estimatedDaysMax = 3;
-							$setZoneFormState.isAvailable = true;
-							$setZoneFormState.carrierIdOverride = '';
-							setZoneOpen = true;
-						}}
-					>
-						<Plus size={14} aria-hidden="true" />
-						Set Zone Override
-					</AdminButton>
-				</div>
+				{@render shippingHeaderActions()}
 			{/snippet}
 
 			{#snippet advancedFilters()}
-				<div class="grid gap-4 sm:grid-cols-2">
+				<AdminFilterBar cols={2}>
 					<AdminSelect
 						label="Shipping Method"
 						name="shippingMethodId"
@@ -662,7 +738,7 @@
 						}}
 					>
 						<option value="">All Methods</option>
-						{#each data.methods.items as method (method.id)}
+						{#each data.methodOptions as method (method.id)}
 							<option value={method.id}>{method.name}</option>
 						{/each}
 					</AdminSelect>
@@ -681,7 +757,7 @@
 							<option value={district.value}>{district.label}</option>
 						{/each}
 					</AdminSelect>
-				</div>
+				</AdminFilterBar>
 			{/snippet}
 
 			{#snippet row(zone)}
@@ -698,22 +774,18 @@
 						{methodNamesById.get(zone.shippingMethodId) ?? zone.shippingMethodId}
 					</td>
 					<td class="px-5 py-4 font-mono text-xs text-bone">
-						{formatMoney(zone.priceOverride)}
+						{formatAdminMoney(zone.priceOverride)}
 					</td>
 					<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">
 						{zone.etaText}
 					</td>
 					<td class="px-5 py-4">
-						<span
-							class="font-mono text-xs font-semibold {zone.isAvailable
-								? 'text-volt'
-								: 'text-red-400'}"
-						>
+						<AdminBadge variant={booleanStatusVariant(zone.isAvailable)}>
 							{zone.isAvailable ? 'AVAILABLE' : 'BLOCKED'}
-						</span>
+						</AdminBadge>
 					</td>
 					<td class="px-5 py-4 font-mono text-xs text-bone">
-						{carriersById.get(zone.carrierIdOverride) ?? 'Default'}
+						{carriersById.get(zone.carrierIdOverride || '') ?? 'Default'}
 					</td>
 					<td class="px-5 py-4">
 						<div class="flex items-center justify-end gap-3">
@@ -721,85 +793,80 @@
 								Edit
 							</AdminButton>
 
-							<form
-								method="POST"
-								action="?/removeZone"
-								use:removeZoneEnhance
-								onsubmit={(e) => {
-									if (
-										!confirm(`Are you sure you want to remove the override for ${zone.district}?`)
-									) {
-										e.preventDefault();
-									}
-								}}
+							<AdminButton
+								type="button"
+								variant="danger"
+								size="sm"
+								onclick={() => requestZoneRemoval(zone)}
 							>
-								<input type="hidden" name="shippingMethodId" value={zone.shippingMethodId} />
-								<input type="hidden" name="district" value={zone.district} />
-								<AdminButton type="submit" variant="danger" size="sm">Remove</AdminButton>
-							</form>
+								Remove
+							</AdminButton>
 						</div>
 					</td>
 				</tr>
 			{/snippet}
 
 			{#snippet card(zone)}
-				<AdminCard>
-					<div class="flex items-start justify-between gap-4">
-						<div>
-							<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase">
-								District Override
-							</p>
-							<h3 class="mt-1 font-display text-2xl leading-none text-bone uppercase">
-								{zone.district}
-							</h3>
+				<AdminEntityCard>
+					{#snippet header()}
+						<div class="flex items-start justify-between gap-4">
+							<div>
+								<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase">
+									District Override
+								</p>
+								<h3 class="mt-1 font-display text-2xl leading-none text-bone uppercase">
+									{zone.district}
+								</h3>
+							</div>
+							<span class="font-mono text-xs text-volt uppercase">{zone.etaText}</span>
 						</div>
-						<span class="font-mono text-xs text-volt uppercase">{zone.etaText}</span>
-					</div>
+					{/snippet}
 
-					<div class="mt-4 border-t border-ash/10 pt-3">
-						<div class="flex justify-between font-mono text-[10px] text-ash">
-							<span>Method:</span>
-							<span class="text-bone"
-								>{methodNamesById.get(zone.shippingMethodId) ?? zone.shippingMethodId}</span
+					{#snippet metadata()}
+						<AdminMetaGrid>
+							<div>
+								<p class="text-ash/60">Method</p>
+								<p class="mt-0.5 text-bone">
+									{methodNamesById.get(zone.shippingMethodId) ?? zone.shippingMethodId}
+								</p>
+							</div>
+							<div>
+								<p class="text-ash/60">Override Price</p>
+								<p class="mt-0.5 text-bone">{formatAdminMoney(zone.priceOverride)}</p>
+							</div>
+							<div class="min-[430px]:col-span-2">
+								<p class="text-ash/60">Availability</p>
+								<AdminBadge variant={booleanStatusVariant(zone.isAvailable)} size="xs">
+									{zone.isAvailable ? 'Available' : 'Blocked'}
+								</AdminBadge>
+							</div>
+						</AdminMetaGrid>
+					{/snippet}
+
+					{#snippet actions()}
+						<AdminRowActions cols={2} ariaLabel={`Actions for ${zone.district}`}>
+							<AdminButton variant="outline" size="sm" onclick={(e) => startEditZone(e, zone)}>
+								Edit
+							</AdminButton>
+
+							<AdminButton
+								type="button"
+								variant="danger"
+								size="sm"
+								onclick={() => requestZoneRemoval(zone)}
 							>
-						</div>
-						<div class="mt-1 flex justify-between font-mono text-[10px] text-ash">
-							<span>Override Price:</span>
-							<span class="text-bone">{formatMoney(zone.priceOverride)}</span>
-						</div>
-						<div class="mt-1 flex justify-between font-mono text-[10px] text-ash">
-							<span>Availability:</span>
-							<span class="{zone.isAvailable ? 'text-volt' : 'text-red-400'} font-semibold"
-								>{zone.isAvailable ? 'Available' : 'Blocked'}</span
-							>
-						</div>
-					</div>
-
-					<div class="mt-4 flex items-center justify-end gap-2 border-t border-ash/10 pt-3">
-						<AdminButton variant="charcoal" size="sm" onclick={(e) => startEditZone(e, zone)}>
-							Edit
-						</AdminButton>
-
-						<form
-							method="POST"
-							action="?/removeZone"
-							use:removeZoneEnhance
-							onsubmit={(e) => {
-								if (!confirm(`Are you sure you want to remove override for ${zone.district}?`)) {
-									e.preventDefault();
-								}
-							}}
-						>
-							<input type="hidden" name="shippingMethodId" value={zone.shippingMethodId} />
-							<input type="hidden" name="district" value={zone.district} />
-							<AdminButton type="submit" variant="danger" size="sm">Remove</AdminButton>
-						</form>
-					</div>
-				</AdminCard>
+								Remove
+							</AdminButton>
+						</AdminRowActions>
+					{/snippet}
+				</AdminEntityCard>
 			{/snippet}
 
 			{#snippet emptyState()}
-				<p class="font-display text-4xl text-bone uppercase">No district overrides configured</p>
+				<AdminEmptyState
+					title="No district overrides configured"
+					description="Add an override for district-specific delivery rules."
+				/>
 			{/snippet}
 		</AdminListLayout>
 	{/if}
@@ -810,70 +877,18 @@
 			title="Carriers"
 			kicker="Operations"
 			actionMessage={null}
-			stats={carrierStats}
+			metrics={carrierMetrics}
 			totalItems={data.carriers.length}
 			limit={50}
 			offset={0}
 			tableHeaders={carrierHeaders}
 			items={data.carriers}
-			query=""
-			searchPlaceholder=""
+			preserveParams={['tab']}
+			showSearch={false}
 			hasActiveFilters={false}
-			onclearfilters={() => {}}
 		>
 			{#snippet headerActions()}
-				<div class="mt-5 flex items-center gap-2 md:mt-0">
-					<!-- Tab Buttons -->
-					<div class="mr-2 flex border border-charcoal bg-void p-1">
-						<button
-							type="button"
-							onclick={() => setTab('methods')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'methods'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Methods
-						</button>
-						<button
-							type="button"
-							onclick={() => setTab('zones')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'zones'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Zones
-						</button>
-						<button
-							type="button"
-							onclick={() => setTab('carriers')}
-							class="px-4 py-1.5 font-mono text-[9px] tracking-wider uppercase transition-colors {activeTab ===
-							'carriers'
-								? 'bg-charcoal text-volt'
-								: 'text-ash hover:text-bone'}"
-						>
-							Carriers
-						</button>
-					</div>
-
-					<AdminButton
-						type="button"
-						variant="volt"
-						size="md"
-						onclick={(e) => {
-							e.stopPropagation();
-							$createCarrierFormState.name = '';
-							$createCarrierFormState.code = '';
-							$createCarrierFormState.notes = '';
-							$createCarrierFormState.isActive = true;
-							addCarrierOpen = true;
-						}}
-					>
-						<Plus size={14} aria-hidden="true" />
-						Add Carrier
-					</AdminButton>
-				</div>
+				{@render shippingHeaderActions()}
 			{/snippet}
 
 			{#snippet row(carrierRow)}
@@ -893,25 +908,23 @@
 						<form
 							method="POST"
 							action="?/updateCarrier"
-							use:enhance={() => {
-								return async ({ result }) => {
-									if (result.type === 'success') {
-										toastMessage = 'Status updated.';
-									}
-								};
-							}}
+							use:enhance={enhanceStatusToggle}
 							class="flex justify-end"
 						>
 							<input type="hidden" name="carrierId" value={carrierRow.id} />
 							<input type="hidden" name="isActive" value={carrierRow.isActive ? 'false' : 'true'} />
-							<button
+							<AdminButton
 								type="submit"
-								class="font-mono text-[10px] font-semibold tracking-widest uppercase transition-colors {carrierRow.isActive
-									? 'text-volt hover:text-red-400'
-									: 'text-ash/60 hover:text-volt'}"
+								variant="outline"
+								size="sm"
+								disabled={statusUpdatingId === carrierRow.id}
 							>
-								{carrierRow.isActive ? 'Active' : 'Inactive'}
-							</button>
+								{statusUpdatingId === carrierRow.id
+									? 'Updating...'
+									: carrierRow.isActive
+										? 'Deactivate'
+										: 'Activate'}
+							</AdminButton>
 						</form>
 					</td>
 					<td class="px-5 py-4">
@@ -925,78 +938,96 @@
 								Edit
 							</AdminButton>
 
-							<form
-								method="POST"
-								action="?/deleteCarrier"
-								use:deleteCarrierEnhance
-								class="inline-block"
+							<AdminButton
+								type="button"
+								variant="danger"
+								size="sm"
+								onclick={() => requestCarrierDelete(carrierRow)}
 							>
-								<input type="hidden" name="carrierId" value={carrierRow.id} />
-								<AdminButton type="submit" variant="danger" size="sm">
-									<Trash2 size={11} aria-hidden="true" />
-									Delete
-								</AdminButton>
-							</form>
+								<Trash2 size={11} aria-hidden="true" />
+								Delete
+							</AdminButton>
 						</div>
 					</td>
 				</tr>
 			{/snippet}
 
 			{#snippet card(carrierRow)}
-				<AdminCard>
-					<div class="flex items-start justify-between gap-4">
-						<div>
-							<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase">
-								{carrierRow.code}
-							</p>
-							<h3 class="mt-1 font-display text-2xl leading-none text-bone uppercase">
-								{carrierRow.name}
-							</h3>
-						</div>
-					</div>
-
-					<div class="mt-4 border-t border-ash/10 pt-3 font-mono text-[10px] text-ash">
-						<p class="text-[9px] uppercase">Notes</p>
-						<p class="mt-0.5 text-bone">{carrierRow.notes ?? '—'}</p>
-					</div>
-
-					<div class="mt-4 flex items-center justify-end gap-2 border-t border-ash/10 pt-3">
-						<form
-							method="POST"
-							action="?/updateCarrier"
-							use:enhance={() => {
-								return async ({ result }) => {
-									if (result.type === 'success') {
-										toastMessage = 'Status updated.';
-									}
-								};
-							}}
-						>
-							<input type="hidden" name="carrierId" value={carrierRow.id} />
-							<input type="hidden" name="isActive" value={carrierRow.isActive ? 'false' : 'true'} />
-							<button
-								type="submit"
-								class="font-mono text-[9px] tracking-wider uppercase {carrierRow.isActive
-									? 'text-volt'
-									: 'text-ash/60'}"
-							>
+				<AdminEntityCard>
+					{#snippet header()}
+						<div class="flex items-start justify-between gap-4">
+							<div>
+								<p class="font-mono text-[9px] tracking-wider text-ash/60 uppercase">
+									{carrierRow.code}
+								</p>
+								<h3 class="mt-1 font-display text-2xl leading-none text-bone uppercase">
+									{carrierRow.name}
+								</h3>
+							</div>
+							<AdminBadge variant={booleanStatusVariant(carrierRow.isActive)}>
 								{carrierRow.isActive ? 'Active' : 'Inactive'}
-							</button>
-						</form>
+							</AdminBadge>
+						</div>
+					{/snippet}
 
-						<AdminButton
-							variant="charcoal"
-							size="sm"
-							onclick={(e) => startEditCarrier(e, carrierRow)}
-						>
-							Edit
-						</AdminButton>
-					</div>
-				</AdminCard>
+					{#snippet metadata()}
+						<AdminMetaGrid cols={1}>
+							<div>
+								<p class="text-ash/60">Notes</p>
+								<p class="mt-0.5 text-bone">{carrierRow.notes ?? '—'}</p>
+							</div>
+						</AdminMetaGrid>
+					{/snippet}
+
+					{#snippet actions()}
+						<AdminRowActions cols={3} ariaLabel={`Actions for ${carrierRow.name}`}>
+							<form method="POST" action="?/updateCarrier" use:enhance={enhanceStatusToggle}>
+								<input type="hidden" name="carrierId" value={carrierRow.id} />
+								<input
+									type="hidden"
+									name="isActive"
+									value={carrierRow.isActive ? 'false' : 'true'}
+								/>
+								<AdminButton
+									type="submit"
+									variant="outline"
+									size="sm"
+									disabled={statusUpdatingId === carrierRow.id}
+								>
+									{statusUpdatingId === carrierRow.id
+										? 'Updating...'
+										: carrierRow.isActive
+											? 'Deactivate'
+											: 'Activate'}
+								</AdminButton>
+							</form>
+
+							<AdminButton
+								variant="outline"
+								size="sm"
+								onclick={(e) => startEditCarrier(e, carrierRow)}
+							>
+								Edit
+							</AdminButton>
+
+							<AdminButton
+								type="button"
+								variant="danger"
+								size="sm"
+								onclick={() => requestCarrierDelete(carrierRow)}
+							>
+								Delete
+							</AdminButton>
+						</AdminRowActions>
+					{/snippet}
+				</AdminEntityCard>
 			{/snippet}
 
 			{#snippet emptyState()}
-				<p class="font-display text-4xl text-bone uppercase">No carriers configured</p>
+				<AdminEmptyState
+					title="No carriers configured"
+					description="Add a carrier for tracking and fulfilment operations."
+				/>
 			{/snippet}
 		</AdminListLayout>
 	{/if}
@@ -1024,22 +1055,16 @@
 			error={$createErrors.name}
 		/>
 
-		<label class="grid gap-1">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
-			<textarea
-				name="description"
-				bind:value={$createForm.description}
-				placeholder="Displayed to customers at checkout..."
-				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			></textarea>
-			{#if $createErrors.description}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$createErrors.description[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminTextarea
+			label="Description"
+			name="description"
+			bind:value={$createForm.description}
+			placeholder="Displayed to customers at checkout..."
+			rows={3}
+			error={$createErrors.description}
+		/>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Base Price (LKR)"
 				name="price"
@@ -1061,7 +1086,7 @@
 			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Min Days"
 				name="estimatedDaysMin"
@@ -1083,7 +1108,7 @@
 			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Sort Order"
 				name="sortOrder"
@@ -1130,6 +1155,42 @@
 	{/snippet}
 </AdminDrawer>
 
+{#if pendingZoneRemoval}
+	<form bind:this={removeZoneFormElement} method="POST" action="?/removeZone" use:removeZoneEnhance>
+		<input type="hidden" name="shippingMethodId" value={pendingZoneRemoval.shippingMethodId} />
+		<input type="hidden" name="district" value={pendingZoneRemoval.district} />
+	</form>
+{/if}
+
+{#if pendingCarrierDelete}
+	<form
+		bind:this={deleteCarrierFormElement}
+		method="POST"
+		action="?/deleteCarrier"
+		use:deleteCarrierEnhance
+	>
+		<input type="hidden" name="carrierId" value={pendingCarrierDelete.id} />
+	</form>
+{/if}
+
+<AdminConfirmDialog
+	bind:open={removeZoneConfirmOpen}
+	title="Remove district override"
+	message={`Remove the override for ${pendingZoneRemoval?.district ?? 'this district'}?`}
+	confirmLabel="Remove override"
+	loading={$removeZoneSubmitting}
+	onconfirm={confirmZoneRemoval}
+/>
+
+<AdminConfirmDialog
+	bind:open={deleteCarrierConfirmOpen}
+	title="Delete carrier"
+	message={`Delete ${pendingCarrierDelete?.name ?? 'this carrier'}?`}
+	confirmLabel="Delete carrier"
+	loading={$deleteCarrierSubmitting}
+	onconfirm={confirmCarrierDelete}
+/>
+
 <!-- 2. EDIT METHOD DRAWER -->
 <AdminDrawer
 	bind:open={editMethodOpen}
@@ -1153,22 +1214,16 @@
 			error={$updateErrors.name}
 		/>
 
-		<label class="grid gap-1">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
-			<textarea
-				name="description"
-				bind:value={$updateForm.description}
-				placeholder="Displayed to customers at checkout..."
-				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			></textarea>
-			{#if $updateErrors.description}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$updateErrors.description[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminTextarea
+			label="Description"
+			name="description"
+			bind:value={$updateForm.description}
+			placeholder="Displayed to customers at checkout..."
+			rows={3}
+			error={$updateErrors.description}
+		/>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Base Price (LKR)"
 				name="price"
@@ -1190,7 +1245,7 @@
 			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Min Days"
 				name="estimatedDaysMin"
@@ -1212,7 +1267,7 @@
 			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Sort Order"
 				name="sortOrder"
@@ -1264,6 +1319,9 @@
 	bind:open={setZoneOpen}
 	title="Zone Override"
 	description="Add or edit shipping rate and delivery estimate overrides for specific districts."
+	onOpenChange={(open) => {
+		if (!open) editingZoneKey = false;
+	}}
 >
 	<form
 		id="setZoneForm"
@@ -1276,18 +1334,18 @@
 			label="Shipping Method"
 			name="shippingMethodId"
 			required
-			disabled={!!$setZoneFormState.shippingMethodId}
+			disabled={editingZoneKey}
 			bind:value={$setZoneFormState.shippingMethodId}
 			error={$setZoneErrors.shippingMethodId}
 		>
 			<option value="">Select shipping method</option>
-			{#each data.methods.items as method (method.id)}
+			{#each data.methodOptions as method (method.id)}
 				<option value={method.id}
 					>{method.name}{method.carrier ? ` (${method.carrier})` : ''}</option
 				>
 			{/each}
 		</AdminSelect>
-		{#if $setZoneFormState.shippingMethodId}
+		{#if editingZoneKey}
 			<input type="hidden" name="shippingMethodId" value={$setZoneFormState.shippingMethodId} />
 		{/if}
 
@@ -1295,7 +1353,7 @@
 			label="Sri Lanka District"
 			name="district"
 			required
-			disabled={!!$setZoneFormState.district}
+			disabled={editingZoneKey}
 			bind:value={$setZoneFormState.district}
 			error={$setZoneErrors.district}
 		>
@@ -1304,7 +1362,7 @@
 				<option value={dist.value}>{dist.label}</option>
 			{/each}
 		</AdminSelect>
-		{#if $setZoneFormState.district}
+		{#if editingZoneKey}
 			<input type="hidden" name="district" value={$setZoneFormState.district} />
 		{/if}
 
@@ -1318,7 +1376,7 @@
 			error={$setZoneErrors.priceOverride}
 		/>
 
-		<div class="grid grid-cols-2 gap-4">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<AdminInput
 				label="Override Min Days"
 				name="estimatedDaysMin"
@@ -1416,22 +1474,14 @@
 			helpText="Enter the carrier tracking page URL. Use {'{trackingNumber}'} where the package tracking number should be inserted."
 		/>
 
-		<label class="grid gap-1">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Notes / Contact Info</span
-			>
-			<textarea
-				name="notes"
-				bind:value={$createCarrierFormState.notes}
-				placeholder="Internal operational notes or support contact details..."
-				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			></textarea>
-			{#if $createCarrierErrors.notes}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$createCarrierErrors.notes[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminTextarea
+			label="Notes / Contact Info"
+			name="notes"
+			bind:value={$createCarrierFormState.notes}
+			placeholder="Internal operational notes or support contact details..."
+			rows={3}
+			error={$createCarrierErrors.notes}
+		/>
 
 		<AdminToggle
 			label="Carrier Is Active"
@@ -1497,22 +1547,14 @@
 			helpText="Enter the carrier tracking page URL. Use {'{trackingNumber}'} where the package tracking number should be inserted."
 		/>
 
-		<label class="grid gap-1">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Notes / Contact Info</span
-			>
-			<textarea
-				name="notes"
-				bind:value={$updateCarrierFormState.notes}
-				placeholder="..."
-				class="min-h-20 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			></textarea>
-			{#if $updateCarrierErrors.notes}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$updateCarrierErrors.notes[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminTextarea
+			label="Notes / Contact Info"
+			name="notes"
+			bind:value={$updateCarrierFormState.notes}
+			placeholder="..."
+			rows={3}
+			error={$updateCarrierErrors.notes}
+		/>
 
 		<AdminToggle
 			label="Carrier Is Active"

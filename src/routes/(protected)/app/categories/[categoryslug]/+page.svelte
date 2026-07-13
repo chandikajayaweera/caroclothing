@@ -3,9 +3,14 @@
 	import { Edit, FolderOpen, Trash2 } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import type { PageData } from './$types';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminDetailLayout from '$lib/components/admin/layout/AdminDetailLayout.svelte';
+	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
+	import { formatAdminDate, formatAdminMoney } from '$lib/shared/admin/format';
 
 	let { data }: { data: PageData } = $props();
 
@@ -20,7 +25,24 @@
 	} = superForm(initialForm(() => data.deleteCategoryForm));
 
 	const category = $derived(data.category);
+	let deleteDialogOpen = $state(false);
+	let deleteForm = $state<HTMLFormElement | null>(null);
+
+	function confirmDelete(): void {
+		deleteForm?.requestSubmit();
+		deleteDialogOpen = false;
+	}
 </script>
+
+<form
+	method="POST"
+	action="?/deleteCategory"
+	use:deleteCategoryEnhance
+	bind:this={deleteForm}
+	class="hidden"
+>
+	<input type="hidden" name="categoryId" value={category.id} />
+</form>
 
 <AdminDetailLayout
 	backHref={resolve('/app/categories')}
@@ -31,28 +53,26 @@
 	actionMessage={$deleteCategoryMessage}
 >
 	{#snippet headerActions()}
-		<AdminButton
-			href={resolve(`/app/categories/${category.slug}/edit`)}
-			variant="charcoal"
-			size="md"
+		<AdminActionToolbar
+			ariaLabel="Category actions"
+			menuItems={[
+				{
+					label: 'Delete category',
+					description: 'Permanently remove this category.',
+					icon: Trash2,
+					tone: 'danger',
+					disabled: $deleteCategorySubmitting,
+					onselect: () => (deleteDialogOpen = true)
+				}
+			]}
 		>
-			<Edit size={14} class="mr-1" />
-			Edit Category
-		</AdminButton>
-
-		<form method="POST" action="?/deleteCategory" use:deleteCategoryEnhance>
-			<input type="hidden" name="categoryId" value={category.id} />
-			<AdminButton
-				type="submit"
-				variant="outline"
-				size="md"
-				class="border-red-400/40 text-red-300 hover:bg-red-400 hover:text-void"
-				disabled={$deleteCategorySubmitting}
-			>
-				<Trash2 size={14} class="mr-1" />
-				Delete
-			</AdminButton>
-		</form>
+			{#snippet primary()}
+				<AdminButton href={resolve(`/app/categories/${category.slug}/edit`)} variant="volt">
+					<Edit size={14} aria-hidden="true" />
+					Edit category
+				</AdminButton>
+			{/snippet}
+		</AdminActionToolbar>
 	{/snippet}
 
 	{#snippet mainContent()}
@@ -116,21 +136,18 @@
 									</p>
 									<p class="mt-0.5 font-mono text-[10px] text-ash">/{sub.slug}</p>
 								</div>
-								<span
-									class="font-mono text-[9px] tracking-widest uppercase {sub.isActive
-										? 'text-volt'
-										: 'text-ash/40'}"
-								>
+								<AdminBadge variant={sub.isActive ? 'success' : 'neutral'}>
 									{sub.isActive ? 'Active' : 'Draft'}
-								</span>
+								</AdminBadge>
 							</a>
 						{/each}
 					</div>
 				{:else}
-					<div class="mt-4 border border-dashed border-ash/15 py-8 text-center text-ash/40">
-						<FolderOpen size={24} class="mx-auto mb-2 text-ash/30" />
-						<p class="font-sans text-xs">This category has no subcategories.</p>
-					</div>
+					<AdminEmptyState
+						title="No subcategories"
+						description="This category has no subcategories."
+						size="compact"
+					/>
 				{/if}
 			{/await}
 		</AdminCard>
@@ -148,9 +165,9 @@
 			<div class="mt-4 grid gap-3 font-mono text-xs uppercase">
 				<div class="flex justify-between">
 					<span class="text-ash/50">Status:</span>
-					<span class={category.isActive ? 'text-volt' : 'text-red-300'}>
+					<AdminBadge variant={category.isActive ? 'success' : 'danger'}>
 						{category.isActive ? 'Active' : 'Draft'}
-					</span>
+					</AdminBadge>
 				</div>
 				<div class="flex justify-between">
 					<span class="text-ash/50">Slug:</span>
@@ -176,11 +193,11 @@
 				</div>
 				<div class="flex justify-between border-t border-charcoal/60 pt-3 text-[10px]">
 					<span class="text-ash/50">Created:</span>
-					<span class="text-ash">{new Date(category.createdAt).toLocaleDateString()}</span>
+					<span class="text-ash">{formatAdminDate(category.createdAt)}</span>
 				</div>
 				<div class="flex justify-between text-[10px]">
 					<span class="text-ash/50">Updated:</span>
-					<span class="text-ash">{new Date(category.updatedAt).toLocaleDateString()}</span>
+					<span class="text-ash">{formatAdminDate(category.updatedAt)}</span>
 				</div>
 			</div>
 		</AdminCard>
@@ -239,20 +256,31 @@
 								<div
 									class="flex items-center justify-between border-t border-charcoal/60 pt-2 font-mono text-[9px] uppercase"
 								>
-									<span class="text-bone">LKR {product.basePrice.toLocaleString()}</span>
-									<span class={product.isActive ? 'text-volt' : 'text-red-300'}>
+									<span class="text-bone">{formatAdminMoney(product.basePrice)}</span>
+									<AdminBadge variant={product.isActive ? 'success' : 'danger'} size="xs">
 										{product.isActive ? 'Active' : 'Inactive'}
-									</span>
+									</AdminBadge>
 								</div>
 							</div>
 						{/each}
 					</div>
 				{:else}
-					<div class="mt-4 border border-dashed border-ash/15 py-8 text-center text-ash/40">
-						<p class="font-sans text-xs">No products in this category.</p>
-					</div>
+					<AdminEmptyState
+						title="No products"
+						description="No products are assigned to this category."
+						size="compact"
+					/>
 				{/if}
 			{/await}
 		</AdminCard>
 	{/snippet}
 </AdminDetailLayout>
+
+<AdminConfirmDialog
+	bind:open={deleteDialogOpen}
+	title="Delete category"
+	message={`Delete ${category.name}? This action cannot be undone.`}
+	confirmLabel="Delete category"
+	loading={$deleteCategorySubmitting}
+	onconfirm={confirmDelete}
+/>

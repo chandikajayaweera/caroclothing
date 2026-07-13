@@ -59,7 +59,8 @@ export const GET: RequestHandler = async ({ locals, platform, url }) => {
 
 		const escapeCsv = (val: string | number | null | undefined): string => {
 			if (val === null || val === undefined) return '';
-			const str = String(val);
+			let str = String(val);
+			if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
 			if (/[",\n\r]/.test(str)) {
 				return `"${str.replace(/"/g, '""')}"`;
 			}

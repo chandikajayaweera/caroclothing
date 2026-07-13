@@ -11,7 +11,7 @@ function getAdminContext(locals: App.Locals): ServiceContext {
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const ctx = getAdminContext(locals);
 
-	const tab = url.searchParams.get('tab') || 'signals';
+	const tab = url.searchParams.get('tab') === 'users' ? 'users' : 'signals';
 
 	// Standard filters
 	const query = url.searchParams.get('query')?.trim() || '';

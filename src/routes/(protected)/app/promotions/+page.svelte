@@ -4,22 +4,42 @@
 	import { page } from '$app/state';
 	import { superForm } from 'sveltekit-superforms';
 	import { goto } from '$app/navigation';
-	import { RotateCw, Play, Pause, Edit2, Settings } from 'lucide-svelte';
-	import { fade } from 'svelte/transition';
-	import { Dialog } from 'bits-ui';
+	import { RotateCw, Play, Pause, Edit2, Plus } from 'lucide-svelte';
 	import AdminDateTimePicker from '$lib/components/admin/AdminDateTimePicker.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
 	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminTabs from '$lib/components/admin/AdminTabs.svelte';
+	import AdminModal from '$lib/components/admin/AdminModal.svelte';
+	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
+	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
+	import AdminRowActions from '$lib/components/admin/data-display/AdminRowActions.svelte';
+	import AdminIconAction from '$lib/components/admin/data-display/AdminIconAction.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
+	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
+	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
+	import {
+		formatAdminDateTime,
+		formatAdminDiscount,
+		formatAdminMoney,
+		formatAdminStatus
+	} from '$lib/shared/admin/format';
+	import { promotionStatusVariant } from '$lib/shared/admin/status';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
+	type PromotionAdminItem = PageData['promoCodes']['items'][number] &
+		PageData['promoUsages']['items'][number];
 
 	// Active tab derived from query params
-	const activeTab = $derived((page.url.searchParams.get('tab') as 'codes' | 'usages') || 'codes');
+	type PromotionTab = 'codes' | 'usages';
+	const activeTab = $derived<PromotionTab>(
+		page.url.searchParams.get('tab') === 'usages' ? 'usages' : 'codes'
+	);
 
 	let currentQuery = $state('');
 
@@ -244,12 +264,6 @@
 		}
 	});
 
-	// Formatters
-	function formatMoney(value: number | null | undefined): string {
-		if (value === null || value === undefined) return '—';
-		return `LKR ${value.toLocaleString()}`;
-	}
-
 	// ── Tab Navigation ───────────────────────────────────────────────────────
 	function handleTabChange(tab: 'codes' | 'usages') {
 		const url = new URL(page.url);
@@ -260,7 +274,7 @@
 		url.searchParams.delete('promoCodeId');
 		url.searchParams.delete('userId');
 		url.searchParams.delete('orderId');
-		url.searchParams.delete('usageOffset');
+		url.searchParams.delete('offset');
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), { noScroll: true });
 	}
@@ -325,7 +339,7 @@
 		} else {
 			url.searchParams.delete('orderId');
 		}
-		url.searchParams.delete('usageOffset');
+		url.searchParams.delete('offset');
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), {
 			keepFocus: true,
@@ -366,10 +380,40 @@
 	}
 
 	// ── Stats ───────────────────────────────────────────────────────────────
-	const codesStats = $derived({
-		total: data.promoCodes.total,
-		active: data.promoCodes.items.filter((c) => c.isActive).length,
-		inactive: data.promoCodes.items.filter((c) => !c.isActive).length
+	const promotionMetrics = $derived.by(() => {
+		if (activeTab === 'codes') {
+			return [
+				{ label: 'Filtered Codes', value: data.promoCodes.total },
+				{
+					label: 'Active on Page',
+					value: data.promoCodes.items.filter((code) => code.isActive).length,
+					tone: 'success' as const
+				},
+				{
+					label: 'Inactive on Page',
+					value: data.promoCodes.items.filter((code) => !code.isActive).length,
+					tone: 'neutral' as const
+				}
+			];
+		}
+
+		return [
+			{ label: 'Redemption Records', value: data.promoUsages.total },
+			{
+				label: 'Users on Page',
+				value: new Set(data.promoUsages.items.map((usage) => usage.userId).filter(Boolean)).size,
+				description: 'Distinct customer references',
+				tone: 'info' as const
+			},
+			{
+				label: 'Discount on Page',
+				value: formatAdminMoney(
+					data.promoUsages.items.reduce((total, usage) => total + usage.discountAmount, 0)
+				),
+				description: 'Current result page',
+				tone: 'accent' as const
+			}
+		];
 	});
 
 	const promotionsKicker = $derived(
@@ -394,27 +438,14 @@
 		{ label: 'Redeemed At', class: 'text-right' }
 	];
 
-	function formatDiscount(type: 'percentage' | 'fixed', value: number): string {
-		if (type === 'percentage') return `${value}%`;
-		return `LKR ${value.toLocaleString()}`;
-	}
-
-	function formatDate(value: Date | string | number | null | undefined): string {
-		if (!value) return '—';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
-
 	function formatValidity(
 		startsAt: number | Date | null | undefined,
 		expiresAt: number | Date | null | undefined
 	): string {
 		if (!startsAt && !expiresAt) return 'Always Active';
-		if (startsAt && !expiresAt) return `Starts ${formatDate(startsAt)}`;
-		if (!startsAt && expiresAt) return `Expires ${formatDate(expiresAt)}`;
-		return `${formatDate(startsAt)} – ${formatDate(expiresAt)}`;
+		if (startsAt && !expiresAt) return `Starts ${formatAdminDateTime(startsAt, '—')}`;
+		if (!startsAt && expiresAt) return `Expires ${formatAdminDateTime(expiresAt, '—')}`;
+		return `${formatAdminDateTime(startsAt, '—')} – ${formatAdminDateTime(expiresAt, '—')}`;
 	}
 </script>
 
@@ -427,7 +458,11 @@
 </svelte:head>
 
 {#if toastMessage}
-	<AdminToast message={toastMessage} onclose={() => (toastMessage = null)} />
+	<AdminToast
+		message={toastMessage}
+		type={page.status >= 400 ? 'error' : 'success'}
+		onclose={() => (toastMessage = null)}
+	/>
 {/if}
 
 <div onsubmit={handleFormSubmit}>
@@ -435,7 +470,7 @@
 		title="Promotions"
 		kicker={promotionsKicker}
 		loading={false}
-		stats={codesStats}
+		metrics={promotionMetrics}
 		bind:query={currentQuery}
 		bind:showFilters
 		hasActiveFilters={activeTab === 'codes'
@@ -445,51 +480,51 @@
 		limit={activeTab === 'codes' ? data.filters.limit : data.filters.usageLimit}
 		offset={activeTab === 'codes' ? data.promoCodes.offset : data.promoUsages.offset}
 		tableHeaders={activeTab === 'codes' ? codeHeaders : usageHeaders}
-		items={activeTab === 'codes' ? data.promoCodes.items : data.promoUsages.items}
+		items={activeTab === 'codes'
+			? (data.promoCodes.items as unknown as PromotionAdminItem[])
+			: (data.promoUsages.items as unknown as PromotionAdminItem[])}
+		preserveParams={['tab']}
 		onclearfilters={activeTab === 'codes' ? clearCodesFilters : clearUsagesFilters}
 		searchPlaceholder={activeTab === 'codes'
 			? 'Search promo codes...'
 			: 'Filter by Promo Code ID...'}
+		searchParamName={activeTab === 'codes' ? 'query' : 'promoCodeId'}
 	>
 		{#snippet headerActions()}
-			<div class="mt-5 flex flex-wrap gap-2 md:mt-0">
-				<!-- Tab switcher segmented controls -->
-				<div class="flex items-center gap-1 border border-charcoal bg-void p-1">
-					<button
-						type="button"
-						onclick={() => handleTabChange('codes')}
-						class="cursor-pointer px-4 py-1.5 font-mono text-[10px] tracking-widest uppercase transition-colors {activeTab ===
-						'codes'
-							? 'bg-volt font-bold text-void'
-							: 'text-ash hover:text-bone'}"
-					>
-						Codes
-					</button>
-					<button
-						type="button"
-						onclick={() => handleTabChange('usages')}
-						class="cursor-pointer px-4 py-1.5 font-mono text-[10px] tracking-widest uppercase transition-colors {activeTab ===
-						'usages'
-							? 'bg-volt font-bold text-void'
-							: 'text-ash hover:text-bone'}"
-					>
-						Audit Logs
-					</button>
-				</div>
-
-				<AdminButton type="button" variant="volt" onclick={() => (createPromoModalOpen = true)}>
-					Add Promo Code
-				</AdminButton>
-
-				<AdminButton type="button" variant="charcoal" onclick={() => (syncConfirmModalOpen = true)}>
-					Sync All Usage Counts
-				</AdminButton>
-			</div>
+			<AdminActionToolbar
+				ariaLabel="Promotion page actions"
+				menuItems={[
+					{
+						label: 'Sync first 100 counts',
+						description: 'Reconcile stored redemption counters for first 100 codes.',
+						icon: RotateCw,
+						onselect: () => (syncConfirmModalOpen = true)
+					}
+				]}
+			>
+				{#snippet views()}
+					<AdminTabs
+						label="Promotion views"
+						value={activeTab}
+						items={[
+							{ value: 'codes', label: 'Codes', count: data.promoCodes.total },
+							{ value: 'usages', label: 'Audit Logs', count: data.promoUsages.total }
+						]}
+						onchange={(tab) => handleTabChange(tab as PromotionTab)}
+					/>
+				{/snippet}
+				{#snippet primary()}
+					<AdminButton type="button" variant="volt" onclick={() => (createPromoModalOpen = true)}>
+						<Plus size={15} aria-hidden="true" />
+						Add promo code
+					</AdminButton>
+				{/snippet}
+			</AdminActionToolbar>
 		{/snippet}
 
 		{#snippet advancedFilters()}
 			{#if activeTab === 'codes'}
-				<div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				<AdminFilterBar class="mt-2" cols={3}>
 					<AdminSelect
 						label="Filter Status"
 						name="status"
@@ -501,9 +536,9 @@
 						]}
 						onchange={applyCodesFilters}
 					/>
-				</div>
+				</AdminFilterBar>
 			{:else}
-				<div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+				<AdminFilterBar class="mt-2" cols={3}>
 					<AdminInput
 						label="Promo Code ID"
 						name="promoCodeId"
@@ -525,7 +560,7 @@
 						placeholder="Filter by Order ID..."
 						oninput={handleUsagesSearchInput}
 					/>
-				</div>
+				</AdminFilterBar>
 			{/if}
 		{/snippet}
 
@@ -553,7 +588,7 @@
 					</td>
 					<td class="px-5 py-4 font-mono text-xs text-bone">
 						<div class="flex flex-col gap-0.5">
-							<span>{formatDiscount(code.discountType, code.discountValue)}</span>
+							<span>{formatAdminDiscount(code.discountType, code.discountValue)}</span>
 							<span class="text-[9px] font-normal text-ash uppercase">{code.discountType}</span>
 						</div>
 					</td>
@@ -561,12 +596,14 @@
 						<div class="flex flex-col gap-1 text-[10px]">
 							{#if code.minOrderAmount}
 								<span class="text-ash">
-									Min Order: <span class="text-bone">{formatMoney(code.minOrderAmount)}</span>
+									Min Order: <span class="text-bone">{formatAdminMoney(code.minOrderAmount)}</span>
 								</span>
 							{/if}
 							{#if code.maxDiscountAmount}
 								<span class="text-ash">
-									Max Discount: <span class="text-bone">{formatMoney(code.maxDiscountAmount)}</span>
+									Max Discount: <span class="text-bone"
+										>{formatAdminMoney(code.maxDiscountAmount)}</span
+									>
 								</span>
 							{/if}
 							<span class="text-ash">
@@ -581,55 +618,50 @@
 						{formatValidity(code.startsAt, code.expiresAt)}
 					</td>
 					<td class="px-5 py-4">
-						<span
-							class="font-mono text-[10px] font-semibold tracking-wider uppercase
-							{code.status === 'active' ? 'text-volt' : ''}
-							{code.status === 'inactive' ? 'text-ash/50' : ''}
-							{code.status === 'scheduled' ? 'text-bone/80' : ''}
-							{code.status === 'expired' ? 'text-red-400/70' : ''}
-							{code.status === 'exhausted' ? 'text-red-300' : ''}"
-						>
-							{code.status}
-						</span>
+						<AdminBadge variant={promotionStatusVariant(code.status)}>
+							{formatAdminStatus(code.status)}
+						</AdminBadge>
 					</td>
 					<td class="px-5 py-4 text-right">
-						<div class="flex items-center justify-end gap-3">
+						<AdminRowActions cols={3} ariaLabel={`Actions for ${code.code}`}>
 							<form method="POST" action="?/reconcileCode" use:reconcileCodeEnhance>
 								<input type="hidden" name="promoCodeId" value={code.id} />
-								<button
+								<AdminIconAction
 									type="submit"
+									variant="info"
 									title="Reconcile count from logs"
-									class="flex cursor-pointer items-center gap-1 font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:text-volt"
+									ariaLabel={`Reconcile ${code.code}`}
 								>
-									<RotateCw size={10} />
-									Rec
-								</button>
+									<RotateCw size={14} />
+								</AdminIconAction>
 							</form>
 
-							<button
+							<AdminIconAction
 								onclick={() => startEdit(code)}
-								class="flex cursor-pointer items-center gap-1 font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:text-bone"
+								variant="neutral"
+								title="Edit promo code"
+								ariaLabel={`Edit ${code.code}`}
 							>
-								<Edit2 size={10} />
-								Edit
-							</button>
+								<Edit2 size={14} />
+							</AdminIconAction>
 
 							<form method="POST" action="?/setActive" use:setActiveEnhance>
 								<input type="hidden" name="promoCodeId" value={code.id} />
 								<input type="hidden" name="isActive" value={code.isActive ? 'false' : 'true'} />
-								<button
+								<AdminIconAction
 									type="submit"
-									class="flex cursor-pointer items-center gap-1 font-mono text-[9px] font-semibold tracking-widest uppercase transition-colors
-									{code.isActive ? 'text-volt hover:text-red-400' : 'text-ash/70 hover:text-volt'}"
+									variant={code.isActive ? 'warning' : 'success'}
+									title={code.isActive ? 'Pause promo code' : 'Activate promo code'}
+									ariaLabel={`${code.isActive ? 'Pause' : 'Activate'} ${code.code}`}
 								>
 									{#if code.isActive}
-										<Pause size={10} /> Pause
+										<Pause size={14} />
 									{:else}
-										<Play size={10} /> Live
+										<Play size={14} />
 									{/if}
-								</button>
+								</AdminIconAction>
 							</form>
-						</div>
+						</AdminRowActions>
 					</td>
 				</tr>
 			{:else}
@@ -660,10 +692,10 @@
 						</a>
 					</td>
 					<td class="px-5 py-4 font-mono text-xs font-bold text-volt">
-						{formatMoney(usage.discountAmount)}
+						{formatAdminMoney(usage.discountAmount)}
 					</td>
 					<td class="px-5 py-4 text-right font-mono text-[10px] text-ash">
-						{formatDate(usage.usedAt)}
+						{formatAdminDateTime(usage.usedAt, '—')}
 					</td>
 				</tr>
 			{/if}
@@ -672,127 +704,153 @@
 		{#snippet card(item)}
 			{#if activeTab === 'codes'}
 				{@const code = item}
-				<AdminCard>
-					<div class="flex items-start justify-between gap-4">
-						<div>
-							<span class="font-mono text-sm font-bold tracking-wide text-bone uppercase">
-								{code.code}
-							</span>
-							{#if code.description}
-								<p class="mt-1 font-sans text-xs text-ash/80">{code.description}</p>
+				<AdminEntityCard>
+					{#snippet header()}
+						<div class="flex items-start justify-between gap-4">
+							<div>
+								<span class="font-mono text-sm font-bold tracking-wide text-bone uppercase">
+									{code.code}
+								</span>
+								{#if code.description}
+									<p class="mt-1 font-sans text-xs text-ash/80">{code.description}</p>
+								{/if}
+							</div>
+							<AdminBadge variant={promotionStatusVariant(code.status)}>
+								{formatAdminStatus(code.status)}
+							</AdminBadge>
+						</div>
+					{/snippet}
+
+					{#snippet metadata()}
+						<AdminMetaGrid>
+							<div>
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Discount</p>
+								<p class="mt-0.5 font-medium text-bone">
+									{formatAdminDiscount(code.discountType, code.discountValue)} ({code.discountType})
+								</p>
+							</div>
+							<div>
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Usage</p>
+								<p class="mt-0.5 font-medium text-bone">
+									{code.usedCount} / {code.usageLimit ?? '∞'}
+								</p>
+							</div>
+							{#if code.minOrderAmount}
+								<div>
+									<p class="text-[8px] tracking-wider text-ash/60 uppercase">Min Order</p>
+									<p class="mt-0.5 font-medium text-bone">
+										{formatAdminMoney(code.minOrderAmount)}
+									</p>
+								</div>
 							{/if}
-						</div>
-						<span
-							class="font-mono text-[10px] font-semibold tracking-wider uppercase
-							{code.status === 'active' ? 'text-volt' : ''}
-							{code.status === 'inactive' ? 'text-ash/50' : ''}
-							{code.status === 'scheduled' ? 'text-bone/80' : ''}
-							{code.status === 'expired' ? 'text-red-400/70' : ''}
-							{code.status === 'exhausted' ? 'text-red-300' : ''}"
-						>
-							{code.status}
-						</span>
-					</div>
-
-					<div
-						class="mt-4 grid grid-cols-2 gap-2 border-t border-charcoal/50 pt-3 font-mono text-[10px]"
-					>
-						<div>
-							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Discount</p>
-							<p class="mt-0.5 font-medium text-bone">
-								{formatDiscount(code.discountType, code.discountValue)} ({code.discountType})
-							</p>
-						</div>
-						<div>
-							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Usage</p>
-							<p class="mt-0.5 font-medium text-bone">
-								{code.usedCount} / {code.usageLimit ?? '∞'}
-							</p>
-						</div>
-						{#if code.minOrderAmount}
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Min Order</p>
-								<p class="mt-0.5 font-medium text-bone">{formatMoney(code.minOrderAmount)}</p>
+							{#if code.maxDiscountAmount}
+								<div>
+									<p class="text-[8px] tracking-wider text-ash/60 uppercase">Max Discount</p>
+									<p class="mt-0.5 font-medium text-bone">
+										{formatAdminMoney(code.maxDiscountAmount)}
+									</p>
+								</div>
+							{/if}
+							<div class="min-[430px]:col-span-2">
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Active Window</p>
+								<p class="mt-0.5 font-medium text-bone">
+									{formatValidity(code.startsAt, code.expiresAt)}
+								</p>
 							</div>
-						{/if}
-						{#if code.maxDiscountAmount}
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Max Discount</p>
-								<p class="mt-0.5 font-medium text-bone">{formatMoney(code.maxDiscountAmount)}</p>
-							</div>
-						{/if}
-					</div>
+						</AdminMetaGrid>
+					{/snippet}
 
-					<div
-						class="mt-4 flex items-center justify-between border-t border-charcoal/50 pt-3 font-mono text-[9px]"
-					>
-						<span class="text-ash/60">{formatValidity(code.startsAt, code.expiresAt)}</span>
-						<div class="flex items-center gap-2">
+					{#snippet actions()}
+						<AdminRowActions cols={3} ariaLabel={`Actions for ${code.code}`}>
 							<form method="POST" action="?/reconcileCode" use:reconcileCodeEnhance>
 								<input type="hidden" name="promoCodeId" value={code.id} />
-								<button
-									class="cursor-pointer font-bold tracking-wider text-ash uppercase hover:text-volt"
-									>Rec</button
+								<AdminIconAction
+									type="submit"
+									variant="info"
+									title="Reconcile count from logs"
+									ariaLabel={`Reconcile ${code.code}`}
 								>
+									<RotateCw size={14} />
+								</AdminIconAction>
 							</form>
-							<button
+							<AdminIconAction
 								onclick={() => startEdit(code)}
-								class="cursor-pointer font-bold tracking-wider text-ash uppercase hover:text-bone"
+								variant="neutral"
+								title="Edit promo code"
+								ariaLabel={`Edit ${code.code}`}
 							>
-								Edit
-							</button>
+								<Edit2 size={14} />
+							</AdminIconAction>
 							<form method="POST" action="?/setActive" use:setActiveEnhance>
 								<input type="hidden" name="promoCodeId" value={code.id} />
 								<input type="hidden" name="isActive" value={code.isActive ? 'false' : 'true'} />
-								<button
-									class="cursor-pointer font-bold tracking-wider uppercase {code.isActive
-										? 'text-volt hover:text-red-400'
-										: 'text-ash/70 hover:text-volt'}"
+								<AdminIconAction
+									type="submit"
+									variant={code.isActive ? 'warning' : 'success'}
+									title={code.isActive ? 'Pause promo code' : 'Activate promo code'}
+									ariaLabel={`${code.isActive ? 'Pause' : 'Activate'} ${code.code}`}
 								>
-									{code.isActive ? 'Pause' : 'Live'}
-								</button>
+									{#if code.isActive}
+										<Pause size={14} />
+									{:else}
+										<Play size={14} />
+									{/if}
+								</AdminIconAction>
 							</form>
-						</div>
-					</div>
-				</AdminCard>
+						</AdminRowActions>
+					{/snippet}
+				</AdminEntityCard>
 			{:else}
 				{@const usage = item}
-				<AdminCard>
-					<div class="flex items-start justify-between gap-4 font-mono">
-						<div>
-							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Log ID</p>
-							<p class="mt-0.5 text-[10px] text-ash/60">{usage.id}</p>
+				<AdminEntityCard>
+					{#snippet header()}
+						<div class="flex items-start justify-between gap-4 font-mono">
+							<div>
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Log ID</p>
+								<p class="mt-0.5 text-[10px] text-ash/60">{usage.id}</p>
+							</div>
+							<span class="font-mono text-xs font-bold text-volt">
+								-{formatAdminMoney(usage.discountAmount)}
+							</span>
 						</div>
-						<span class="font-mono text-xs font-bold text-volt">
-							-{formatMoney(usage.discountAmount)}
-						</span>
-					</div>
+					{/snippet}
 
-					<div
-						class="mt-4 grid grid-cols-2 gap-2 border-t border-charcoal/50 pt-3 font-mono text-[10px]"
-					>
-						<div>
-							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Promo Code</p>
-							<p class="mt-0.5 font-medium text-bone">{usage.promoCode?.code ?? 'UNKNOWN'}</p>
-						</div>
-						<div>
-							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Customer ID</p>
-							<p class="mt-0.5 max-w-30 truncate font-medium text-bone">
-								{usage.userId ?? 'Guest User'}
-							</p>
-						</div>
-						<div class="col-span-2">
-							<p class="text-[8px] tracking-wider text-ash/60 uppercase">Order ID</p>
-							<a
-								href={resolve(`/app/orders/${usage.orderId}`)}
-								class="mt-0.5 block font-medium text-bone hover:underline"
-							>
-								{usage.orderId}
-							</a>
-						</div>
-					</div>
-				</AdminCard>
+					{#snippet metadata()}
+						<AdminMetaGrid>
+							<div>
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Promo Code</p>
+								<p class="mt-0.5 font-medium text-bone">{usage.promoCode?.code ?? 'UNKNOWN'}</p>
+							</div>
+							<div>
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Customer ID</p>
+								<p class="mt-0.5 max-w-30 truncate font-medium text-bone">
+									{usage.userId ?? 'Guest User'}
+								</p>
+							</div>
+							<div class="min-[430px]:col-span-2">
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Order ID</p>
+								<a
+									href={resolve(`/app/orders/${usage.orderId}`)}
+									class="mt-0.5 block font-medium text-bone hover:underline"
+								>
+									{usage.orderId}
+								</a>
+							</div>
+							<div class="min-[430px]:col-span-2">
+								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Redeemed At</p>
+								<p class="mt-0.5 font-medium text-bone">{formatAdminDateTime(usage.usedAt, '—')}</p>
+							</div>
+						</AdminMetaGrid>
+					{/snippet}
+				</AdminEntityCard>
 			{/if}
+		{/snippet}
+
+		{#snippet emptyState()}
+			<AdminEmptyState
+				title={activeTab === 'codes' ? 'No promo codes found' : 'No redemption logs found'}
+				description="Adjust filters or query parameters."
+			/>
 		{/snippet}
 	</AdminListLayout>
 </div>
@@ -810,151 +868,100 @@
 		use:createEnhance
 		class="flex flex-col gap-4"
 	>
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Code *</span>
-			<input
-				name="code"
-				bind:value={$createForm.code}
-				oninput={(e) =>
-					($createForm.code = e.currentTarget.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
-				placeholder="e.g. CARO20"
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+		<AdminInput
+			label="Code"
+			name="code"
+			bind:value={$createForm.code}
+			oninput={(event) => {
+				const input = event.currentTarget as HTMLInputElement;
+				$createForm.code = input.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+			}}
+			placeholder="e.g. CARO20"
+			required
+			error={$createErrors.code}
+		/>
+
+		<AdminTextarea
+			label="Description"
+			name="description"
+			bind:value={$createForm.description}
+			placeholder="Internal campaign details..."
+			rows={3}
+			error={$createErrors.description}
+		/>
+
+		<div class="grid gap-4 sm:grid-cols-2">
+			<AdminSelect
+				label="Discount Type"
+				name="discountType"
+				bind:value={$createForm.discountType}
+				options={[
+					{ value: 'percentage', label: 'Percentage (%)' },
+					{ value: 'fixed', label: 'Fixed (LKR)' }
+				]}
 				required
+				error={$createErrors.discountType}
 			/>
-			{#if $createErrors.code}
-				<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.code[0]}</span>
-			{/if}
-		</label>
 
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
-			<textarea
-				name="description"
-				bind:value={$createForm.description}
-				placeholder="Internal campaign details..."
-				class="min-h-16 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			></textarea>
-			{#if $createErrors.description}
-				<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.description[0]}</span>
-			{/if}
-		</label>
-
-		<div class="grid grid-cols-2 gap-4">
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Discount Type *</span
-				>
-				<select
-					name="discountType"
-					bind:value={$createForm.discountType}
-					class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					required
-				>
-					<option value="percentage">Percentage (%)</option>
-					<option value="fixed">Fixed (LKR)</option>
-				</select>
-				{#if $createErrors.discountType}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.discountType[0]}</span>
-				{/if}
-			</label>
-
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Value *</span>
-				<input
-					name="discountValue"
-					type="number"
-					min="1"
-					max={$createForm.discountType === 'percentage' ? 100 : undefined}
-					bind:value={$createForm.discountValue}
-					placeholder={$createForm.discountType === 'percentage' ? 'e.g. 20' : 'e.g. 1000'}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					required
-				/>
-				{#if $createForm.discountType === 'percentage'}
-					<span class="mt-0.5 font-sans text-[10px] text-ash/60 normal-case"
-						>Percentage must be 1-100%</span
-					>
-				{/if}
-				{#if $createErrors.discountValue}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.discountValue[0]}</span
-					>
-				{/if}
-			</label>
+			<AdminInput
+				label="Value"
+				name="discountValue"
+				type="number"
+				min="1"
+				max={$createForm.discountType === 'percentage' ? 100 : undefined}
+				bind:value={$createForm.discountValue}
+				placeholder={$createForm.discountType === 'percentage' ? 'e.g. 20' : 'e.g. 1000'}
+				helpText={$createForm.discountType === 'percentage'
+					? 'Percentage must be 1-100%.'
+					: undefined}
+				required
+				error={$createErrors.discountValue}
+			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Min Order (LKR)</span
-				>
-				<input
-					name="minOrderAmount"
-					type="number"
-					min="0"
-					bind:value={$createForm.minOrderAmount}
-					placeholder="None"
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				/>
-				{#if $createErrors.minOrderAmount}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$createErrors.minOrderAmount[0]}</span
-					>
-				{/if}
-			</label>
+		<div class="grid gap-4 sm:grid-cols-2">
+			<AdminInput
+				label="Min Order (LKR)"
+				name="minOrderAmount"
+				type="number"
+				min="0"
+				bind:value={$createForm.minOrderAmount}
+				placeholder="None"
+				error={$createErrors.minOrderAmount}
+			/>
 
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Max Discount (LKR)</span
-				>
-				<input
-					name="maxDiscountAmount"
-					type="number"
-					min="1"
-					bind:value={$createForm.maxDiscountAmount}
-					placeholder="None"
-					disabled={$createForm.discountType !== 'percentage'}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:opacity-40"
-				/>
-				{#if $createErrors.maxDiscountAmount}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$createErrors.maxDiscountAmount[0]}</span
-					>
-				{/if}
-			</label>
+			<AdminInput
+				label="Max Discount (LKR)"
+				name="maxDiscountAmount"
+				type="number"
+				min="1"
+				bind:value={$createForm.maxDiscountAmount}
+				placeholder="None"
+				disabled={$createForm.discountType !== 'percentage'}
+				error={$createErrors.maxDiscountAmount}
+			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Usage Limit</span>
-				<input
-					name="usageLimit"
-					type="number"
-					min="1"
-					bind:value={$createForm.usageLimit}
-					placeholder="Unlimited"
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				/>
-				{#if $createErrors.usageLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.usageLimit[0]}</span>
-				{/if}
-			</label>
+		<div class="grid gap-4 sm:grid-cols-2">
+			<AdminInput
+				label="Usage Limit"
+				name="usageLimit"
+				type="number"
+				min="1"
+				bind:value={$createForm.usageLimit}
+				placeholder="Unlimited"
+				error={$createErrors.usageLimit}
+			/>
 
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Per User Limit *</span
-				>
-				<input
-					name="perUserLimit"
-					type="number"
-					min="1"
-					bind:value={$createForm.perUserLimit}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					required
-				/>
-				{#if $createErrors.perUserLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$createErrors.perUserLimit[0]}</span>
-				{/if}
-			</label>
+			<AdminInput
+				label="Per User Limit"
+				name="perUserLimit"
+				type="number"
+				min="1"
+				bind:value={$createForm.perUserLimit}
+				required
+				error={$createErrors.perUserLimit}
+			/>
 		</div>
 
 		<div class="mt-2 grid gap-4">
@@ -1005,147 +1012,94 @@
 	>
 		<input type="hidden" name="promoCodeId" bind:value={$updateForm.promoCodeId} />
 
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Code *</span>
-			<input
-				name="code"
-				bind:value={$updateForm.code}
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
+		<AdminInput
+			label="Code"
+			name="code"
+			bind:value={$updateForm.code}
+			required
+			error={$updateErrors.code}
+		/>
+
+		<AdminTextarea
+			label="Description"
+			name="description"
+			bind:value={$updateForm.description}
+			placeholder="Internal campaign details..."
+			rows={3}
+			error={$updateErrors.description}
+		/>
+
+		<div class="grid gap-4 sm:grid-cols-2">
+			<AdminSelect
+				label="Discount Type"
+				name="discountType"
+				bind:value={$updateForm.discountType}
+				options={[
+					{ value: 'percentage', label: 'Percentage (%)' },
+					{ value: 'fixed', label: 'Fixed (LKR)' }
+				]}
 				required
+				error={$updateErrors.discountType}
 			/>
-			{#if $updateErrors.code}
-				<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.code[0]}</span>
-			{/if}
-		</label>
 
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
-			<textarea
-				class="min-h-16 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				name="description"
-				bind:value={$updateForm.description}
-				placeholder="Internal campaign details..."
-			></textarea>
-			{#if $updateErrors.description}
-				<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.description[0]}</span>
-			{/if}
-		</label>
-
-		<div class="grid grid-cols-2 gap-4">
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Discount Type *</span
-				>
-				<select
-					name="discountType"
-					bind:value={$updateForm.discountType}
-					class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					required
-				>
-					<option value="percentage">Percentage (%)</option>
-					<option value="fixed">Fixed (LKR)</option>
-				</select>
-				{#if $updateErrors.discountType}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.discountType[0]}</span>
-				{/if}
-			</label>
-
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Value *</span>
-				<input
-					name="discountValue"
-					type="number"
-					min="1"
-					max={$updateForm.discountType === 'percentage' ? 100 : undefined}
-					bind:value={$updateForm.discountValue}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					required
-				/>
-				{#if $updateForm.discountType === 'percentage'}
-					<span class="mt-0.5 font-sans text-[10px] text-ash/60 normal-case"
-						>Percentage must be 1-100%</span
-					>
-				{/if}
-				{#if $updateErrors.discountValue}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.discountValue[0]}</span
-					>
-				{/if}
-			</label>
+			<AdminInput
+				label="Value"
+				name="discountValue"
+				type="number"
+				min="1"
+				max={$updateForm.discountType === 'percentage' ? 100 : undefined}
+				bind:value={$updateForm.discountValue}
+				helpText={$updateForm.discountType === 'percentage'
+					? 'Percentage must be 1-100%.'
+					: undefined}
+				required
+				error={$updateErrors.discountValue}
+			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Min Order (LKR)</span
-				>
-				<input
-					name="minOrderAmount"
-					type="number"
-					min="0"
-					bind:value={$updateForm.minOrderAmount}
-					placeholder="None"
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				/>
-				{#if $updateErrors.minOrderAmount}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$updateErrors.minOrderAmount[0]}</span
-					>
-				{/if}
-			</label>
+		<div class="grid gap-4 sm:grid-cols-2">
+			<AdminInput
+				label="Min Order (LKR)"
+				name="minOrderAmount"
+				type="number"
+				min="0"
+				bind:value={$updateForm.minOrderAmount}
+				placeholder="None"
+				error={$updateErrors.minOrderAmount}
+			/>
 
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Max Discount (LKR)</span
-				>
-				<input
-					name="maxDiscountAmount"
-					type="number"
-					min="1"
-					bind:value={$updateForm.maxDiscountAmount}
-					placeholder="None"
-					disabled={$updateForm.discountType !== 'percentage'}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:opacity-40"
-				/>
-				{#if $updateErrors.maxDiscountAmount}
-					<span class="mt-0.5 font-sans text-xs text-red-400"
-						>{$updateErrors.maxDiscountAmount[0]}</span
-					>
-				{/if}
-			</label>
+			<AdminInput
+				label="Max Discount (LKR)"
+				name="maxDiscountAmount"
+				type="number"
+				min="1"
+				bind:value={$updateForm.maxDiscountAmount}
+				placeholder="None"
+				disabled={$updateForm.discountType !== 'percentage'}
+				error={$updateErrors.maxDiscountAmount}
+			/>
 		</div>
 
-		<div class="grid grid-cols-2 gap-4">
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Usage Limit</span>
-				<input
-					name="usageLimit"
-					type="number"
-					min="1"
-					bind:value={$updateForm.usageLimit}
-					placeholder="Unlimited"
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				/>
-				{#if $updateErrors.usageLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.usageLimit[0]}</span>
-				{/if}
-			</label>
+		<div class="grid gap-4 sm:grid-cols-2">
+			<AdminInput
+				label="Usage Limit"
+				name="usageLimit"
+				type="number"
+				min="1"
+				bind:value={$updateForm.usageLimit}
+				placeholder="Unlimited"
+				error={$updateErrors.usageLimit}
+			/>
 
-			<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-					>Per User Limit *</span
-				>
-				<input
-					name="perUserLimit"
-					type="number"
-					min="1"
-					bind:value={$updateForm.perUserLimit}
-					class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					required
-				/>
-				{#if $updateErrors.perUserLimit}
-					<span class="mt-0.5 font-sans text-xs text-red-400">{$updateErrors.perUserLimit[0]}</span>
-				{/if}
-			</label>
+			<AdminInput
+				label="Per User Limit"
+				name="perUserLimit"
+				type="number"
+				min="1"
+				bind:value={$updateForm.perUserLimit}
+				required
+				error={$updateErrors.perUserLimit}
+			/>
 		</div>
 
 		<div class="mt-2 grid gap-4">
@@ -1187,65 +1141,33 @@
 	{/snippet}
 </AdminDrawer>
 
-<!-- RECONCILE MAINTENANCE CONFIRM DIALOG -->
-<Dialog.Root bind:open={syncConfirmModalOpen}>
-	{#if syncConfirmModalOpen}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
+<AdminModal
+	bind:open={syncConfirmModalOpen}
+	kicker="Operations"
+	title="Sync First 100 Usage Counts"
+	size="md"
+>
+	<form
+		method="POST"
+		action="?/reconcileCodes"
+		use:reconcileCodesEnhance
+		class="flex flex-col gap-6"
+	>
+		<input type="hidden" name="limit" value="100" />
+		<input type="hidden" name="offset" value="0" />
 
-			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
-				<Dialog.Content
-					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
-				>
-					{#snippet child({ props })}
-						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
-							<div>
-								<div class="mb-2 flex items-center gap-3 text-volt">
-									<Settings size={20} />
-									<Dialog.Title class="font-display text-2xl text-bone uppercase">
-										Sync Promo Usage Counts
-									</Dialog.Title>
-								</div>
-								<Dialog.Description class="mt-2 font-sans text-xs leading-relaxed text-ash">
-									Reconcile and synchronize all promo code usage counters against the append-only
-									redemption audit trail.
-								</Dialog.Description>
-							</div>
+		<p class="font-sans text-sm leading-relaxed text-ash">
+			Reconcile up to 100 promo code usage counters against the append-only redemption audit trail.
+			Run again for remaining codes after this batch completes.
+		</p>
 
-							<form
-								method="POST"
-								action="?/reconcileCodes"
-								use:reconcileCodesEnhance
-								class="flex flex-col gap-4"
-							>
-								<input type="hidden" name="limit" value="100" />
-								<input type="hidden" name="offset" value="0" />
-
-								<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
-									<AdminButton
-										type="button"
-										variant="charcoal"
-										onclick={() => (syncConfirmModalOpen = false)}
-									>
-										Cancel
-									</AdminButton>
-									<AdminButton type="submit" variant="volt" disabled={$reconcileCodesSubmitting}>
-										{#if $reconcileCodesSubmitting}Syncing...{:else}Confirm Sync{/if}
-									</AdminButton>
-								</div>
-							</form>
-						</div>
-					{/snippet}
-				</Dialog.Content>
-			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+		<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
+			<AdminButton type="button" variant="charcoal" onclick={() => (syncConfirmModalOpen = false)}>
+				Cancel
+			</AdminButton>
+			<AdminButton type="submit" variant="volt" disabled={$reconcileCodesSubmitting}>
+				{#if $reconcileCodesSubmitting}Syncing...{:else}Confirm Sync{/if}
+			</AdminButton>
+		</div>
+	</form>
+</AdminModal>

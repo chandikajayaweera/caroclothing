@@ -2,21 +2,11 @@
 	import type { PageData } from './$types';
 	import { resolve } from '$app/paths';
 	import { Printer, ChevronLeft } from 'lucide-svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import { formatAdminDateTime, formatAdminMoney } from '$lib/shared/admin/format';
 
 	let { data }: { data: PageData } = $props();
 	const orders = $derived(data.orders);
-
-	function formatMoney(value: number): string {
-		return `LKR ${value.toLocaleString()}`;
-	}
-
-	function formatDate(value: Date | string | null): string {
-		if (!value) return 'Never';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
 
 	$effect(() => {
 		const timer = setTimeout(() => {
@@ -31,32 +21,30 @@
 </svelte:head>
 
 <div
-	class="fixed top-0 right-0 left-0 z-50 flex items-center justify-between border-b border-charcoal bg-void px-6 py-4 shadow-md print:hidden"
+	class="fixed inset-x-0 top-0 z-50 grid gap-2 border-b border-charcoal bg-void px-3 py-3 shadow-md sm:flex sm:items-center sm:justify-between sm:px-6 sm:py-4 print:hidden"
 >
-	<a
-		href={resolve('/app/orders')}
-		class="inline-flex items-center gap-1 font-mono text-[10px] tracking-widest text-ash uppercase transition-colors hover:text-volt"
-	>
+	<AdminButton href={resolve('/app/orders')} variant="outline" size="sm">
 		<ChevronLeft size={14} />
 		Back to Orders
-	</a>
-	<div class="flex items-center gap-3">
+	</AdminButton>
+	<div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:gap-3">
 		<span class="font-mono text-[10px] text-ash uppercase">{orders.length} orders selected</span>
-		<button
-			onclick={() => window.print()}
-			class="inline-flex items-center gap-2 bg-volt px-4 py-2 font-mono text-[10px] font-bold tracking-widest text-void uppercase transition-colors hover:bg-bone"
-		>
+		<AdminButton type="button" onclick={() => window.print()} variant="volt" size="sm">
 			<Printer size={12} />
 			Print Document
-		</button>
+		</AdminButton>
 	</div>
 </div>
 
-<div class="mx-auto max-w-4xl px-6 pt-24 pb-12 text-void print:bg-white print:p-0 print:text-black">
+<div
+	class="mx-auto max-w-4xl px-3 pt-32 pb-12 text-void sm:px-6 sm:pt-24 print:bg-white print:p-0 print:text-black"
+>
 	<section
-		class="mb-12 break-after-page border border-charcoal bg-charcoal/5 p-6 print:border-black print:bg-transparent"
+		class="mb-12 break-after-page border border-charcoal bg-charcoal/5 p-3 sm:p-6 print:border-black print:bg-transparent print:p-6"
 	>
-		<div class="flex items-end justify-between border-b border-charcoal pb-4 print:border-black">
+		<div
+			class="grid gap-3 border-b border-charcoal pb-4 sm:flex sm:items-end sm:justify-between print:flex print:border-black"
+		>
 			<div>
 				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase print:text-black">
 					Handover Document
@@ -66,7 +54,7 @@
 				</h1>
 			</div>
 			<div class="text-right font-mono text-[10px] text-ash print:text-black">
-				<p>Printed: {formatDate(new Date())}</p>
+				<p>Printed: {formatAdminDateTime(new Date())}</p>
 				<p>Total Orders: {orders.length}</p>
 			</div>
 		</div>
@@ -95,14 +83,18 @@
 								{o.shippingAddressSnapshot?.district ?? ''}, {o.shippingAddressSnapshot?.city ?? ''}
 							</td>
 							<td class="px-4 py-3 text-right font-mono">{o.itemCount}</td>
-							<td class="py-3 pl-4 text-right font-mono font-bold">{formatMoney(o.totalAmount)}</td>
+							<td class="py-3 pl-4 text-right font-mono font-bold"
+								>{formatAdminMoney(o.totalAmount)}</td
+							>
 						</tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
 
-		<div class="mt-12 grid grid-cols-2 gap-8 font-mono text-[10px] text-ash print:text-black">
+		<div
+			class="mt-12 grid gap-8 font-mono text-[10px] text-ash sm:grid-cols-2 print:grid-cols-2 print:text-black"
+		>
 			<div class="border-t border-charcoal/50 pt-4 print:border-black">
 				<p class="font-bold">Handed Over By:</p>
 				<p class="mt-8">Signature / Date</p>
@@ -116,12 +108,14 @@
 
 	{#each orders as o, i (o.id)}
 		<section
-			class="border border-charcoal bg-charcoal/5 p-8 print:border-0 print:border-black print:bg-transparent print:p-0 {i <
+			class="border border-charcoal bg-charcoal/5 p-4 sm:p-8 print:border-0 print:border-black print:bg-transparent print:p-0 {i <
 			orders.length - 1
 				? 'break-after-page'
 				: ''}"
 		>
-			<div class="flex justify-between border-b border-charcoal pb-6 print:border-black">
+			<div
+				class="grid gap-3 border-b border-charcoal pb-6 sm:flex sm:justify-between print:flex print:border-black"
+			>
 				<div>
 					<h2
 						class="font-display text-3xl font-black tracking-widest text-bone uppercase print:text-black"
@@ -134,11 +128,13 @@
 				</div>
 				<div class="text-right font-mono text-[10px] text-ash print:text-black">
 					<p class="text-sm font-bold text-volt print:text-black">{o.orderNumber}</p>
-					<p>Placed: {formatDate(o.createdAt)}</p>
+					<p>Placed: {formatAdminDateTime(o.createdAt)}</p>
 				</div>
 			</div>
 
-			<div class="mt-6 grid grid-cols-2 gap-6 font-sans text-xs text-bone print:text-black">
+			<div
+				class="mt-6 grid gap-6 font-sans text-xs text-bone sm:grid-cols-2 print:grid-cols-2 print:text-black"
+			>
 				<div>
 					<p class="font-mono text-[9px] tracking-widest text-ash uppercase print:text-black">
 						Ship To:
@@ -196,9 +192,10 @@
 									<td class="px-4 py-3 font-mono text-[10px]">
 										{item.variantSize} / {item.variantColor}
 									</td>
-									<td class="px-4 py-3 text-right font-mono">{formatMoney(item.unitPrice)}</td>
+									<td class="px-4 py-3 text-right font-mono">{formatAdminMoney(item.unitPrice)}</td>
 									<td class="px-4 py-3 text-right font-mono">{item.quantity}</td>
-									<td class="py-3 pl-4 text-right font-mono">{formatMoney(item.totalPrice)}</td>
+									<td class="py-3 pl-4 text-right font-mono">{formatAdminMoney(item.totalPrice)}</td
+									>
 								</tr>
 							{/each}
 						{/if}
@@ -212,22 +209,22 @@
 				>
 					<div class="flex justify-between">
 						<span>Subtotal:</span>
-						<span class="text-bone print:text-black">{formatMoney(o.subtotal)}</span>
+						<span class="text-bone print:text-black">{formatAdminMoney(o.subtotal)}</span>
 					</div>
 					{#if o.discountAmount > 0}
 						<div class="flex justify-between text-red-400 print:text-black">
 							<span>Discount:</span>
-							<span>-{formatMoney(o.discountAmount)}</span>
+							<span>-{formatAdminMoney(o.discountAmount)}</span>
 						</div>
 					{/if}
 					<div class="flex justify-between">
 						<span>Shipping:</span>
-						<span class="text-bone print:text-black">{formatMoney(o.shippingAmount)}</span>
+						<span class="text-bone print:text-black">{formatAdminMoney(o.shippingAmount)}</span>
 					</div>
 					<div class="my-1 border-t border-charcoal/30 print:border-black/30"></div>
 					<div class="flex justify-between text-xs font-bold text-volt print:text-black">
-						<span>Total Paid:</span>
-						<span>{formatMoney(o.totalAmount)}</span>
+						<span>Order Total:</span>
+						<span>{formatAdminMoney(o.totalAmount)}</span>
 					</div>
 				</div>
 			</div>

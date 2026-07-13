@@ -3,16 +3,21 @@
 	import { FolderOpen, Upload, X } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { superForm } from 'sveltekit-superforms';
 	import type { PageData } from './$types';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminCard from '$lib/components/admin/AdminCard.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminModal from '$lib/components/admin/AdminModal.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminFormLayout from '$lib/components/admin/layout/AdminFormLayout.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminUnsavedChangesGuard from '$lib/components/admin/AdminUnsavedChangesGuard.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -33,7 +38,8 @@
 		constraints: updateCategoryConstraints,
 		message: updateCategoryMessage,
 		enhance: updateCategoryEnhance,
-		submitting: updateCategorySubmitting
+		submitting: updateCategorySubmitting,
+		tainted: updateCategoryTainted
 	} = updateCategorySuperform;
 
 	let slugManuallyEdited = $state(false);
@@ -41,6 +47,7 @@
 	let imagePreviewUrl = $state<string | null>(null);
 	let formElement = $state<HTMLFormElement | null>(null);
 	let toastMessage = $state<string | null>(null);
+	const hasUnsavedChanges = $derived(Boolean($updateCategoryTainted) || selectedFile !== null);
 
 	$effect(() => {
 		if ($updateCategoryMessage) toastMessage = $updateCategoryMessage;
@@ -298,20 +305,14 @@
 					/>
 				</div>
 
-				<div class="grid gap-1.5">
-					<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Description</span>
-					<textarea
-						name="description"
-						bind:value={$updateCategoryForm.description}
-						placeholder="Provide details about the designs, silhouettes, and fabric weight featured in this category..."
-						class="min-h-32 w-full border border-ash/30 bg-void px-3.5 py-3 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					></textarea>
-					{#if $updateCategoryErrors.description}
-						<span class="font-sans text-xs text-red-400"
-							>{$updateCategoryErrors.description[0]}</span
-						>
-					{/if}
-				</div>
+				<AdminTextarea
+					label="Description"
+					name="description"
+					rows={5}
+					bind:value={$updateCategoryForm.description}
+					placeholder="Provide details about the designs, silhouettes, and fabric weight featured in this category..."
+					error={$updateCategoryErrors.description}
+				/>
 			</AdminCard>
 
 			<!-- Parent Hierarchy Tree Preview -->
@@ -346,16 +347,19 @@
 									<p class="mt-0.5 font-mono text-[10px] text-ash">Stored in Cloudflare R2</p>
 								</div>
 							</div>
-							<button
+							<AdminButton
 								type="button"
+								size="icon"
+								variant="danger"
 								onclick={() => {
 									$updateCategoryForm.removeImage = true;
 								}}
-								class="flex h-8 w-8 items-center justify-center border border-red-400/30 text-red-300 transition-colors hover:bg-red-400 hover:text-void"
+								class="h-8 w-8"
 								title="Delete existing image"
+								aria-label="Delete existing image"
 							>
 								<X size={14} />
-							</button>
+							</AdminButton>
 						</div>
 					{:else if imagePreviewUrl}
 						<div
@@ -372,29 +376,33 @@
 									</p>
 								</div>
 							</div>
-							<button
+							<AdminButton
 								type="button"
+								size="icon"
+								variant="danger"
 								onclick={removeSelectedFile}
-								class="flex h-8 w-8 items-center justify-center border border-red-400/30 text-red-300 transition-colors hover:bg-red-400 hover:text-void"
+								class="h-8 w-8"
 								title="Cancel new image"
+								aria-label="Cancel new image"
 							>
 								<X size={14} />
-							</button>
+							</AdminButton>
 						</div>
 					{:else if $updateCategoryForm.removeImage}
 						<div
 							class="flex items-center justify-between border border-dashed border-red-400/20 bg-red-950/5 p-4"
 						>
 							<p class="font-sans text-xs text-red-300">Existing image marked for removal.</p>
-							<button
+							<AdminButton
 								type="button"
 								onclick={() => {
 									$updateCategoryForm.removeImage = false;
 								}}
-								class="border border-ash/30 px-3 py-1.5 font-mono text-[9px] tracking-wider text-ash uppercase hover:border-volt hover:text-volt"
+								variant="outline"
+								size="sm"
 							>
 								Undo Removal
-							</button>
+							</AdminButton>
 						</div>
 						<label
 							for="category-image-input"
@@ -464,14 +472,15 @@
 			<div class="p-4">
 				<div class="overflow-hidden border border-charcoal bg-void">
 					<!-- Category image slot -->
-					<button
+					<AdminButton
 						type="button"
+						variant="outline"
 						onclick={() => {
 							if (imagePreviewUrl || (data.category.imageUrl && !$updateCategoryForm.removeImage)) {
 								showImagePreviewPopup = true;
 							}
 						}}
-						class="group relative flex aspect-video w-full shrink-0 cursor-pointer items-center justify-center overflow-hidden border-b border-charcoal bg-charcoal/20"
+						class="group relative flex aspect-video h-auto w-full shrink-0 items-center justify-center overflow-hidden p-0"
 						aria-label="View large image preview"
 					>
 						{#if imagePreviewUrl}
@@ -505,7 +514,7 @@
 						{:else}
 							<FolderOpen size={28} class="text-ash/30" />
 						{/if}
-					</button>
+					</AdminButton>
 
 					<!-- Details -->
 					<div class="p-4">
@@ -515,13 +524,9 @@
 							>
 								{$updateCategoryForm.name || 'Unnamed Category'}
 							</h3>
-							<span
-								class="shrink-0 font-mono text-[9px] tracking-widest uppercase {$updateCategoryForm.isActive
-									? 'text-volt'
-									: 'text-red-300'}"
-							>
+							<AdminBadge variant={$updateCategoryForm.isActive ? 'success' : 'danger'}>
 								{$updateCategoryForm.isActive ? 'Active' : 'Draft'}
-							</span>
+							</AdminBadge>
 						</div>
 						<p class="mt-0.5 truncate font-mono text-[10px] text-ash">
 							/{$updateCategoryForm.slug || 'no-slug'}
@@ -558,10 +563,17 @@
 	</AdminFormLayout>
 </form>
 
+<AdminUnsavedChangesGuard
+	dirty={hasUnsavedChanges && !$updateCategorySubmitting}
+	title="Leave category editor?"
+	description="Category settings or selected media have not been saved."
+	onsave={() => formElement?.requestSubmit()}
+/>
+
 <!-- Server Error Toast -->
 <AdminToast
 	message={toastMessage}
-	type="error"
+	type={page.status >= 400 ? 'error' : 'success'}
 	duration={6000}
 	onclose={() => (toastMessage = null)}
 />
@@ -573,15 +585,17 @@
 			{#if depth > 0}
 				<span class="font-mono text-xs text-ash/35 select-none">└──</span>
 			{/if}
-			<button
+			<AdminButton
 				type="button"
 				onclick={() => openNodeDetails(node)}
-				class="flex cursor-pointer items-center gap-2 border border-charcoal/50 bg-void/45 px-3 py-1.5 font-mono text-xs text-bone transition-colors hover:border-volt"
+				variant="outline"
+				size="sm"
+				class="normal-case"
 			>
 				<span class="h-1.5 w-1.5 rounded-full {node.isActive ? 'bg-volt' : 'bg-red-400'}"></span>
 				<span>{node.name}</span>
 				<span class="text-[9px] text-ash/40">/{node.slug}</span>
-			</button>
+			</AdminButton>
 		</div>
 
 		{#if node.children && node.children.length > 0}
@@ -594,26 +608,26 @@
 	</div>
 {/snippet}
 
-<!-- Category Node Details Modal -->
-{#if showNodeModal && selectedNode}
-	<div class="fixed inset-0 z-50 grid place-items-center bg-void/85 px-4 backdrop-blur-sm">
-		<section
-			class="max-h-[90vh] w-full max-w-lg overflow-y-auto border border-ash/20 bg-charcoal p-6 shadow-2xl"
-		>
-			<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Category Details</p>
-			<h2 class="mt-1 font-display text-3xl leading-none text-bone uppercase">
-				{selectedNode.name}
-			</h2>
-
-			<!-- Image Section -->
-			<div
-				class="mt-4 flex flex-col items-center gap-3 rounded-sm border border-charcoal bg-void/30 p-4"
-			>
-				<span class="self-start font-sans text-xs font-semibold tracking-wide text-ash/90 uppercase"
-					>Category Image</span
-				>
+<AdminModal
+	open={showNodeModal && selectedNode !== null}
+	title={selectedNode?.name ?? 'Category Details'}
+	kicker="Category details"
+	size="lg"
+	onOpenChange={(open) => {
+		if (!open) {
+			showNodeModal = false;
+			selectedNode = null;
+		}
+	}}
+>
+	{#if selectedNode}
+		<div class="grid gap-4">
+			<div class="grid gap-3 border border-charcoal bg-void/30 p-4">
+				<span class="font-sans text-xs font-semibold tracking-wide text-ash/90 uppercase">
+					Category Image
+				</span>
 				<div
-					class="relative flex aspect-video w-full max-w-70 items-center justify-center overflow-hidden border border-charcoal bg-charcoal/20"
+					class="relative flex aspect-video w-full items-center justify-center overflow-hidden border border-charcoal bg-charcoal/20"
 				>
 					{#if editPreviewUrl}
 						<img src={editPreviewUrl} alt="Preview" class="h-full w-full object-cover" />
@@ -630,42 +644,29 @@
 				action="?/updateCategoryFromPopup"
 				enctype="multipart/form-data"
 				use:enhance={updateCategoryPopupEnhance}
-				class="mt-4 grid gap-4"
+				class="grid gap-4"
 			>
 				<input type="hidden" name="id" value={selectedNode.id} />
+				<AdminInput label="Category Name" name="name" bind:value={editName} required />
 
-				<!-- Edit controls -->
 				<label class="grid gap-1">
-					<span class="font-sans text-xs font-semibold tracking-wide text-volt uppercase"
-						>Category Name</span
-					>
-					<input
-						type="text"
-						name="name"
-						bind:value={editName}
-						required
-						class="min-h-11 border border-ash/30 bg-void px-4 py-2.5 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-					/>
-				</label>
-
-				<div class="grid gap-1">
-					<span class="font-sans text-xs font-semibold tracking-wide text-volt uppercase"
-						>Upload Replacement Image</span
-					>
+					<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">
+						Upload Replacement Image
+					</span>
 					<input
 						type="file"
 						name="image"
 						accept="image/jpeg,image/png,image/webp,image/avif"
 						onchange={handleEditFileChange}
-						class="w-full border border-ash/30 bg-void px-4 py-2.5 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
+						class="w-full border border-ash/30 bg-void px-4 py-2.5 font-mono text-xs text-bone"
 					/>
-				</div>
+				</label>
 
 				{#if editError}
 					<p class="font-mono text-xs text-red-400 uppercase">{editError}</p>
 				{/if}
 
-				<div class="mt-4 flex justify-end gap-3">
+				<div class="flex justify-end gap-3">
 					<AdminButton
 						type="button"
 						variant="charcoal"
@@ -682,33 +683,21 @@
 					</AdminButton>
 				</div>
 			</form>
-		</section>
-	</div>
-{/if}
-
-<!-- Zoom image modal -->
-{#if showImagePreviewPopup}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-void/90 p-4 backdrop-blur-sm"
-		role="dialog"
-		aria-modal="true"
-	>
-		<div
-			class="relative max-h-[90vh] max-w-[90vw] overflow-hidden border border-charcoal bg-charcoal"
-		>
-			<button
-				type="button"
-				onclick={() => (showImagePreviewPopup = false)}
-				class="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center border border-ash/30 bg-void text-ash transition-colors hover:border-volt hover:text-volt"
-				aria-label="Close zoom preview"
-			>
-				<X size={18} />
-			</button>
-			{#if imagePreviewUrl}
-				<img src={imagePreviewUrl} alt="" class="max-h-[85vh] max-w-[85vw] object-contain" />
-			{:else if data.category.imageUrl}
-				<img src={data.category.imageUrl} alt="" class="max-h-[85vh] max-w-[85vw] object-contain" />
-			{/if}
 		</div>
+	{/if}
+</AdminModal>
+
+<AdminModal
+	bind:open={showImagePreviewPopup}
+	title={$updateCategoryForm.name || data.category.name}
+	kicker="Image preview"
+	size="5xl"
+>
+	<div class="grid max-h-[75vh] place-items-center overflow-hidden border border-charcoal bg-void">
+		{#if imagePreviewUrl}
+			<img src={imagePreviewUrl} alt="" class="max-h-[75vh] w-full object-contain" />
+		{:else if data.category.imageUrl}
+			<img src={data.category.imageUrl} alt="" class="max-h-[75vh] w-full object-contain" />
+		{/if}
 	</div>
-{/if}
+</AdminModal>

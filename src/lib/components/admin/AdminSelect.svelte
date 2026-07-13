@@ -1,17 +1,23 @@
 <script lang="ts">
-	import { Select } from 'bits-ui';
 	import type { Snippet } from 'svelte';
-	import { ChevronDown, Check } from 'lucide-svelte';
+	import { ChevronDown } from 'lucide-svelte';
 
 	type SelectValue = string | number | null | undefined;
+	type SelectOption = {
+		value: SelectValue;
+		label: string;
+		disabled?: boolean;
+	};
 
 	let {
 		label,
 		name,
+		id,
 		value = $bindable(),
 		disabled = false,
 		required = false,
 		error,
+		helpText,
 		options = [],
 		onchange,
 		placeholder = 'Select option',
@@ -21,11 +27,13 @@
 	}: {
 		label?: string;
 		name: string;
+		id?: string;
 		value?: SelectValue;
 		disabled?: boolean;
 		required?: boolean;
 		error?: string | string[];
-		options?: { value: SelectValue; label: string }[];
+		helpText?: string;
+		options?: SelectOption[];
 		onchange?: (event: Event) => void;
 		placeholder?: string;
 		class?: string;
@@ -36,123 +44,54 @@
 	const errorMessage = $derived(
 		Array.isArray(error) ? error[0] : typeof error === 'string' ? error : undefined
 	);
-
-	let optionsList = $state<{ value: string; label: string }[]>([]);
-	let hiddenSelect = $state<HTMLSelectElement | null>(null);
-	let selectValue = $state(String(value ?? ''));
-
-	function syncOptions() {
-		if (hiddenSelect) {
-			const optionElements = hiddenSelect.querySelectorAll('option');
-			optionsList = Array.from(optionElements).map((el) => ({
-				value: el.value,
-				label: el.textContent?.trim() || ''
-			}));
-		}
-	}
-
-	$effect(() => {
-		if (hiddenSelect) {
-			syncOptions();
-			const observer = new MutationObserver(syncOptions);
-			observer.observe(hiddenSelect, { childList: true, subtree: true, characterData: true });
-			return () => observer.disconnect();
-		}
-	});
-
-	$effect(() => {
-		const next = String(value ?? '');
-		if (next !== selectValue) {
-			selectValue = next;
-		}
-	});
-
-	const selectedOption = $derived(optionsList.find((o) => o.value === selectValue));
-
-	let lastDispatchedValue = $state<string | null>(null);
-	$effect(() => {
-		if (lastDispatchedValue === null) {
-			lastDispatchedValue = selectValue;
-			return;
-		}
-		if (selectValue !== lastDispatchedValue) {
-			lastDispatchedValue = selectValue;
-			value = selectValue;
-			if (hiddenSelect) {
-				hiddenSelect.dispatchEvent(new Event('change', { bubbles: true }));
-			}
-		}
-	});
+	const hasEmptyOption = $derived(options.some((option) => String(option.value ?? '') === ''));
 </script>
 
-<div class="grid gap-1 {className}">
+<label class="grid min-w-0 gap-1 {className}">
 	{#if label}
 		<span class="flex items-center font-sans text-xs font-semibold tracking-wide text-ash/90">
 			{label}
 			{#if required}
-				<span class="ml-0.5 font-sans text-red-400" title="Required">*</span>
+				<span class="ml-0.5 text-red-400" aria-hidden="true">*</span>
 			{/if}
 		</span>
 	{/if}
 
-	<!-- Hidden native select for form serialization and option capturing -->
-	<select
-		bind:this={hiddenSelect}
-		{name}
-		{disabled}
-		{onchange}
-		bind:value={selectValue}
-		aria-invalid={errorMessage ? 'true' : undefined}
-		class="hidden"
-		{...rest}
-	>
-		{#if children}
-			{@render children()}
-		{:else}
-			{#each options as option (option.value)}
-				<option value={option.value}>{option.label}</option>
-			{/each}
-		{/if}
-	</select>
-
-	<!-- Bits UI Custom Dropdown -->
-	<Select.Root type="single" bind:value={selectValue} items={optionsList} {disabled}>
-		<Select.Trigger
-			class="flex min-h-11 w-full items-center justify-between border bg-void px-3.5 py-3 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt disabled:cursor-not-allowed disabled:opacity-40 {errorMessage
+	<div class="relative min-w-0">
+		<select
+			{...rest}
+			{id}
+			{name}
+			{disabled}
+			{required}
+			{onchange}
+			bind:value
+			aria-invalid={errorMessage ? 'true' : undefined}
+			class="min-h-11 w-full appearance-none border bg-void px-3.5 py-2.5 pr-10 font-sans text-sm text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt focus-visible:ring-2 focus-visible:ring-volt/30 disabled:cursor-not-allowed disabled:opacity-40 {errorMessage
 				? 'border-red-400/50 focus:border-red-400'
 				: 'border-ash/30'}"
 		>
-			<span class="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-			<ChevronDown size={16} class="ml-2 shrink-0 text-ash/60" />
-		</Select.Trigger>
-		<Select.Portal>
-			<Select.Content
-				class="z-50 w-(--bits-select-anchor-width) min-w-(--bits-select-anchor-width) rounded-sm border border-ash/15 bg-charcoal p-1 shadow-xl"
-				sideOffset={4}
-			>
-				<Select.Viewport class="max-h-60 overflow-y-auto p-1">
-					{#each optionsList as option (option.value)}
-						<Select.Item
-							class="flex h-10 w-full cursor-pointer items-center rounded-sm px-3 py-2 text-sm text-bone transition-colors outline-none select-none hover:bg-ash/10 disabled:cursor-not-allowed disabled:opacity-40 data-highlighted:bg-ash/10 data-selected:font-semibold data-selected:text-volt"
-							value={option.value}
-							label={option.label}
-						>
-							{#snippet children({ selected })}
-								<span class="truncate">{option.label}</span>
-								{#if selected}
-									<Check size={14} class="ml-auto shrink-0 text-volt" />
-								{/if}
-							{/snippet}
-						</Select.Item>
-					{/each}
-				</Select.Viewport>
-			</Select.Content>
-		</Select.Portal>
-	</Select.Root>
+			{#if children}
+				{@render children()}
+			{:else}
+				{#if !hasEmptyOption}
+					<option value="" disabled={required}>{placeholder}</option>
+				{/if}
+				{#each options as option, index (index)}
+					<option value={option.value ?? ''} disabled={option.disabled}>{option.label}</option>
+				{/each}
+			{/if}
+		</select>
+		<ChevronDown
+			size={16}
+			class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-ash/60"
+			aria-hidden="true"
+		/>
+	</div>
 
 	{#if errorMessage}
-		<span class="mt-0.5 font-sans text-xs text-red-400">
-			{errorMessage}
-		</span>
+		<span class="mt-0.5 font-sans text-xs text-red-400">{errorMessage}</span>
+	{:else if helpText}
+		<p class="font-sans text-[11px] text-ash/60">{helpText}</p>
 	{/if}
-</div>
+</label>

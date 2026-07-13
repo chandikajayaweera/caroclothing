@@ -6,8 +6,8 @@
 		headers,
 		row,
 		card,
-		gridClass = 'grid gap-3 p-3 md:grid-cols-2 md:p-4 xl:hidden',
-		tableClass = 'hidden overflow-hidden xl:block'
+		gridClass = 'grid grid-cols-[minmax(0,1fr)] gap-3 p-3 md:grid-cols-[repeat(2,minmax(0,1fr))] md:p-4 xl:hidden',
+		tableClass = 'hidden overflow-x-auto xl:block'
 	}: {
 		items: T[];
 		headers: { label: string; class?: string }[];
@@ -16,19 +16,23 @@
 		gridClass?: string;
 		tableClass?: string;
 	} = $props();
+
+	const tableMinWidth = $derived(Math.max(640, headers.length * 140));
 </script>
 
 {#if items.length > 0 && card && row}
 	<!-- Mobile/Tablet Card Grid -->
 	<div class={gridClass}>
 		{#each items as item (item.id)}
-			{@render card(item)}
+			<div class="min-w-0">
+				{@render card(item)}
+			</div>
 		{/each}
 	</div>
 
 	<!-- Desktop Table View -->
 	<div class={tableClass}>
-		<table class="w-full text-left">
+		<table class="w-full text-left" style:min-width={`${tableMinWidth}px`}>
 			<thead class="border-b border-charcoal">
 				<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
 					{#each headers as header (header.label)}

@@ -3,18 +3,31 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { superForm } from 'sveltekit-superforms';
-	import { goto } from '$app/navigation';
-	import { Download, Printer, X, Clock } from 'lucide-svelte';
-	import { Dialog } from 'bits-ui';
-	import { fade } from 'svelte/transition';
+	import { afterNavigate, goto } from '$app/navigation';
+	import { CreditCard, Download, Printer, RotateCcw, TimerOff, Truck, X } from 'lucide-svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
-	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
+	import AdminModal from '$lib/components/admin/AdminModal.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
 	import AdminInput from '$lib/components/admin/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminCheckbox from '$lib/components/admin/AdminCheckbox.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
+	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
+	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
+	import AdminIconAction from '$lib/components/admin/data-display/AdminIconAction.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
+	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
+	import { orderStatusVariant } from '$lib/shared/admin/status';
+	import {
+		formatAdminMoney,
+		formatAdminDateTime,
+		formatAdminStatus
+	} from '$lib/shared/admin/format';
+	import { adminPaymentMethodOptions, adminPaymentStatusOptions } from '$lib/shared/admin/options';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 
@@ -28,53 +41,56 @@
 		{ value: 'cancelled', label: 'Cancelled' },
 		{ value: 'refunded', label: 'Refunded' }
 	];
-	const paymentStatuses = ['pending', 'authorized', 'captured', 'failed'] as const;
-	const paymentMethods = [
-		'card',
-		'bank_transfer',
-		'cash_on_delivery',
-		'payhere',
-		'ipg',
-		'webxpay'
-	] as const;
-
-	function formatMoney(value: number): string {
-		return `LKR ${value.toLocaleString()}`;
-	}
-
-	function formatDate(value: Date | string | null): string {
-		if (!value) return 'Never';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
-
-	function formatStatus(value: string): string {
-		return value.replace(/_/g, ' ');
-	}
-
-	function statusClass(status: string): string {
-		if (status === 'cancelled' || status === 'refunded' || status === 'failed') {
-			return 'text-red-400';
-		}
-		if (status === 'delivered' || status === 'captured' || status === 'authorized') {
-			return 'text-volt';
-		}
-		return 'text-ash';
-	}
+	const paymentStatuses = adminPaymentStatusOptions.map((option) => option.value);
+	const paymentMethods = adminPaymentMethodOptions.map((option) => option.value);
 
 	// ── Dialog States ───────────────────────────────────────────────────────
 	let fulfillmentModalOpen = $state(false);
 	let paymentModalOpen = $state(false);
 	let refundModalOpen = $state(false);
 	let expiredHoldsModalOpen = $state(false);
+	let cancelExpiredForm = $state<HTMLFormElement | null>(null);
+	let singleTransitionModalOpen = $state(false);
+	let bulkTransitionConfirmOpen = $state(false);
+	let bulkTransitionFormElement = $state<HTMLFormElement | null>(null);
+	type OrderItem = PageData['orders']['items'][number];
+	let pendingSingleTransition = $state<{
+		orderId: string;
+		orderNumber: string;
+		fromStatus: string;
+		toStatus: string;
+	} | null>(null);
+	let rowTransitionSelections = $state<Record<string, string>>({});
+	let singleTransitionNote = $state('');
 
 	// ── Superforms ──────────────────────────────────────────────────────────
 
 	function initialForm<T>(getValue: () => T): T {
 		return getValue();
 	}
+
+	const transitionStatusSuperform = superForm(
+		initialForm(() => data.transitionStatusForm!),
+		{
+			id: 'transitionOrderStatus',
+			resetForm: true,
+			onUpdated({ form }) {
+				if (form.valid) {
+					toastMessage = form.message ?? 'Order status updated.';
+					singleTransitionModalOpen = false;
+					if (pendingSingleTransition) {
+						rowTransitionSelections[pendingSingleTransition.orderId] = '';
+					}
+					pendingSingleTransition = null;
+				}
+			}
+		}
+	);
+	const {
+		enhance: transitionEnhance,
+		submitting: transitionSubmitting,
+		message: transitionMessage
+	} = transitionStatusSuperform;
 
 	// 1. Bulk Transition
 	const bulkTransitionSuperform = superForm(
@@ -85,6 +101,7 @@
 			onUpdated({ form }) {
 				if (form.valid) {
 					selectedOrderIds = [];
+					bulkTransitionConfirmOpen = false;
 					toastMessage = form.message ?? 'Bulk status updated.';
 				}
 			}
@@ -186,7 +203,8 @@
 	// Toast notification
 	let toastMessage = $state<string | null>(null);
 	const combinedMessage = $derived(
-		$bulkMessage ||
+		$transitionMessage ||
+			$bulkMessage ||
 			$fulfillmentMessage ||
 			$paymentMessage ||
 			$refundMessage ||
@@ -307,7 +325,7 @@
 	});
 
 	const kicker = $derived(
-		`Commerce · Sales: ${formatMoney(analytics.totalSales)} · Holds: ${analytics.unpaidHoldsCount}`
+		`Commerce · Sales: ${formatAdminMoney(analytics.totalSales)} · Holds: ${analytics.unpaidHoldsCount}`
 	);
 
 	// ── Bulk Selections ─────────────────────────────────────────────────────
@@ -316,6 +334,38 @@
 	const isAllSelected = $derived(
 		allOrderIds.length > 0 && allOrderIds.every((id) => selectedOrderIds.includes(id))
 	);
+	const commonBulkTransitions = $derived.by(() => {
+		const selectedOrders = (data.orders?.items ?? []).filter((order) =>
+			selectedOrderIds.includes(order.id)
+		);
+		if (selectedOrders.length === 0) return [];
+		const first = selectedOrders[0]?.availableTransitions ?? [];
+		return first.filter((status) =>
+			selectedOrders.every((order) => (order.availableTransitions ?? []).includes(status))
+		);
+	});
+
+	afterNavigate(() => {
+		selectedOrderIds = [];
+		rowTransitionSelections = {};
+	});
+
+	function setRowTransition(orderId: string, event: Event) {
+		rowTransitionSelections[orderId] = (event.currentTarget as HTMLSelectElement).value;
+	}
+
+	function promptSingleTransition(order: OrderItem) {
+		const toStatus = rowTransitionSelections[order.id];
+		if (!toStatus) return;
+		pendingSingleTransition = {
+			orderId: order.id,
+			orderNumber: order.orderNumber,
+			fromStatus: order.status,
+			toStatus
+		};
+		singleTransitionNote = '';
+		singleTransitionModalOpen = true;
+	}
 
 	function toggleSelectAll() {
 		if (isAllSelected) {
@@ -374,6 +424,10 @@
 		window.open(resolve('/app/orders/export') + params.search, '_blank');
 	}
 
+	function confirmCancelExpired() {
+		cancelExpiredForm?.requestSubmit();
+	}
+
 	const tableHeaders = [
 		{ label: '', class: 'w-10 text-center' },
 		{ label: 'Order' },
@@ -395,14 +449,23 @@
 </svelte:head>
 
 {#if toastMessage}
-	<AdminToast message={toastMessage} onclose={() => (toastMessage = null)} />
+	<AdminToast
+		message={toastMessage}
+		type={page.status >= 400 ? 'error' : 'success'}
+		onclose={() => (toastMessage = null)}
+	/>
 {/if}
 
 <AdminListLayout
 	title="Orders"
 	{kicker}
 	loading={false}
-	{stats}
+	metrics={[
+		{ label: 'Filtered Orders', value: stats.total },
+		{ label: 'Open Orders', value: stats.active, tone: 'info' },
+		{ label: 'Pending Fulfillment', value: stats.inactive, tone: 'warning' },
+		{ label: 'Unpaid Holds', value: analytics.unpaidHoldsCount, tone: 'danger' }
+	]}
 	bind:query={queryInput}
 	bind:showFilters
 	{hasActiveFilters}
@@ -415,32 +478,47 @@
 	searchPlaceholder="Order or tracking number..."
 >
 	{#snippet headerActions()}
-		<div class="mt-5 flex flex-wrap gap-2 md:mt-0">
-			<AdminButton
-				type="button"
-				variant="outline"
-				onclick={exportFilteredCsv}
-				class="border-volt/30 bg-volt/10 text-volt hover:bg-volt hover:text-void"
-			>
-				Export Filtered CSV
-			</AdminButton>
-			<AdminButton type="button" variant="volt" onclick={() => (expiredHoldsModalOpen = true)}>
-				Cancel Expired Holds
-			</AdminButton>
-			<AdminButton type="button" variant="charcoal" onclick={() => (fulfillmentModalOpen = true)}>
-				Update Fulfillment
-			</AdminButton>
-			<AdminButton type="button" variant="charcoal" onclick={() => (paymentModalOpen = true)}>
-				Record Payment
-			</AdminButton>
-			<AdminButton type="button" variant="charcoal" onclick={() => (refundModalOpen = true)}>
-				Record Refund
-			</AdminButton>
-		</div>
+		<AdminActionToolbar
+			ariaLabel="Order page actions"
+			menuItems={[
+				{
+					label: 'Export filtered CSV',
+					description: 'Download every order matching current filters.',
+					icon: Download,
+					onselect: exportFilteredCsv
+				},
+				{
+					label: 'Record payment',
+					description: 'Attach a manual payment to an order.',
+					icon: CreditCard,
+					onselect: () => (paymentModalOpen = true)
+				},
+				{
+					label: 'Record refund',
+					description: 'Register a refund against a captured payment.',
+					icon: RotateCcw,
+					onselect: () => (refundModalOpen = true)
+				},
+				{
+					label: 'Cancel expired holds',
+					description: 'Release all expired unpaid checkout holds.',
+					icon: TimerOff,
+					tone: 'danger',
+					onselect: () => (expiredHoldsModalOpen = true)
+				}
+			]}
+		>
+			{#snippet primary()}
+				<AdminButton type="button" variant="volt" onclick={() => (fulfillmentModalOpen = true)}>
+					<Truck size={15} aria-hidden="true" />
+					Update fulfillment
+				</AdminButton>
+			{/snippet}
+		</AdminActionToolbar>
 	{/snippet}
 
 	{#snippet advancedFilters()}
-		<div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+		<AdminFilterBar cols={3} class="mt-2">
 			<AdminSelect
 				label="Order Status"
 				name="status"
@@ -473,18 +551,17 @@
 					}}
 				/>
 			</div>
-		</div>
+		</AdminFilterBar>
 	{/snippet}
 
 	{#snippet row(order)}
 		{@const availableTransitions = order.availableTransitions ?? []}
 		<tr class="border-b border-charcoal/70 last:border-b-0 hover:bg-charcoal/5">
 			<td class="w-10 px-5 py-4 text-center">
-				<input
-					type="checkbox"
+				<AdminCheckbox
 					checked={selectedOrderIds.includes(order.id)}
 					onchange={() => toggleSelect(order.id)}
-					class="accent-volt"
+					ariaLabel={`Select order ${order.orderNumber}`}
 				/>
 			</td>
 			<td class="px-5 py-4">
@@ -501,16 +578,16 @@
 				</div>
 			</td>
 			<td class="px-5 py-4">
-				<span class="font-mono text-[10px] tracking-widest uppercase {statusClass(order.status)}">
-					{formatStatus(order.status)}
-				</span>
+				<AdminBadge variant={orderStatusVariant(order.status)} size="sm">
+					{formatAdminStatus(order.status)}
+				</AdminBadge>
 			</td>
 			<td class="px-5 py-4 font-mono text-xs text-bone">
-				{formatMoney(order.totalAmount)}
+				{formatAdminMoney(order.totalAmount)}
 			</td>
 			<td class="px-5 py-4 font-mono text-xs text-bone">{order.itemCount}</td>
 			<td class="px-5 py-4 font-mono text-[10px] text-ash">
-				{formatDate(order.createdAt)}
+				{formatAdminDateTime(order.createdAt)}
 			</td>
 			<td class="px-5 py-4">
 				<div class="flex flex-col gap-1 font-mono text-[10px] text-ash">
@@ -523,34 +600,36 @@
 			<td class="px-5 py-4 text-right">
 				<div class="flex items-center justify-end gap-3">
 					{#if availableTransitions.length > 0}
-						<form method="POST" action="?/transitionStatus" class="flex items-center gap-2">
-							<input type="hidden" name="orderId" value={order.id} />
-							<select
-								name="toStatus"
-								class="border border-charcoal bg-void px-2 py-2 font-mono text-[10px] text-bone outline-none focus:border-volt"
+						<div class="flex items-center gap-2">
+							<AdminSelect
+								name={`transition-${order.id}`}
+								value={rowTransitionSelections[order.id] ?? ''}
+								onchange={(event) => setRowTransition(order.id, event)}
+								class="min-w-32"
 							>
+								<option value="" disabled selected>Select status</option>
 								{#each availableTransitions as status (status)}
-									<option value={status}>{formatStatus(status)}</option>
+									<option value={status}>{formatAdminStatus(status)}</option>
 								{/each}
-							</select>
-							<button
-								type="submit"
-								class="font-mono text-[10px] tracking-widest text-volt uppercase transition-colors hover:text-bone"
+							</AdminSelect>
+							<AdminButton
+								type="button"
+								variant="outline"
+								size="sm"
+								disabled={!rowTransitionSelections[order.id]}
+								onclick={() => promptSingleTransition(order)}
 							>
-								Apply
-							</button>
-						</form>
+								Review
+							</AdminButton>
+						</div>
 					{:else}
 						<span class="font-mono text-[9px] tracking-widest text-ash/40 uppercase">
 							Terminal
 						</span>
 					{/if}
-					<a
-						href={resolve(`/app/orders/${order.id}`)}
-						class="border border-ash/30 px-3 py-2 font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:border-volt hover:text-volt"
-					>
+					<AdminButton href={resolve(`/app/orders/${order.id}`)} variant="outline" size="sm">
 						Manage
-					</a>
+					</AdminButton>
 				</div>
 			</td>
 		</tr>
@@ -558,93 +637,153 @@
 
 	{#snippet card(order)}
 		{@const availableTransitions = order.availableTransitions ?? []}
-		<AdminCard>
-			<div class="flex items-start justify-between gap-4">
-				<div class="flex items-center gap-2">
-					<input
-						type="checkbox"
-						checked={selectedOrderIds.includes(order.id)}
-						onchange={() => toggleSelect(order.id)}
-						class="accent-volt"
-					/>
+		<AdminEntityCard>
+			{#snippet header()}
+				<div class="flex min-w-0 items-start justify-between gap-3">
+					<div class="flex min-w-0 items-center gap-2">
+						<AdminCheckbox
+							checked={selectedOrderIds.includes(order.id)}
+							onchange={() => toggleSelect(order.id)}
+							ariaLabel={`Select order ${order.orderNumber}`}
+						/>
+						<div class="min-w-0">
+							<a
+								href={resolve(`/app/orders/${order.id}`)}
+								class="animate-none font-mono text-sm text-volt uppercase hover:underline"
+							>
+								{order.orderNumber}
+							</a>
+							<p class="mt-0.5 max-w-full truncate font-mono text-[10px] text-ash">
+								{order.userId ?? 'Guest order'}
+							</p>
+						</div>
+					</div>
+					<AdminBadge variant={orderStatusVariant(order.status)} size="sm">
+						{formatAdminStatus(order.status)}
+					</AdminBadge>
+				</div>
+			{/snippet}
+
+			{#snippet metadata()}
+				<AdminMetaGrid cols={2} class="border-t border-charcoal/50 pt-3">
 					<div>
-						<a
-							href={resolve(`/app/orders/${order.id}`)}
-							class="animate-none font-mono text-sm text-volt uppercase hover:underline"
-						>
-							{order.orderNumber}
-						</a>
-						<p class="mt-0.5 min-w-50 truncate font-mono text-[10px] text-ash">
-							{order.userId ?? 'Guest order'}
+						<p class="text-[8px] tracking-wider text-ash/60 uppercase">Total Amount</p>
+						<p class="mt-0.5 font-medium text-bone">{formatAdminMoney(order.totalAmount)}</p>
+					</div>
+					<div>
+						<p class="text-[8px] tracking-wider text-ash/60 uppercase">Items</p>
+						<p class="mt-0.5 font-medium text-bone">{order.itemCount} items</p>
+					</div>
+					<div class="min-[430px]:col-span-2">
+						<p class="text-[8px] tracking-wider text-ash/60 uppercase">Tracking</p>
+						<p class="mt-0.5 font-medium text-bone">
+							{order.trackingNumber ?? 'No tracking'}
+							{#if order.trackingCarrier}
+								<span class="text-ash/60">({order.trackingCarrier})</span>
+							{/if}
 						</p>
 					</div>
-				</div>
-				<span class="font-mono text-[10px] tracking-widest uppercase {statusClass(order.status)}">
-					{formatStatus(order.status)}
-				</span>
-			</div>
+				</AdminMetaGrid>
+			{/snippet}
 
-			<div
-				class="mt-4 grid grid-cols-2 gap-2 border-t border-charcoal/50 pt-3 font-mono text-[10px]"
-			>
-				<div>
-					<p class="text-[8px] tracking-wider text-ash/60 uppercase">Total Amount</p>
-					<p class="mt-0.5 font-medium text-bone">{formatMoney(order.totalAmount)}</p>
-				</div>
-				<div>
-					<p class="text-[8px] tracking-wider text-ash/60 uppercase">Items</p>
-					<p class="mt-0.5 font-medium text-bone">{order.itemCount} items</p>
-				</div>
-				<div class="col-span-2">
-					<p class="text-[8px] tracking-wider text-ash/60 uppercase">Tracking</p>
-					<p class="mt-0.5 font-medium text-bone">
-						{order.trackingNumber ?? 'No tracking'}
-						{#if order.trackingCarrier}
-							<span class="text-ash/60">({order.trackingCarrier})</span>
-						{/if}
-					</p>
-				</div>
-			</div>
-
-			<div class="mt-4 flex items-center justify-between border-t border-charcoal/50 pt-3">
-				<span class="font-mono text-[9px] text-ash/60">{formatDate(order.createdAt)}</span>
-				<div class="flex items-center gap-2">
-					{#if availableTransitions.length > 0}
-						<form method="POST" action="?/transitionStatus" class="flex items-center gap-1.5">
-							<input type="hidden" name="orderId" value={order.id} />
-							<select
-								name="toStatus"
-								class="border border-charcoal bg-void px-1.5 py-1 font-mono text-[9px] text-bone outline-none focus:border-volt"
-							>
-								{#each availableTransitions as status (status)}
-									<option value={status}>{formatStatus(status)}</option>
-								{/each}
-							</select>
-							<button
-								type="submit"
-								class="font-mono text-[9px] tracking-widest text-volt uppercase hover:text-bone"
-							>
-								Apply
-							</button>
-						</form>
-					{/if}
-					<a
-						href={resolve(`/app/orders/${order.id}`)}
-						class="border border-ash/30 px-2 py-1 font-mono text-[9px] tracking-widest text-ash uppercase hover:border-volt hover:text-volt"
+			{#snippet actions()}
+				<div class="grid gap-3 border-t border-charcoal/50 pt-3">
+					<span class="font-mono text-[9px] text-ash/60"
+						>{formatAdminDateTime(order.createdAt)}</span
 					>
-						Manage
-					</a>
+					<div class="grid gap-2">
+						{#if availableTransitions.length > 0}
+							<div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+								<AdminSelect
+									name={`transition-mobile-${order.id}`}
+									value={rowTransitionSelections[order.id] ?? ''}
+									onchange={(event) => setRowTransition(order.id, event)}
+								>
+									<option value="" disabled selected>Select status</option>
+									{#each availableTransitions as status (status)}
+										<option value={status}>{formatAdminStatus(status)}</option>
+									{/each}
+								</AdminSelect>
+								<AdminButton
+									type="button"
+									variant="outline"
+									size="sm"
+									disabled={!rowTransitionSelections[order.id]}
+									onclick={() => promptSingleTransition(order)}
+								>
+									Review
+								</AdminButton>
+							</div>
+						{/if}
+						<AdminButton
+							href={resolve(`/app/orders/${order.id}`)}
+							variant="outline"
+							size="sm"
+							class="w-full"
+						>
+							Manage
+						</AdminButton>
+					</div>
 				</div>
-			</div>
-		</AdminCard>
+			{/snippet}
+		</AdminEntityCard>
+	{/snippet}
+
+	{#snippet emptyState()}
+		<AdminEmptyState title="No orders found" description="Adjust filters or search terms." />
 	{/snippet}
 </AdminListLayout>
 
+<AdminModal
+	bind:open={singleTransitionModalOpen}
+	title="Confirm status change"
+	description="Review the workflow change before updating this order."
+	kicker="Order workflow"
+	size="md"
+>
+	{#if pendingSingleTransition}
+		<div
+			class="border border-amber-400/25 bg-amber-400/5 p-4 font-sans text-sm leading-relaxed text-ash"
+		>
+			Move <strong class="text-bone">{pendingSingleTransition.orderNumber}</strong> from
+			<strong class="text-bone">{formatAdminStatus(pendingSingleTransition.fromStatus)}</strong>
+			to <strong class="text-bone">{formatAdminStatus(pendingSingleTransition.toStatus)}</strong>?
+		</div>
+		<form method="POST" action="?/transitionStatus" use:transitionEnhance class="grid gap-4">
+			<input type="hidden" name="orderId" value={pendingSingleTransition.orderId} />
+			<input type="hidden" name="toStatus" value={pendingSingleTransition.toStatus} />
+			<AdminInput
+				label="Internal Note"
+				name="note"
+				bind:value={singleTransitionNote}
+				placeholder="Reason or operational context (optional)"
+			/>
+			<div class="grid gap-2 sm:flex sm:justify-end">
+				<AdminButton
+					type="button"
+					variant="charcoal"
+					disabled={$transitionSubmitting}
+					onclick={() => (singleTransitionModalOpen = false)}
+				>
+					Keep Current Status
+				</AdminButton>
+				<AdminButton type="submit" variant="volt" disabled={$transitionSubmitting}>
+					{$transitionSubmitting
+						? 'Updating...'
+						: `Mark as ${formatAdminStatus(pendingSingleTransition.toStatus)}`}
+				</AdminButton>
+			</div>
+		</form>
+	{/if}
+</AdminModal>
+
 <!-- Bulk Transition Drawer -->
 {#if selectedOrderIds.length > 0}
-	<div class="fixed bottom-6 left-1/2 z-40 w-full max-w-4xl -translate-x-1/2 px-4">
+	<div
+		class="fixed inset-x-0 bottom-0 z-40 max-h-[70dvh] overflow-y-auto border-t border-volt bg-void/95 p-3 backdrop-blur-md sm:bottom-4 sm:left-1/2 sm:max-w-4xl sm:-translate-x-1/2 sm:border sm:p-4"
+	>
 		<div
-			class="flex flex-col gap-4 border border-volt bg-void/95 p-4 shadow-2xl backdrop-blur-md md:flex-row md:items-center md:justify-between"
+			class="mx-auto flex max-w-4xl flex-col gap-4 md:flex-row md:items-center md:justify-between"
 		>
 			<div
 				class="flex items-center justify-between border-b border-charcoal pb-2 md:border-b-0 md:pb-0"
@@ -653,22 +792,24 @@
 					{selectedOrderIds.length} orders selected
 				</span>
 				<div class="flex gap-2">
-					<button
-						onclick={toggleSelectAll}
-						class="font-mono text-[10px] tracking-wider text-ash uppercase underline hover:text-bone"
-					>
+					<AdminButton onclick={toggleSelectAll} variant="outline" size="sm">
 						{isAllSelected ? 'Select None' : 'Select All'}
-					</button>
-					<button
-						onclick={() => (selectedOrderIds = [])}
-						class="text-ash hover:text-bone md:hidden"
-					>
-						<X size={16} />
-					</button>
+					</AdminButton>
+					<div class="w-10 md:hidden">
+						<AdminIconAction
+							onclick={() => (selectedOrderIds = [])}
+							variant="neutral"
+							ariaLabel="Clear selection"
+							title="Clear selection"
+						>
+							<X size={16} />
+						</AdminIconAction>
+					</div>
 				</div>
 			</div>
 
 			<form
+				bind:this={bulkTransitionFormElement}
 				method="POST"
 				action="?/bulkTransition"
 				use:bulkEnhance
@@ -676,69 +817,55 @@
 			>
 				<input type="hidden" name="orderIds" value={selectedOrderIds.join(',')} />
 
-				<select
-					name="toStatus"
-					bind:value={$bulkForm.toStatus}
-					class="border border-charcoal bg-charcoal/30 px-3 py-2 font-mono text-[11px] text-bone outline-none focus:border-volt"
-					required
-				>
+				<AdminSelect name="toStatus" bind:value={$bulkForm.toStatus} required>
 					<option value="" disabled selected>Select new status...</option>
-					{#each statusOptions.filter((o) => o.value !== '') as option (option.value)}
-						<option value={option.value}>{option.label}</option>
+					{#each commonBulkTransitions as status (status)}
+						<option value={status}>{formatAdminStatus(status)}</option>
 					{/each}
-				</select>
+				</AdminSelect>
 
-				<input
-					name="note"
-					bind:value={$bulkForm.note}
-					placeholder="Internal note"
-					class="border border-charcoal bg-charcoal/30 px-3 py-2 font-mono text-[11px] text-bone outline-none focus:border-volt"
-				/>
+				<AdminInput name="note" bind:value={$bulkForm.note} placeholder="Internal note" />
 
-				<button
-					type="submit"
-					disabled={$bulkSubmitting}
-					class="bg-volt px-4 py-2 font-mono text-[10px] font-bold text-void uppercase transition-colors hover:bg-bone disabled:opacity-40"
+				<AdminButton
+					type="button"
+					disabled={$bulkSubmitting || commonBulkTransitions.length === 0 || !$bulkForm.toStatus}
+					variant="volt"
+					size="sm"
+					onclick={() => (bulkTransitionConfirmOpen = true)}
 				>
-					{$bulkSubmitting ? 'Updating...' : 'Update Status'}
-				</button>
+					Review Update
+				</AdminButton>
 			</form>
 
 			<div class="flex items-center gap-2">
-				<button
-					onclick={exportSelectedCsv}
-					class="flex items-center gap-1 border border-ash/30 px-3 py-2 font-mono text-[10px] text-ash uppercase transition-colors hover:border-volt hover:text-volt"
-				>
+				<AdminButton onclick={exportSelectedCsv} variant="outline" size="sm">
 					<Download size={12} />
 					CSV
-				</button>
-				<button
-					onclick={printSelected}
-					class="flex items-center gap-1 bg-bone px-3 py-2 font-mono text-[10px] font-bold text-void uppercase transition-colors hover:bg-volt"
-				>
+				</AdminButton>
+				<AdminButton onclick={printSelected} variant="charcoal" size="sm">
 					<Printer size={12} />
 					Print packing slips
-				</button>
-				<button
-					onclick={() => (selectedOrderIds = [])}
-					class="hidden text-ash hover:text-bone md:block"
-					title="Clear selection"
-				>
-					<X size={16} />
-				</button>
+				</AdminButton>
+				<div class="hidden w-10 md:block">
+					<AdminIconAction
+						onclick={() => (selectedOrderIds = [])}
+						variant="neutral"
+						ariaLabel="Clear selection"
+						title="Clear selection"
+					>
+						<X size={16} />
+					</AdminIconAction>
+				</div>
 			</div>
 		</div>
 	</div>
+	<div class="h-72 md:h-24" aria-hidden="true"></div>
 {/if}
 
 <!-- ── DIALOG MODALS ──────────────────────────────────────────────────────── -->
 
-<!-- UPDATE FULFILLMENT DRAWER -->
-<AdminDrawer
-	bind:open={fulfillmentModalOpen}
-	title="Update Fulfillment"
-	description="Assign tracking details and carrier status to an order."
->
+<!-- UPDATE FULFILLMENT MODAL -->
+<AdminModal bind:open={fulfillmentModalOpen} title="Update Fulfillment" kicker="Orders" size="lg">
 	<form
 		id="updateFulfillmentForm"
 		method="POST"
@@ -746,90 +873,49 @@
 		use:fulfillmentEnhance
 		class="flex flex-col gap-5"
 	>
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Order ID *</span>
-			<input
-				name="orderId"
-				bind:value={$fulfillmentForm.orderId}
-				placeholder="e.g. ord_..."
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				required
-			/>
-			{#if $fulfillmentErrors.orderId}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$fulfillmentErrors.orderId[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminInput
+			label="Order ID"
+			name="orderId"
+			bind:value={$fulfillmentForm.orderId}
+			placeholder="e.g. ord_..."
+			error={$fulfillmentErrors.orderId}
+			required
+		/>
+		<AdminInput
+			label="Tracking Number"
+			name="trackingNumber"
+			bind:value={$fulfillmentForm.trackingNumber}
+			placeholder="e.g. TRK123456789"
+			error={$fulfillmentErrors.trackingNumber}
+		/>
+		<AdminInput
+			label="Carrier"
+			name="trackingCarrier"
+			bind:value={$fulfillmentForm.trackingCarrier}
+			placeholder="e.g. Pronto, Domex, DHL"
+			error={$fulfillmentErrors.trackingCarrier}
+		/>
+		<AdminInput
+			label="Tracking URL"
+			name="trackingUrl"
+			bind:value={$fulfillmentForm.trackingUrl}
+			placeholder="e.g. https://..."
+			error={$fulfillmentErrors.trackingUrl}
+		/>
 
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Tracking Number</span>
-			<input
-				name="trackingNumber"
-				bind:value={$fulfillmentForm.trackingNumber}
-				placeholder="e.g. TRK123456789"
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			/>
-			{#if $fulfillmentErrors.trackingNumber}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$fulfillmentErrors.trackingNumber[0]}
-				</span>
-			{/if}
-		</label>
-
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Carrier</span>
-			<input
-				name="trackingCarrier"
-				bind:value={$fulfillmentForm.trackingCarrier}
-				placeholder="e.g. Pronto, Domex, DHL"
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			/>
-			{#if $fulfillmentErrors.trackingCarrier}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$fulfillmentErrors.trackingCarrier[0]}
-				</span>
-			{/if}
-		</label>
-
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Tracking URL</span>
-			<input
-				name="trackingUrl"
-				bind:value={$fulfillmentForm.trackingUrl}
-				placeholder="e.g. https://..."
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			/>
-			{#if $fulfillmentErrors.trackingUrl}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$fulfillmentErrors.trackingUrl[0]}
-				</span>
-			{/if}
-		</label>
+		<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
+			<AdminButton type="button" variant="outline" onclick={() => (fulfillmentModalOpen = false)}
+				>Cancel</AdminButton
+			>
+			<AdminButton type="submit" variant="volt" disabled={$fulfillmentSubmitting}>
+				{#if $fulfillmentSubmitting}Saving...{:else}Save Tracking{/if}
+			</AdminButton>
+		</div>
 	</form>
+</AdminModal>
 
-	{#snippet footer()}
-		<AdminButton
-			type="submit"
-			form="updateFulfillmentForm"
-			variant="volt"
-			class="flex-1 font-mono text-xs uppercase"
-			disabled={$fulfillmentSubmitting}
-		>
-			{#if $fulfillmentSubmitting}Saving...{:else}Save Tracking{/if}
-		</AdminButton>
-		<AdminButton type="button" variant="outline" onclick={() => (fulfillmentModalOpen = false)}>
-			Cancel
-		</AdminButton>
-	{/snippet}
-</AdminDrawer>
-
-<!-- RECORD PAYMENT DRAWER -->
-<AdminDrawer
-	bind:open={paymentModalOpen}
-	title="Record Payment"
-	description="Record manual payments, Bank Transfers, or override gateway status."
->
+<!-- RECORD PAYMENT MODAL -->
+<AdminModal bind:open={paymentModalOpen} title="Record Payment" kicker="Orders" size="lg">
 	<form
 		id="recordPaymentForm"
 		method="POST"
@@ -837,118 +923,65 @@
 		use:paymentEnhance
 		class="flex flex-col gap-5"
 	>
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Order ID *</span>
-			<input
-				name="orderId"
-				bind:value={$paymentForm.orderId}
-				placeholder="e.g. ord_..."
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				required
-			/>
-			{#if $paymentErrors.orderId}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$paymentErrors.orderId[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminInput
+			label="Order ID"
+			name="orderId"
+			bind:value={$paymentForm.orderId}
+			placeholder="e.g. ord_..."
+			error={$paymentErrors.orderId}
+			required
+		/>
+		<AdminSelect
+			label="Payment Status"
+			name="status"
+			bind:value={$paymentForm.status}
+			options={paymentStatuses.map((status) => ({
+				value: status,
+				label: formatAdminStatus(status)
+			}))}
+			error={$paymentErrors.status}
+			required
+		/>
+		<AdminSelect
+			label="Method"
+			name="method"
+			bind:value={$paymentForm.method}
+			options={[
+				{ value: '', label: 'Existing payment method' },
+				...paymentMethods.map((method) => ({ value: method, label: formatAdminStatus(method) }))
+			]}
+			error={$paymentErrors.method}
+		/>
+		<AdminInput
+			label="Amount (Optional)"
+			name="amount"
+			type="number"
+			min="1"
+			bind:value={$paymentForm.amount}
+			placeholder="e.g. 1500"
+			error={$paymentErrors.amount}
+		/>
+		<AdminInput
+			label="Transaction ID"
+			name="transactionId"
+			bind:value={$paymentForm.transactionId}
+			placeholder="e.g. tx_..."
+			error={$paymentErrors.transactionId}
+		/>
 
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Payment Status *</span
+		<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
+			<AdminButton type="button" variant="outline" onclick={() => (paymentModalOpen = false)}
+				>Cancel</AdminButton
 			>
-			<select
-				name="status"
-				bind:value={$paymentForm.status}
-				class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				required
-			>
-				{#each paymentStatuses as status (status)}
-					<option value={status}>{formatStatus(status)}</option>
-				{/each}
-			</select>
-			{#if $paymentErrors.status}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$paymentErrors.status[0]}
-				</span>
-			{/if}
-		</label>
-
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Method</span>
-			<select
-				name="method"
-				bind:value={$paymentForm.method}
-				class="w-full animate-none border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			>
-				<option value="">Existing payment method</option>
-				{#each paymentMethods as method (method)}
-					<option value={method}>{formatStatus(method)}</option>
-				{/each}
-			</select>
-			{#if $paymentErrors.method}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$paymentErrors.method[0]}
-				</span>
-			{/if}
-		</label>
-
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-				>Amount (Optional)</span
-			>
-			<input
-				name="amount"
-				type="number"
-				min="1"
-				bind:value={$paymentForm.amount}
-				placeholder="e.g. 1500"
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			/>
-			{#if $paymentErrors.amount}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$paymentErrors.amount[0]}
-				</span>
-			{/if}
-		</label>
-
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Transaction ID</span>
-			<input
-				name="transactionId"
-				bind:value={$paymentForm.transactionId}
-				placeholder="e.g. tx_..."
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-			/>
-			{#if $paymentErrors.transactionId}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$paymentErrors.transactionId[0]}
-				</span>
-			{/if}
-		</label>
+			<AdminButton type="submit" variant="volt" disabled={$paymentSubmitting}>
+				{#if $paymentSubmitting}Recording...{:else}Record Payment{/if}
+			</AdminButton>
+		</div>
 	</form>
+</AdminModal>
 
-	{#snippet footer()}
-		<AdminButton
-			type="submit"
-			form="recordPaymentForm"
-			variant="volt"
-			class="flex-1 font-mono text-xs uppercase"
-			disabled={$paymentSubmitting}
-		>
-			{#if $paymentSubmitting}Recording...{:else}Record Payment{/if}
-		</AdminButton>
-		<AdminButton type="button" variant="outline" onclick={() => (paymentModalOpen = false)}>
-			Cancel
-		</AdminButton>
-	{/snippet}
-</AdminDrawer>
-
-<!-- RECORD REFUND DRAWER -->
-<AdminDrawer
-	bind:open={refundModalOpen}
-	title="Record Refund"
-	description="Record partial or full refunds on a captured transaction."
->
+<!-- RECORD REFUND MODAL -->
+<AdminModal bind:open={refundModalOpen} title="Record Refund" kicker="Orders" size="lg">
 	<form
 		id="recordRefundForm"
 		method="POST"
@@ -956,115 +989,54 @@
 		use:refundEnhance
 		class="flex flex-col gap-5"
 	>
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Payment ID *</span>
-			<input
-				name="paymentId"
-				bind:value={$refundForm.paymentId}
-				placeholder="e.g. pay_..."
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				required
-			/>
-			{#if $refundErrors.paymentId}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$refundErrors.paymentId[0]}
-				</span>
-			{/if}
-		</label>
+		<AdminInput
+			label="Payment ID"
+			name="paymentId"
+			bind:value={$refundForm.paymentId}
+			placeholder="e.g. pay_..."
+			error={$refundErrors.paymentId}
+			required
+		/>
+		<AdminInput
+			label="Refund Amount"
+			name="refundAmount"
+			type="number"
+			min="1"
+			bind:value={$refundForm.refundAmount}
+			placeholder="Refund amount in LKR"
+			error={$refundErrors.refundAmount}
+			required
+		/>
 
-		<label class="grid gap-1 font-mono text-[10px] tracking-widest text-ash uppercase">
-			<span class="font-sans text-xs font-semibold tracking-wide text-ash/90">Refund Amount *</span>
-			<input
-				name="refundAmount"
-				type="number"
-				min="1"
-				bind:value={$refundForm.refundAmount}
-				placeholder="Refund amount in LKR"
-				class="w-full border border-ash/30 bg-void px-3 py-2 font-mono text-xs text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-				required
-			/>
-			{#if $refundErrors.refundAmount}
-				<span class="mt-0.5 font-sans text-xs text-red-400">
-					{$refundErrors.refundAmount[0]}
-				</span>
-			{/if}
-		</label>
+		<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
+			<AdminButton type="button" variant="outline" onclick={() => (refundModalOpen = false)}
+				>Cancel</AdminButton
+			>
+			<AdminButton type="submit" variant="volt" disabled={$refundSubmitting}>
+				{#if $refundSubmitting}Refunding...{:else}Record Refund{/if}
+			</AdminButton>
+		</div>
 	</form>
+</AdminModal>
 
-	{#snippet footer()}
-		<AdminButton
-			type="submit"
-			form="recordRefundForm"
-			variant="volt"
-			class="flex-1 font-mono text-xs uppercase"
-			disabled={$refundSubmitting}
-		>
-			{#if $refundSubmitting}Refunding...{:else}Record Refund{/if}
-		</AdminButton>
-		<AdminButton type="button" variant="outline" onclick={() => (refundModalOpen = false)}>
-			Cancel
-		</AdminButton>
-	{/snippet}
-</AdminDrawer>
+<form bind:this={cancelExpiredForm} method="POST" action="?/cancelExpired" use:cancelExpiredEnhance>
+	<input type="hidden" name="limit" value="50" />
+</form>
 
-<!-- CANCEL EXPIRED HOLDS DIALOG -->
-<Dialog.Root bind:open={expiredHoldsModalOpen}>
-	{#if expiredHoldsModalOpen}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
+<AdminConfirmDialog
+	bind:open={bulkTransitionConfirmOpen}
+	title="Confirm bulk status update"
+	message={`Move ${selectedOrderIds.length} selected orders to ${formatAdminStatus($bulkForm.toStatus || 'the selected status')}? Orders that cannot follow this transition will be reported as failures.`}
+	confirmLabel="Update selected orders"
+	loading={$bulkSubmitting}
+	onconfirm={() => bulkTransitionFormElement?.requestSubmit()}
+/>
 
-			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
-				<Dialog.Content
-					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
-				>
-					{#snippet child({ props })}
-						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
-							<div>
-								<div class="mb-2 flex items-center gap-3 text-volt">
-									<Clock size={20} />
-									<Dialog.Title class="font-display text-2xl text-bone uppercase">
-										Cancel Expired Holds
-									</Dialog.Title>
-								</div>
-								<Dialog.Description class="mt-2 font-sans text-xs leading-relaxed text-ash">
-									Are you sure you want to cancel expired pending reserve holds? This will release
-									reserved stock back to the inventory catalog.
-								</Dialog.Description>
-							</div>
-
-							<form
-								method="POST"
-								action="?/cancelExpired"
-								use:cancelExpiredEnhance
-								class="flex flex-col gap-4"
-							>
-								<input type="hidden" name="limit" value="50" />
-
-								<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
-									<AdminButton
-										type="button"
-										variant="charcoal"
-										onclick={() => (expiredHoldsModalOpen = false)}
-									>
-										Cancel
-									</AdminButton>
-									<AdminButton type="submit" variant="volt" disabled={$cancelExpiredSubmitting}>
-										{#if $cancelExpiredSubmitting}Cancelling...{:else}Confirm Release{/if}
-									</AdminButton>
-								</div>
-							</form>
-						</div>
-					{/snippet}
-				</Dialog.Content>
-			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+<AdminConfirmDialog
+	bind:open={expiredHoldsModalOpen}
+	title="Cancel expired holds"
+	message="Cancel expired pending reserve holds and release reserved stock back to inventory?"
+	confirmLabel="Confirm release"
+	loading={$cancelExpiredSubmitting}
+	onconfirm={confirmCancelExpired}
+/>

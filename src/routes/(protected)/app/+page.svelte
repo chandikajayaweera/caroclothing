@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import {
-		TrendingUp,
-		ClipboardList,
-		Package,
-		Boxes,
-		AlertTriangle,
-		ArrowRight,
-		Plus
-	} from 'lucide-svelte';
+	import { ClipboardList, AlertTriangle, ArrowRight, Plus } from 'lucide-svelte';
+	import AdminPageShell from '$lib/components/admin/layout/AdminPageShell.svelte';
+	import AdminPageHeader from '$lib/components/admin/layout/AdminPageHeader.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminStatsGrid from '$lib/components/admin/layout/AdminStatsGrid.svelte';
+	import AdminSection from '$lib/components/admin/layout/AdminSection.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import { orderStatusVariant, formatStatusLabel } from '$lib/shared/admin/status';
+	import { formatAdminDate, formatAdminMoney } from '$lib/shared/admin/format';
 
 	let { data } = $props();
 
@@ -19,189 +20,82 @@
 	const healthyPercent = $derived(
 		tracked > 0 ? Math.round(((tracked - unhealthy) / tracked) * 100) : 100
 	);
-
-	function formatDate(date: Date | string | null | undefined) {
-		if (!date) return '—';
-		const d = typeof date === 'string' ? new Date(date) : date;
-		return d.toLocaleDateString('en-LK', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric'
-		});
-	}
-
-	function statusClass(status: string) {
-		switch (status) {
-			case 'confirmed':
-				return 'border-volt bg-volt/5 text-volt';
-			case 'processing':
-				return 'border-amber-500/30 bg-amber-500/5 text-amber-400';
-			case 'shipped':
-				return 'border-sky-500/30 bg-sky-500/5 text-sky-400';
-			case 'delivered':
-				return 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400';
-			case 'cancelled':
-				return 'border-rose-500/30 bg-rose-500/5 text-rose-400';
-			case 'refunded':
-				return 'border-purple-500/30 bg-purple-500/5 text-purple-400';
-			default:
-				return 'border-charcoal bg-void text-ash';
-		}
-	}
 </script>
 
-<div class="mx-auto max-w-7xl px-4 py-8 md:px-0">
-	<!-- HEADER Section -->
-	<div class="mb-8 border-b border-charcoal/40 pb-6">
-		<p class="mb-1 font-mono text-xs tracking-[0.2em] text-volt uppercase">Admin Dashboard</p>
-		<h1 class="font-display text-4xl tracking-wider text-bone uppercase">Overview</h1>
-		<p class="mt-2 max-w-2xl text-sm text-ash/80">
-			High-level operations cockpit for real-time overview of sales, inventory, and recent orders.
-		</p>
-	</div>
+<AdminPageShell size="normal" spacing="compact">
+	<AdminPageHeader
+		kicker="Admin Dashboard"
+		title="Overview"
+		description="High-level operations cockpit for real-time overview of sales, inventory, and recent orders."
+	/>
 
 	<!-- QUICK ACTIONS Section -->
-	<div class="mb-8">
-		<h2 class="mb-4 font-mono text-[10px] tracking-[0.25em] text-ash/40 uppercase">
-			Operational Shortcuts
-		</h2>
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-			<a
+	<AdminSection title="Operational Shortcuts" border={false} class="mb-8">
+		<div class="grid gap-3 min-[430px]:grid-cols-2 md:grid-cols-3">
+			<AdminButton
 				href={resolve('/app/products/new')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:-translate-y-px hover:border-volt/60 hover:bg-charcoal/25"
+				variant="outline"
+				size="md"
+				class="w-full justify-between bg-charcoal/10"
 			>
-				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">New Product</span>
+				New Product
 				<Plus size={14} class="text-volt" />
-			</a>
-			<a
+			</AdminButton>
+			<AdminButton
 				href={resolve('/app/orders?status=pending')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:-translate-y-px hover:border-volt/60 hover:bg-charcoal/25"
+				variant="outline"
+				size="md"
+				class="w-full justify-between bg-charcoal/10"
 			>
-				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">Pending Orders</span
-				>
+				Pending Orders
 				<ClipboardList size={14} class="text-volt" />
-			</a>
-			<a
+			</AdminButton>
+			<AdminButton
 				href={resolve('/app/inventory?stockStatus=low')}
-				class="flex items-center justify-between border border-charcoal bg-charcoal/10 px-4 py-3 transition-all hover:-translate-y-px hover:border-volt/60 hover:bg-charcoal/25"
+				variant="outline"
+				size="md"
+				class="w-full justify-between bg-charcoal/10"
 			>
-				<span class="font-mono text-[10px] tracking-widest text-bone uppercase">Low Stock List</span
-				>
+				Low Stock List
 				<AlertTriangle size={14} class="text-volt" />
-			</a>
+			</AdminButton>
 		</div>
-	</div>
+	</AdminSection>
 
 	<!-- KPI Grid Section -->
-	<div class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-		<!-- Card 1: Revenue -->
-		<div
-			class="group relative overflow-hidden border border-charcoal bg-charcoal/25 p-5 transition-colors hover:border-volt/40"
-		>
-			<div class="flex items-start justify-between">
-				<div>
-					<p class="mb-1 font-mono text-[9px] tracking-[0.2em] text-ash/60 uppercase">
-						Total Revenue
-					</p>
-					<h3 class="font-mono text-lg font-bold text-bone">
-						LKR {data.analytics.totalSales.toLocaleString('en-LK', {
-							minimumFractionDigits: 2,
-							maximumFractionDigits: 2
-						})}
-					</h3>
-				</div>
-				<div class="text-ash/40 transition-colors group-hover:text-volt">
-					<TrendingUp size={18} />
-				</div>
-			</div>
-			<div
-				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
-			></div>
-		</div>
-
-		<!-- Card 2: Open Orders -->
-		<div
-			class="group relative overflow-hidden border border-charcoal bg-charcoal/25 p-5 transition-colors hover:border-volt/40"
-		>
-			<div class="flex items-start justify-between">
-				<div>
-					<p class="mb-1 font-mono text-[9px] tracking-[0.2em] text-ash/60 uppercase">
-						Open Orders
-					</p>
-					<h3 class="font-mono text-xl font-bold text-bone">
-						{data.analytics.openOrdersCount}
-					</h3>
-					<p class="mt-1 font-mono text-[9px] text-ash/80 uppercase">
-						{data.analytics.pendingFulfillmentCount} pending fulfillment
-					</p>
-				</div>
-				<div class="text-ash/40 transition-colors group-hover:text-volt">
-					<ClipboardList size={18} />
-				</div>
-			</div>
-			<div
-				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
-			></div>
-		</div>
-
-		<!-- Card 3: Catalog Products -->
-		<div
-			class="group relative overflow-hidden border border-charcoal bg-charcoal/25 p-5 transition-colors hover:border-volt/40"
-		>
-			<div class="flex items-start justify-between">
-				<div>
-					<p class="mb-1 font-mono text-[9px] tracking-[0.2em] text-ash/60 uppercase">
-						Catalog Products
-					</p>
-					<h3 class="font-mono text-xl font-bold text-bone">
-						{data.productStats.total}
-					</h3>
-					<p class="mt-1 font-mono text-[9px] text-ash/80 uppercase">
-						{data.productStats.active} Active / {data.productStats.inactive} Inactive
-					</p>
-				</div>
-				<div class="text-ash/40 transition-colors group-hover:text-volt">
-					<Package size={18} />
-				</div>
-			</div>
-			<div
-				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
-			></div>
-		</div>
-
-		<!-- Card 4: Inventory Health -->
-		<div
-			class="group relative overflow-hidden border border-charcoal bg-charcoal/25 p-5 transition-colors hover:border-volt/40"
-		>
-			<div class="flex items-start justify-between">
-				<div>
-					<p class="mb-1 font-mono text-[9px] tracking-[0.2em] text-ash/60 uppercase">
-						Available Stock
-					</p>
-					<h3 class="font-mono text-xl font-bold text-bone">
-						{data.inventorySummary.totalAvailableQuantity.toLocaleString()}
-					</h3>
-					<p class="mt-1 font-mono text-[9px] text-ash/80 uppercase">
-						{data.inventorySummary.lowStockCount} Low / {data.inventorySummary.outOfStockCount} Out
-					</p>
-				</div>
-				<div class="text-ash/40 transition-colors group-hover:text-volt">
-					<Boxes size={18} />
-				</div>
-			</div>
-			<div
-				class="absolute inset-x-0 bottom-0 h-0.5 bg-charcoal transition-colors group-hover:bg-volt"
-			></div>
-		</div>
+	<div class="mb-8">
+		<AdminStatsGrid
+			metrics={[
+				{
+					label: 'Total Revenue',
+					value: formatAdminMoney(data.analytics.totalSales, 2),
+					tone: 'accent'
+				},
+				{
+					label: 'Open Orders',
+					value: data.analytics.openOrdersCount,
+					description: `${data.analytics.pendingFulfillmentCount} pending fulfillment`,
+					tone: 'info'
+				},
+				{
+					label: 'Catalog Products',
+					value: data.productStats.total,
+					description: `${data.productStats.active} active / ${data.productStats.inactive} inactive`
+				},
+				{
+					label: 'Available Stock',
+					value: data.inventorySummary.totalAvailableQuantity.toLocaleString(),
+					description: `${data.inventorySummary.lowStockCount} low / ${data.inventorySummary.outOfStockCount} out`,
+					tone: data.inventorySummary.outOfStockCount > 0 ? 'warning' : 'success'
+				}
+			]}
+		/>
 	</div>
 
 	<!-- High-Fidelity SVG/CSS Widgets Block -->
 	<div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2">
 		<!-- Catalog Health Progress Bar -->
-		<div class="border border-charcoal bg-charcoal/25 p-5">
-			<h4 class="mb-3 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-				Catalog Distribution
-			</h4>
+		<AdminSection title="Catalog Distribution">
 			<div class="mb-2 flex items-center justify-between">
 				<span class="font-mono text-[11px] text-bone uppercase">Active Products Ratio</span>
 				<span class="font-mono text-[11px] text-volt">
@@ -211,7 +105,16 @@
 				</span>
 			</div>
 			<!-- Custom visual progress bar -->
-			<div class="h-2 w-full border border-charcoal bg-void">
+			<div
+				class="h-2 w-full border border-charcoal bg-void"
+				role="progressbar"
+				aria-label="Active products ratio"
+				aria-valuemin="0"
+				aria-valuemax="100"
+				aria-valuenow={data.productStats.total > 0
+					? Math.round((data.productStats.active / data.productStats.total) * 100)
+					: 0}
+			>
 				<div
 					class="h-full bg-volt transition-all duration-500"
 					style="width: {data.productStats.total > 0
@@ -225,19 +128,23 @@
 				<span>{data.productStats.active} Active</span>
 				<span>{data.productStats.total} Total</span>
 			</div>
-		</div>
+		</AdminSection>
 
 		<!-- Stock Status Health -->
-		<div class="border border-charcoal bg-charcoal/25 p-5">
-			<h4 class="mb-3 font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-				Inventory Health Indicator
-			</h4>
+		<AdminSection title="Inventory Health Indicator">
 			<div class="mb-2 flex items-center justify-between">
 				<span class="font-mono text-[11px] text-bone uppercase">Healthy Stock Ratio</span>
 				<span class="font-mono text-[11px] text-volt">{healthyPercent}%</span>
 			</div>
 			<!-- Custom visual progress bar -->
-			<div class="flex h-2 w-full border border-charcoal bg-void">
+			<div
+				class="flex h-2 w-full border border-charcoal bg-void"
+				role="progressbar"
+				aria-label="Healthy stock ratio"
+				aria-valuemin="0"
+				aria-valuemax="100"
+				aria-valuenow={healthyPercent}
+			>
 				<div
 					class="h-full bg-volt transition-all duration-500"
 					style="width: {healthyPercent}%"
@@ -260,25 +167,21 @@
 				<span>{data.inventorySummary.lowStockCount} Low</span>
 				<span>{data.inventorySummary.outOfStockCount} Out</span>
 			</div>
-		</div>
+		</AdminSection>
 	</div>
 
 	<!-- Split Dashboard Columns -->
 	<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
 		<!-- Left: Recent Orders (2 Columns Width) -->
-		<div class="border border-charcoal bg-charcoal/25 lg:col-span-2">
-			<div class="flex items-center justify-between border-b border-charcoal p-5">
-				<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Recent Orders</p>
-				<a
-					href={resolve('/app/orders')}
-					class="flex items-center gap-1 font-mono text-[9px] tracking-wider text-volt uppercase transition-colors hover:text-bone"
-				>
+		<AdminSection title="Recent Orders" class="lg:col-span-2">
+			{#snippet action()}
+				<AdminButton href={resolve('/app/orders')} variant="outline" size="sm">
 					View All <ArrowRight size={10} />
-				</a>
-			</div>
+				</AdminButton>
+			{/snippet}
 
 			{#if data.recentOrders && data.recentOrders.length > 0}
-				<div class="overflow-x-auto">
+				<div class="-mx-5 -mb-5 overflow-x-auto">
 					<table class="w-full min-w-150 text-left">
 						<thead class="border-b border-charcoal">
 							<tr class="font-mono text-[9px] tracking-[0.2em] text-ash uppercase">
@@ -310,19 +213,15 @@
 										</div>
 									</td>
 									<td class="px-5 py-4">
-										<span
-											class="border px-2 py-0.5 font-mono text-[9px] tracking-widest uppercase {statusClass(
-												order.status
-											)}"
-										>
-											{order.status}
-										</span>
+										<AdminBadge variant={orderStatusVariant(order.status)} size="sm">
+											{formatStatusLabel(order.status)}
+										</AdminBadge>
 									</td>
 									<td class="px-5 py-4 font-mono text-xs text-bone">
-										LKR {order.totalAmount.toLocaleString('en-LK')}
+										{formatAdminMoney(order.totalAmount)}
 									</td>
 									<td class="px-5 py-4 font-mono text-[10px] text-ash/80">
-										{formatDate(order.createdAt)}
+										{formatAdminDate(order.createdAt)}
 									</td>
 								</tr>
 							{/each}
@@ -330,30 +229,28 @@
 					</table>
 				</div>
 			{:else}
-				<div class="p-8 text-center">
-					<p class="font-mono text-[10px] tracking-widest text-ash uppercase">No orders found.</p>
-				</div>
+				<AdminEmptyState
+					title="No orders found"
+					description="No orders registered in the system."
+				/>
 			{/if}
-		</div>
+		</AdminSection>
 
 		<!-- Right Column: Low Stock Highlights (1 Column Width) -->
 		<div class="space-y-6">
 			<!-- Low Stock Highlights -->
-			<div class="border border-charcoal bg-charcoal/25">
-				<div class="flex items-center justify-between border-b border-charcoal p-5">
-					<p class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">Low Stock Alerts</p>
-					<a
-						href={resolve('/app/inventory?stockStatus=low')}
-						class="flex items-center gap-1 font-mono text-[9px] tracking-wider text-volt uppercase transition-colors hover:text-bone"
-					>
+			<AdminSection title="Low Stock Alerts">
+				{#snippet action()}
+					<AdminButton href={resolve('/app/inventory?stockStatus=low')} variant="outline" size="sm">
 						View All <ArrowRight size={10} />
-					</a>
-				</div>
-				<div class="space-y-3 p-4">
+					</AdminButton>
+				{/snippet}
+
+				<div class="-mx-5 -mb-5 bg-charcoal/5 px-5">
 					{#if data.lowStockItems && data.lowStockItems.length > 0}
 						{#each data.lowStockItems as item (item.variantId)}
 							<div
-								class="flex items-center justify-between gap-3 border border-charcoal bg-void/50 p-3"
+								class="flex items-center justify-between gap-3 border-b border-charcoal py-3 last:border-b-0"
 							>
 								<div class="min-w-0">
 									<p class="truncate font-mono text-[10px] font-bold text-bone">
@@ -364,23 +261,21 @@
 									</p>
 								</div>
 								<div class="shrink-0 text-right">
-									<span
-										class="border border-volt/30 bg-volt/5 px-1.5 py-0.5 font-mono text-[9px] font-bold text-volt"
-									>
+									<AdminBadge variant="accent">
 										{item.inventory?.quantity ?? 0} Left
-									</span>
+									</AdminBadge>
 								</div>
 							</div>
 						{/each}
 					{:else}
-						<div class="p-4 text-center">
-							<p class="font-mono text-[10px] tracking-widest text-ash/60 uppercase">
-								Stock levels healthy.
-							</p>
-						</div>
+						<AdminEmptyState
+							title="Stock levels healthy"
+							description="No low-stock variants require attention."
+							size="compact"
+						/>
 					{/if}
 				</div>
-			</div>
+			</AdminSection>
 		</div>
 	</div>
-</div>
+</AdminPageShell>

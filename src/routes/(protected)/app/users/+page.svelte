@@ -4,35 +4,38 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import {
-		ShieldAlert,
-		User,
-		UserCheck,
-		Ban,
-		Key,
-		X,
-		Phone,
-		LogOut,
-		Clock,
-		AlertTriangle
-	} from 'lucide-svelte';
-	import { fade } from 'svelte/transition';
-	import { Dialog } from 'bits-ui';
+	import { User, Ban, Key, Phone, Clock } from 'lucide-svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
 	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
 	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
 	import AdminToast from '$lib/components/admin/AdminToast.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
+	import AdminSection from '$lib/components/admin/layout/AdminSection.svelte';
+	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
+	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
+	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
+	import AdminModal from '$lib/components/admin/AdminModal.svelte';
+	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminTabs from '$lib/components/admin/AdminTabs.svelte';
+	import { booleanStatusVariant } from '$lib/shared/admin/status';
+	import { formatAdminDateTime } from '$lib/shared/admin/format';
 
 	let { data }: { data: PageData } = $props();
 	type UserItem = PageData['users']['items'][number];
 
 	// ── Toast Notifications ──
 	let toastMessage = $state<string | null>(null);
+	let toastType = $state<'success' | 'error'>('success');
 
 	// ── Dialog States ──
 	let userDrawerOpen = $state(false);
+	type UserDrawerTab = 'overview' | 'access' | 'sessions';
+	let userDrawerTab = $state<UserDrawerTab>('overview');
 
 	let roleConfirmOpen = $state(false);
 	let pendingRoleData = $state<{
@@ -43,13 +46,16 @@
 	} | null>(null);
 
 	let suspendModalOpen = $state(false);
+	let suspendConfirmOpen = $state(false);
+	let suspendFormElement = $state<HTMLFormElement | null>(null);
 	let pendingSuspendUser = $state<{ id: string; name: string } | null>(null);
 
 	let unbanConfirmOpen = $state(false);
 	let pendingUnbanUser = $state<{ id: string; name: string } | null>(null);
 
 	let revokeConfirmOpen = $state(false);
-	let pendingRevokeUser = $state<{ id: string; name: string } | null>(null);
+	let pendingRevokeUser = $state<{ id: string; name: string; sessionIds?: string[] } | null>(null);
+	let revokeFormElement = $state<HTMLFormElement | null>(null);
 
 	function initialForm<T>(getValue: () => T): T {
 		return getValue();
@@ -66,11 +72,15 @@
 			onUpdated({ form }) {
 				if (form.valid) {
 					toastMessage = form.message ?? 'User role updated.';
+					toastType = 'success';
 					roleConfirmOpen = false;
 					// Refresh selected user if current is open
 					if (data.selectedUser && data.selectedUser.id === form.data.userId) {
 						refreshDrawer(form.data.userId);
 					}
+				} else {
+					toastMessage = form.message ?? 'User role could not be updated.';
+					toastType = 'error';
 				}
 			}
 		}
@@ -86,10 +96,14 @@
 			onUpdated({ form }) {
 				if (form.valid) {
 					toastMessage = form.message ?? 'User account suspended.';
+					toastType = 'success';
 					suspendModalOpen = false;
 					if (data.selectedUser && data.selectedUser.id === form.data.userId) {
 						refreshDrawer(form.data.userId);
 					}
+				} else {
+					toastMessage = form.message ?? 'User account could not be suspended.';
+					toastType = 'error';
 				}
 			}
 		}
@@ -110,10 +124,14 @@
 			onUpdated({ form }) {
 				if (form.valid) {
 					toastMessage = form.message ?? 'User account unsuspended.';
+					toastType = 'success';
 					unbanConfirmOpen = false;
 					if (data.selectedUser && data.selectedUser.id === form.data.userId) {
 						refreshDrawer(form.data.userId);
 					}
+				} else {
+					toastMessage = form.message ?? 'Suspension could not be lifted.';
+					toastType = 'error';
 				}
 			}
 		}
@@ -129,10 +147,14 @@
 			onUpdated({ form }) {
 				if (form.valid) {
 					toastMessage = form.message ?? 'User sessions updated.';
+					toastType = 'success';
 					revokeConfirmOpen = false;
 					if (data.selectedUser && data.selectedUser.id === form.data.userId) {
 						refreshDrawer(form.data.userId);
 					}
+				} else {
+					toastMessage = form.message ?? 'Sessions could not be revoked.';
+					toastType = 'error';
 				}
 			}
 		}
@@ -152,9 +174,13 @@
 			onUpdated({ form }) {
 				if (form.valid) {
 					toastMessage = form.message ?? 'Email repaired successfully.';
+					toastType = 'success';
 					if (data.selectedUser && data.selectedUser.id === form.data.userId) {
 						refreshDrawer(form.data.userId);
 					}
+				} else {
+					toastMessage = form.message ?? 'Email could not be repaired.';
+					toastType = 'error';
 				}
 			}
 		}
@@ -176,10 +202,20 @@
 		unbanConfirmOpen = true;
 	}
 
-	function triggerRevokeSessions(userId: string, userName: string) {
+	function triggerRevokeSessions(userId: string, userName: string, sessionIds?: string[]) {
 		$revokeForm.userId = userId;
-		pendingRevokeUser = { id: userId, name: userName };
+		$revokeForm.sessionIds = sessionIds;
+		pendingRevokeUser = { id: userId, name: userName, sessionIds };
 		revokeConfirmOpen = true;
+	}
+
+	function confirmSuspend() {
+		suspendFormElement?.requestSubmit();
+		suspendConfirmOpen = false;
+	}
+
+	function confirmRevokeSessions() {
+		revokeFormElement?.requestSubmit();
 	}
 
 	function exportToCSV() {
@@ -214,33 +250,32 @@
 			u.lastActiveUserAgent || ''
 		]);
 
-		const csvContent =
-			'data:text/csv;charset=utf-8,' +
-			[
-				headers.join(','),
-				...rows.map((r) => r.map((val) => `"${String(val).replace(/"/g, '""')}"`).join(','))
-			].join('\n');
+		function csvCell(rawValue: unknown): string {
+			let value = String(rawValue ?? '');
+			if (/^[=+\-@\t\r]/.test(value)) value = `'${value}`;
+			return `"${value.replaceAll('"', '""')}"`;
+		}
 
-		const encodedUri = encodeURI(csvContent);
+		const csvContent = [
+			headers.map(csvCell).join(','),
+			...rows.map((row) => row.map(csvCell).join(','))
+		].join('\r\n');
+		const blob = new Blob(['\uFEFF', csvContent], { type: 'text/csv;charset=utf-8' });
+		const objectUrl = URL.createObjectURL(blob);
 		const link = document.createElement('a');
-		link.setAttribute('href', encodedUri);
+		link.setAttribute('href', objectUrl);
 		link.setAttribute('download', `users_export_${new Date().toISOString().split('T')[0]}.csv`);
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
+		URL.revokeObjectURL(objectUrl);
 	}
 
-	// ── Date Formatting Helpers ──
-	function formatDate(value: Date | string | null | undefined): string {
-		if (!value) return 'Never';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
+	const formatDate = formatAdminDateTime;
 
 	// ── Navigation & Drawer Control ──
 	function selectUser(userId: string) {
+		userDrawerTab = 'overview';
 		const url = new URL(page.url);
 		url.searchParams.set('userId', userId);
 		goto(resolve(`${url.pathname}${url.search}` as '/'), {
@@ -252,6 +287,7 @@
 
 	function closeUserDrawer() {
 		userDrawerOpen = false;
+		userDrawerTab = 'overview';
 		const url = new URL(page.url);
 		url.searchParams.delete('userId');
 		goto(resolve(`${url.pathname}${url.search}` as '/'), {
@@ -259,6 +295,12 @@
 			noScroll: true,
 			invalidateAll: true
 		});
+	}
+
+	function changeUserDrawerTab(value: string) {
+		if (value === 'overview' || value === 'access' || value === 'sessions') {
+			userDrawerTab = value;
+		}
 	}
 
 	function refreshDrawer(userId: string) {
@@ -277,33 +319,6 @@
 		} else {
 			userDrawerOpen = false;
 		}
-	});
-
-	// ── Dropdown State & Click-outside Handling ──
-	let activeDropdownUserId = $state<string | null>(null);
-
-	function toggleDropdown(userId: string, event: Event) {
-		event.stopPropagation();
-		if (activeDropdownUserId === userId) {
-			activeDropdownUserId = null;
-		} else {
-			activeDropdownUserId = userId;
-		}
-	}
-
-	$effect(() => {
-		const handleOutsideClick = (e: MouseEvent) => {
-			if (activeDropdownUserId) {
-				const target = e.target as HTMLElement;
-				if (!target.closest('.user-dropdown-container')) {
-					activeDropdownUserId = null;
-				}
-			}
-		};
-		document.addEventListener('click', handleOutsideClick);
-		return () => {
-			document.removeEventListener('click', handleOutsideClick);
-		};
 	});
 
 	// ── Filters & Metrics ──
@@ -347,14 +362,18 @@
 
 <!-- TOASTS -->
 {#if toastMessage}
-	<AdminToast message={toastMessage} onclose={() => (toastMessage = null)} />
+	<AdminToast message={toastMessage} type={toastType} onclose={() => (toastMessage = null)} />
 {/if}
 
 <AdminListLayout
 	title="Users"
 	kicker="Customers & Admins"
 	actionMessage={null}
-	stats={userStats}
+	metrics={[
+		{ label: 'Filtered Users', value: userStats.total },
+		{ label: 'Active on Page', value: userStats.active, tone: 'success' },
+		{ label: 'Suspended on Page', value: userStats.inactive, tone: 'danger' }
+	]}
 	totalItems={data.users.total}
 	limit={data.users.limit}
 	offset={data.users.offset}
@@ -365,7 +384,7 @@
 	{hasActiveFilters}
 	onclearfilters={clearFilters}
 	gridClass="grid gap-3 p-3 md:grid-cols-2 md:p-4 lg:hidden"
-	tableClass="hidden overflow-hidden lg:block"
+	tableClass="hidden overflow-x-auto lg:block"
 >
 	{#snippet headerActions()}
 		<AdminButton
@@ -375,12 +394,12 @@
 			onclick={exportToCSV}
 			class="font-mono text-xs uppercase"
 		>
-			Export CSV
+			Export Page
 		</AdminButton>
 	{/snippet}
 
 	{#snippet advancedFilters()}
-		<div class="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+		<AdminFilterBar cols={4} class="mt-2">
 			<AdminSelect
 				label="Filter Role"
 				name="role"
@@ -415,30 +434,25 @@
 				<option value="anonymous">Anonymous User</option>
 			</AdminSelect>
 
-			<div class="grid grid-cols-2 gap-2">
-				<label class="flex flex-col gap-1.5">
-					<span class="font-sans text-xs font-semibold text-ash/90">Registered After</span>
-					<input
-						type="date"
-						value={data.filters.createdAfter}
-						onchange={(e) =>
-							updateFilter('createdAfter', (e.currentTarget as HTMLInputElement).value)}
-						class="w-full border border-ash/30 bg-void px-3 py-1.5 font-sans text-sm text-bone outline-none focus:border-volt"
-					/>
-				</label>
-
-				<label class="flex flex-col gap-1.5">
-					<span class="font-sans text-xs font-semibold text-ash/90">Registered Before</span>
-					<input
-						type="date"
-						value={data.filters.createdBefore}
-						onchange={(e) =>
-							updateFilter('createdBefore', (e.currentTarget as HTMLInputElement).value)}
-						class="w-full border border-ash/30 bg-void px-3 py-1.5 font-sans text-sm text-bone outline-none focus:border-volt"
-					/>
-				</label>
+			<div class="grid gap-2 min-[430px]:grid-cols-2">
+				<AdminInput
+					label="Registered After"
+					name="createdAfter"
+					type="date"
+					value={data.filters.createdAfter}
+					onchange={(e: Event) =>
+						updateFilter('createdAfter', (e.currentTarget as HTMLInputElement).value)}
+				/>
+				<AdminInput
+					label="Registered Before"
+					name="createdBefore"
+					type="date"
+					value={data.filters.createdBefore}
+					onchange={(e: Event) =>
+						updateFilter('createdBefore', (e.currentTarget as HTMLInputElement).value)}
+				/>
 			</div>
-		</div>
+		</AdminFilterBar>
 	{/snippet}
 
 	{#snippet row(userRow)}
@@ -483,14 +497,9 @@
 
 			<!-- Role -->
 			<td class="px-5 py-4">
-				<span
-					class="border px-2 py-0.5 font-mono text-[9px] tracking-wider uppercase {userRow.role ===
-					'adminUser'
-						? 'border-volt/20 bg-volt/10 font-semibold text-volt'
-						: 'border-charcoal bg-charcoal/50 text-ash'}"
-				>
+				<AdminBadge variant={userRow.role === 'adminUser' ? 'accent' : 'neutral'} size="sm">
 					{userRow.role === 'adminUser' ? 'ADMIN' : 'CUSTOMER'}
-				</span>
+				</AdminBadge>
 			</td>
 
 			<!-- Auth Methods Count -->
@@ -503,13 +512,9 @@
 
 			<!-- Status -->
 			<td class="px-5 py-4">
-				<span
-					class="font-mono text-[9px] font-semibold tracking-wider uppercase {userRow.isBanned
-						? 'text-red-400'
-						: 'text-volt'}"
-				>
+				<AdminBadge variant={booleanStatusVariant(!userRow.isBanned)} size="sm">
 					{userRow.isBanned ? 'SUSPENDED' : 'ACTIVE'}
-				</span>
+				</AdminBadge>
 			</td>
 
 			<!-- Registered -->
@@ -523,1036 +528,602 @@
 			</td>
 
 			<!-- Actions -->
-			<td class="px-5 py-4">
-				<div class="flex items-center justify-end gap-2">
-					<AdminButton
-						type="button"
-						variant="volt"
-						size="sm"
-						onclick={() => selectUser(userRow.id)}
-						class="min-h-0 py-1 font-mono text-[10px] tracking-wider uppercase"
-					>
-						Manage
-					</AdminButton>
-
-					<div class="user-dropdown-container relative inline-block text-left">
-						<AdminButton
-							type="button"
-							variant="charcoal"
-							size="icon"
-							onclick={(e) => toggleDropdown(userRow.id, e)}
-							title="More actions"
-							class="flex h-7 w-7 items-center justify-center border border-ash/20 bg-charcoal p-0 text-ash transition-all hover:border-ash/50 hover:text-bone"
-						>
-							<span class="sr-only">More actions</span>
-							<svg
-								class="h-3.5 w-3.5"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							>
-								<circle cx="12" cy="12" r="1.5"></circle>
-								<circle cx="19" cy="12" r="1.5"></circle>
-								<circle cx="5" cy="12" r="1.5"></circle>
-							</svg>
-						</AdminButton>
-
-						{#if activeDropdownUserId === userRow.id}
-							<div
-								class="absolute right-0 z-40 mt-1 w-44 origin-top-right divide-y divide-ash/10 border border-ash/20 bg-void shadow-xl focus:outline-none"
-								role="menu"
-								aria-orientation="vertical"
-							>
-								<div class="py-1" role="none">
-									<button
-										type="button"
-										onclick={() => {
-											activeDropdownUserId = null;
-											pendingRoleData = {
-												userId: userRow.id,
-												userName: userRow.name || 'Anonymous User',
-												currentRole: userRow.role,
-												targetRole: userRow.role === 'adminUser' ? 'customerUser' : 'adminUser'
-											};
-											roleConfirmOpen = true;
-										}}
-										class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-ash uppercase transition-colors hover:bg-charcoal/30 hover:text-bone"
-										role="menuitem"
-									>
-										Toggle Role
-									</button>
-								</div>
-								<div class="py-1" role="none">
-									{#if userRow.isBanned}
-										<button
-											type="button"
-											onclick={() => {
-												activeDropdownUserId = null;
-												triggerLiftSuspension(userRow.id, userRow.name || 'Anonymous User');
-											}}
-											class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-volt uppercase transition-colors hover:bg-volt/5"
-											role="menuitem"
-										>
-											Unsuspend
-										</button>
-									{:else}
-										<button
-											type="button"
-											onclick={() => {
-												activeDropdownUserId = null;
-												triggerSuspendUser(userRow.id, userRow.name || 'Anonymous User');
-											}}
-											class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-red-400 uppercase transition-colors hover:bg-red-500/5"
-											role="menuitem"
-										>
-											Suspend
-										</button>
-									{/if}
-								</div>
-								{#if userRow.sessionCount > 0}
-									<div class="py-1" role="none">
-										<button
-											type="button"
-											onclick={() => {
-												activeDropdownUserId = null;
-												triggerRevokeSessions(userRow.id, userRow.name || 'Anonymous User');
-											}}
-											class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-red-400 uppercase transition-colors hover:bg-red-500/5"
-											role="menuitem"
-										>
-											Revoke Sessions
-										</button>
-									</div>
-								{/if}
-							</div>
-						{/if}
-					</div>
-				</div>
-			</td>
-		</tr>
-	{/snippet}
-
-	{#snippet card(userRow)}
-		<AdminCard>
-			<div class="flex items-start justify-between">
-				<div class="flex items-center gap-3">
-					<div
-						class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-charcoal text-volt"
-					>
-						{#if userRow.image}
-							<img src={userRow.image} alt={userRow.name} class="h-full w-full object-cover" />
-						{:else}
-							<User size={16} />
-						{/if}
-					</div>
-					<div>
-						<h3 class="font-display text-xl leading-tight text-bone uppercase">
-							{userRow.name || 'Anonymous User'}
-						</h3>
-						<p class="mt-0.5 font-sans text-xs text-ash">{userRow.email || 'No email'}</p>
-
-						<!-- Sleek inline badges row -->
-						<div class="mt-2 flex flex-wrap gap-1.5">
-							<!-- Status Badge -->
-							<span
-								class="border px-1.5 py-0.5 font-mono text-[8px] font-semibold tracking-wider uppercase {userRow.isBanned
-									? 'border-red-500/20 bg-red-500/10 text-red-400'
-									: 'border-volt/20 bg-volt/10 text-volt'}"
-							>
-								{userRow.isBanned ? 'Suspended' : 'Active'}
-							</span>
-
-							<!-- Auth Methods Badges -->
-							{#each userRow.authMethods || [] as method (`${method.type}-${method.label}`)}
-								<span
-									class="border border-ash/20 bg-void/50 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-ash uppercase"
-								>
-									{method.type === 'anonymous' ? 'GUEST' : method.type}
-								</span>
-							{/each}
-
-							<!-- Sessions Badge -->
-							<span
-								class="border border-ash/20 bg-void/50 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-bone uppercase"
-							>
-								{userRow.sessionCount}
-								{userRow.sessionCount === 1 ? 'Session' : 'Sessions'}
-							</span>
-						</div>
-					</div>
-				</div>
-				<span
-					class="border px-2 py-0.5 font-mono text-[9px] uppercase {userRow.role === 'adminUser'
-						? 'border-volt/20 bg-volt/10 font-semibold text-volt'
-						: 'border-charcoal bg-charcoal/50 text-ash'}"
-				>
-					{userRow.role === 'adminUser' ? 'Admin' : 'Customer'}
-				</span>
-			</div>
-
-			<div
-				class="mt-4 flex flex-col gap-2 border-t border-ash/10 pt-3 font-mono text-[10px] text-ash"
-			>
-				{#if userRow.phoneNumber}
-					<div class="flex justify-between text-ash/60">
-						<span>Phone:</span>
-						<span class="text-bone">{userRow.phoneNumber}</span>
-					</div>
-				{/if}
-				{#if userRow.lastActiveAt}
-					<div class="flex justify-between text-ash/60">
-						<span>Last Active:</span>
-						<span>{formatDate(userRow.lastActiveAt)}</span>
-					</div>
-				{/if}
-			</div>
-
-			<div class="mt-4 flex items-center justify-end gap-2 border-t border-ash/10 pt-3">
+			<td class="px-5 py-4 text-right">
 				<AdminButton
 					type="button"
 					variant="volt"
 					size="sm"
 					onclick={() => selectUser(userRow.id)}
-					class="min-h-0 py-1 font-mono text-[10px] tracking-wider uppercase"
+					class="font-mono text-[10px] tracking-wider uppercase"
 				>
 					Manage
 				</AdminButton>
+			</td>
+		</tr>
+	{/snippet}
 
-				<div class="user-dropdown-container relative inline-block text-left">
-					<AdminButton
-						type="button"
-						variant="charcoal"
-						size="icon"
-						onclick={(e) => toggleDropdown(userRow.id, e)}
-						title="More actions"
-						class="flex h-7 w-7 items-center justify-center border border-ash/20 bg-charcoal p-0 text-ash transition-all hover:border-ash/50 hover:text-bone"
-					>
-						<span class="sr-only">More actions</span>
-						<svg
-							class="h-3.5 w-3.5"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<circle cx="12" cy="12" r="1.5"></circle>
-							<circle cx="19" cy="12" r="1.5"></circle>
-							<circle cx="5" cy="12" r="1.5"></circle>
-						</svg>
-					</AdminButton>
-
-					{#if activeDropdownUserId === userRow.id}
+	{#snippet card(userRow)}
+		<AdminEntityCard>
+			{#snippet header()}
+				<div class="flex items-start justify-between">
+					<div class="flex items-center gap-3">
 						<div
-							class="absolute right-0 z-40 mt-1 w-44 origin-top-right divide-y divide-ash/10 border border-ash/20 bg-void shadow-xl focus:outline-none"
-							role="menu"
-							aria-orientation="vertical"
+							class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-charcoal text-volt"
 						>
-							<div class="py-1" role="none">
-								<button
-									type="button"
-									onclick={() => {
-										activeDropdownUserId = null;
-										pendingRoleData = {
-											userId: userRow.id,
-											userName: userRow.name || 'Anonymous User',
-											currentRole: userRow.role,
-											targetRole: userRow.role === 'adminUser' ? 'customerUser' : 'adminUser'
-										};
-										roleConfirmOpen = true;
-									}}
-									class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-ash uppercase transition-colors hover:bg-charcoal/30 hover:text-bone"
-									role="menuitem"
-								>
-									Toggle Role
-								</button>
-							</div>
-							<div class="py-1" role="none">
-								{#if userRow.isBanned}
-									<button
-										type="button"
-										onclick={() => {
-											activeDropdownUserId = null;
-											triggerLiftSuspension(userRow.id, userRow.name || 'Anonymous User');
-										}}
-										class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-volt uppercase transition-colors hover:bg-volt/5"
-										role="menuitem"
-									>
-										Unsuspend
-									</button>
-								{:else}
-									<button
-										type="button"
-										onclick={() => {
-											activeDropdownUserId = null;
-											triggerSuspendUser(userRow.id, userRow.name || 'Anonymous User');
-										}}
-										class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-red-400 uppercase transition-colors hover:bg-red-500/5"
-										role="menuitem"
-									>
-										Suspend
-									</button>
-								{/if}
-							</div>
-							{#if userRow.sessionCount > 0}
-								<div class="py-1" role="none">
-									<button
-										type="button"
-										onclick={() => {
-											activeDropdownUserId = null;
-											triggerRevokeSessions(userRow.id, userRow.name || 'Anonymous User');
-										}}
-										class="flex w-full items-center px-4 py-2 text-left font-mono text-[10px] tracking-wider text-red-400 uppercase transition-colors hover:bg-red-500/5"
-										role="menuitem"
-									>
-										Revoke Sessions
-									</button>
-								</div>
+							{#if userRow.image}
+								<img src={userRow.image} alt={userRow.name} class="h-full w-full object-cover" />
+							{:else}
+								<User size={16} />
 							{/if}
 						</div>
-					{/if}
+						<div>
+							<h3 class="font-display text-xl leading-tight text-bone uppercase">
+								{userRow.name || 'Anonymous User'}
+							</h3>
+							<p class="mt-0.5 font-sans text-xs text-ash">{userRow.email || 'No email'}</p>
+
+							<!-- Sleek inline badges row -->
+							<div class="mt-2 flex flex-wrap gap-1.5">
+								<!-- Status Badge -->
+								<AdminBadge variant={booleanStatusVariant(!userRow.isBanned)} size="xs">
+									{userRow.isBanned ? 'Suspended' : 'Active'}
+								</AdminBadge>
+
+								<!-- Auth Methods Badges -->
+								{#each userRow.authMethods || [] as method (`${method.type}-${method.label}`)}
+									<AdminBadge variant="neutral" size="xs">
+										{method.type === 'anonymous' ? 'GUEST' : method.type}
+									</AdminBadge>
+								{/each}
+
+								<!-- Sessions Badge -->
+								<AdminBadge variant="neutral" size="xs">
+									{userRow.sessionCount}
+									{userRow.sessionCount === 1 ? 'Session' : 'Sessions'}
+								</AdminBadge>
+							</div>
+						</div>
+					</div>
+					<AdminBadge variant={userRow.role === 'adminUser' ? 'accent' : 'neutral'} size="sm">
+						{userRow.role === 'adminUser' ? 'Admin' : 'Customer'}
+					</AdminBadge>
 				</div>
-			</div>
-		</AdminCard>
+			{/snippet}
+
+			{#snippet metadata()}
+				<AdminMetaGrid cols={1} class="border-t border-ash/10 pt-3">
+					{#if userRow.phoneNumber}
+						<div class="flex justify-between text-ash/60">
+							<span>Phone:</span>
+							<span class="text-bone">{userRow.phoneNumber}</span>
+						</div>
+					{/if}
+					{#if userRow.lastActiveAt}
+						<div class="flex justify-between text-ash/60">
+							<span>Last Active:</span>
+							<span>{formatDate(userRow.lastActiveAt)}</span>
+						</div>
+					{/if}
+				</AdminMetaGrid>
+			{/snippet}
+
+			{#snippet actions()}
+				<div class="border-t border-ash/10 pt-3">
+					<AdminButton
+						type="button"
+						variant="volt"
+						size="sm"
+						onclick={() => selectUser(userRow.id)}
+						class="w-full font-mono text-[10px] tracking-wider uppercase"
+					>
+						Manage
+					</AdminButton>
+				</div>
+			{/snippet}
+		</AdminEntityCard>
 	{/snippet}
 
 	{#snippet emptyState()}
-		<p class="font-display text-4xl text-bone uppercase">No users found</p>
-		<p class="mt-2 font-sans text-xs text-ash">
-			Adjust your queries or filters to look for users database rows.
-		</p>
+		<AdminEmptyState title="No users found" description="Adjust search terms or filters." />
 	{/snippet}
 </AdminListLayout>
 
-<!-- USER DETAILS DRAWER -->
-<Dialog.Root
-	bind:open={userDrawerOpen}
-	onOpenChange={(open) => {
-		if (!open) closeUserDrawer();
-	}}
->
-	{#if userDrawerOpen && data.selectedUser}
-		{@const selectedUser = data.selectedUser}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-50 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
-
+{#if userDrawerOpen && data.selectedUser}
+	{@const selectedUser = data.selectedUser}
+	<AdminDrawer
+		bind:open={userDrawerOpen}
+		title={selectedUser.name || 'Anonymous User'}
+		description="User account management details, auth keys, sessions, and ban panels."
+		size="lg"
+		onOpenChange={(open) => {
+			if (!open) closeUserDrawer();
+		}}
+	>
+		<!-- Top Info card -->
+		<div class="mb-6 flex items-center gap-4 border-b border-ash/10 pb-4">
 			<div
-				class="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl border-l border-charcoal bg-charcoal shadow-2xl outline-none"
+				class="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-charcoal bg-void text-volt"
 			>
-				<Dialog.Content class="w-full">
-					{#snippet child({ props })}
-						<div
-							{...props}
-							transition:fade={{ duration: 150 }}
-							class="flex h-full flex-col justify-between overflow-y-auto p-6"
-						>
-							<!-- Header -->
-							<div>
-								<div class="flex items-start justify-between border-b border-ash/10 pb-4">
-									<div class="flex items-center gap-4">
-										<div
-											class="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full border border-charcoal bg-void text-volt"
-										>
-											{#if selectedUser.image}
-												<img
-													src={selectedUser.image}
-													alt={selectedUser.name}
-													class="h-full w-full object-cover"
-												/>
-											{:else}
-												<User size={20} />
-											{/if}
-										</div>
-										<div>
-											<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">
-												Management
-											</p>
-											<Dialog.Title
-												class="mt-1 font-display text-3xl leading-none text-bone uppercase"
-											>
-												{selectedUser.name || 'Anonymous User'}
-											</Dialog.Title>
-											<p class="mt-1 font-sans text-xs text-ash">
-												{selectedUser.email || 'No email address registered'}
-											</p>
-										</div>
-									</div>
-									<button
-										type="button"
-										onclick={closeUserDrawer}
-										class="text-ash/60 transition-colors hover:text-bone"
-										aria-label="Close"
-									>
-										<X size={20} />
-									</button>
-								</div>
-
-								<Dialog.Description class="sr-only">
-									User account management details, auth keys, sessions, and ban panels.
-								</Dialog.Description>
-
-								<div class="mt-6 flex flex-col gap-6">
-									<!-- Info Grid -->
-									<div class="grid grid-cols-2 gap-4 rounded-xs border border-ash/5 bg-void/50 p-4">
-										<div class="font-mono text-[10px] text-ash uppercase">
-											<span>User ID:</span>
-											<p class="mt-1 font-mono text-xs font-semibold text-bone select-all">
-												{selectedUser.id}
-											</p>
-										</div>
-										<div class="font-mono text-[10px] text-ash uppercase">
-											<span>Role:</span>
-											<div class="mt-1 flex items-center gap-2">
-												<span class="text-xs font-semibold text-volt"
-													>{selectedUser.role === 'adminUser' ? 'ADMINISTRATOR' : 'CUSTOMER'}</span
-												>
-												<AdminButton
-													type="button"
-													variant="outline"
-													size="sm"
-													onclick={() => {
-														pendingRoleData = {
-															userId: selectedUser.id,
-															userName: selectedUser.name || 'Anonymous User',
-															currentRole: selectedUser.role || 'customerUser',
-															targetRole:
-																selectedUser.role === 'adminUser' ? 'customerUser' : 'adminUser'
-														};
-														roleConfirmOpen = true;
-													}}
-													class="min-h-0 border-ash/20 px-2 py-0.5 font-mono text-[9px] text-ash uppercase transition-colors hover:border-ash/50 hover:text-bone"
-												>
-													Change Role
-												</AdminButton>
-											</div>
-										</div>
-										<div class="mt-2 font-mono text-[10px] text-ash uppercase">
-											<span>Phone:</span>
-											<p class="mt-1 text-xs text-bone">{selectedUser.phoneNumber || '—'}</p>
-										</div>
-										<div class="mt-2 font-mono text-[10px] text-ash uppercase">
-											<span>Member Since:</span>
-											<p class="mt-1 text-xs text-bone">{formatDate(selectedUser.createdAt)}</p>
-										</div>
-									</div>
-
-									<!-- Last Active Details -->
-									{#if selectedUser.lastActiveAt}
-										<div class="rounded-xs border border-ash/5 bg-void/35 p-4">
-											<h3
-												class="flex items-center gap-1.5 border-b border-ash/10 pb-1.5 font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
-											>
-												<Clock size={11} class="text-volt" /> Last Activity Details
-											</h3>
-											<div class="mt-3 grid grid-cols-2 gap-4">
-												<div class="font-mono text-[10px] text-ash uppercase">
-													<span>Active Time:</span>
-													<p class="mt-1 text-xs text-bone">
-														{formatDate(selectedUser.lastActiveAt)}
-													</p>
-												</div>
-												<div class="font-mono text-[10px] text-ash uppercase">
-													<span>IP Address:</span>
-													<p class="mt-1 text-xs text-bone">
-														{selectedUser.lastActiveIp || 'Unknown'}
-													</p>
-												</div>
-												<div class="col-span-2 font-mono text-[10px] text-ash uppercase">
-													<span>Device / User Agent:</span>
-													<p
-														class="mt-1 font-sans text-xs leading-normal wrap-break-word text-ash/90"
-													>
-														{selectedUser.lastActiveUserAgent || 'Unknown'}
-													</p>
-												</div>
-											</div>
-										</div>
-									{/if}
-
-									<!-- Auth Methods -->
-									<div>
-										<h3
-											class="border-b border-ash/10 pb-1.5 font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
-										>
-											Linked Credentials
-										</h3>
-										<div class="mt-3 flex flex-col gap-2">
-											{#if selectedUser.authMethods && selectedUser.authMethods.length > 0}
-												{#each selectedUser.authMethods as method (`${method.type}-${method.label}`)}
-													<div
-														class="flex items-center justify-between rounded-xs border border-ash/5 bg-void/35 p-3"
-													>
-														<div>
-															<span class="font-mono text-xs font-semibold text-bone uppercase"
-																>{method.type}</span
-															>
-															<p class="mt-1 font-sans text-[11px] text-ash/80 select-all">
-																{method.label}
-															</p>
-														</div>
-														<span class="font-mono text-[9px] tracking-widest text-ash/60">
-															LINKED {formatDate(method.linkedAt)}
-														</span>
-													</div>
-												{/each}
-											{:else}
-												<p class="font-sans text-xs text-ash/60">
-													No explicit linked auth methods found.
-												</p>
-											{/if}
-
-											<!-- Google Temp Email Repair Action -->
-											{#if selectedUser.hasInternalEmail && selectedUser.authMethods?.some((m) => m.type === 'google')}
-												<div
-													class="mt-2 flex items-center justify-between rounded-xs border border-volt/20 bg-volt/5 p-4"
-												>
-													<div class="min-w-0 pr-4">
-														<span class="font-mono text-xs font-semibold text-volt"
-															>REPAIR EMAIL</span
-														>
-														<p class="mt-1 font-sans text-[11px] leading-normal text-ash">
-															This user has a temporary phone/anonymous email, but holds a linked
-															Google account. Upgrade their email to Google profile email.
-														</p>
-													</div>
-													<form method="POST" action="?/repairEmail" use:repairEnhance>
-														<input type="hidden" name="userId" value={selectedUser.id} />
-														<AdminButton
-															type="submit"
-															variant="volt"
-															size="sm"
-															disabled={$repairSubmitting}
-														>
-															{#if $repairSubmitting}Repairing...{:else}Repair{/if}
-														</AdminButton>
-													</form>
-												</div>
-											{/if}
-										</div>
-									</div>
-
-									<!-- Sessions Management -->
-									<div>
-										<div class="flex items-center justify-between border-b border-ash/10 pb-1.5">
-											<h3
-												class="font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
-											>
-												Active Sessions
-											</h3>
-											{#if data.selectedUserSessions && data.selectedUserSessions.length > 0}
-												<form
-													method="POST"
-													action="?/revokeSessions"
-													use:revokeEnhance
-													onsubmit={(e) => {
-														if (
-															!confirm(
-																'Are you sure you want to terminate ALL active sessions for this user?'
-															)
-														) {
-															e.preventDefault();
-														}
-													}}
-												>
-													<input type="hidden" name="userId" value={selectedUser.id} />
-													<button
-														type="submit"
-														class="font-mono text-[9px] tracking-wider text-red-400 uppercase transition-colors hover:text-red-300"
-														disabled={$revokeSubmitting}
-													>
-														Revoke All Sessions
-													</button>
-												</form>
-											{/if}
-										</div>
-
-										<div class="mt-3 flex max-h-55 flex-col gap-2 overflow-y-auto pr-1">
-											{#if data.selectedUserSessions && data.selectedUserSessions.length > 0}
-												{#each data.selectedUserSessions as session (session.id)}
-													<div
-														class="flex items-center justify-between rounded-xs border border-ash/5 bg-void/35 p-3 transition-colors hover:border-ash/10"
-													>
-														<div class="min-w-0 pr-4">
-															<div class="flex items-center gap-2">
-																<span class="font-mono text-xs font-semibold text-bone select-all">
-																	IP: {session.ipAddress || 'Unknown'}
-																</span>
-																{#if session.isCurrent}
-																	<span
-																		class="rounded-[1px] border border-volt/20 bg-volt/10 px-1 py-0.5 font-mono text-[8px] tracking-wider text-volt uppercase"
-																	>
-																		Active Now
-																	</span>
-																{/if}
-															</div>
-															<p
-																class="mt-1.5 truncate font-sans text-[10px] text-ash/70"
-																title={session.userAgent}
-															>
-																{session.userAgent || 'No User Agent'}
-															</p>
-															<p
-																class="mt-1 flex items-center gap-1 font-mono text-[9px] text-ash/40"
-															>
-																<Clock size={12} /> Expires: {formatDate(session.expiresAt)}
-															</p>
-														</div>
-
-														<form method="POST" action="?/revokeSessions" use:revokeEnhance>
-															<input type="hidden" name="userId" value={selectedUser.id} />
-															<input type="hidden" name="sessionIds[]" value={session.id} />
-															<AdminButton
-																type="submit"
-																variant="danger"
-																size="icon"
-																disabled={$revokeSubmitting}
-																title="Terminate session"
-															>
-																<LogOut size={12} />
-															</AdminButton>
-														</form>
-													</div>
-												{/each}
-											{:else}
-												<p class="font-sans text-xs text-ash/60">No active sessions found.</p>
-											{/if}
-										</div>
-									</div>
-
-									<!-- Suspended / Ban Controls -->
-									<div class="border-t border-ash/10 pt-5">
-										{#if selectedUser.isBanned}
-											<!-- Suspended User Card -->
-											<div class="rounded-xs border border-red-500/20 bg-red-500/5 p-4">
-												<div class="flex items-start gap-3">
-													<AlertTriangle class="mt-0.5 shrink-0 text-red-400" size={18} />
-													<div>
-														<h4 class="font-mono text-xs font-semibold text-red-400 uppercase">
-															Account Suspended
-														</h4>
-														<p class="mt-2 font-sans text-xs leading-relaxed text-ash/85">
-															<strong>Reason:</strong>
-															{selectedUser.banReason || 'No reason provided.'}
-														</p>
-														<p class="mt-1 font-sans text-xs text-ash/80">
-															<strong>Expires:</strong>
-															{selectedUser.banExpires
-																? formatDate(selectedUser.banExpires)
-																: 'Permanent ban'}
-														</p>
-
-														<form method="POST" action="?/unban" use:unbanEnhance class="mt-4">
-															<input type="hidden" name="userId" value={selectedUser.id} />
-															<AdminButton
-																type="submit"
-																variant="volt"
-																size="sm"
-																class="font-mono text-xs uppercase"
-																disabled={$unbanSubmitting}
-															>
-																{#if $unbanSubmitting}Lifting...{:else}Lift Suspension{/if}
-															</AdminButton>
-														</form>
-													</div>
-												</div>
-											</div>
-										{:else}
-											<!-- Suspend User Form -->
-											<form
-												method="POST"
-												action="?/ban"
-												use:banEnhance
-												class="flex flex-col gap-4 rounded-xs border border-ash/10 bg-void/10 p-4"
-											>
-												<h4
-													class="font-mono text-xs font-semibold tracking-wider text-ash uppercase"
-												>
-													Suspend User Account
-												</h4>
-
-												<input type="hidden" name="userId" value={selectedUser.id} />
-
-												<label class="grid gap-1">
-													<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-														>Reason for Suspension</span
-													>
-													<textarea
-														name="reason"
-														bind:value={$banForm.reason}
-														placeholder="Internal reason or policy violation details..."
-														class="min-h-17.5 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-													></textarea>
-													{#if $banErrors.reason}
-														<span class="mt-0.5 font-sans text-xs text-red-400">
-															{$banErrors.reason[0]}
-														</span>
-													{/if}
-												</label>
-
-												<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-													<label class="flex flex-col gap-1.5">
-														<span class="font-sans text-xs font-semibold text-ash/90"
-															>Ban Expiration (Optional)</span
-														>
-														<input
-															type="datetime-local"
-															name="expiresAt"
-															bind:value={$banForm.expiresAt}
-															class="w-full border border-ash/30 bg-void px-3 py-1.5 font-sans text-sm text-bone outline-none focus:border-volt"
-														/>
-														{#if $banErrors.expiresAt}
-															<span class="mt-0.5 font-sans text-xs text-red-400">
-																{$banErrors.expiresAt[0]}
-															</span>
-														{/if}
-													</label>
-
-													<div class="flex h-full items-center pt-6">
-														<AdminToggle
-															label="Terminate Active Sessions"
-															description="Forces immediate logout on all devices"
-															name="revokeSessions"
-															bind:checked={$banForm.revokeSessions}
-														/>
-													</div>
-												</div>
-
-												<AdminButton
-													type="submit"
-													variant="danger"
-													class="mt-2 w-full font-mono text-xs uppercase"
-													disabled={$banSubmitting}
-												>
-													{#if $banSubmitting}Suspending...{:else}Suspend User Account{/if}
-												</AdminButton>
-											</form>
-										{/if}
-									</div>
-								</div>
-							</div>
-
-							<!-- Footer -->
-							<div class="mt-8 flex justify-end border-t border-ash/10 pt-4">
-								<AdminButton type="button" variant="outline" onclick={closeUserDrawer}>
-									Close Details
-								</AdminButton>
-							</div>
-						</div>
-					{/snippet}
-				</Dialog.Content>
+				{#if selectedUser.image}
+					<img
+						src={selectedUser.image}
+						alt={selectedUser.name}
+						class="h-full w-full object-cover"
+					/>
+				{:else}
+					<User size={20} />
+				{/if}
 			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+			<div>
+				<p class="font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Email Address</p>
+				<p class="mt-0.5 min-w-0 font-sans text-sm break-all text-bone">
+					{selectedUser.email || 'No email address registered'}
+				</p>
+			</div>
+		</div>
 
-<!-- ROLE SWAP CONFIRMATION DIALOG -->
-<Dialog.Root bind:open={roleConfirmOpen}>
-	{#if roleConfirmOpen && pendingRoleData}
-		{@const pending = pendingRoleData}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
+		<AdminTabs
+			label="User management views"
+			value={userDrawerTab}
+			items={[
+				{ value: 'overview', label: 'Overview' },
+				{ value: 'access', label: 'Access' },
+				{
+					value: 'sessions',
+					label: 'Sessions',
+					count: data.selectedUserSessions?.length ?? 0
+				}
+			]}
+			onchange={changeUserDrawerTab}
+			class="mb-5"
+		/>
 
-			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
-				<Dialog.Content
-					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
-				>
-					{#snippet child({ props })}
-						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
-							<div>
-								<div class="mb-2 flex items-center gap-3 text-volt">
-									<ShieldAlert size={20} />
-									<Dialog.Title class="font-display text-2xl text-bone uppercase">
-										Confirm Role Change
-									</Dialog.Title>
-								</div>
-								<Dialog.Description class="mt-2 font-sans text-xs leading-relaxed text-ash">
-									Are you sure you want to change the role of <strong>{pending.userName}</strong>?
-									This will modify their permissions immediately.
-								</Dialog.Description>
-							</div>
-
-							<div
-								class="space-y-1 rounded-xs border border-ash/10 bg-void/50 p-4 font-mono text-[10px]"
+		<div class="flex flex-col gap-6">
+			{#if userDrawerTab === 'overview'}
+				<!-- Info Grid -->
+				<AdminMetaGrid cols={2} class="mt-0 border border-ash/5 bg-void/50 p-4">
+					<div class="font-mono text-[10px] text-ash uppercase">
+						<span>User ID:</span>
+						<p class="mt-1 font-mono text-xs font-semibold text-bone select-all">
+							{selectedUser.id}
+						</p>
+					</div>
+					<div class="font-mono text-[10px] text-ash uppercase">
+						<span>Role:</span>
+						<div class="mt-1">
+							<AdminBadge
+								variant={selectedUser.role === 'adminUser' ? 'accent' : 'neutral'}
+								size="xs"
 							>
-								<div>
-									<span class="text-ash uppercase">User:</span>
-									<span class="ml-2 font-semibold text-bone">{pending.userName}</span>
-								</div>
-								<div>
-									<span class="text-ash uppercase">Current Role:</span>
-									<span class="ml-2 font-semibold text-red-400 uppercase">
-										{pending.currentRole === 'adminUser' ? 'Admin' : 'Customer'}
-									</span>
-								</div>
-								<div>
-									<span class="text-ash uppercase">New Role:</span>
-									<span class="ml-2 font-semibold text-volt uppercase">
-										{pending.targetRole === 'adminUser' ? 'Admin' : 'Customer'}
-									</span>
-								</div>
-							</div>
+								{selectedUser.role === 'adminUser' ? 'Administrator' : 'Customer'}
+							</AdminBadge>
+						</div>
+					</div>
+					<div class="mt-2 font-mono text-[10px] text-ash uppercase">
+						<span>Phone:</span>
+						<p class="mt-1 text-xs text-bone">{selectedUser.phoneNumber || '—'}</p>
+					</div>
+					<div class="mt-2 font-mono text-[10px] text-ash uppercase">
+						<span>Member Since:</span>
+						<p class="mt-1 text-xs text-bone">{formatDate(selectedUser.createdAt)}</p>
+					</div>
+				</AdminMetaGrid>
 
-							<div class="flex justify-end gap-3 pt-2">
-								<AdminButton
-									type="button"
-									variant="charcoal"
-									onclick={() => (roleConfirmOpen = false)}
+				<!-- Last Active Details -->
+				{#if selectedUser.lastActiveAt}
+					<div class="rounded-xs border border-ash/5 bg-void/35 p-4">
+						<h3
+							class="flex items-center gap-1.5 border-b border-ash/10 pb-1.5 font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
+						>
+							<Clock size={11} class="text-volt" /> Last Activity Details
+						</h3>
+						<AdminMetaGrid cols={2}>
+							<div class="font-mono text-[10px] text-ash uppercase">
+								<span>Active Time:</span>
+								<p class="mt-1 text-xs text-bone">
+									{formatDate(selectedUser.lastActiveAt)}
+								</p>
+							</div>
+							<div class="font-mono text-[10px] text-ash uppercase">
+								<span>IP Address:</span>
+								<p class="mt-1 text-xs text-bone">
+									{selectedUser.lastActiveIp || 'Unknown'}
+								</p>
+							</div>
+							<div class="font-mono text-[10px] text-ash uppercase min-[430px]:col-span-2">
+								<span>Device / User Agent:</span>
+								<p class="mt-1 font-sans text-xs leading-normal wrap-break-word text-ash/90">
+									{selectedUser.lastActiveUserAgent || 'Unknown'}
+								</p>
+							</div>
+						</AdminMetaGrid>
+					</div>
+				{/if}
+
+				<!-- Linked Credentials -->
+				<div>
+					<h3
+						class="border-b border-ash/10 pb-1.5 font-mono text-[10px] font-semibold tracking-wider text-ash uppercase"
+					>
+						Linked Credentials
+					</h3>
+					<div class="mt-3 flex flex-col gap-2">
+						{#if selectedUser.authMethods && selectedUser.authMethods.length > 0}
+							{#each selectedUser.authMethods as method (`${method.type}-${method.label}`)}
+								<div
+									class="flex flex-col items-start gap-3 rounded-xs border border-ash/5 bg-void/35 p-3 sm:flex-row sm:items-center sm:justify-between"
 								>
-									Cancel
-								</AdminButton>
-								<form method="POST" action="?/setRole" use:roleEnhance class="inline-block">
-									<input type="hidden" name="userId" value={pending.userId} />
-									<input type="hidden" name="role" value={pending.targetRole} />
-									<AdminButton type="submit" variant="volt" disabled={$roleSubmitting}>
-										Confirm Change
-									</AdminButton>
-								</form>
+									<div class="min-w-0">
+										<span class="font-mono text-xs font-semibold text-bone uppercase"
+											>{method.type}</span
+										>
+										<p class="mt-1 font-sans text-[11px] break-all text-ash/80 select-all">
+											{method.label}
+										</p>
+									</div>
+									<span class="font-mono text-[9px] tracking-widest text-ash/60">
+										LINKED {formatDate(method.linkedAt)}
+									</span>
+								</div>
+							{/each}
+						{:else}
+							<p class="font-sans text-xs text-ash/60">No explicit linked auth methods found.</p>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			{#if userDrawerTab === 'access'}
+				<AdminSection title="Role and permissions">
+					<div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+						<div>
+							<p class="font-sans text-xs leading-relaxed text-ash">
+								Current access level controls admin routes and operational permissions.
+							</p>
+							<div class="mt-3">
+								<AdminBadge
+									variant={selectedUser.role === 'adminUser' ? 'accent' : 'neutral'}
+									size="xs"
+								>
+									{selectedUser.role === 'adminUser' ? 'Administrator' : 'Customer'}
+								</AdminBadge>
 							</div>
 						</div>
-					{/snippet}
-				</Dialog.Content>
-			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+						<AdminButton
+							type="button"
+							variant="outline"
+							onclick={() => {
+								pendingRoleData = {
+									userId: selectedUser.id,
+									userName: selectedUser.name || 'Anonymous User',
+									currentRole: selectedUser.role || 'customerUser',
+									targetRole: selectedUser.role === 'adminUser' ? 'customerUser' : 'adminUser'
+								};
+								roleConfirmOpen = true;
+							}}
+						>
+							Change role
+						</AdminButton>
+					</div>
+				</AdminSection>
 
-<!-- SUSPEND USER DIALOG -->
-<Dialog.Root bind:open={suspendModalOpen}>
-	{#if suspendModalOpen && pendingSuspendUser}
-		{@const pending = pendingSuspendUser}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
-
-			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
-				<Dialog.Content
-					class="w-full max-w-lg rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
-				>
-					{#snippet child({ props })}
-						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
-							<div>
-								<div class="mb-2 flex items-center gap-3 text-red-500">
-									<Ban size={20} />
-									<Dialog.Title class="font-display text-2xl text-bone uppercase">
-										Suspend User Account
-									</Dialog.Title>
-								</div>
-								<Dialog.Description class="mt-2 font-sans text-xs leading-relaxed text-ash">
-									Suspend access to the store for <strong>{pending.name}</strong>.
-								</Dialog.Description>
-							</div>
-
-							<form method="POST" action="?/ban" use:banEnhance class="flex flex-col gap-4">
-								<input type="hidden" name="userId" value={pending.id} />
-
-								<label class="grid gap-1">
-									<span class="font-sans text-xs font-semibold tracking-wide text-ash/90"
-										>Reason for Suspension</span
-									>
-									<textarea
-										name="reason"
-										bind:value={$banForm.reason}
-										placeholder="Internal reason or policy violation details..."
-										class="min-h-17.5 w-full border border-ash/30 bg-void px-3 py-2 font-sans text-sm text-bone placeholder-ash/45 transition-colors outline-none hover:border-ash/60 focus:border-volt"
-									></textarea>
-									{#if $banErrors.reason}
-										<span class="mt-0.5 font-sans text-xs text-red-400">
-											{$banErrors.reason[0]}
-										</span>
-									{/if}
-								</label>
-
-								<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-									<label class="flex flex-col gap-1.5">
-										<span class="font-sans text-xs font-semibold text-ash/90"
-											>Ban Expiration (Optional)</span
-										>
-										<input
-											type="datetime-local"
-											name="expiresAt"
-											bind:value={$banForm.expiresAt}
-											class="w-full border border-ash/30 bg-void px-3 py-1.5 font-sans text-sm text-bone outline-none focus:border-volt"
-										/>
-										{#if $banErrors.expiresAt}
-											<span class="mt-0.5 font-sans text-xs text-red-400">
-												{$banErrors.expiresAt[0]}
-											</span>
-										{/if}
-									</label>
-
-									<div class="flex h-full items-center pt-6">
-										<AdminToggle
-											label="Terminate Active Sessions"
-											description="Forces immediate logout on all devices"
-											name="revokeSessions"
-											bind:checked={$banForm.revokeSessions}
-										/>
-									</div>
-								</div>
-
-								<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
-									<AdminButton
-										type="button"
-										variant="charcoal"
-										onclick={() => (suspendModalOpen = false)}
-									>
-										Cancel
-									</AdminButton>
-									<AdminButton type="submit" variant="danger" disabled={$banSubmitting}>
-										{#if $banSubmitting}Suspending...{:else}Suspend Account{/if}
-									</AdminButton>
-								</div>
+				{#if selectedUser.hasInternalEmail && selectedUser.authMethods?.some((m) => m.type === 'google')}
+					<AdminSection title="Email repair">
+						<div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+							<p class="font-sans text-xs leading-relaxed text-ash">
+								Replace temporary phone or anonymous email with linked Google profile email.
+							</p>
+							<form method="POST" action="?/repairEmail" use:repairEnhance>
+								<input type="hidden" name="userId" value={selectedUser.id} />
+								<AdminButton type="submit" variant="volt" disabled={$repairSubmitting}>
+									{$repairSubmitting ? 'Repairing...' : 'Repair email'}
+								</AdminButton>
 							</form>
 						</div>
-					{/snippet}
-				</Dialog.Content>
+					</AdminSection>
+				{/if}
+			{/if}
+
+			{#if userDrawerTab === 'sessions'}
+				<!-- Sessions Management -->
+				<div>
+					<div
+						class="flex flex-col items-start gap-3 border-b border-ash/10 pb-3 sm:flex-row sm:items-center sm:justify-between"
+					>
+						<h3 class="font-mono text-[10px] font-semibold tracking-wider text-ash uppercase">
+							Active Sessions
+						</h3>
+						{#if data.selectedUserSessions && data.selectedUserSessions.length > 0}
+							<AdminButton
+								type="button"
+								variant="danger"
+								size="sm"
+								disabled={$revokeSubmitting}
+								onclick={() =>
+									triggerRevokeSessions(selectedUser.id, selectedUser.name || 'Anonymous User')}
+							>
+								Revoke All Sessions
+							</AdminButton>
+						{/if}
+					</div>
+
+					<div class="mt-3 flex max-h-55 flex-col gap-2 overflow-y-auto pr-1">
+						{#if data.selectedUserSessions && data.selectedUserSessions.length > 0}
+							{#each data.selectedUserSessions as session (session.id)}
+								<div
+									class="flex flex-col items-stretch gap-3 rounded-xs border border-ash/5 bg-void/35 p-3 sm:flex-row sm:items-center sm:justify-between"
+								>
+									<div class="min-w-0">
+										<div class="flex items-center gap-2">
+											<span class="font-mono text-[11px] font-semibold text-bone"
+												>{session.ipAddress || 'Unknown IP'}</span
+											>
+											{#if session.id === data.session?.id}
+												<AdminBadge variant="success" size="xs">Current</AdminBadge>
+											{/if}
+										</div>
+										<p class="mt-1 font-sans text-[10px] break-words text-ash/80">
+											{session.userAgent || 'Unknown Device'}
+										</p>
+										<p class="mt-1 flex items-center gap-1 font-mono text-[9px] text-ash/60">
+											<Clock size={12} /> Expires: {formatDate(session.expiresAt)}
+										</p>
+									</div>
+
+									{#if session.id !== data.session?.id}
+										<AdminButton
+											type="button"
+											variant="outline"
+											size="sm"
+											class="text-red-400"
+											disabled={$revokeSubmitting}
+											onclick={() =>
+												triggerRevokeSessions(
+													selectedUser.id,
+													selectedUser.name || 'Anonymous User',
+													[session.id]
+												)}
+										>
+											Revoke
+										</AdminButton>
+									{/if}
+								</div>
+							{/each}
+						{:else}
+							<p class="font-sans text-xs text-ash/60">No active sessions found.</p>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			{#if userDrawerTab === 'access'}
+				<!-- Ban / Suspension Panel -->
+				<AdminSection title="Account operations">
+					<div class="space-y-3">
+						{#if selectedUser.isBanned}
+							<div class="flex flex-col gap-2 rounded-xs border border-red-500/20 bg-red-500/5 p-4">
+								<div class="flex items-center gap-2 text-red-400">
+									<Ban size={16} />
+									<span class="font-mono text-xs font-bold uppercase">Suspended Account</span>
+								</div>
+								{#if selectedUser.banReason}
+									<p class="font-sans text-xs text-bone">
+										Reason: <span class="text-ash/90">{selectedUser.banReason}</span>
+									</p>
+								{/if}
+								<div class="flex justify-between font-mono text-[10px] text-ash">
+									<span>Expires:</span>
+									<span class="text-bone"
+										>{selectedUser.banExpires
+											? formatDate(selectedUser.banExpires)
+											: 'Permanent'}</span
+									>
+								</div>
+							</div>
+
+							<AdminButton
+								type="button"
+								variant="volt"
+								class="w-full font-mono text-xs uppercase"
+								onclick={() => {
+									triggerLiftSuspension(selectedUser.id, selectedUser.name || 'Anonymous User');
+								}}
+							>
+								Lift Suspension
+							</AdminButton>
+						{:else}
+							<AdminButton
+								type="button"
+								variant="danger"
+								class="w-full"
+								onclick={() =>
+									triggerSuspendUser(selectedUser.id, selectedUser.name || 'Anonymous User')}
+							>
+								Suspend User Account
+							</AdminButton>
+						{/if}
+					</div>
+				</AdminSection>
+			{/if}
+		</div>
+
+		{#snippet footer()}
+			<AdminButton type="button" variant="outline" onclick={() => (userDrawerOpen = false)}>
+				Close Details
+			</AdminButton>
+		{/snippet}
+	</AdminDrawer>
+{/if}
+
+<!-- ROLE SWAP CONFIRMATION DIALOG -->
+{#if roleConfirmOpen && pendingRoleData}
+	{@const pending = pendingRoleData}
+	<AdminModal
+		bind:open={roleConfirmOpen}
+		kicker="Confirm Role Change"
+		title="Change Role"
+		size="sm"
+	>
+		<div class="space-y-6">
+			<p class="font-sans text-xs leading-relaxed text-ash">
+				Are you sure you want to change the role of <strong>{pending.userName}</strong>? This will
+				modify their permissions immediately.
+			</p>
+
+			<AdminMetaGrid cols={1} class="mt-0 border border-ash/10 bg-void/50 p-4">
+				<div>
+					<span class="text-ash uppercase">User:</span>
+					<span class="ml-2 font-semibold text-bone">{pending.userName}</span>
+				</div>
+				<div>
+					<span class="text-ash uppercase">Current Role:</span>
+					<AdminBadge variant="neutral" size="xs">
+						{pending.currentRole === 'adminUser' ? 'Admin' : 'Customer'}
+					</AdminBadge>
+				</div>
+				<div>
+					<span class="text-ash uppercase">New Role:</span>
+					<AdminBadge variant="accent" size="xs">
+						{pending.targetRole === 'adminUser' ? 'Admin' : 'Customer'}
+					</AdminBadge>
+				</div>
+			</AdminMetaGrid>
+
+			<div class="flex justify-end gap-3 pt-2">
+				<AdminButton type="button" variant="charcoal" onclick={() => (roleConfirmOpen = false)}>
+					Cancel
+				</AdminButton>
+				<form method="POST" action="?/setRole" use:roleEnhance class="inline-block">
+					<input type="hidden" name="userId" value={pending.userId} />
+					<input type="hidden" name="role" value={pending.targetRole} />
+					<AdminButton type="submit" variant="volt" disabled={$roleSubmitting}>
+						Confirm Change
+					</AdminButton>
+				</form>
 			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+		</div>
+	</AdminModal>
+{/if}
+
+<!-- SUSPEND USER DIALOG -->
+{#if suspendModalOpen && pendingSuspendUser}
+	{@const pending = pendingSuspendUser}
+	<AdminModal
+		bind:open={suspendModalOpen}
+		kicker="Suspend User Account"
+		title="Suspend Account"
+		size="lg"
+	>
+		<p class="font-sans text-xs leading-relaxed text-ash">
+			Suspend access to the store for <strong>{pending.name}</strong>.
+		</p>
+
+		<form
+			bind:this={suspendFormElement}
+			method="POST"
+			action="?/ban"
+			use:banEnhance
+			class="flex flex-col gap-4"
+		>
+			<input type="hidden" name="userId" value={pending.id} />
+
+			<AdminTextarea
+				label="Reason for Suspension"
+				name="reason"
+				bind:value={$banForm.reason}
+				placeholder="Internal reason or policy violation details..."
+				error={$banErrors.reason}
+			/>
+
+			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+				<AdminInput
+					label="Ban Expiration (Optional)"
+					type="datetime-local"
+					name="expiresAt"
+					bind:value={$banForm.expiresAt}
+					error={$banErrors.expiresAt}
+				/>
+
+				<div class="flex h-full items-center pt-6">
+					<AdminToggle
+						label="Terminate Active Sessions"
+						description="Forces immediate logout on all devices"
+						name="revokeSessions"
+						bind:checked={$banForm.revokeSessions}
+					/>
+				</div>
+			</div>
+
+			<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
+				<AdminButton type="button" variant="charcoal" onclick={() => (suspendModalOpen = false)}>
+					Cancel
+				</AdminButton>
+				<AdminButton
+					type="button"
+					variant="danger"
+					disabled={$banSubmitting}
+					onclick={() => (suspendConfirmOpen = true)}
+				>
+					{#if $banSubmitting}Suspending...{:else}Suspend Account{/if}
+				</AdminButton>
+			</div>
+		</form>
+	</AdminModal>
+{/if}
+
+<AdminConfirmDialog
+	bind:open={suspendConfirmOpen}
+	title="Suspend account"
+	message={`Suspend ${pendingSuspendUser?.name ?? 'this user'}${$banForm.revokeSessions ? ' and terminate active sessions' : ''}?`}
+	confirmLabel="Suspend account"
+	loading={$banSubmitting}
+	onconfirm={confirmSuspend}
+/>
 
 <!-- LIFT SUSPENSION CONFIRMATION DIALOG -->
-<Dialog.Root bind:open={unbanConfirmOpen}>
-	{#if unbanConfirmOpen && pendingUnbanUser}
-		{@const pending = pendingUnbanUser}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
+{#if unbanConfirmOpen && pendingUnbanUser}
+	{@const pending = pendingUnbanUser}
+	<AdminModal
+		bind:open={unbanConfirmOpen}
+		kicker="Lift Suspension"
+		title="Lift Suspension"
+		size="sm"
+	>
+		<p class="font-sans text-xs leading-relaxed text-ash">
+			Are you sure you want to lift the suspension for <strong>{pending.name}</strong>? They will
+			regain access to their account immediately.
+		</p>
 
-			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
-				<Dialog.Content
-					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
-				>
-					{#snippet child({ props })}
-						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
-							<div>
-								<div class="mb-2 flex items-center gap-3 text-volt">
-									<UserCheck size={20} />
-									<Dialog.Title class="font-display text-2xl text-bone uppercase">
-										Lift Suspension
-									</Dialog.Title>
-								</div>
-								<Dialog.Description class="mt-2 font-sans text-xs leading-relaxed text-ash">
-									Are you sure you want to lift the suspension for <strong>{pending.name}</strong>?
-									They will regain access to their account immediately.
-								</Dialog.Description>
-							</div>
+		<div class="flex justify-end gap-3 pt-2">
+			<AdminButton type="button" variant="charcoal" onclick={() => (unbanConfirmOpen = false)}>
+				Cancel
+			</AdminButton>
+			<form method="POST" action="?/unban" use:unbanEnhance class="inline-block">
+				<input type="hidden" name="userId" value={pending.id} />
+				<AdminButton type="submit" variant="volt" disabled={$unbanSubmitting}>
+					Confirm Lift
+				</AdminButton>
+			</form>
+		</div>
+	</AdminModal>
+{/if}
 
-							<div class="flex justify-end gap-3 pt-2">
-								<AdminButton
-									type="button"
-									variant="charcoal"
-									onclick={() => (unbanConfirmOpen = false)}
-								>
-									Cancel
-								</AdminButton>
-								<form method="POST" action="?/unban" use:unbanEnhance class="inline-block">
-									<input type="hidden" name="userId" value={pending.id} />
-									<AdminButton type="submit" variant="volt" disabled={$unbanSubmitting}>
-										Confirm Lift
-									</AdminButton>
-								</form>
-							</div>
-						</div>
-					{/snippet}
-				</Dialog.Content>
-			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+{#if pendingRevokeUser}
+	<form bind:this={revokeFormElement} method="POST" action="?/revokeSessions" use:revokeEnhance>
+		<input type="hidden" name="userId" value={pendingRevokeUser.id} />
+		{#each pendingRevokeUser.sessionIds ?? [] as sessionId (sessionId)}
+			<input type="hidden" name="sessionIds" value={sessionId} />
+		{/each}
+	</form>
+{/if}
 
-<!-- REVOKE SESSIONS CONFIRMATION DIALOG -->
-<Dialog.Root bind:open={revokeConfirmOpen}>
-	{#if revokeConfirmOpen && pendingRevokeUser}
-		{@const pending = pendingRevokeUser}
-		<Dialog.Portal>
-			<Dialog.Overlay>
-				{#snippet child({ props })}
-					<div
-						{...props}
-						transition:fade={{ duration: 150 }}
-						class="fixed inset-0 z-100 bg-void/85 backdrop-blur-sm"
-					></div>
-				{/snippet}
-			</Dialog.Overlay>
-
-			<div class="fixed inset-0 z-101 flex items-center justify-center p-4">
-				<Dialog.Content
-					class="w-full max-w-md rounded-xs border border-ash/20 bg-charcoal p-6 shadow-2xl outline-none"
-				>
-					{#snippet child({ props })}
-						<div {...props} transition:fade={{ duration: 150 }} class="space-y-6">
-							<div>
-								<div class="mb-2 flex items-center gap-3 text-red-500">
-									<LogOut size={20} />
-									<Dialog.Title class="font-display text-2xl text-bone uppercase">
-										Revoke Active Sessions
-									</Dialog.Title>
-								</div>
-								<Dialog.Description class="mt-2 font-sans text-xs leading-relaxed text-ash">
-									Are you sure you want to terminate <strong>ALL</strong> active sessions for
-									<strong>{pending.name}</strong>? This will force-logout the user on all devices.
-								</Dialog.Description>
-							</div>
-
-							<div class="flex justify-end gap-3 pt-2">
-								<AdminButton
-									type="button"
-									variant="charcoal"
-									onclick={() => (revokeConfirmOpen = false)}
-								>
-									Cancel
-								</AdminButton>
-								<form
-									method="POST"
-									action="?/revokeSessions"
-									use:revokeEnhance
-									class="inline-block"
-								>
-									<input type="hidden" name="userId" value={pending.id} />
-									<AdminButton type="submit" variant="danger" disabled={$revokeSubmitting}>
-										Confirm Logout
-									</AdminButton>
-								</form>
-							</div>
-						</div>
-					{/snippet}
-				</Dialog.Content>
-			</div>
-		</Dialog.Portal>
-	{/if}
-</Dialog.Root>
+<AdminConfirmDialog
+	bind:open={revokeConfirmOpen}
+	title="Revoke sessions"
+	message={pendingRevokeUser?.sessionIds?.length
+		? `Terminate the selected session for ${pendingRevokeUser.name}?`
+		: `Terminate all active sessions for ${pendingRevokeUser?.name ?? 'this user'}?`}
+	confirmLabel="Confirm logout"
+	loading={$revokeSubmitting}
+	onconfirm={confirmRevokeSessions}
+/>

@@ -1,15 +1,14 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { deserialize, enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { fade, scale } from 'svelte/transition';
 	import {
 		ShoppingBag,
 		User,
 		UserCheck,
 		Clock,
 		Trash2,
-		X,
 		Info,
 		Lock,
 		Eye,
@@ -17,13 +16,35 @@
 	} from 'lucide-svelte';
 	import type { AdminBagDTO } from '$lib/server/modules/bag';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
 	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
+	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
+	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
+	import AdminJsonViewer from '$lib/components/admin/data-display/AdminJsonViewer.svelte';
+	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
+	import {
+		formatAdminDateTime,
+		formatAdminMoney,
+		formatAdminStatus
+	} from '$lib/shared/admin/format';
+	import { bagItemAvailabilityVariant } from '$lib/shared/admin/status';
 
 	let { data } = $props();
 
 	let selectedBag = $state<AdminBagDTO | null>(null);
 	let detailOpen = $state(false);
+	let deleteConfirmOpen = $state(false);
+	let cleanupConfirmOpen = $state(false);
+	let cleanupFormElement = $state<HTMLFormElement | null>(null);
+	let cleanupSubmitting = $state(false);
+	let toastMessage = $state<string | null>(null);
+	let toastType = $state<'success' | 'error'>('success');
 
 	let showFilters = $state(false);
 	const hasActiveFilters = $derived(
@@ -37,14 +58,6 @@
 			showFilters = true;
 		}
 	});
-
-	function formatDate(value: Date | string | null): string {
-		if (!value) return 'Never';
-		return new Intl.DateTimeFormat('en-LK', {
-			dateStyle: 'medium',
-			timeStyle: 'short'
-		}).format(new Date(value));
-	}
 
 	function clearFilters() {
 		goto(resolve('/app/bag'));
@@ -60,14 +73,16 @@
 	}
 
 	let deletionSubmitting = $state(false);
-	async function handleDeleteBag(e: SubmitEvent) {
-		e.preventDefault();
-		if (!selectedBag) return;
 
-		const confirmation = confirm(
-			'Are you sure you want to permanently delete this bag? All items will be removed and reserved inventory will be released immediately.'
-		);
-		if (!confirmation) return;
+	function getActionMessage(data: unknown, fallback: string): string {
+		if (!data || typeof data !== 'object') return fallback;
+		const record = data as { message?: unknown; form?: { message?: unknown } };
+		const value = record.message ?? record.form?.message;
+		return typeof value === 'string' ? value : fallback;
+	}
+
+	async function handleDeleteBag() {
+		if (!selectedBag) return;
 
 		deletionSubmitting = true;
 		const formData = new FormData();
@@ -78,24 +93,47 @@
 				method: 'POST',
 				body: formData
 			});
-			const result = (await res.json()) as { success?: boolean; status?: number; type?: string };
-			if (result.type === 'success' || result.status === 200) {
+			const result = deserialize(await res.text());
+			if (result.type === 'success') {
+				deleteConfirmOpen = false;
 				detailOpen = false;
 				selectedBag = null;
-				// Reload page state silently
-				const url = new URL(page.url);
-				goto(resolve(`${url.pathname}${url.search}` as '/'), {
-					keepFocus: true,
-					noScroll: true,
-					invalidateAll: true
-				});
+				toastMessage = getActionMessage(result.data, 'Bag deleted.');
+				toastType = 'success';
+				await invalidateAll();
+			} else {
+				const resultData = result.type === 'failure' ? result.data : undefined;
+				toastMessage = getActionMessage(resultData, 'Bag could not be deleted.');
+				toastType = 'error';
 			}
-		} catch (err) {
-			console.error('[admin:bag] Failed to delete bag:', err);
+		} catch {
+			toastMessage = 'Bag could not be deleted. Check the connection and retry.';
+			toastType = 'error';
 		} finally {
 			deletionSubmitting = false;
 		}
 	}
+
+	function confirmCleanup() {
+		cleanupFormElement?.requestSubmit();
+	}
+
+	const enhanceCleanup: SubmitFunction = () => {
+		cleanupSubmitting = true;
+		return async ({ result, update }) => {
+			await update({ reset: false });
+			cleanupSubmitting = false;
+			if (result.type === 'success') {
+				cleanupConfirmOpen = false;
+				toastMessage = getActionMessage(result.data, 'Expired guest bags cleaned.');
+				toastType = 'success';
+			} else {
+				const resultData = result.type === 'failure' ? result.data : undefined;
+				toastMessage = getActionMessage(resultData, 'Expired bags could not be cleaned.');
+				toastType = 'error';
+			}
+		};
+	};
 </script>
 
 <svelte:head>
@@ -106,10 +144,45 @@
 	/>
 </svelte:head>
 
+{#if toastMessage}
+	<AdminToast message={toastMessage} type={toastType} onclose={() => (toastMessage = null)} />
+{/if}
+
+<form
+	bind:this={cleanupFormElement}
+	method="POST"
+	action="?/deleteExpired"
+	use:enhance={enhanceCleanup}
+	class="hidden"
+>
+	<input type="hidden" name="limit" value="100" />
+</form>
+
 <AdminListLayout
 	title="Bag"
 	kicker="Services"
 	loading={false}
+	metrics={[
+		{ label: 'Total Bags', value: data.summary.total },
+		{ label: 'Active Bags', value: data.summary.active, tone: 'success' },
+		{
+			label: 'Expired Bags',
+			value: data.summary.expired,
+			tone: data.summary.expired > 0 ? 'warning' : 'neutral'
+		},
+		{ label: 'Bag Units', value: data.summary.totalItems },
+		{
+			label: 'Active Checkouts',
+			value: data.summary.activeCheckouts,
+			description: `${data.summary.reservedItems} units reserved`,
+			tone: 'info'
+		},
+		{
+			label: 'Bag Value',
+			value: formatAdminMoney(data.summary.totalSubtotal),
+			tone: 'accent'
+		}
+	]}
 	query={data.filters.userId}
 	bind:showFilters
 	{hasActiveFilters}
@@ -128,91 +201,25 @@
 	items={data.bags.items}
 	onclearfilters={clearFilters}
 	searchPlaceholder="Search user ID..."
+	searchParamName="userId"
 >
-	{#snippet statsSnippet()}
-		<div class="mt-8 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-6">
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p
-					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
-				>
-					Total Bags
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
-					{data.summary.total}
-				</p>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p
-					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
-				>
-					Active Bags
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
-					{data.summary.active}
-				</p>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p
-					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
-				>
-					Expired Bags
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-bone uppercase sm:text-4xl">
-					{data.summary.expired}
-				</p>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p
-					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
-				>
-					Bag Units
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-sky-400 uppercase sm:text-4xl">
-					{data.summary.totalItems}
-				</p>
-			</AdminCard>
-			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<p
-					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
-				>
-					Active Checkouts
-				</p>
-				<p class="mt-2 font-display text-3xl leading-none text-volt uppercase sm:text-4xl">
-					{data.summary.activeCheckouts}
-				</p>
-				<p class="mt-1 font-mono text-[8px] text-ash/60 uppercase">
-					{data.summary.reservedItems} units reserved
-				</p>
-			</AdminCard>
-			<AdminCard class="col-span-2 min-w-0 lg:col-span-1" padding="p-3 sm:p-5">
-				<p
-					class="truncate font-mono text-[8px] tracking-[0.08em] text-ash uppercase sm:text-[9px] sm:tracking-[0.2em]"
-				>
-					Bag Value
-				</p>
-				<p class="mt-2 font-display text-2xl leading-none text-emerald-400 uppercase sm:text-3xl">
-					LKR {data.summary.totalSubtotal.toLocaleString()}
-				</p>
-			</AdminCard>
-		</div>
-	{/snippet}
-
 	{#snippet headerActions()}
-		<div class="flex flex-col gap-3 md:flex-row md:items-center">
-			<form method="POST" action="?/deleteExpired" class="flex">
-				<input type="hidden" name="limit" value="100" />
-				<button
-					type="submit"
-					class="border border-rose-500/30 bg-rose-500/5 px-4 py-2 font-mono text-[9px] font-bold tracking-widest text-rose-400 uppercase transition-colors hover:bg-rose-500/10"
-				>
-					Clean Expired Guest Bags
-				</button>
-			</form>
-		</div>
+		<AdminActionToolbar
+			ariaLabel="Bag maintenance actions"
+			menuItems={[
+				{
+					label: 'Clean expired guest bags',
+					description: 'Delete up to 100 expired anonymous bags.',
+					icon: Trash2,
+					tone: 'danger',
+					onselect: () => (cleanupConfirmOpen = true)
+				}
+			]}
+		/>
 	{/snippet}
 
 	{#snippet advancedFilters()}
-		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+		<AdminFilterBar cols={3}>
 			<AdminSelect
 				label="Include Expired Bags"
 				name="includeExpired"
@@ -258,13 +265,13 @@
 					if (form) form.requestSubmit();
 				}}
 			/>
-		</div>
+		</AdminFilterBar>
 	{/snippet}
 
 	{#snippet card(bag: AdminBagDTO)}
 		{@const isExpired = bag.expiresAt && new Date(bag.expiresAt) <= new Date()}
-		<article class="min-w-0 border border-charcoal bg-void p-3 sm:p-4">
-			<div class="flex flex-col gap-3">
+		<AdminEntityCard>
+			{#snippet header()}
 				<div class="flex items-start justify-between gap-2">
 					<div class="min-w-0">
 						<div class="flex items-center gap-2">
@@ -284,52 +291,43 @@
 					</div>
 					<div class="flex shrink-0 flex-col items-end gap-1">
 						{#if isExpired}
-							<span
-								class="border border-rose-500/30 bg-rose-500/5 px-2 py-0.5 font-mono text-[8px] tracking-widest text-rose-400 uppercase"
-							>
-								Expired
-							</span>
+							<AdminBadge variant="danger" size="xs">Expired</AdminBadge>
 						{:else if bag.expiresAt}
-							<span
-								class="border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 font-mono text-[8px] tracking-widest text-amber-400 uppercase"
-							>
-								Active
-							</span>
+							<AdminBadge variant="warning" size="xs">Active</AdminBadge>
 						{:else}
-							<span
-								class="border border-charcoal bg-void px-2 py-0.5 font-mono text-[8px] tracking-widest text-ash/60 uppercase"
-							>
-								No Expiry
-							</span>
+							<AdminBadge variant="neutral" size="xs">No Expiry</AdminBadge>
 						{/if}
 					</div>
 				</div>
+			{/snippet}
 
-				<div class="font-mono text-[10px] text-ash">
-					<p>Items: <span class="text-bone">{bag.itemCount}</span></p>
-					<p class="mt-1">
-						Checkout:
-						<span class={bag.checkoutStatus === 'active' ? 'text-volt' : 'text-ash/60'}>
-							{bag.checkoutStatus}
-						</span>
-					</p>
-					<p class="mt-1">
-						Subtotal: <span class="text-bone">LKR {bag.subtotal.toLocaleString()}</span>
-					</p>
-					<p class="mt-1 text-[9px] text-ash/60">Updated: {formatDate(bag.updatedAt)}</p>
-				</div>
+			{#snippet metadata()}
+				<AdminMetaGrid>
+					<div>
+						<p class="text-ash/60">Items</p>
+						<p class="mt-0.5 text-bone">{bag.itemCount}</p>
+					</div>
+					<div>
+						<p class="text-ash/60">Checkout</p>
+						<p class="mt-0.5 text-bone capitalize">{formatAdminStatus(bag.checkoutStatus)}</p>
+					</div>
+					<div>
+						<p class="text-ash/60">Subtotal</p>
+						<p class="mt-0.5 text-bone">{formatAdminMoney(bag.subtotal)}</p>
+					</div>
+					<div>
+						<p class="text-ash/60">Updated</p>
+						<p class="mt-0.5 text-bone">{formatAdminDateTime(bag.updatedAt, '—')}</p>
+					</div>
+				</AdminMetaGrid>
+			{/snippet}
 
-				<div class="mt-2 flex justify-end border-t border-charcoal pt-3">
-					<button
-						type="button"
-						onclick={() => openDetails(bag)}
-						class="border border-ash/30 px-2 py-1 font-mono text-[9px] tracking-wider text-ash uppercase hover:border-volt hover:text-volt"
-					>
-						View Details
-					</button>
-				</div>
-			</div>
-		</article>
+			{#snippet actions()}
+				<AdminButton type="button" variant="outline" size="sm" onclick={() => openDetails(bag)}>
+					<Eye size={14} /> View Details
+				</AdminButton>
+			{/snippet}
+		</AdminEntityCard>
 	{/snippet}
 
 	{#snippet row(bag: AdminBagDTO)}
@@ -367,91 +365,51 @@
 
 			<!-- Subtotal -->
 			<td class="px-5 py-4 font-mono text-xs text-bone">
-				LKR {bag.subtotal.toLocaleString()}
+				{formatAdminMoney(bag.subtotal)}
 			</td>
 
 			<!-- Expiry Badge -->
 			<td class="px-5 py-4">
 				{#if isExpired}
-					<span
-						class="border border-rose-500/30 bg-rose-500/5 px-2 py-0.5 font-mono text-[9px] tracking-widest text-rose-400 uppercase"
-					>
-						Expired
-					</span>
+					<AdminBadge variant="danger" size="xs">Expired</AdminBadge>
 				{:else if bag.expiresAt}
-					<span
-						class="border border-amber-500/30 bg-amber-500/5 px-2 py-0.5 font-mono text-[9px] tracking-widest text-amber-400 uppercase"
-					>
-						Expires {formatDate(bag.expiresAt)}
+					<span class="font-mono text-[10px] text-amber-400">
+						Expires {formatAdminDateTime(bag.expiresAt, '—')}
 					</span>
 				{:else}
-					<span
-						class="border border-charcoal bg-void px-2 py-0.5 font-mono text-[9px] tracking-widest text-ash/60 uppercase"
-					>
-						No Expiry
-					</span>
+					<AdminBadge variant="neutral" size="xs">No Expiry</AdminBadge>
 				{/if}
 			</td>
 
 			<!-- Updated At -->
 			<td class="px-5 py-4 font-mono text-[10px] text-ash">
-				{formatDate(bag.updatedAt)}
+				{formatAdminDateTime(bag.updatedAt, '—')}
 			</td>
 
 			<!-- Actions -->
 			<td class="px-5 py-4 text-right">
-				<button
-					type="button"
-					onclick={() => openDetails(bag)}
-					class="inline-flex items-center gap-1.5 border border-ash/30 px-2.5 py-1.5 font-mono text-[9px] tracking-widest text-ash uppercase transition-colors hover:border-volt hover:text-volt"
-				>
+				<AdminButton type="button" variant="outline" size="sm" onclick={() => openDetails(bag)}>
 					<Eye size={10} /> View Details
-				</button>
+				</AdminButton>
 			</td>
 		</tr>
 	{/snippet}
 
 	{#snippet emptyState()}
-		<p class="font-display text-4xl text-bone uppercase">No items found</p>
-		<p class="mt-2 font-mono text-[10px] tracking-widest text-ash uppercase">
-			Adjust filters or query parameters.
-		</p>
+		<AdminEmptyState title="No bags found" description="Adjust filters or query parameters." />
 	{/snippet}
 </AdminListLayout>
 
-<!-- TECHNICAL DETAIL SLIDE-OVER DRAWER -->
-{#if detailOpen && selectedBag}
-	<button
-		type="button"
-		class="fixed inset-0 z-90 bg-void/70 backdrop-blur-sm transition-opacity"
-		onclick={closeDetails}
-		aria-label="Close bag details"
-		transition:fade={{ duration: 150 }}
-	></button>
-
-	<div
-		class="fixed inset-y-0 right-0 z-100 w-full max-w-2xl overflow-y-auto border-l border-charcoal bg-void p-6 shadow-2xl"
-		transition:scale={{ duration: 150, start: 0.98, opacity: 0 }}
-	>
-		<!-- Detail view header -->
-		<div class="mb-6 flex items-center justify-between border-b border-charcoal pb-4">
-			<div>
-				<p class="mb-0.5 font-mono text-[9px] tracking-[0.2em] text-volt uppercase">Bag Detail</p>
-				<h2 class="max-w-md truncate font-mono text-sm font-bold text-bone">
-					ID: {selectedBag.id}
-				</h2>
-			</div>
-			<button
-				type="button"
-				class="p-1 text-ash transition-colors hover:text-bone"
-				onclick={closeDetails}
-				aria-label="Close details"
-			>
-				<X size={18} />
-			</button>
-		</div>
-
-		<!-- Main details Split Grid: Visual Mockup on top, Stats below -->
+<AdminDrawer
+	bind:open={detailOpen}
+	title="Bag Detail"
+	description="Inspect bag contents, checkout state, and ownership metadata."
+	onOpenChange={(open) => {
+		if (!open) closeDetails();
+	}}
+>
+	{#if selectedBag}
+		<p class="mb-5 font-mono text-[10px] break-all text-ash">ID: {selectedBag.id}</p>
 		<div class="space-y-6">
 			<!-- Bag Items List -->
 			<div>
@@ -504,52 +462,57 @@
 									<div class="mt-2 flex flex-wrap gap-2">
 										{#if item.priceChanged}
 											<span
-												class="inline-flex items-center gap-1 border border-volt/30 bg-volt/5 px-1.5 py-0.5 font-mono text-[8px] font-bold tracking-wider text-volt uppercase"
 												title="Price has changed since this item was added to the bag. Price locked at LKR {item.unitPrice}."
 											>
-												<FileWarning size={10} /> Price Locked
+												<AdminBadge variant="accent" size="xs" class="gap-1">
+													<FileWarning size={10} /> Price Locked
+												</AdminBadge>
 											</span>
 										{/if}
 										{#if item.availabilityStatus === 'available'}
-											<span
-												class="inline-flex items-center border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-emerald-400 uppercase"
+											<AdminBadge
+												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
+												size="xs"
 											>
 												In Stock
-											</span>
+											</AdminBadge>
 										{:else if item.availabilityStatus === 'backorder'}
-											<span
-												class="inline-flex items-center border border-amber-500/30 bg-amber-500/5 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-amber-400 uppercase"
+											<AdminBadge
+												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
+												size="xs"
 											>
 												Backorder
-											</span>
+											</AdminBadge>
 										{:else if item.availabilityStatus === 'untracked'}
-											<span
-												class="inline-flex items-center border border-charcoal bg-void px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-ash/60 uppercase"
+											<AdminBadge
+												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
+												size="xs"
 											>
 												Untracked
-											</span>
+											</AdminBadge>
 										{:else}
-											<span
-												class="inline-flex items-center border border-rose-500/30 bg-rose-500/5 px-1.5 py-0.5 font-mono text-[8px] tracking-wider text-rose-400 uppercase"
+											<AdminBadge
+												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
+												size="xs"
 											>
 												Unavailable
-											</span>
+											</AdminBadge>
 										{/if}
 									</div>
 								</div>
 
 								<!-- Prices right-aligned -->
 								<div class="text-right font-mono text-xs">
-									<div class="font-medium text-bone">LKR {item.lineTotal.toLocaleString()}</div>
+									<div class="font-medium text-bone">{formatAdminMoney(item.lineTotal)}</div>
 									<div class="mt-0.5 text-[9px] text-ash/60">
-										LKR {item.unitPrice.toLocaleString()} ea
+										{formatAdminMoney(item.unitPrice)} ea
 									</div>
 									{#if item.priceChanged && item.currentUnitPrice}
 										<div
 											class="mt-1 text-[8px] text-volt line-through"
 											title="Current catalog price"
 										>
-											LKR {item.currentUnitPrice.toLocaleString()}
+											{formatAdminMoney(item.currentUnitPrice)}
 										</div>
 									{/if}
 								</div>
@@ -570,51 +533,43 @@
 			<div class="space-y-2 rounded-lg border border-charcoal bg-charcoal/15 p-4 font-mono text-xs">
 				<div class="flex justify-between text-ash">
 					<span>Bag Subtotal:</span>
-					<span class="text-bone">LKR {selectedBag.subtotal.toLocaleString()}</span>
+					<span class="text-bone">{formatAdminMoney(selectedBag.subtotal)}</span>
 				</div>
 				{#if selectedBag.discountAmount > 0}
 					<div class="flex justify-between text-rose-400">
 						<span>Promo Code Discount:</span>
-						<span>- LKR {selectedBag.discountAmount.toLocaleString()}</span>
+						<span>- {formatAdminMoney(selectedBag.discountAmount)}</span>
 					</div>
 				{/if}
 				<div class="flex justify-between border-t border-charcoal pt-2 text-sm font-bold text-bone">
 					<span>Total Value:</span>
-					<span class="text-volt">LKR {selectedBag.totalBeforeShipping.toLocaleString()}</span>
+					<span class="text-volt">{formatAdminMoney(selectedBag.totalBeforeShipping)}</span>
 				</div>
 			</div>
 
-			<!-- Quick info stats grid -->
-			<div class="grid grid-cols-2 gap-3">
-				<div class="border border-charcoal bg-charcoal/10 p-3">
-					<span class="block font-mono text-[8px] text-ash/50 uppercase">Owner Type</span>
-					<span class="mt-1 block font-mono text-xs font-bold text-bone uppercase">
-						{#if selectedBag.ownerType === 'user'}
-							<span class="text-volt">User Bag</span>
-						{:else}
-							<span class="text-sky-400">Guest Bag</span>
-						{/if}
-					</span>
+			<AdminMetaGrid>
+				<div>
+					<p class="text-ash/60">Owner Type</p>
+					<p class="mt-0.5 text-bone capitalize">{selectedBag.ownerType} bag</p>
 				</div>
-				<div class="border border-charcoal bg-charcoal/10 p-3">
-					<span class="block font-mono text-[8px] text-ash/50 uppercase">Promo Code Applied</span>
-					<span class="mt-1 block truncate font-mono text-xs text-bone"
-						>{selectedBag.promoCodeId || 'None'}</span
-					>
+				<div>
+					<p class="text-ash/60">Promo Code</p>
+					<p class="mt-0.5 truncate text-bone">{selectedBag.promoCodeId || 'None'}</p>
 				</div>
-				<div class="border border-charcoal bg-charcoal/10 p-3">
-					<span class="block font-mono text-[8px] text-ash/50 uppercase">Items Count</span>
-					<span class="mt-1 block font-mono text-xs text-bone">{selectedBag.itemCount} items</span>
+				<div>
+					<p class="text-ash/60">Items</p>
+					<p class="mt-0.5 text-bone">{selectedBag.itemCount}</p>
 				</div>
-				<div class="border border-charcoal bg-charcoal/10 p-3">
-					<span class="block font-mono text-[8px] text-ash/50 uppercase">Session / Identifier</span>
-					<span
-						class="mt-1 block truncate font-mono text-[10px] text-bone"
+				<div>
+					<p class="text-ash/60">Session / Identifier</p>
+					<p
+						class="mt-0.5 truncate text-bone"
 						title={selectedBag.userId ?? selectedBag.sessionToken}
-						>{selectedBag.userId ?? selectedBag.sessionToken ?? '—'}</span
 					>
+						{selectedBag.userId ?? selectedBag.sessionToken ?? '—'}
+					</p>
 				</div>
-			</div>
+			</AdminMetaGrid>
 
 			<!-- Expiry and locking block -->
 			{#if selectedBag.expiresAt}
@@ -627,8 +582,8 @@
 							Expiry Date & Stock Retention
 						</p>
 						<p class="mt-1 font-mono text-[10px] leading-relaxed text-amber-200/80">
-							This guest bag expires on {formatDate(selectedBag.expiresAt)}. Bag expiry removes the
-							saved guest bag.
+							This guest bag expires on {formatAdminDateTime(selectedBag.expiresAt, '—')}. Bag
+							expiry removes the saved guest bag.
 						</p>
 					</div>
 				</div>
@@ -653,7 +608,7 @@
 					<p class="mt-1 font-mono text-[10px] leading-relaxed text-ash">
 						Status: {selectedBag.checkoutStatus}.
 						{#if selectedBag.checkoutExpiresAt}
-							Stock hold deadline: {formatDate(selectedBag.checkoutExpiresAt)}.
+							Stock hold deadline: {formatAdminDateTime(selectedBag.checkoutExpiresAt, '—')}.
 						{:else}
 							No stock is reserved for this bag.
 						{/if}
@@ -661,48 +616,45 @@
 				</div>
 			</div>
 
-			<!-- Copyable Raw JSON Payload block -->
-			<div>
-				<div class="mb-2 flex items-center justify-between">
-					<p class="font-mono text-[9px] tracking-[0.2em] text-ash/50 uppercase">
-						Raw JSON Bag Data
-					</p>
-					<button
-						type="button"
-						onclick={() => {
-							navigator.clipboard.writeText(JSON.stringify(selectedBag, null, 2));
-						}}
-						class="font-mono text-[8px] text-volt uppercase hover:underline"
-					>
-						Copy Raw Data
-					</button>
-				</div>
-				<pre
-					class="max-h-60 overflow-y-auto border border-charcoal bg-void p-4 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-ash/80">{JSON.stringify(
-						selectedBag,
-						null,
-						2
-					)}</pre>
-			</div>
+			<AdminJsonViewer value={selectedBag} label="Raw bag data" copyLabel="Copy raw data" />
 
 			<!-- Actions block (Delete Bag) -->
-			<div class="flex items-center justify-between gap-4 border-t border-charcoal pt-4">
+			<div
+				class="grid gap-3 border-t border-charcoal pt-4 sm:flex sm:items-center sm:justify-between"
+			>
 				<div class="flex items-center gap-2 font-mono text-[9px] text-ash">
 					<Info size={12} class="text-rose-400" />
 					<span>Deleting releases inventory blocks immediately.</span>
 				</div>
 
-				<form onsubmit={handleDeleteBag}>
-					<button
-						type="submit"
-						disabled={deletionSubmitting}
-						class="flex items-center gap-2 border border-rose-500/60 bg-rose-500/10 px-4 py-2 font-mono text-[10px] font-bold tracking-widest text-rose-400 uppercase transition-colors hover:bg-rose-500/25 disabled:opacity-50"
-					>
-						<Trash2 size={12} />
-						{deletionSubmitting ? 'Deleting...' : 'Delete Bag'}
-					</button>
-				</form>
+				<AdminButton
+					type="button"
+					variant="danger"
+					disabled={deletionSubmitting}
+					onclick={() => (deleteConfirmOpen = true)}
+				>
+					<Trash2 size={12} />
+					Delete Bag
+				</AdminButton>
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
+</AdminDrawer>
+
+<AdminConfirmDialog
+	bind:open={cleanupConfirmOpen}
+	title="Clean expired guest bags"
+	message="Delete up to 100 expired guest bags and release their reserved inventory?"
+	confirmLabel="Clean expired bags"
+	loading={cleanupSubmitting}
+	onconfirm={confirmCleanup}
+/>
+
+<AdminConfirmDialog
+	bind:open={deleteConfirmOpen}
+	title="Delete bag"
+	message="Permanently delete this bag, remove all items, and release reserved inventory?"
+	confirmLabel="Delete bag"
+	loading={deletionSubmitting}
+	onconfirm={handleDeleteBag}
+/>
