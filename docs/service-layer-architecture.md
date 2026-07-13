@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-07-07
+- **Status:** current as of 2026-07-13
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 ## Current State
@@ -29,14 +29,15 @@ Bag and checkout inventory lifecycle:
 - `startCheckout` validates the bag and reserves available stock in one transaction for 10 minutes.
 - When shoppers contend for the last stock, the first successful checkout reservation wins.
 - Later shoppers see a temporary checkout-hold status and countdown when active holds could satisfy their requested quantity.
-- Bag availability refreshes while items remain in the bag, including available-to-reserved, abandoned/expired-to-available, and completed-purchase-to-out-of-stock transitions.
-- The selected product-detail variant refreshes continuously and uses the same checkout-aware status and hold countdown as the bag.
+- Bag availability uses bounded visible-tab refreshes, stale-on-focus refreshes, and a projection refresh after a known hold deadline.
+- The selected product-detail variant is seeded by its server-rendered snapshot, then uses bounded visible-tab refreshes, failure backoff, stale-on-focus refreshes, and the same checkout-aware status and hold countdown as the bag. A deadline refresh removes the expired hold from the projection; bounded Cron releases authoritative reserved inventory within the following minute.
 - Re-entering an active checkout keeps its original deadline.
 - Navigating away from checkout without placing an order cancels the checkout and releases its reservation.
 - Any bag mutation cancels the active checkout and releases its reservation.
 - Checkout expiry releases reserved stock and clears only checkout timestamps; bag items remain.
 - Successful order placement transfers reservation references from bag items to order items before deleting the bag.
-- Cron expires due checkout holds every minute; bag reads also lazily release an expired hold.
+- Cron expires due checkout holds every minute; an owner bag read lazily releases only that bag's expired hold. Availability and bag-hydration projections never release other shoppers' reservations.
+- Storefront availability combines bounded read-only projections without opening a libSQL write transaction. A concurrent checkout can make one projection momentarily stale; checkout/order write transactions remain authoritative and revalidate stock.
 
 Customer account lifecycle:
 

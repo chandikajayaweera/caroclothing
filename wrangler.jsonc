@@ -19,7 +19,7 @@
 			"invocation_logs": true
 		},
 		"traces": {
-			"enabled": false
+			"enabled": true
 		}
 	},
 	"routes": [
@@ -115,7 +115,7 @@
 					"invocation_logs": true
 				},
 				"traces": {
-					"enabled": false
+					"enabled": true
 				}
 			},
 			"routes": [

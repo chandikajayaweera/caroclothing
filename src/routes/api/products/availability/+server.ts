@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { getStorefrontVariantAvailability } from '$lib/server/modules/bag';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
-export const GET: RequestHandler = async ({ locals, url }) => {
+export const GET: RequestHandler = async ({ url }) => {
 	const variantIds = [
 		...new Set(url.searchParams.getAll('variantId').map((id) => id.trim()))
 	].filter(Boolean);
@@ -11,13 +11,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		return json({ error: 'Provide between 1 and 20 variant IDs.' }, { status: 400 });
 	}
 
-	const actor = locals.user
-		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
-		: null;
-
 	try {
 		const availability = await getStorefrontVariantAvailability(
-			{ actor },
+			{ actor: null },
 			{
 				variantIds
 			}

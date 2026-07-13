@@ -5,11 +5,7 @@ import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/invent
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 import type { ProductDTO } from '$lib/server/modules/products/products.types';
 
-export const load: PageServerLoad = async ({ locals, setHeaders }) => {
-	setHeaders({
-		'cache-control': 'public, max-age=10, s-maxage=60, stale-while-revalidate=300'
-	});
-
+export const load: PageServerLoad = async ({ locals }) => {
 	const actor = locals.user
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;

@@ -3,13 +3,17 @@ import { building } from '$app/environment';
 import { getAuth } from '$lib/server/modules/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 
+const SESSIONLESS_ROUTE_IDS = new Set(['/api/products/availability']);
+
 export const AuthHook: Handle = async ({ event, resolve }) => {
 	if (building) {
 		return resolve(event);
 	}
 
 	const auth = getAuth();
-	const session = await auth.api.getSession({ headers: event.request.headers });
+	const session = SESSIONLESS_ROUTE_IDS.has(event.route.id ?? '')
+		? null
+		: await auth.api.getSession({ headers: event.request.headers });
 
 	if (session) {
 		event.locals.session = session.session;

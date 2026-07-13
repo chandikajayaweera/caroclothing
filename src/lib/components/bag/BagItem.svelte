@@ -1,32 +1,28 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import type { BagItemDTO } from '$lib/server/modules/bag/bag.types';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 
 	let { item }: { item: BagItemDTO } = $props();
 
 	let reservationSeconds = $state(0);
-	let reservationRefreshStarted = false;
 	let reservationTime = $derived(
 		`${Math.floor(reservationSeconds / 60)
 			.toString()
 			.padStart(2, '0')}:${(reservationSeconds % 60).toString().padStart(2, '0')}`
 	);
 
-	onMount(() => {
-		if (item.availabilityStatus !== 'reserved') return;
+	$effect(() => {
+		if (item.availabilityStatus !== 'reserved') {
+			reservationSeconds = 0;
+			return;
+		}
+
 		reservationSeconds = item.reservationSecondsRemaining ?? 0;
 		const countdown = setInterval(() => {
 			reservationSeconds = Math.max(0, reservationSeconds - 1);
-
-			if (reservationSeconds === 0 && !reservationRefreshStarted) {
-				reservationRefreshStarted = true;
-				void bag.refresh();
-			}
 		}, 1000);
-		return () => {
-			clearInterval(countdown);
-		};
+
+		return () => clearInterval(countdown);
 	});
 
 	const maxQuantityAvailable = $derived.by(() => {

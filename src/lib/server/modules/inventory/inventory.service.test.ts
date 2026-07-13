@@ -7,6 +7,7 @@ import {
 	getInventory,
 	getInventoryAvailabilityByVariantIds,
 	getInventorySummary,
+	getOutstandingReservedQuantitiesByReferenceIdsTx,
 	getOutstandingReservedQuantityTx,
 	initializeInventory,
 	listInventory,
@@ -451,6 +452,54 @@ describe('inventory service integration', () => {
 			const movements = await movementRows(variant.id);
 			expect(movements.map((row) => row.type)).toEqual(['reserved', 'released', 'released']);
 			expect(movements.map((row) => row.reservedQuantityDelta)).toEqual([3, -2, -1]);
+		});
+
+		it('loads outstanding reservation quantities for many references in one batch', async () => {
+			const first = await seedVariantForInventory({ productSlug: 'batch-reservation-first' });
+			const second = await seedVariantForInventory({ productSlug: 'batch-reservation-second' });
+			await seedInventory(db(), first.variant.id, { quantity: 5 });
+			await seedInventory(db(), second.variant.id, { quantity: 5 });
+
+			await db().transaction(async (tx) => {
+				await reserveInventoryTx(tx as InventoryTx, {
+					variantId: first.variant.id,
+					quantity: 3,
+					referenceId: 'batch-ref-a',
+					now
+				});
+				await reserveInventoryTx(tx as InventoryTx, {
+					variantId: second.variant.id,
+					quantity: 2,
+					referenceId: 'batch-ref-b',
+					now
+				});
+				await releaseInventoryReservationTx(tx as InventoryTx, {
+					variantId: first.variant.id,
+					quantity: 1,
+					referenceId: 'batch-ref-a',
+					now
+				});
+
+				const reservedByReferenceId = await getOutstandingReservedQuantitiesByReferenceIdsTx(
+					tx as InventoryTx,
+					[
+						{ variantId: first.variant.id, referenceId: 'batch-ref-a' },
+						{ variantId: first.variant.id, referenceId: 'batch-ref-a' },
+						{ variantId: second.variant.id, referenceId: 'batch-ref-b' },
+						...Array.from({ length: 401 }, (_, index) => ({
+							variantId: first.variant.id,
+							referenceId: `batch-ref-missing-${index}`
+						}))
+					]
+				);
+
+				expect(reservedByReferenceId.get('batch-ref-a')).toBe(2);
+				expect(reservedByReferenceId.get('batch-ref-b')).toBe(2);
+				expect(reservedByReferenceId.get('batch-ref-missing-400')).toBeUndefined();
+				expect(
+					await getOutstandingReservedQuantitiesByReferenceIdsTx(tx as InventoryTx, [])
+				).toEqual(new Map());
+			});
 		});
 
 		it('rejects insufficient stock unless backorder is enabled', async () => {

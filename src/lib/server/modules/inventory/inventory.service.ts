@@ -70,6 +70,7 @@ type InventoryListRow = {
 };
 
 const UNTRACKED_AVAILABLE_QUANTITY = 1_000_000;
+const RESERVATION_LOOKUP_BATCH_SIZE = 400;
 
 export async function getInventorySummary(ctx: ServiceContext): Promise<InventorySummaryDTO> {
 	requireAdmin(ctx.actor);
@@ -742,6 +743,73 @@ export async function getOutstandingReservedQuantityTx(
 		);
 
 	return Math.max(0, Number(row?.total ?? 0));
+}
+
+export async function getOutstandingReservedQuantitiesByReferenceIds(
+	inputs: OutstandingReservationInput[]
+): Promise<Map<string, number>> {
+	return loadOutstandingReservedQuantitiesByReferenceIds(getDb(), inputs);
+}
+
+export async function getOutstandingReservedQuantitiesByReferenceIdsTx(
+	tx: InventoryTx,
+	inputs: OutstandingReservationInput[]
+): Promise<Map<string, number>> {
+	return loadOutstandingReservedQuantitiesByReferenceIds(tx, inputs);
+}
+
+async function loadOutstandingReservedQuantitiesByReferenceIds(
+	tx: QueryExecutor,
+	inputs: OutstandingReservationInput[]
+): Promise<Map<string, number>> {
+	if (inputs.length === 0) return new Map();
+
+	const normalizedInputs = inputs.map((input) => ({
+		variantId: normalizeId(input.variantId, 'variantId'),
+		referenceId: normalizeId(input.referenceId, 'referenceId')
+	}));
+	const uniqueInputs = [
+		...new Map(
+			normalizedInputs.map((input) => [`${input.variantId}\u0000${input.referenceId}`, input])
+		).values()
+	];
+	const quantitiesByReferenceId = new Map<string, number>();
+
+	for (let offset = 0; offset < uniqueInputs.length; offset += RESERVATION_LOOKUP_BATCH_SIZE) {
+		const batch = uniqueInputs.slice(offset, offset + RESERVATION_LOOKUP_BATCH_SIZE);
+		const variantIds = uniqueStrings(batch.map((input) => input.variantId));
+		const referenceIds = uniqueStrings(batch.map((input) => input.referenceId));
+		const requestedPairs = new Set(
+			batch.map((input) => `${input.variantId}\u0000${input.referenceId}`)
+		);
+		const rows = await tx
+			.select({
+				variantId: inventoryMovement.variantId,
+				referenceId: inventoryMovement.referenceId,
+				total: sql<number>`coalesce(sum(${inventoryMovement.reservedQuantityDelta}), 0)`
+			})
+			.from(inventoryMovement)
+			.where(
+				and(
+					inArray(inventoryMovement.variantId, variantIds),
+					inArray(inventoryMovement.referenceId, referenceIds)
+				)
+			)
+			.groupBy(inventoryMovement.variantId, inventoryMovement.referenceId);
+
+		for (const row of rows) {
+			if (!row.referenceId || !requestedPairs.has(`${row.variantId}\u0000${row.referenceId}`)) {
+				continue;
+			}
+
+			quantitiesByReferenceId.set(
+				row.referenceId,
+				(quantitiesByReferenceId.get(row.referenceId) ?? 0) + Math.max(0, Number(row.total ?? 0))
+			);
+		}
+	}
+
+	return quantitiesByReferenceId;
 }
 
 async function getSoldQuantityTx(

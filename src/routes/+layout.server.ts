@@ -1,5 +1,4 @@
 import type { LayoutServerLoad } from './$types';
-import { dev } from '$app/environment';
 import { getBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
 import { listWishlist } from '$lib/server/modules/wishlist';
 import {
@@ -7,7 +6,6 @@ import {
 	withTransientDatabaseRetry
 } from '$lib/server/infrastructure/errors/transient-database';
 import { isAppError } from '$lib/server/infrastructure/errors';
-import { nanoid } from 'nanoid';
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -20,7 +18,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 
 	const ctx = { actor };
 
-	let sessionToken = cookies.get('bag_session_token');
+	const sessionToken = cookies.get('bag_session_token');
 
 	if (actor) {
 		if (sessionToken) {
@@ -48,17 +46,7 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 			wishlistProductIds
 		};
 	} else {
-		if (!sessionToken) {
-			sessionToken = nanoid(32);
-			cookies.set('bag_session_token', sessionToken, {
-				path: '/',
-				maxAge: 7 * 24 * 60 * 60, // 7 days
-				httpOnly: true,
-				sameSite: 'lax',
-				secure: !dev
-			});
-		}
-		const bag = await loadGlobalBag(ctx, { sessionToken });
+		const bag = sessionToken ? await loadGlobalBag(ctx, { sessionToken }) : null;
 		return {
 			user: null,
 			session: null,

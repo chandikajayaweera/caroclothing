@@ -355,7 +355,7 @@
 				if (!response.ok) {
 					throw new Error(`Checkout cancellation failed: ${response.status}`);
 				}
-				bag.setBag(await response.json());
+				bag.applyMutationResult(await response.json());
 			})
 			.catch((error) => {
 				console.error('[checkout] Failed to release checkout reservation:', error);

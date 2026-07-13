@@ -1,5 +1,7 @@
 import type { PageServerLoad, Actions } from './$types';
+import { dev } from '$app/environment';
 import { fail, redirect } from '@sveltejs/kit';
+import { nanoid } from 'nanoid';
 import { getProduct, listProducts, type ProductDTO } from '$lib/server/modules/products';
 import {
 	createReview,
@@ -170,7 +172,7 @@ export const actions: Actions = {
 			? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 			: null;
 		const ctx = { actor };
-		const sessionToken = cookies.get('bag_session_token');
+		let sessionToken = cookies.get('bag_session_token');
 		const formData = await request.formData();
 		const result = addBagItemFormSchema.safeParse(Object.fromEntries(formData));
 
@@ -181,8 +183,20 @@ export const actions: Actions = {
 			});
 		}
 
+		const shouldSetSessionCookie = !actor && !sessionToken;
+		if (shouldSetSessionCookie) sessionToken = nanoid(32);
+
 		try {
 			const bag = await addItemToBag(ctx, { sessionToken, ...result.data });
+			if (shouldSetSessionCookie && sessionToken) {
+				cookies.set('bag_session_token', sessionToken, {
+					path: '/',
+					maxAge: 7 * 24 * 60 * 60,
+					httpOnly: true,
+					sameSite: 'lax',
+					secure: !dev
+				});
+			}
 			return { success: true, bag };
 		} catch (error) {
 			return failFromAppError(error);

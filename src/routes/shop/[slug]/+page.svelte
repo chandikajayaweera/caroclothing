@@ -55,6 +55,8 @@
 	let addedToBag = $state(false);
 	let addToBagError = $state('');
 	let availability = $derived(data.availability);
+	const initialAvailabilitySyncedAt = Date.now();
+	let availabilitySyncedAtByVariantId = $state<Record<string, number>>({});
 
 	let quantitySelected = $state(1);
 
@@ -251,6 +253,10 @@
 			index === -1
 				? [...availability, updated]
 				: [...availability.slice(0, index), updated, ...availability.slice(index + 1)];
+		availabilitySyncedAtByVariantId = {
+			...availabilitySyncedAtByVariantId,
+			[updated.variantId]: Date.now()
+		};
 	}
 
 	const enhanceAddToBag: SubmitFunction = () => {
@@ -263,7 +269,7 @@
 				const resultData = result.data as
 					| { bag?: Parameters<typeof bag.setBag>[0]; message?: string }
 					| undefined;
-				if (resultData?.bag) bag.setBag(resultData.bag);
+				if (resultData?.bag) bag.applyMutationResult(resultData.bag);
 				addedToBag = true;
 				openBagDrawer();
 				setTimeout(() => {
@@ -400,6 +406,9 @@
 					{#key activeVariant.id}
 						<ProductVariantAvailabilitySync
 							variantId={activeVariant.id}
+							availability={activeVariantAvailability ?? null}
+							snapshotSyncedAt={availabilitySyncedAtByVariantId[activeVariant.id] ??
+								initialAvailabilitySyncedAt}
 							onAvailability={updateVariantAvailability}
 						/>
 					{/key}

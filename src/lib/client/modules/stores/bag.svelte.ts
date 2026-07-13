@@ -1,4 +1,5 @@
 import type { BagDTO, BagItemDTO } from '$lib/server/modules/bag/bag.types';
+import { isRefreshStale, shouldApplySnapshot } from '../availability-refresh';
 
 class BagState {
 	id = $state<string>('');
@@ -40,9 +41,11 @@ class BagState {
 	);
 	totalBeforeShipping = $derived(Math.max(0, this.subtotal - this.effectiveDiscountAmount));
 
-	private refreshRequest: Promise<void> | null = null;
+	private refreshRequest: Promise<boolean> | null = null;
+	private lastSyncedAt: number | null = null;
 	private mutationVersion = 0;
 	private pendingMutations = 0;
+	private needsRefreshAfterMutations = false;
 
 	private prevPromoCode: string | null = null;
 	private prevPromoWasActive = false;
@@ -50,6 +53,8 @@ class BagState {
 	// Per-item mutation & debounce state owned by store
 	private itemDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private itemRollbacks = new Map<string, number>();
+	private itemTargetQuantities = new Map<string, number>();
+	private itemMutationVersions = new Map<string, number>();
 
 	private checkPromoStatusTransitions() {
 		const currentCode = this.promoCode;
@@ -77,15 +82,33 @@ class BagState {
 		if (this.pendingMutations > 0) {
 			this.pendingMutations--;
 		}
+
+		if (this.pendingMutations === 0 && this.needsRefreshAfterMutations) {
+			this.needsRefreshAfterMutations = false;
+			const activeRefresh = this.refreshRequest;
+			if (activeRefresh) {
+				void activeRefresh.finally(() => {
+					if (this.pendingMutations === 0) {
+						void this.refresh();
+					} else {
+						this.needsRefreshAfterMutations = true;
+					}
+				});
+			} else {
+				void this.refresh();
+			}
+		}
 	}
 
-	setBag(bag: BagDTO | null, version?: number) {
-		if (version !== undefined && version < this.mutationVersion) {
-			return;
+	setBag(bag: BagDTO | null, version?: number): boolean {
+		if (version !== undefined && !shouldApplySnapshot(version, this.mutationVersion)) {
+			if (this.pendingMutations > 0) this.needsRefreshAfterMutations = true;
+			return false;
 		}
 		if (version === undefined && this.pendingMutations > 0) {
-			return;
+			return false;
 		}
+		this.lastSyncedAt = Date.now();
 		if (!bag) {
 			this.id = '';
 			this.items = [];
@@ -96,7 +119,7 @@ class BagState {
 			this.lastDiscountAmount = 0;
 			this.freeShippingThreshold = null;
 			this.checkPromoStatusTransitions();
-			return;
+			return true;
 		}
 		this.id = bag.id;
 		this.items = bag.items || [];
@@ -109,6 +132,19 @@ class BagState {
 		}
 		this.freeShippingThreshold = bag.freeShippingThreshold ?? null;
 		this.checkPromoStatusTransitions();
+		return true;
+	}
+
+	applyMutationResult(bag: BagDTO | null) {
+		const version = ++this.mutationVersion;
+		this.setBag(bag, version);
+	}
+
+	applyServerSnapshot(bag: BagDTO | null): boolean {
+		if (this.pendingMutations > 0) return false;
+
+		const version = ++this.mutationVersion;
+		return this.setBag(bag, version);
 	}
 
 	updateItemQuantityOptimistically(bagItemId: string, newQuantity: number) {
@@ -141,6 +177,7 @@ class BagState {
 
 		// Update display instantly
 		this.updateItemQuantityOptimistically(bagItemId, next);
+		this.itemTargetQuantities.set(bagItemId, next);
 
 		// If a debounce timer is already running for this item, clear it (keep mutation active)
 		const existingTimer = this.itemDebounceTimers.get(bagItemId);
@@ -148,17 +185,18 @@ class BagState {
 			clearTimeout(existingTimer);
 		} else {
 			// First click of a sequence -> start mutation
-			this.startMutation();
+			this.itemMutationVersions.set(bagItemId, this.startMutation());
 		}
 
 		const newTimer = setTimeout(async () => {
 			this.itemDebounceTimers.delete(bagItemId);
-			const targetItem = this.items.find((i) => i.id === bagItemId);
-			const quantityToSend = targetItem ? targetItem.quantity : next;
+			const quantityToSend = this.itemTargetQuantities.get(bagItemId) ?? next;
 			const rollbackQuantity = this.itemRollbacks.get(bagItemId) ?? existing.quantity;
 			this.itemRollbacks.delete(bagItemId);
+			this.itemTargetQuantities.delete(bagItemId);
 
-			const version = this.mutationVersion;
+			const version = this.itemMutationVersions.get(bagItemId) ?? this.mutationVersion;
+			this.itemMutationVersions.delete(bagItemId);
 
 			try {
 				const res = await fetch('/api/bag', {
@@ -190,6 +228,8 @@ class BagState {
 			clearTimeout(existingTimer);
 			this.itemDebounceTimers.delete(bagItemId);
 			this.itemRollbacks.delete(bagItemId);
+			this.itemTargetQuantities.delete(bagItemId);
+			this.itemMutationVersions.delete(bagItemId);
 			this.endMutation();
 		}
 
@@ -276,23 +316,28 @@ class BagState {
 		this.promoError = '';
 	}
 
-	async refresh() {
-		if (this.pendingMutations > 0) return;
+	async refresh(options: { minFreshMs?: number } = {}): Promise<boolean> {
+		if (this.pendingMutations > 0) return false;
+		if (options.minFreshMs && !isRefreshStale(this.lastSyncedAt, options.minFreshMs)) {
+			return true;
+		}
 		if (this.refreshRequest) return this.refreshRequest;
+		const snapshotVersion = this.mutationVersion;
 
 		this.refreshRequest = (async () => {
 			try {
 				const res = await fetch('/api/bag', { cache: 'no-store' });
-				if (res.ok) {
-					const bagData = (await res.json()) as
-						| (BagDTO & {
-								promoCodeId?: string | null;
-						  })
-						| null;
-					this.setBag(bagData);
-				}
+				if (!res.ok) return false;
+
+				const bagData = (await res.json()) as
+					| (BagDTO & {
+							promoCodeId?: string | null;
+					  })
+					| null;
+				return this.setBag(bagData, snapshotVersion);
 			} catch (err) {
 				console.error('[bag] Failed to refresh bag state:', err);
+				return false;
 			} finally {
 				this.refreshRequest = null;
 			}

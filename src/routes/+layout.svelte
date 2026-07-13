@@ -12,6 +12,12 @@
 	import { onNavigate } from '$app/navigation';
 	import { bag } from '$lib/client/modules/stores/bag.svelte';
 	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
+	import {
+		BAG_REFRESH_INTERVAL_MS,
+		RETURN_REFRESH_MIN_FRESH_MS,
+		getExpiryRefreshDelay,
+		getNextRefreshDelay
+	} from '$lib/client/modules/availability-refresh';
 
 	let { children, data } = $props();
 
@@ -21,7 +27,7 @@
 		const user = data?.user;
 
 		untrack(() => {
-			bag.setBag(bagData);
+			bag.applyServerSnapshot(bagData);
 			wishlist.setProductIds(wishlistProductIds);
 			if (user) {
 				wishlist.syncLocalWishlist();
@@ -29,21 +35,81 @@
 		});
 	});
 
+	$effect(() => {
+		if (isAppPathname(page.url.pathname)) return;
+
+		const expiryDelays = bag.items
+			.map((item) => getExpiryRefreshDelay(item.reservationExpiresAt))
+			.filter((delay): delay is number => delay !== null);
+		if (expiryDelays.length === 0) return;
+
+		const expiryTimer = setTimeout(
+			() => {
+				if (document.visibilityState === 'visible') {
+					void bag.refresh();
+				}
+			},
+			Math.min(...expiryDelays)
+		);
+
+		return () => clearTimeout(expiryTimer);
+	});
+
 	onMount(() => {
-		const refreshBagAvailability = () => {
-			if (document.visibilityState === 'visible' && bag.items.length > 0) {
-				void bag.refresh();
-			}
+		let pollTimer: ReturnType<typeof setTimeout> | null = null;
+		let returnRefreshRequest: Promise<void> | null = null;
+		let failureCount = 0;
+		let stopped = false;
+
+		const schedulePoll = () => {
+			if (pollTimer) clearTimeout(pollTimer);
+			pollTimer = setTimeout(
+				async () => {
+					if (stopped) return;
+					if (
+						!isAppPathname(page.url.pathname) &&
+						document.visibilityState === 'visible' &&
+						bag.items.length > 0
+					) {
+						const succeeded = await bag.refresh({ minFreshMs: BAG_REFRESH_INTERVAL_MS });
+						if (stopped) return;
+						failureCount = succeeded ? 0 : failureCount + 1;
+					}
+					if (stopped) return;
+					schedulePoll();
+				},
+				getNextRefreshDelay(BAG_REFRESH_INTERVAL_MS, failureCount)
+			);
 		};
-		const availabilityPoll = setInterval(refreshBagAvailability, 3000);
-		const initialTimer = setTimeout(refreshBagAvailability, 100);
-		window.addEventListener('focus', refreshBagAvailability);
-		document.addEventListener('visibilitychange', refreshBagAvailability);
+
+		const refreshAfterReturn = () => {
+			if (
+				returnRefreshRequest ||
+				isAppPathname(page.url.pathname) ||
+				document.visibilityState !== 'visible' ||
+				bag.items.length === 0
+			) {
+				return;
+			}
+
+			returnRefreshRequest = (async () => {
+				const succeeded = await bag.refresh({ minFreshMs: RETURN_REFRESH_MIN_FRESH_MS });
+				if (stopped) return;
+				failureCount = succeeded ? 0 : failureCount + 1;
+				schedulePoll();
+			})().finally(() => {
+				returnRefreshRequest = null;
+			});
+		};
+
+		schedulePoll();
+		window.addEventListener('focus', refreshAfterReturn);
+		document.addEventListener('visibilitychange', refreshAfterReturn);
 		return () => {
-			clearTimeout(initialTimer);
-			clearInterval(availabilityPoll);
-			window.removeEventListener('focus', refreshBagAvailability);
-			document.removeEventListener('visibilitychange', refreshBagAvailability);
+			stopped = true;
+			if (pollTimer) clearTimeout(pollTimer);
+			window.removeEventListener('focus', refreshAfterReturn);
+			document.removeEventListener('visibilitychange', refreshAfterReturn);
 		};
 	});
 

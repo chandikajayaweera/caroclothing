@@ -1,10 +1,22 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabaseHarness } from '../../../../tests/db';
 import { seedUser } from '../../../../tests/factories/auth';
 import { seedProduct, seedVariant, seedVariantColor } from '../../../../tests/factories/products';
+import { seedInventory } from '../../../../tests/factories/inventory';
 import { seedPromoCode } from '../../../../tests/factories/promotions';
-import { makeCustomerCtx } from '../../../../tests/context';
-import { addItemToBag, applyPromoCodeToBag, updateBagItemQuantity } from './bag.service';
+import { seedProductWithVariant } from '../../../../tests/scenarios/products';
+import { makeAdminCtx, makeCustomerCtx } from '../../../../tests/context';
+import { inventory, inventoryMovement } from '../inventory/inventory.drizzle';
+import { bag as bagTable } from './bag.drizzle';
+import {
+	addItemToBag,
+	applyPromoCodeToBag,
+	expireDueBagCheckouts,
+	getStorefrontVariantAvailability,
+	startCheckout,
+	updateBagItemQuantity
+} from './bag.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
 
@@ -24,7 +36,7 @@ function db() {
 	return harness.db;
 }
 
-describe('bag promo min order threshold service integration', () => {
+describe('bag service integration', () => {
 	beforeAll(async () => {
 		harness = await createTestDatabase();
 		dbState.db = harness.db;
@@ -82,5 +94,61 @@ describe('bag promo min order threshold service integration', () => {
 		expect(bag4.promoMinOrderAmount).toBe(10000);
 		expect(bag4.promoCodeId).not.toBeNull();
 		expect(bag4.discountAmount).toBe(1000);
+	});
+
+	it("does not release another shopper's expired checkout during availability reads", async () => {
+		const holder = await seedUser(db(), { id: 'checkout-holder' });
+		const observer = await seedUser(db(), { id: 'availability-observer' });
+		const { variant } = await seedProductWithVariant(db(), {
+			product: { slug: 'read-only-availability-product' }
+		});
+		await seedInventory(db(), variant.id, { quantity: 1, reservedQuantity: 0 });
+
+		const holderCtx = makeCustomerCtx(holder.id, { now });
+		await addItemToBag(holderCtx, { variantId: variant.id, quantity: 1, now });
+		const checkoutBag = await startCheckout(holderCtx, { now });
+		const expiredNow = new Date(now.getTime() + 10 * 60 * 1000 + 1);
+
+		const [availability] = await getStorefrontVariantAvailability(
+			makeCustomerCtx(observer.id, { now: expiredNow }),
+			{ variantIds: [variant.id], now: expiredNow }
+		);
+
+		expect(availability).toMatchObject({
+			variantId: variant.id,
+			reservedQuantity: 1,
+			availableQuantity: 0,
+			checkoutHeldQuantity: 0,
+			checkoutHoldExpiresAt: null,
+			availabilityStatus: 'unavailable'
+		});
+		await expect(
+			db().select().from(bagTable).where(eq(bagTable.id, checkoutBag.id)).get()
+		).resolves.toMatchObject({
+			checkoutStartedAt: now,
+			checkoutExpiresAt: new Date(now.getTime() + 10 * 60 * 1000)
+		});
+		await expect(
+			db().select().from(inventory).where(eq(inventory.variantId, variant.id)).get()
+		).resolves.toMatchObject({ reservedQuantity: 1 });
+		await expect(
+			db().select().from(inventoryMovement).where(eq(inventoryMovement.variantId, variant.id))
+		).resolves.toMatchObject([{ type: 'reserved', reservedQuantityDelta: 1 }]);
+
+		const cleanup = await expireDueBagCheckouts(makeAdminCtx({ now: expiredNow }), {
+			now: expiredNow
+		});
+
+		expect(cleanup).toMatchObject({
+			expiredCount: 1,
+			releasedQuantity: 1,
+			failedCount: 0
+		});
+		await expect(
+			db().select().from(bagTable).where(eq(bagTable.id, checkoutBag.id)).get()
+		).resolves.toMatchObject({ checkoutStartedAt: null, checkoutExpiresAt: null });
+		await expect(
+			db().select().from(inventory).where(eq(inventory.variantId, variant.id)).get()
+		).resolves.toMatchObject({ reservedQuantity: 0 });
 	});
 });

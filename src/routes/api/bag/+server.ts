@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { nanoid } from 'nanoid';
 import {
-	getOrCreateBag,
+	getBag,
 	addItemToBag,
 	updateBagItemQuantity,
 	removeBagItem,
@@ -20,21 +20,10 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;
 	const ctx = { actor };
-	let sessionToken = cookies.get('bag_session_token');
-
-	if (!actor && !sessionToken) {
-		sessionToken = nanoid(32);
-		cookies.set('bag_session_token', sessionToken, {
-			path: '/',
-			maxAge: 7 * 24 * 60 * 60, // 7 days
-			httpOnly: true,
-			sameSite: 'lax',
-			secure: !dev
-		});
-	}
+	const sessionToken = cookies.get('bag_session_token');
 
 	try {
-		const bag = await withTransientDatabaseRetry(() => getOrCreateBag(ctx, { sessionToken }));
+		const bag = await withTransientDatabaseRetry(() => getBag(ctx, { sessionToken }));
 		return json(bag, {
 			headers: {
 				'cache-control': 'no-store, max-age=0'

@@ -40,8 +40,10 @@ import { promoCode as promoCodeTable } from '../promotions/promotions.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
 import { validatePromoCodeForBagTx, type PromotionsTx } from '../promotions/promotions.service';
 import {
+	getInventoryAvailabilityByVariantIds,
 	getInventoryAvailabilityByVariantIdsTx,
-	getOutstandingReservedQuantityTx,
+	getOutstandingReservedQuantitiesByReferenceIds,
+	getOutstandingReservedQuantitiesByReferenceIdsTx,
 	releaseInventoryReservationTx,
 	reserveInventoryTx,
 	type InventoryTx
@@ -276,41 +278,36 @@ export async function getStorefrontVariantAvailability(
 	const now = resolveNow(ctx, input.now);
 	if (variantIds.length === 0) return [];
 
-	return getDb().transaction(async (tx) => {
-		await releaseExpiredCheckoutReservationsForVariantsTx(tx, variantIds, now);
+	const db = getDb();
+	const [inventoryRows, activeCheckoutHoldsByVariantId] = await Promise.all([
+		getInventoryAvailabilityByVariantIds(ctx, { variantIds }),
+		loadActiveCheckoutHoldsByVariantId(db, variantIds, now)
+	]);
 
-		const inventoryRows = await getInventoryAvailabilityByVariantIdsTx(tx, { variantIds });
-		const activeCheckoutHoldsByVariantId = await loadActiveCheckoutHoldsByVariantId(
-			tx,
-			variantIds,
-			now
-		);
+	return inventoryRows.map((inventoryRow) => {
+		const holds = activeCheckoutHoldsByVariantId.get(inventoryRow.variantId) ?? [];
+		const checkoutHeldQuantity = holds.reduce((total, hold) => total + hold.quantity, 0);
+		const checkoutHoldExpiresAt = holds[0]?.checkoutExpiresAt ?? null;
+		const availabilityStatus: BagItemAvailabilityStatus = !inventoryRow.trackInventory
+			? 'untracked'
+			: inventoryRow.availableQuantity > 0
+				? 'available'
+				: inventoryRow.allowBackorder
+					? 'backorder'
+					: checkoutHeldQuantity > 0
+						? 'reserved'
+						: 'unavailable';
 
-		return inventoryRows.map((inventoryRow) => {
-			const holds = activeCheckoutHoldsByVariantId.get(inventoryRow.variantId) ?? [];
-			const checkoutHeldQuantity = holds.reduce((total, hold) => total + hold.quantity, 0);
-			const checkoutHoldExpiresAt = holds[0]?.checkoutExpiresAt ?? null;
-			const availabilityStatus: BagItemAvailabilityStatus = !inventoryRow.trackInventory
-				? 'untracked'
-				: inventoryRow.availableQuantity > 0
-					? 'available'
-					: inventoryRow.allowBackorder
-						? 'backorder'
-						: checkoutHeldQuantity > 0
-							? 'reserved'
-							: 'unavailable';
-
-			return {
-				...inventoryRow,
-				availabilityStatus,
-				checkoutHeldQuantity,
-				checkoutHoldExpiresAt,
-				checkoutHoldSecondsRemaining:
-					checkoutHoldExpiresAt === null
-						? null
-						: Math.max(0, Math.ceil((checkoutHoldExpiresAt.getTime() - now.getTime()) / 1000))
-			};
-		});
+		return {
+			...inventoryRow,
+			availabilityStatus,
+			checkoutHeldQuantity,
+			checkoutHoldExpiresAt,
+			checkoutHoldSecondsRemaining:
+				checkoutHoldExpiresAt === null
+					? null
+					: Math.max(0, Math.ceil((checkoutHoldExpiresAt.getTime() - now.getTime()) / 1000))
+		};
 	});
 }
 
@@ -1273,9 +1270,6 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		.orderBy(asc(bagItemTable.addedAt));
 	const productIds = uniqueStrings(itemRows.map((item) => item.productId));
 	const variantIds = uniqueStrings(itemRows.map((item) => item.variantId));
-	const releasedBagIds = await releaseExpiredCheckoutReservationsForVariantsTx(tx, variantIds, now);
-	const currentRows =
-		releasedBagIds.size > 0 ? await reloadHydratedBagRowsTx(tx, rows, releasedBagIds) : rows;
 	const [productRows, variantRows, imageRows, inventoryRows] = await loadBagHydrationRelationsTx(
 		tx,
 		productIds,
@@ -1295,7 +1289,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 	);
 	const itemsByBagId = groupByBagId(itemRows);
 
-	const promoCodeIds = uniqueStrings(currentRows.map((row) => row.promoCodeId).filter(isString));
+	const promoCodeIds = uniqueStrings(rows.map((row) => row.promoCodeId).filter(isString));
 	const promoCodes =
 		promoCodeIds.length > 0
 			? await tx.select().from(promoCodeTable).where(inArray(promoCodeTable.id, promoCodeIds))
@@ -1318,7 +1312,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		}
 	}
 
-	return currentRows.map((row) => {
+	return rows.map((row) => {
 		const items = (itemsByBagId.get(row.id) ?? []).map((item) =>
 			toBagItemDTO({
 				item,
@@ -1397,50 +1391,8 @@ type HydratedBagVariant = ProductVariant & {
 	compareAtPrice: number | null;
 };
 
-async function releaseExpiredCheckoutReservationsForVariantsTx(
-	tx: Tx,
-	variantIds: string[],
-	now: Date
-): Promise<Set<string>> {
-	if (variantIds.length === 0) return new Set();
-
-	const dueRows = await tx
-		.select({ bag: bagTable })
-		.from(bagItemTable)
-		.innerJoin(bagTable, eq(bagItemTable.bagId, bagTable.id))
-		.where(
-			and(
-				inArray(bagItemTable.variantId, variantIds),
-				isNotNull(bagTable.checkoutStartedAt),
-				isNotNull(bagTable.checkoutExpiresAt),
-				lte(bagTable.checkoutExpiresAt, now)
-			)
-		)
-		.orderBy(asc(bagTable.checkoutExpiresAt), asc(bagTable.createdAt));
-	const uniqueRows = new Map(dueRows.map(({ bag }) => [bag.id, bag]));
-
-	for (const row of uniqueRows.values()) {
-		await releaseCheckoutReservationsTx(tx, row, now);
-	}
-
-	return new Set(uniqueRows.keys());
-}
-
-async function reloadHydratedBagRowsTx(
-	tx: Tx,
-	rows: Bag[],
-	releasedBagIds: Set<string>
-): Promise<Bag[]> {
-	const idsToReload = rows.map((row) => row.id).filter((id) => releasedBagIds.has(id));
-	if (idsToReload.length === 0) return rows;
-
-	const refreshedRows = await tx.select().from(bagTable).where(inArray(bagTable.id, idsToReload));
-	const refreshedById = new Map(refreshedRows.map((row) => [row.id, row]));
-	return rows.map((row) => refreshedById.get(row.id) ?? row);
-}
-
 async function loadActiveCheckoutHoldsByVariantId(
-	tx: Tx,
+	tx: QueryExecutor,
 	variantIds: string[],
 	now: Date
 ): Promise<Map<string, ActiveCheckoutHold[]>> {
@@ -1534,17 +1486,13 @@ async function loadReservedQuantitiesByItemId(
 	tx: Tx,
 	items: BagItem[]
 ): Promise<Map<string, number>> {
-	const reservedByItemId = new Map<string, number>();
-
-	for (const item of items) {
-		const reserved = await getOutstandingReservedQuantityTx(tx, {
+	return getOutstandingReservedQuantitiesByReferenceIdsTx(
+		tx,
+		items.map((item) => ({
 			variantId: item.variantId,
 			referenceId: item.id
-		});
-		reservedByItemId.set(item.id, reserved);
-	}
-
-	return reservedByItemId;
+		}))
+	);
 }
 
 function toBagItemDTO(input: {
@@ -2020,13 +1968,16 @@ export async function getBagSummary(
 					.from(bagItemTable)
 					.where(inArray(bagItemTable.bagId, activeCheckoutBagIds))
 			: [];
-	let reservedItems = 0;
-	for (const item of checkoutItems) {
-		reservedItems += await getOutstandingReservedQuantityTx(db, {
+	const reservedByItemId = await getOutstandingReservedQuantitiesByReferenceIds(
+		checkoutItems.map((item) => ({
 			variantId: item.variantId,
 			referenceId: item.id
-		});
-	}
+		}))
+	);
+	const reservedItems = [...reservedByItemId.values()].reduce(
+		(total, quantity) => total + quantity,
+		0
+	);
 
 	return {
 		total: Number(totalRow?.count ?? 0),
