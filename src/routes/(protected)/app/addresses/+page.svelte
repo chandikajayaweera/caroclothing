@@ -3,10 +3,10 @@
 	import { resolve } from '$app/paths';
 	import { MapPin, Calendar, Clock, ExternalLink } from 'lucide-svelte';
 	import type { PageData } from './$types';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminDrawer from '$lib/components/admin/overlays/AdminDrawer.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
@@ -15,7 +15,7 @@
 	import AdminCopyButton from '$lib/components/admin/data-display/AdminCopyButton.svelte';
 	import AdminErrorState from '$lib/components/admin/data-display/AdminErrorState.svelte';
 	import { formatAdminDateTime } from '$lib/shared/admin/format';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 
 	let { data }: { data: PageData } = $props();

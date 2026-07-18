@@ -1,23 +1,23 @@
 <script lang="ts">
-	import { authClient } from '$lib/client/modules/auth';
+	import { authClient } from '$lib/client/auth';
 	import {
 		getAuthErrorRetryAfterSeconds,
 		OTP_RATE_LIMITED_MESSAGE,
 		parseAuthError,
 		parseUnknownError
-	} from '$lib/client/modules/auth/utils';
+	} from '$lib/client/auth/utils';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onDestroy } from 'svelte';
 	import Button from '$lib/components/ui/Button.svelte';
-	import { getClientEnv } from '$lib/client/modules/env';
+	import { getClientEnv } from '$lib/client/env';
 	import {
 		MAX_DISPLAY_NAME_LENGTH,
 		MIN_DISPLAY_NAME_LENGTH,
 		isPhoneDerivedDisplayName,
 		isValidDisplayName
-	} from '$lib/shared/modules/auth-profile';
+	} from '$lib/shared/auth/profile';
 
 	type RedirectPath =
 		| '/'

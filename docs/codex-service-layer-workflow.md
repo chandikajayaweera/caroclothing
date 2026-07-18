@@ -10,6 +10,7 @@ Use the codebase as source of truth before planning. Required project guidance l
 
 ```txt
 AGENTS.md
+docs/library-architecture.md
 docs/service-layer-architecture.md
 docs/codex-service-layer-workflow.md
 .gemini/skills
@@ -38,7 +39,7 @@ reviews
 
 Bag stock rule: bag writes and `startCheckout` never reserve inventory. `startCheckout` opens a 10-minute validation window only. Quantity increases are rejected when the desired line quantity exceeds tracked available stock, while stale over-quantity lines hydrate as `insufficient` and remain reducible. Online checkout stores only a durable `payment_attempt` until the gateway verifies success. Verified capture revalidates the bag and, in one transaction, creates the order/payment, reserves then consumes inventory, deletes the bag, and enqueues confirmation intent. Failed, cancelled, or provider-setup attempts leave the bag intact and create no order or stock reservation. Availability and hydration reads remain projections and never mutate another shopper's inventory state.
 
-Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must release checkout inventory, remove profile-owned waitlist state, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
+Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must release checkout inventory, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
 
 Current server layers:
 
@@ -59,7 +60,7 @@ Foundation:
   src/lib/server/foundation/context.ts
   src/lib/server/foundation/guards.ts
   src/lib/server/foundation/utils.ts
-  src/lib/shared/modules/access-control.ts
+  src/lib/shared/auth/access-control.ts
 
 Orchestration:
   src/lib/server/orchestration/notifications
@@ -67,6 +68,8 @@ Orchestration:
 ```
 
 Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` unless the user explicitly asks for product, brand, marketing, or storefront strategy.
+
+Use `docs/library-architecture.md` as the authority for placement and dependency direction inside `src/lib`; this workflow remains the authority for service and route boundaries.
 
 ## Workflow
 
@@ -98,7 +101,8 @@ Ignore `docs/caro_brand_identity.html` and `docs/caro_marketing_strategy.html` u
 5. Integrate routes
    - Use `$caro-route-refactor`.
    - Use `$caro-svelte-route-builder` when creating new service-backed SvelteKit route files and bare Superforms page skeletons.
-   - Routes import service functions, form schemas, and route error adapters only.
+   - Routes import service functions, module form schemas and public types, type-only `ServiceContext`, route error adapters, and the Cloudflare notification wakeup adapter when notification-producing services need it.
+   - Pass `notificationWakeups` through `ServiceContext`; never pass a raw Queue binding into a domain service.
    - Business routes must not import db, Drizzle tables, Drizzle query helpers, or R2 primitives.
    - `src/routes/media/[...key]/+server.ts` is the media R2 exception.
    - For forms with `File` or `File[]`, use Superforms file handling, return files with validation/service errors, pass `ctx.event` to services, and keep R2 work inside services.
@@ -137,7 +141,7 @@ The admin edit-product workflow is a full-form service write owned by `updatePro
 
 ## Notification Workflow
 
-Use `$caro-notifications` for email/SMS senders, notification outbox, waitlist notification state, Queue/Cron/DLQ orchestration, or notification docs.
+Use `$caro-notifications` for email/SMS senders, notification outbox state, Queue/Cron/DLQ orchestration, or notification docs.
 
 Current notification facts:
 

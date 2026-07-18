@@ -4,6 +4,7 @@
 
 Before service-layer, route, notification, or Codex-guidance changes, read:
 
+- `docs/library-architecture.md`
 - `docs/service-layer-architecture.md`
 - `docs/codex-service-layer-workflow.md`
 - `docs/dev-notes.md`
@@ -18,7 +19,7 @@ Before service-layer, route, notification, or Codex-guidance changes, read:
   - `src/lib/server/infrastructure/media/r2.ts`
   - `src/lib/server/infrastructure/media/utils.ts`
   - `src/lib/server/infrastructure/env/index.ts`
-  - `src/lib/shared/modules/access-control.ts`
+  - `src/lib/shared/auth/access-control.ts`
 
 For notification work, also inspect:
 
@@ -31,9 +32,9 @@ For notification work, also inspect:
 - `src/lib/server/infrastructure/sms/types.ts`
 - `src/lib/server/infrastructure/sms/senders/*`
 - `src/lib/server/modules/notifications/outbox/*`
-- `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts`
-- `src/lib/server/infrastructure/queue`
-- `src/lib/server/infrastructure/cron/scheduled-jobs.ts`
+- `src/lib/server/orchestration/notifications/*`
+- `src/lib/server/orchestration/cron/scheduled-jobs.ts`
+- `src/lib/server/infrastructure/cloudflare/*`
 
 ## Current Service Status
 
@@ -46,7 +47,7 @@ For notification work, also inspect:
 - Implemented foundations: `context.ts`, `guards.ts`, `utils.ts`, and `errors/route-adapter.ts`.
 - Schema-only business modules needing service plans: none in current core service rollout.
 - Implemented notification state: `src/lib/server/modules/notifications/outbox` owns `notification_outbox` schema, types, idempotency, retry/audit state, and claim/mark/cancel APIs.
-- Implemented notification orchestration: `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts`, Queue dispatcher, Cron scheduled jobs, Queue bindings, and DLQ config.
+- Implemented notification orchestration: `src/lib/server/orchestration/notifications`, `src/lib/server/orchestration/cron`, Cloudflare Queue/Cron adapters under `src/lib/server/infrastructure/cloudflare`, Queue bindings, and DLQ config.
 - Implemented semantic senders: `sendOtpEmail`, `sendWelcomeEmail`, `sendGoogleLinkedEmail`, `sendOrderConfirmationEmail`, `sendShippingUpdateEmail`, `sendOtpSms`, `sendOrderConfirmationSms`, `sendShippingUpdateSms`, `sendPaymentUpdateSms`, `sendOrderStatusUpdateSms`.
 - Implemented outbox notification types: `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`.
 - SMS sender purposes: `otp` uses `TEXT_LK_OTP_SENDER_ID`, `transactional` uses `TEXT_LK_TRANSACTIONAL_SENDER_ID`, and `promotional` uses `TEXT_LK_PROMOTIONAL_SENDER_ID`.
@@ -57,7 +58,8 @@ For notification work, also inspect:
 - Use current canonical import paths; do not invent alternate layer paths or legacy shims.
 - Routes must not import `db`, Drizzle tables, Drizzle query helpers, or R2 primitives.
 - Exception: `src/routes/media/[...key]/+server.ts` may import media R2 helpers because it is the media delivery endpoint.
-- `+page.server.ts` files may call service functions, form schemas, and route error adapters only.
+- `+page.server.ts` files may use service functions, module form schemas and public types, type-only `ServiceContext`, route error adapters, and `createCloudflareNotificationWakeups` from the Cloudflare infrastructure adapter.
+- Routes must pass the notification wakeup publisher interface through `ServiceContext`; they must not pass raw Queue bindings into domain services.
 - Business writes must go through `*.service.ts`.
 - Multi-table writes must use transactions.
 - Cross-module transaction helpers should remain internal unless a public export is intentionally approved.
@@ -67,7 +69,7 @@ For notification work, also inspect:
 - Product image uploads must pass through product services with validated image metadata, draft-variant client ID mapping where needed, and R2 compensation cleanup.
 - R2 uploads must use compensation cleanup.
 - Use existing `AppError`, `ErrorCode`, and domain error classes. Do not create a second error framework.
-- Use `$lib/shared/modules/access-control` for Better Auth role/access-control definitions and server guards in `src/lib/server/foundation/guards.ts`.
+- Use `$lib/shared/auth/access-control` for Better Auth role/access-control definitions and server guards in `src/lib/server/foundation/guards.ts`.
 - Do not import from `$lib/client/*` inside server modules, services, cron jobs, Queue handlers, or notification modules.
 - Server modules that need app URL/app name/provider secrets must use `getEnv()` from `$lib/server/infrastructure/env`.
 - Do not expose generic CRUD for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, or product-tag joins.
@@ -83,11 +85,11 @@ For notification work, also inspect:
 - Cloudflare Cron retries pending, due failed, and stale locked outbox rows.
 - DLQ is operational review only; DB outbox remains audit/retry state.
 - Queue/Cron/job/orchestration code sends email/SMS and marks records sent only after successful typed send results.
-- Treat `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts` as orchestration, not durable state ownership.
+- Treat `src/lib/server/orchestration/notifications/dispatcher.ts` as orchestration, not durable state ownership.
 - Do not put actual email/SMS sending inside domain services unless explicitly approved.
 - Prefer semantic senders over inline message construction.
 - Normal delivery failures return `EmailResult` or `SmsResult`; auth OTP helpers may throw only where existing auth flow expects it.
-- Failed email/SMS sends must not mark waitlist entries or notification records as sent.
+- Failed email/SMS sends must not mark notification records as sent.
 - Cloudflare KV must not be used as notification outbox; it is only acceptable for short-lived soft state such as OTP cooldowns.
 - SMS senders must set correct `senderPurpose`: OTP auth uses `otp`, order/payment/delivery/status uses `transactional`, and new arrivals/offers/campaigns use `promotional`.
 

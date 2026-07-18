@@ -16,7 +16,7 @@ Rules:
 - Do not call email/SMS senders directly from routes unless explicitly approved by the task and architecture doc.
 - Keep notification orchestration in Cloudflare Queue/Cron/jobs/webhooks or approved service-adjacent workflows.
 - Routes must not place full notification payloads or customer PII into Queue messages.
-- Existing services: auth, addresses, products, drops, wishlist, bag, shipping, promotions, inventory, orders, and reviews.
+- Existing services: auth, addresses, products, wishlist, bag, shipping, promotions, inventory, orders, payments, and reviews.
 - Known route debt should be verified from current code before planning a route refactor.
 - Use Svelte MCP or Context7 MCP before using uncertain SvelteKit/Superforms APIs.
 - Keep UI components untouched unless necessary.

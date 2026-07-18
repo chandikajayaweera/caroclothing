@@ -15,7 +15,7 @@
 <script lang="ts">
 	import { DropdownMenu } from 'bits-ui';
 	import { ChevronDown, MoreHorizontal } from 'lucide-svelte';
-	import AdminButton from './AdminButton.svelte';
+	import AdminButton from '../controls/AdminButton.svelte';
 
 	let {
 		items,

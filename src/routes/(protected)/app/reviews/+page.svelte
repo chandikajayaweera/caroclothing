@@ -16,13 +16,13 @@
 		ImageOff
 	} from 'lucide-svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminToast from '$lib/components/admin/AdminToast.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
-	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
+	import AdminTextarea from '$lib/components/admin/controls/AdminTextarea.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/overlays/AdminConfirmDialog.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 	import AdminIconAction from '$lib/components/admin/data-display/AdminIconAction.svelte';
 	import AdminRowActions from '$lib/components/admin/data-display/AdminRowActions.svelte';

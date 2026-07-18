@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { navigating } from '$app/state';
-	import AdminMobileCommandBar from '$lib/components/admin/AdminMobileCommandBar.svelte';
-	import AdminSidebar from '$lib/components/admin/AdminSidebar.svelte';
+	import AdminMobileCommandBar from '$lib/components/admin/layout/AdminMobileCommandBar.svelte';
+	import AdminSidebar from '$lib/components/admin/sidebar/AdminSidebar.svelte';
 
 	let { children } = $props();
 

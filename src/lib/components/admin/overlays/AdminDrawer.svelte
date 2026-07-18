@@ -3,7 +3,7 @@
 	import { fade } from 'svelte/transition';
 	import { X } from 'lucide-svelte';
 	import type { Snippet } from 'svelte';
-	import AdminButton from './AdminButton.svelte';
+	import AdminButton from '../controls/AdminButton.svelte';
 
 	interface Props {
 		open: boolean;

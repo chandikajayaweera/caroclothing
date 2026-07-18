@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ExternalLink, Mail, MessageSquare } from 'lucide-svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 
 	interface Props {
 		channel: string;

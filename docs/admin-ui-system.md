@@ -48,7 +48,7 @@ Typography must follow the hierarchical roles defined below:
 
 ## 🔘 Button Variants (`AdminButton`)
 
-All admin buttons must use the `AdminButton` component from `$lib/components/admin/AdminButton.svelte`. Do not build inline button markup unless creating custom components in `$lib/components/admin/**`.
+All admin buttons must use the `AdminButton` component from `$lib/components/admin/controls/AdminButton.svelte`. Do not build inline button markup unless creating custom components in `$lib/components/admin/**`.
 
 ### Variants & Purposes:
 
@@ -140,6 +140,8 @@ All Radix/Bit UI primitives (`bits-ui`) must be wrapped inside `src/lib/componen
 
 The admin UI system is now split into reusable layout, primitive, data-display, filter, domain, and sidebar components. Future route refactors and new admin pages must use these components instead of recreating Tailwind-heavy UI inside route files.
 
+Canonical component folders are `categories`, `controls`, `data-display`, `feedback`, `filters`, `forms`, `inventory`, `layout`, `notifications`, `overlays`, `products`, and `sidebar`. Do not add new admin components back to the `src/lib/components/admin` root.
+
 ---
 
 ## Core Admin Primitives
@@ -169,7 +171,7 @@ Routes must not recreate these styles manually unless extracting a new reusable 
 
 ---
 
-## Overlay Components
+## Overlay And Form Guard Components
 
 Use the correct overlay component based on interaction type:
 
@@ -186,6 +188,7 @@ Rules:
 
 - Route files must not import `bits-ui` directly.
 - Bit UI primitives must be wrapped inside `src/lib/components/admin/**`.
+- Overlay components live under `admin/overlays`; the unsaved-changes guard and its dedicated modal stay colocated under `admin/forms`.
 - Use `AdminDrawer` when the admin should inspect or act on an entity without losing their list/search/filter context.
 - Use full pages for complex create/edit/detail workflows.
 - Destructive or irreversible actions must expose a loading state and keep failure feedback visible.
@@ -504,8 +507,8 @@ Recommended refactor order:
 15. Admin shell/layout final pass
 
 - `src/routes/(protected)/app/+layout.svelte`
-- `src/lib/components/admin/AdminSidebar.svelte`
-- `src/lib/components/admin/AdminMobileCommandBar.svelte`
+- `src/lib/components/admin/sidebar/AdminSidebar.svelte`
+- `src/lib/components/admin/layout/AdminMobileCommandBar.svelte`
 - Sidebar subcomponents under `src/lib/components/admin/sidebar/**`
 
 For each route:

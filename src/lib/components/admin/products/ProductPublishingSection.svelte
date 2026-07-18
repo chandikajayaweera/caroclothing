@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChevronDown } from 'lucide-svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
 	import type { ProductPublishingConstraints, ProductPublishingForm } from './product-ui.types';
 
 	let {

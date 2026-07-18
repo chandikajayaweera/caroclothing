@@ -2,7 +2,7 @@
 	import type { PageData } from './$types';
 	import { resolve } from '$app/paths';
 	import { Printer, ChevronLeft } from 'lucide-svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import { formatAdminDateTime, formatAdminMoney } from '$lib/shared/admin/format';
 
 	let { data }: { data: PageData } = $props();

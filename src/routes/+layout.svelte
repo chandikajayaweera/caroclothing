@@ -10,14 +10,14 @@
 	import { page } from '$app/state';
 	import { onMount, untrack } from 'svelte';
 	import { onNavigate } from '$app/navigation';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
-	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
+	import { bag } from '$lib/client/stores/bag.svelte';
+	import { wishlist } from '$lib/client/stores/wishlist.svelte';
 	import {
 		BAG_REFRESH_INTERVAL_MS,
 		RETURN_REFRESH_MIN_FRESH_MS,
 		getExpiryRefreshDelay,
 		getNextRefreshDelay
-	} from '$lib/client/modules/availability-refresh';
+	} from '$lib/client/availability/refresh';
 
 	let { children, data } = $props();
 

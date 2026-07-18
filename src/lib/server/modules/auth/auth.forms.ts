@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { userRoleIds } from '$lib/shared/modules/access-control';
+import { userRoleIds } from '$lib/shared/auth/access-control';
 import {
 	MAX_DISPLAY_NAME_LENGTH,
 	MIN_DISPLAY_NAME_LENGTH,
 	isValidDisplayName
-} from '$lib/shared/modules/auth-profile';
+} from '$lib/shared/auth/profile';
 
 export const updateMyDisplayNameFormSchema = z.object({
 	name: z

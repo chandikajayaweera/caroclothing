@@ -3,7 +3,7 @@
 	import { X } from 'lucide-svelte';
 	import { fade, scale } from 'svelte/transition';
 	import type { Snippet } from 'svelte';
-	import AdminButton from './AdminButton.svelte';
+	import AdminButton from '../controls/AdminButton.svelte';
 
 	let {
 		open = $bindable(false),

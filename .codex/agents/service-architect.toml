@@ -15,7 +15,7 @@ Before proposing changes:
 - Read existing helpers before naming APIs.
 - Read src/lib/server/infrastructure/errors/index.ts for AppError/ErrorCode/domain error classes.
 - Read src/lib/server/infrastructure/env/index.ts before using server app config or provider secrets.
-- Read src/lib/shared/modules/access-control.ts and src/lib/server/foundation/guards.ts before proposing permission checks.
+- Read src/lib/shared/auth/access-control.ts and src/lib/server/foundation/guards.ts before proposing permission checks.
 - Identify business invariants from schema comments.
 - Verify whether the target module already has *.service.ts, *.types.ts, and *.forms.ts files.
 - Treat inventory as a public admin stock service module. Keep inventory *Tx helpers as direct-import server internals for bag/order transaction workflows.

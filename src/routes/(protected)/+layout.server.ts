@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
-import { isPhoneDerivedDisplayName } from '$lib/shared/modules/auth-profile';
+import { isPhoneDerivedDisplayName } from '$lib/shared/auth/profile';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
 	const user = locals.user;

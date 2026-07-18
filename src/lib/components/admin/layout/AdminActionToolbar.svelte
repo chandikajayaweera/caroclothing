@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import AdminActionMenu, {
 		type AdminActionMenuItem
-	} from '$lib/components/admin/AdminActionMenu.svelte';
+	} from '$lib/components/admin/overlays/AdminActionMenu.svelte';
 
 	let {
 		views,

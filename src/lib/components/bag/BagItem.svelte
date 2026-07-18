@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { BagItemDTO } from '$lib/server/modules/bag/bag.types';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
+	import { bag } from '$lib/client/stores/bag.svelte';
 
 	let { item }: { item: BagItemDTO } = $props();
 

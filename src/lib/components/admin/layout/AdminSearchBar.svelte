@@ -5,7 +5,7 @@
 	import { Filter } from 'lucide-svelte';
 
 	import AdminSearchInput from '$lib/components/admin/filters/AdminSearchInput.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 
 	let {
 		query = $bindable(''),

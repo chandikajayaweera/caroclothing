@@ -35,8 +35,8 @@ Route boundaries:
 - src/routes/media/[...key]/+server.ts is the only media R2 route exception.
 - Do not call email or SMS senders from routes.
 - Do not put notification payloads or customer PII into queue messages.
-- If service calls enqueue notifications, pass platform-derived notificationQueue in ServiceContext.
-- Do not create generic CRUD routes for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, product-tag joins, or drop-product joins.
+- If service calls enqueue notifications, pass the publisher returned by createCloudflareNotificationWakeups(platform) as notificationWakeups in ServiceContext.
+- Do not create generic CRUD routes for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, or product-tag joins.
 
 Server route implementation:
 - Use module index imports only: $lib/server/modules/{module}.
@@ -58,7 +58,7 @@ Page skeleton implementation:
 - Use dataType: "json" plus filesProxy(...) when a JSON Superform includes File[] fields.
 - Use plain GET forms for filters/search.
 - Render real PageData only; no mock or placeholder data.
-- Use basic semantic HTML only. No CSS classes, Tailwind, polished layout, or AdminScaffoldPage.
+- Use basic semantic HTML only. No CSS classes, Tailwind, polished layout, or placeholder scaffold components.
 - Bind form fields, display field errors, display form messages, and wire enhance actions.
 
 Final response:

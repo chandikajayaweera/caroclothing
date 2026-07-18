@@ -4,6 +4,8 @@
 - **Status:** current as of 2026-07-13
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
+The repository-wide `src/lib` dependency and folder rules live in `docs/library-architecture.md`.
+
 ## Current State
 
 Implemented public service modules:
@@ -120,7 +122,7 @@ Foundation:
   src/lib/server/foundation/context.ts
   src/lib/server/foundation/guards.ts
   src/lib/server/foundation/utils.ts
-  src/lib/shared/modules/access-control.ts
+  src/lib/shared/auth/access-control.ts
 
 Infrastructure:
   src/lib/server/infrastructure/env
@@ -185,7 +187,8 @@ Components
 Route rules:
 
 - Business routes must not import `db`, Drizzle tables, Drizzle query helpers, or R2 primitives.
-- `+page.server.ts` files may call service functions, form schemas, and route error adapters.
+- `+page.server.ts` files may use service functions, module form schemas and public types, type-only `ServiceContext`, route error adapters, and `createCloudflareNotificationWakeups` from the Cloudflare infrastructure adapter.
+- Routes pass the notification wakeup publisher interface through `ServiceContext`; they do not pass raw Queue bindings into domain services.
 - `src/routes/media/[...key]/+server.ts` is the only approved route exception for media R2 helpers.
 - Routes must not call email/SMS senders directly unless a task explicitly approves a narrow synchronous notification.
 - Routes must not put notification payloads or customer PII into Queue messages.
@@ -225,7 +228,7 @@ Errors:
 
 Authorization:
 
-- Use `$lib/shared/modules/access-control` for Better Auth role/access-control definitions.
+- Use `$lib/shared/auth/access-control` for Better Auth role/access-control definitions.
 - Use `src/lib/server/foundation/guards.ts` for server-side authorization.
 - Server services are the source of truth; UI access checks are only convenience.
 - Role names are `adminUser` and `customerUser`.
@@ -253,7 +256,7 @@ Environment:
 Media:
 
 - Use `src/lib/server/infrastructure/media/r2.ts` and `src/lib/server/infrastructure/media/utils.ts`.
-- Use `getMediaBucket`, `buildMediaKey`, `uploadImage`, `uploadMedia`, and `deleteObjectSafe`.
+- Use `getMediaBucket`, `buildMediaKey`, `uploadImage`, and `deleteObjectSafe`.
 - Services that upload media must clean up uploaded R2 objects if the later DB transaction fails.
 - Services that replace or delete media should update DB state first, then best-effort cleanup old keys with `deleteObjectSafe`.
 - DTOs expose media URLs with `mediaUrl(key)`, not raw R2 keys unless admin/debug use requires both.
@@ -298,7 +301,7 @@ Sender rules:
 - OTP auth helpers may throw only where the existing auth flow expects thrown failures; current OTP SMS remains synchronous/direct for that Better Auth path.
 - SMS semantic senders choose `senderPurpose`; outbox payloads and Queue messages should not carry provider sender IDs.
 - OTP auth uses `otp`, order/payment/delivery/status SMS uses `transactional`, and new arrivals/offers/campaigns use `promotional`.
-- Failed email/SMS sends must not mark waitlist entries or notification records as sent.
+- Failed email/SMS sends must not mark notification records as sent.
 - Cloudflare KV must not be used as notification outbox; it is acceptable only for short-lived soft state such as OTP cooldowns.
 
 ## Validation Checklist

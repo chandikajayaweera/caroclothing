@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { authClient, signOutSession } from '$lib/client/modules/auth';
+	import { authClient, signOutSession } from '$lib/client/auth';
 	import { ChevronDown, ShieldCheck, UserRoundPen, LogOut } from 'lucide-svelte';
 
 	let {

@@ -1,5 +1,5 @@
 import type { RequestEvent } from '@sveltejs/kit';
-import type { UserRole } from '$lib/shared/modules/access-control';
+import type { UserRole } from '$lib/shared/auth/access-control';
 
 export type ServiceActor = {
 	id: string;

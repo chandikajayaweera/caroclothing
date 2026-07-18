@@ -29,7 +29,7 @@ description: Use when refactoring SvelteKit routes to call service-layer functio
 
 ## Current service availability
 
-- Services exist for `auth`, `addresses`, `products`, `drops`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, and `reviews`.
+- Services exist for `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, and `reviews`.
 - Inventory exposes curated admin stock APIs through its module index; internal inventory `*Tx` helpers remain direct-import server internals for bag/order transaction workflows.
 - Known route debt must be verified from current code before planning a refactor.
 

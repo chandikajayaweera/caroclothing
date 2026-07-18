@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Menu } from 'lucide-svelte';
-	import { authClient } from '$lib/client/modules/auth';
+	import { authClient } from '$lib/client/auth';
 
 	let { onOpenSidebar = () => {} }: { onOpenSidebar?: () => void } = $props();
 

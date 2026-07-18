@@ -5,9 +5,9 @@
 	import type { PageData } from './$types';
 	import type { StorefrontVariantAvailabilityDTO } from '$lib/server/modules/bag/bag.types';
 	import { Check, Heart, Loader2, ShieldCheck, Star, Truck, X } from 'lucide-svelte';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
-	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
-	import { openBagDrawer } from '$lib/client/modules/stores/ui';
+	import { bag } from '$lib/client/stores/bag.svelte';
+	import { wishlist } from '$lib/client/stores/wishlist.svelte';
+	import { openBagDrawer } from '$lib/client/stores/ui';
 	import PDPImageGallery from '$lib/components/product/PDPImageGallery.svelte';
 	import ColorSelector from '$lib/components/product/ColorSelector.svelte';
 	import SizeSelector from '$lib/components/product/SizeSelector.svelte';

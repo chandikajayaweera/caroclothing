@@ -3,7 +3,7 @@
 	import { deserialize } from '$app/forms';
 	import { Dialog } from 'bits-ui';
 	import { fade, scale } from 'svelte/transition';
-	import AdminHexInput from './AdminHexInput.svelte';
+	import AdminHexInput from '../controls/AdminHexInput.svelte';
 
 	let {
 		open = $bindable(false),

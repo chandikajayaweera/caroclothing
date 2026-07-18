@@ -1,6 +1,6 @@
 ---
 name: caro-notifications
-description: Use when adding or modifying CaroClothing email/SMS notification helpers, semantic senders, notification outbox state, Cloudflare Queue/Cron/DLQ orchestration, waitlist notification marking, EmailResult/SmsResult contracts, or notification-related docs.
+description: Use when adding or modifying CaroClothing email/SMS notification helpers, semantic senders, notification outbox state, Cloudflare Queue/Cron/DLQ orchestration, EmailResult/SmsResult contracts, or notification-related docs.
 ---
 
 # Caro notification workflow
@@ -22,9 +22,9 @@ Before editing, read:
 - `src/lib/server/infrastructure/sms/senders/*`
 - `src/lib/server/modules/notifications/outbox/*`
 - Any service module whose notification state is listed, enqueued, or marked
-- `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts`
-- `src/lib/server/infrastructure/queue`
-- `src/lib/server/infrastructure/cron/scheduled-jobs.ts`
+- `src/lib/server/orchestration/notifications/*`
+- `src/lib/server/orchestration/cron/*`
+- `src/lib/server/infrastructure/cloudflare/*`
 - Cloudflare Queue/Cron/DLQ bindings and handler entrypoints when transport orchestration is involved
 
 ## Current state
@@ -32,9 +32,9 @@ Before editing, read:
 - Email/SMS modules are server infrastructure modules.
 - `notification_outbox` is implemented and owns durable async notification state.
 - Queue producer/consumer bindings, Queue routing, Cron recovery, and DLQ config are implemented.
-- Semantic email senders include OTP, welcome, Google-linked, order confirmation, shipping update, and drop launch.
-- Semantic SMS senders include OTP, order confirmation, shipping update, payment update, order status update, and drop launch.
-- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
+- Semantic email senders include OTP, welcome, Google-linked, order confirmation, and shipping update.
+- Semantic SMS senders include OTP, order confirmation, shipping update, payment update, and order status update.
+- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, and `order_status_update`.
 - Runtime SMS config uses `otp`, `transactional`, and `promotional` sender purposes.
 
 ## Rules
@@ -58,10 +58,10 @@ Before editing, read:
 - Cron recovers pending, due failed, and stale locked outbox rows.
 - DLQ is operational review only; DB outbox remains durable audit/retry state.
 - Queue and Cron modules route work; outbox remains notification state owner.
-- Failed sends must not mark records or waitlist entries as sent.
+- Failed sends must not mark notification records as sent.
 - Batch jobs must be idempotent, limit-aware, and safe to retry.
 - Cloudflare KV must not be used as notification outbox.
-- OTP auth SMS uses `otp`; order/payment/delivery/status SMS uses `transactional`; drops/new arrivals/offers/campaigns use `promotional`.
+- OTP auth SMS uses `otp`; order/payment/delivery/status SMS uses `transactional`; new arrivals/offers/campaigns use `promotional`.
 
 ## Before coding, output
 

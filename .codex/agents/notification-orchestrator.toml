@@ -14,8 +14,8 @@ Before proposing changes:
 - Read src/lib/server/infrastructure/env/index.ts.
 - Read existing email and SMS modules under src/lib/server/infrastructure.
 - Read src/lib/server/modules/notifications/outbox/*.
-- Read any domain service that owns notification intent or waitlist marking.
-- Read src/lib/server/infrastructure/notifications/outbox.dispatcher.ts.
+- Read any domain service that owns notification intent.
+- Read src/lib/server/orchestration/notifications/*, src/lib/server/orchestration/cron/*, and src/lib/server/infrastructure/cloudflare/* when orchestration is involved.
 - Read Queue/Cron/DLQ config and handler wiring when orchestration is involved.
 
 Rules:
@@ -23,8 +23,8 @@ Rules:
 - Use getEnv() from $lib/server/infrastructure/env for app config and provider secrets.
 - Preserve EmailResult and SmsResult typed-result contracts.
 - Prefer semantic senders over inline message construction.
-- sendWelcomeEmail, sendGoogleLinkedEmail, sendDropLaunchEmail, and sendDropLaunchSms are implemented and exported.
-- Outbox notification types include auth_welcome, auth_google_linked, order_confirmation, shipping_update, payment_update, order_status_update, and drop_launch.
+- Current semantic email and SMS senders are implemented and exported through their infrastructure module indexes.
+- Outbox notification types include auth_welcome, auth_google_linked, order_confirmation, shipping_update, payment_update, and order_status_update.
 - DB notification_outbox is the durable source of truth for async notification state.
 - The outbox module is the approved narrow exception to the normal rule against notification DB tables.
 - Domain services enqueue outbox intent inside the same DB transaction as the business state change.
@@ -33,7 +33,7 @@ Rules:
 - Queue/Cron/job code sends notifications and marks records sent only after successful sends.
 - Cron recovers pending, due failed, and stale locked outbox rows.
 - DLQ is operational review only; DB outbox remains durable audit/retry state.
-- Failed sends must not mark records or waitlist entries as sent.
+- Failed sends must not mark notification records as sent.
 - Do not use Cloudflare KV as notification outbox.
 - SMS sender purposes must be otp, transactional, or promotional as appropriate.
 - Do not add extra notification DB tables or redesign the system unless explicitly requested.

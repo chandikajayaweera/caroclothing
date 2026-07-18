@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { Check, Clipboard, TriangleAlert } from 'lucide-svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 
 	let {
 		value,

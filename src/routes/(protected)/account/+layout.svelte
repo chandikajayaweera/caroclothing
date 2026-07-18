@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { signOutSession } from '$lib/client/modules/auth';
+	import { signOutSession } from '$lib/client/auth';
 	import { BookOpen, Heart, House, LogOut, MapPin, Package, ShieldCheck } from 'lucide-svelte';
 	import type { LayoutData } from './$types';
 

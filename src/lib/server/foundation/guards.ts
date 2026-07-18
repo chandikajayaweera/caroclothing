@@ -1,6 +1,6 @@
 import { AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
 import type { ServiceActor, SystemActor } from '$lib/server/foundation/context';
-import type { UserRole } from '$lib/shared/modules/access-control';
+import type { UserRole } from '$lib/shared/auth/access-control';
 
 type AnyActor = ServiceActor | SystemActor;
 

@@ -2,7 +2,7 @@
 	import { Save } from 'lucide-svelte';
 	import { Dialog } from 'bits-ui';
 	import { fade, scale } from 'svelte/transition';
-	import AdminButton from './AdminButton.svelte';
+	import AdminButton from '../controls/AdminButton.svelte';
 
 	let {
 		isOpen = $bindable(false),

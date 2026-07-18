@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { PanelLeftClose, PanelLeftOpen, Store } from 'lucide-svelte';
-	import AdminDrawer from './AdminDrawer.svelte';
-	import AdminSidebarNav from './sidebar/AdminSidebarNav.svelte';
-	import AdminSidebarProfile from './sidebar/AdminSidebarProfile.svelte';
-	import AdminSidebarMobileProfile from './sidebar/AdminSidebarMobileProfile.svelte';
+	import AdminDrawer from '../overlays/AdminDrawer.svelte';
+	import AdminSidebarNav from './AdminSidebarNav.svelte';
+	import AdminSidebarProfile from './AdminSidebarProfile.svelte';
+	import AdminSidebarMobileProfile from './AdminSidebarMobileProfile.svelte';
 
 	let {
 		collapsed = false,

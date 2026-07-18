@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
+	import { bag } from '$lib/client/stores/bag.svelte';
 	import { Check } from 'lucide-svelte';
 
 	let amountToFreeShipping = $derived(

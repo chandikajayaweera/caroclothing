@@ -3,11 +3,11 @@
 	import { ClipboardList, AlertTriangle, ArrowRight, Plus } from 'lucide-svelte';
 	import AdminPageShell from '$lib/components/admin/layout/AdminPageShell.svelte';
 	import AdminPageHeader from '$lib/components/admin/layout/AdminPageHeader.svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
 	import AdminStatsGrid from '$lib/components/admin/layout/AdminStatsGrid.svelte';
 	import AdminSection from '$lib/components/admin/layout/AdminSection.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import { orderStatusVariant, formatStatusLabel } from '$lib/shared/admin/status';
 	import { formatAdminDate, formatAdminMoney } from '$lib/shared/admin/format';
 

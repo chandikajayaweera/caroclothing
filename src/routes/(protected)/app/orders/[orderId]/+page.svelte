@@ -14,13 +14,13 @@
 		AlertTriangle,
 		ArrowRight
 	} from 'lucide-svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
-	import AdminModal from '$lib/components/admin/AdminModal.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
-	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
+	import AdminModal from '$lib/components/admin/overlays/AdminModal.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
+	import AdminTextarea from '$lib/components/admin/controls/AdminTextarea.svelte';
+	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
 	import AdminDetailLayout from '$lib/components/admin/layout/AdminDetailLayout.svelte';

@@ -24,7 +24,7 @@ import {
 } from '$lib/server/infrastructure/errors/route-adapter';
 import { isAppError } from '$lib/server/infrastructure/errors';
 import type { ServiceContext } from '$lib/server/foundation/context';
-import type { UserRole } from '$lib/shared/modules/access-control';
+import type { UserRole } from '$lib/shared/auth/access-control';
 
 function getAdminContext(locals: App.Locals): ServiceContext {
 	return { actor: locals.user };

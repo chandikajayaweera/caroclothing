@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
 
 	let {
 		media,

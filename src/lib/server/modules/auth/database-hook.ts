@@ -18,7 +18,7 @@ import {
 	type NotificationOutboxTx
 } from '$lib/server/modules/notifications/outbox/outbox.service';
 import type { ServiceContext } from '$lib/server/foundation/context';
-import { isValidDisplayName } from '$lib/shared/modules/auth-profile';
+import { isValidDisplayName } from '$lib/shared/auth/profile';
 
 const GOOGLE_PROVIDER_ID = 'google';
 const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';

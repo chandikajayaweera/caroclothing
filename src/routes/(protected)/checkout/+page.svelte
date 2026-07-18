@@ -14,14 +14,14 @@
 		Truck
 	} from 'lucide-svelte';
 	import { Dialog } from 'bits-ui';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
-	import { closeBagDrawer } from '$lib/client/modules/stores/ui';
+	import { bag } from '$lib/client/stores/bag.svelte';
+	import { closeBagDrawer } from '$lib/client/stores/ui';
 	import {
 		createPayPalPaymentSession,
 		paymentErrorMessage,
 		startPayHerePayment,
 		type PayPalPaymentSession
-	} from '$lib/client/modules/payments/sdk';
+	} from '$lib/client/payments/sdk';
 	import CheckoutProgress from '$lib/components/checkout/CheckoutProgress.svelte';
 	import CheckoutOrderSummary from '$lib/components/checkout/CheckoutOrderSummary.svelte';
 	import Button from '$lib/components/ui/Button.svelte';

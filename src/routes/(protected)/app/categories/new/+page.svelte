@@ -5,17 +5,17 @@
 	import { filesProxy, superForm } from 'sveltekit-superforms';
 	import type { PageData } from './$types';
 	import { slide } from 'svelte/transition';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminTextarea from '$lib/components/admin/AdminTextarea.svelte';
-	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
+	import AdminTextarea from '$lib/components/admin/controls/AdminTextarea.svelte';
+	import AdminToggle from '$lib/components/admin/controls/AdminToggle.svelte';
 	import AdminFormLayout from '$lib/components/admin/layout/AdminFormLayout.svelte';
-	import AdminImageUpload from '$lib/components/admin/AdminImageUpload.svelte';
-	import AdminChildCategoryList from '$lib/components/admin/AdminChildCategoryList.svelte';
-	import AdminToast from '$lib/components/admin/AdminToast.svelte';
-	import AdminUnsavedChangesGuard from '$lib/components/admin/AdminUnsavedChangesGuard.svelte';
+	import AdminImageUpload from '$lib/components/admin/controls/AdminImageUpload.svelte';
+	import AdminChildCategoryList from '$lib/components/admin/categories/AdminChildCategoryList.svelte';
+	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
+	import AdminUnsavedChangesGuard from '$lib/components/admin/forms/AdminUnsavedChangesGuard.svelte';
 
 	let { data }: { data: PageData } = $props();
 

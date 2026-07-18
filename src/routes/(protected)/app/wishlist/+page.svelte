@@ -4,12 +4,12 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { UserCheck, Package } from 'lucide-svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminTabs from '$lib/components/admin/AdminTabs.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminTabs from '$lib/components/admin/controls/AdminTabs.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
+	import AdminFilterToggle from '$lib/components/admin/filters/AdminFilterToggle.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';

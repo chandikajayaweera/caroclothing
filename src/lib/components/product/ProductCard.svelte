@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
+	import { wishlist } from '$lib/client/stores/wishlist.svelte';
 	import { productCardImageAttrs } from '$lib/shared/media';
 
 	type ProductCardProduct = {

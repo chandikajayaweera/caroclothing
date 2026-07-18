@@ -2,11 +2,11 @@
 	import { ChevronDown, Plus, Upload, X } from 'lucide-svelte';
 	import { flip } from 'svelte/animate';
 	import { slide } from 'svelte/transition';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminCheckbox from '$lib/components/admin/AdminCheckbox.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminCheckbox from '$lib/components/admin/controls/AdminCheckbox.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
 	import ProductColorSelector from './ProductColorSelector.svelte';
 	import type {
 		ProductUiColor,

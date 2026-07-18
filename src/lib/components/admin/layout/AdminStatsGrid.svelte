@@ -1,5 +1,5 @@
 <script lang="ts">
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
 
 	let {
 		stats,

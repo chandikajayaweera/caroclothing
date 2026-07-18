@@ -14,18 +14,18 @@ Plan only unless the user explicitly asks to implement.
 - Relevant `src/lib/server/modules/**/**.drizzle.ts`
 - Existing service/type/form files for related modules
 - Relevant storefront/admin/account/checkout routes
-- Helper modules under `src/lib/server/foundation`, `src/lib/server/infrastructure`, and `src/lib/shared/modules/access-control.ts`
+- Helper modules under `src/lib/server/foundation`, `src/lib/server/infrastructure`, and `src/lib/shared/auth/access-control.ts`
 - Notification outbox, email/SMS, Queue, Cron, and dispatcher files when notification work is involved
 
 ## Current state
 
-- Existing services: `auth`, `addresses`, `products`, `drops`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `reviews`.
+- Existing services: `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, `reviews`.
 - Inventory exposes curated admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` remain direct-import server internals for bag/order transaction workflows.
 - Schema-only modules needing service plans: none in current core service rollout.
 - Existing foundations: `foundation/context.ts`, `foundation/guards.ts`, `foundation/utils.ts`.
 - Existing route helper: `infrastructure/errors/route-adapter.ts`.
 - Notification outbox, Queue/Cron orchestration, DLQ config, and semantic email/SMS senders are implemented.
-- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
+- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, and `order_status_update`.
 
 ## Planning rules
 

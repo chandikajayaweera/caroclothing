@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Dialog } from 'bits-ui';
 	import { fade, scale } from 'svelte/transition';
-	import AdminButton from './AdminButton.svelte';
+	import AdminButton from '../controls/AdminButton.svelte';
 
 	let {
 		open = $bindable(false),

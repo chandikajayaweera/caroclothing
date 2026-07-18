@@ -5,8 +5,8 @@ import {
 	phoneNumberClient,
 	adminClient
 } from 'better-auth/client/plugins';
-import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
-import { getClientEnv } from '$lib/client/modules/env';
+import { accessControl as ac, adminUser, customerUser } from '$lib/shared/auth/access-control';
+import { getClientEnv } from '$lib/client/env';
 import { isCredentialApiUnsupportedError } from './utils';
 
 const clientEnv = getClientEnv();

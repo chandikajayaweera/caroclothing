@@ -5,11 +5,11 @@
 	import { Mail, MessageSquare, AlertTriangle, Info, Lock, Eye } from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
-	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminDrawer from '$lib/components/admin/overlays/AdminDrawer.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/overlays/AdminConfirmDialog.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
@@ -17,7 +17,7 @@
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminJsonViewer from '$lib/components/admin/data-display/AdminJsonViewer.svelte';
 	import AdminNotificationPreview from '$lib/components/admin/notifications/AdminNotificationPreview.svelte';
-	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
 	import { formatAdminDateTime, formatAdminStatus } from '$lib/shared/admin/format';
 	import { notificationStatusVariant } from '$lib/shared/admin/status';
 

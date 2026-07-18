@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
+	import { bag } from '$lib/client/stores/bag.svelte';
 	import BagItem from '$lib/components/bag/BagItem.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import FreeShippingBar from '$lib/components/bag/FreeShippingBar.svelte';

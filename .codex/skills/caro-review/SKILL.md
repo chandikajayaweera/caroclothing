@@ -21,7 +21,7 @@ Review only unless explicitly asked to edit.
 - Multi-table writes use transactions.
 - Inventory writes create movement rows.
 - Bag writes respect exclusive owner and upsert behavior.
-- Bag writes do not reserve stock; checkout start reserves it for the timed hold.
+- Bag writes and checkout start do not reserve stock; verified order finalization reserves and consumes stock atomically.
 - Promo usage updates are atomic.
 - R2 upload/update/delete flows have compensation cleanup.
 - Form schemas are separate from DB schemas when files or UI-only fields exist.

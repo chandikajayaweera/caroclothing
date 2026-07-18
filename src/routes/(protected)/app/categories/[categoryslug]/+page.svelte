@@ -3,10 +3,10 @@
 	import { Edit, FolderOpen, Trash2 } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import type { PageData } from './$types';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/overlays/AdminConfirmDialog.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminDetailLayout from '$lib/components/admin/layout/AdminDetailLayout.svelte';
 	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';

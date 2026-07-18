@@ -21,12 +21,12 @@ import { getDb } from '$lib/server/db';
 import { AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
 import { getEnv } from '$lib/server/infrastructure/env';
 import type { ServiceContext } from '$lib/server/foundation/context';
-import type { UserRole } from '$lib/shared/modules/access-control';
+import type { UserRole } from '$lib/shared/auth/access-control';
 import {
 	MAX_DISPLAY_NAME_LENGTH,
 	isPhoneDerivedDisplayName,
 	isValidDisplayName
-} from '$lib/shared/modules/auth-profile';
+} from '$lib/shared/auth/profile';
 
 import {
 	account as accountTable,

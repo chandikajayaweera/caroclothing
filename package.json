@@ -26,7 +26,7 @@
 		"deploy:staging": "pnpm run build && wrangler deploy --env staging && pnpm run secret:staging",
 		"deploy:production": "pnpm run build && wrangler deploy && pnpm run secret:production",
 		"cf-typegen": "wrangler types ./src/worker-configuration.d.ts",
-		"tree": "npx tree-node-cli -I \".claude|.gemini|.svelte-kit|.vscode|.wrangler|docs|drizzle|.pnpm-store|node_modules\""
+		"tree": "treee src/lib -I \"node_modules\""
 	},
 	"devDependencies": {
 		"@better-auth/cli": "^1.4.21",
@@ -53,6 +53,7 @@
 		"svelte": "^5.55.9",
 		"svelte-check": "^4.4.2",
 		"tailwindcss": "^4.3.2",
+		"tree-node-cli": "^3.0.0",
 		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.54.0",
 		"vite": "^7.3.1",

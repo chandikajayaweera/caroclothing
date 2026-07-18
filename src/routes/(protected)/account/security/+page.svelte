@@ -15,13 +15,13 @@
 		Trash2,
 		Unlink
 	} from 'lucide-svelte';
-	import { authClient, signOutSession } from '$lib/client/modules/auth';
+	import { authClient, signOutSession } from '$lib/client/auth';
 	import {
 		getAuthErrorRetryAfterSeconds,
 		OTP_RATE_LIMITED_MESSAGE,
 		parseAuthError,
 		parseUnknownError
-	} from '$lib/client/modules/auth/utils';
+	} from '$lib/client/auth/utils';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form?: ActionData } = $props();

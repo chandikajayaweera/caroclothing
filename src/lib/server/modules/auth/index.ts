@@ -19,8 +19,8 @@ import {
 	toBetterAuthApiError
 } from '$lib/server/infrastructure/errors';
 
-import { accessControl as ac, adminUser, customerUser } from '$lib/shared/modules/access-control';
-import { TEMPORARY_ACCOUNT_NAME } from '$lib/shared/modules/auth-profile';
+import { accessControl as ac, adminUser, customerUser } from '$lib/shared/auth/access-control';
+import { TEMPORARY_ACCOUNT_NAME } from '$lib/shared/auth/profile';
 import { prepareAccountDeletion } from './auth.service';
 import { deleteReviewMediaObjectsForAccountDeletion } from '../reviews/reviews.service';
 

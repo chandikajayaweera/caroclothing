@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
-	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
-	import { authClient } from '$lib/client/modules/auth';
-	import { toggleWishlistDrawer, uiStore } from '$lib/client/modules/stores/ui';
+	import { bag } from '$lib/client/stores/bag.svelte';
+	import { wishlist } from '$lib/client/stores/wishlist.svelte';
+	import { authClient } from '$lib/client/auth';
+	import { toggleWishlistDrawer, uiStore } from '$lib/client/stores/ui';
 	import { Home, Store, ShoppingBag, Heart, User, LogIn, LayoutDashboard } from 'lucide-svelte';
 	import NavBadge from './NavBadge.svelte';
 

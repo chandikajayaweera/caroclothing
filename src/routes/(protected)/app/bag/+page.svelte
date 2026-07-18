@@ -17,12 +17,12 @@
 	import type { AdminBagDTO } from '$lib/server/modules/bag';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminDrawer from '$lib/components/admin/AdminDrawer.svelte';
-	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
-	import AdminToast from '$lib/components/admin/AdminToast.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminDrawer from '$lib/components/admin/overlays/AdminDrawer.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/overlays/AdminConfirmDialog.svelte';
+	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';

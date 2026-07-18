@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { X, Plus } from 'lucide-svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
 	import type { ProductTagsForm, ProductUiTag } from './product-ui.types';
 
 	let {

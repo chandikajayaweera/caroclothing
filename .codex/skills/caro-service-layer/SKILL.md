@@ -22,19 +22,19 @@ Before editing, read:
 - `src/lib/server/infrastructure/media/r2.ts`
 - `src/lib/server/infrastructure/media/utils.ts`
 - `src/lib/server/infrastructure/env/index.ts`
-- `src/lib/shared/modules/access-control.ts`
+- `src/lib/shared/auth/access-control.ts`
 
-If the task touches notifications, also read email/SMS modules, `src/lib/server/modules/notifications/outbox/*`, Queue, Cron, and `src/lib/server/infrastructure/notifications/outbox.dispatcher.ts`.
+If the task touches notifications, also read email/SMS modules, `src/lib/server/modules/notifications/outbox/*`, Queue, Cron, and `src/lib/server/orchestration/notifications/dispatcher.ts`.
 
 ## Current state
 
-- Services exist for `auth`, `addresses`, `products`, `drops`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, and `reviews`.
+- Services exist for `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, and `reviews`.
 - `inventory` exposes curated admin stock APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and should be imported directly only by server internals already inside a transaction.
 - Foundation helpers exist in `src/lib/server/foundation`.
 - Route AppError helpers exist in `src/lib/server/infrastructure/errors/route-adapter.ts`.
 - Notification outbox, Queue, Cron recovery, DLQ config, and semantic email/SMS senders are implemented.
-- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`, and `drop_launch`.
-- Product create service owns product rows, selected/new tags, draft variants, image uploads plus metadata, and non-archived drop assignment in one admin workflow.
+- Outbox notification types include `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, and `order_status_update`.
+- Product create service owns product rows, selected/new tags, draft variants, and image uploads plus metadata in one admin workflow.
 
 If docs mention a helper not present in code, report the mismatch before importing or using it.
 
@@ -50,7 +50,7 @@ If docs mention a helper not present in code, report the mismatch before importi
 - Return DTOs when UI needs derived fields or public media URLs.
 - Keep DTO mapping inside services.
 - Do not expose generic CRUD for audit/internal/junction tables.
-- Do not expose generic CRUD for product-tag or drop-product joins; product services curate those relationships through product workflows.
+- Do not expose generic CRUD for product-tag joins; product services curate those relationships through product workflows.
 - For product create media, validate image metadata against uploaded file count, map draft variant client IDs to generated variant IDs, and clean up R2 uploads if the DB transaction fails.
 - Curate APIs from storefront, admin dashboard, checkout/account, Queue/Cron/job, support, notification, and related-module needs before coding.
 - Do not import `$lib/client/*` inside server modules.
@@ -67,7 +67,7 @@ If docs mention a helper not present in code, report the mismatch before importi
 - DLQ is operational review only; DB outbox remains durable audit/retry state.
 - Do not send email/SMS inside domain services unless explicitly approved.
 - Prefer semantic senders.
-- SMS sender purposes: OTP auth uses `otp`, order/payment/delivery/status uses `transactional`, and drops/offers/campaigns use `promotional`.
+- SMS sender purposes: OTP auth uses `otp`, order/payment/delivery/status uses `transactional`, and new arrivals/offers/campaigns use `promotional`.
 - Cloudflare KV is not notification outbox.
 
 ## Before coding, output

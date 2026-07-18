@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { ChevronDown } from 'lucide-svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import AdminPageShell from './AdminPageShell.svelte';
 	import AdminPageHeader from './AdminPageHeader.svelte';
 

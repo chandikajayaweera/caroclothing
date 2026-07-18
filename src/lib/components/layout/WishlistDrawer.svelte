@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { fly, fade } from 'svelte/transition';
-	import { uiStore, closeWishlistDrawer } from '$lib/client/modules/stores/ui';
-	import { wishlist } from '$lib/client/modules/stores/wishlist.svelte';
+	import { uiStore, closeWishlistDrawer } from '$lib/client/stores/ui';
+	import { wishlist } from '$lib/client/stores/wishlist.svelte';
 	import Button from '../ui/Button.svelte';
 
 	type WishlistDrawerItem = {

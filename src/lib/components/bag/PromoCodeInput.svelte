@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
+	import { bag } from '$lib/client/stores/bag.svelte';
 	import { Loader2 } from 'lucide-svelte';
 	import { slide } from 'svelte/transition';
 

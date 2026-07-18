@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { generateSlug } from '$lib/shared/slug';
 	import { FolderPlus } from 'lucide-svelte';
-	import AdminCard from '$lib/components/admin/AdminCard.svelte';
-	import AdminInput from '$lib/components/admin/AdminInput.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
-	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
+	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
+	import AdminToggle from '$lib/components/admin/controls/AdminToggle.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import type {
 		ProductBasicsConstraints,
 		ProductBasicsErrors,

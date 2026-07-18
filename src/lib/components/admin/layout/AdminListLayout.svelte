@@ -1,7 +1,7 @@
 <script lang="ts" generics="T extends { id: string }">
 	import type { Snippet } from 'svelte';
 	import { fade } from 'svelte/transition';
-	import AdminTableGrid from '$lib/components/admin/AdminTableGrid.svelte';
+	import AdminTableGrid from '$lib/components/admin/data-display/AdminTableGrid.svelte';
 	import AdminPageShell from './AdminPageShell.svelte';
 	import AdminPageHeader from './AdminPageHeader.svelte';
 	import AdminStatsGrid from './AdminStatsGrid.svelte';

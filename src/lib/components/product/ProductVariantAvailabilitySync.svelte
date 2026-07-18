@@ -8,7 +8,7 @@
 		getExpiryRefreshDelay,
 		getNextRefreshDelay,
 		isRefreshStale
-	} from '$lib/client/modules/availability-refresh';
+	} from '$lib/client/availability/refresh';
 
 	type StorefrontVariantAvailabilityResponse = Omit<
 		StorefrontVariantAvailabilityDTO,

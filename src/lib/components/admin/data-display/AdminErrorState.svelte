@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AlertTriangle, ArrowLeft, RotateCw } from 'lucide-svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 
 	let {
 		title = 'Unable to load data',

@@ -1,5 +1,5 @@
 import type { BagDTO, BagItemDTO } from '$lib/server/modules/bag/bag.types';
-import { isRefreshStale, shouldApplySnapshot } from '../availability-refresh';
+import { isRefreshStale, shouldApplySnapshot } from '../availability/refresh';
 
 class BagState {
 	id = $state<string>('');

@@ -7,7 +7,7 @@ import {
 	getNextRefreshDelay,
 	isRefreshStale,
 	shouldApplySnapshot
-} from './availability-refresh';
+} from './refresh';
 
 describe('availability refresh policy', () => {
 	it('uses bounded bag and product refresh cadences', () => {

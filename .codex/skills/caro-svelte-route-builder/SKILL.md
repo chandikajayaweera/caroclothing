@@ -1,6 +1,6 @@
 ---
 name: caro-svelte-route-builder
-description: Create or modify CaroClothing SvelteKit routes for a target module by wiring service-layer functions, module form schemas, route AppError adapters, and Superforms into production-ready +page.server.ts files plus bare, unstyled +page.svelte skeletons. Use when building admin, account, or storefront route scaffolds from existing Caro service modules, replacing AdminScaffoldPage placeholders, or generating route inventory before route implementation.
+description: Create or modify CaroClothing SvelteKit routes for a target module by wiring service-layer functions, module form schemas, route AppError adapters, and Superforms into production-ready +page.server.ts files plus bare, unstyled +page.svelte skeletons. Use when building admin, account, or storefront route scaffolds from existing Caro service modules, replacing placeholder scaffold pages, or generating route inventory before route implementation.
 ---
 
 # Caro Svelte route builder
@@ -36,7 +36,7 @@ Edit only the smallest route, module-index, and form-schema files needed for the
 
 If running interactively, wait for approval after the route inventory unless the parent/user explicitly says to proceed.
 
-Do not put notification payloads or customer PII into queue messages. If service calls enqueue notifications, pass platform-derived `notificationQueue` through `ServiceContext` only.
+Do not put notification payloads or customer PII into queue messages. If service calls enqueue notifications, pass the publisher returned by `createCloudflareNotificationWakeups(platform)` as `notificationWakeups` through `ServiceContext`.
 
 ## Route inventory first
 
@@ -54,7 +54,7 @@ Output a table before editing with:
 - action names and service calls
 - form schemas from `{module}.forms.ts`
 - pre-populated forms
-- existing route status and whether `AdminScaffoldPage` must be replaced
+- existing route status and whether a placeholder scaffold must be replaced
 
 Do not create CRUD routes for audit, internal, or junction tables. Display those inline as read-only parent-route data only when useful.
 
@@ -65,6 +65,7 @@ Import route dependencies only from:
 - `$lib/server/modules/{module}` for public service functions, form schemas, and types
 - `$lib/server/foundation/context` for type-only `ServiceContext`
 - `$lib/server/infrastructure/errors/route-adapter`
+- `$lib/server/infrastructure/cloudflare` only for `createCloudflareNotificationWakeups`
 - `@sveltejs/kit`
 - `sveltekit-superforms/server`
 - `sveltekit-superforms/adapters`
@@ -75,10 +76,12 @@ Never import `db`, Drizzle tables, Drizzle query helpers, `.drizzle` files, R2 h
 Use local context helpers:
 
 ```ts
+import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
+
 function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceContext {
 	return {
 		actor: locals.user,
-		notificationQueue: platform?.env?.NOTIFICATION_QUEUE ?? null
+		notificationWakeups: createCloudflareNotificationWakeups(platform)
 	};
 }
 
@@ -104,7 +107,7 @@ function requireAccountContext(locals: App.Locals, url: URL): ServiceContext {
 }
 ```
 
-Admin layout already checks `adminUser`; still pass actor so service guards enforce authorization. If route services enqueue notifications, include `platform` and `notificationQueue`.
+Admin layout already checks `adminUser`; still pass actor so service guards enforce authorization. If route services enqueue notifications, include `notificationWakeups` from `createCloudflareNotificationWakeups(platform)`.
 
 ## Superforms and actions
 
@@ -138,7 +141,7 @@ Parse URL params through local helpers and form schemas. Do not pass raw strings
 
 ## Page skeleton rules
 
-Create bare Svelte 5 skeletons only. No Tailwind, CSS classes, polished layout, mock data, or `AdminScaffoldPage`.
+Create bare Svelte 5 skeletons only. No Tailwind, CSS classes, polished layout, mock data, or placeholder scaffold components.
 
 Use:
 

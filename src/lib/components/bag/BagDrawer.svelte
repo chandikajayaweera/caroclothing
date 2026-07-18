@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fly, fade } from 'svelte/transition';
-	import { uiStore, closeBagDrawer } from '$lib/client/modules/stores/ui';
-	import { bag } from '$lib/client/modules/stores/bag.svelte';
+	import { uiStore, closeBagDrawer } from '$lib/client/stores/ui';
+	import { bag } from '$lib/client/stores/bag.svelte';
 	import { resolve } from '$app/paths';
 	import BagItem from './BagItem.svelte';
 	import Button from '../ui/Button.svelte';

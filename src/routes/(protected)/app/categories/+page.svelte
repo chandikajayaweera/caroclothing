@@ -5,13 +5,13 @@
 	import { Eye, FolderOpen, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms';
 	import type { ActionData, PageData } from './$types';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
-	import AdminSelect from '$lib/components/admin/AdminSelect.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
+	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminBadge from '$lib/components/admin/AdminBadge.svelte';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
 	import { booleanStatusVariant } from '$lib/shared/admin/status';
-	import AdminToast from '$lib/components/admin/AdminToast.svelte';
-	import AdminFilterToggle from '$lib/components/admin/AdminFilterToggle.svelte';
+	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
+	import AdminFilterToggle from '$lib/components/admin/filters/AdminFilterToggle.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminEntityMedia from '$lib/components/admin/data-display/AdminEntityMedia.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
@@ -20,7 +20,7 @@
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminSkeletonList from '$lib/components/admin/data-display/AdminSkeletonList.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
-	import AdminConfirmDialog from '$lib/components/admin/AdminConfirmDialog.svelte';
+	import AdminConfirmDialog from '$lib/components/admin/overlays/AdminConfirmDialog.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
 

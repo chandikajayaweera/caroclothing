@@ -5,8 +5,8 @@
 	import { Plus, X, FolderOpen } from 'lucide-svelte';
 	import { nanoid } from 'nanoid';
 
-	import AdminToggle from '$lib/components/admin/AdminToggle.svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminToggle from '$lib/components/admin/controls/AdminToggle.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import { generateSlug } from '$lib/shared/slug';
 
 	// ─── Types ───────────────────────────────────────────────────────────────────

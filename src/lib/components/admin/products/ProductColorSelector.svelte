@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Select } from 'bits-ui';
 	import { Check, ChevronDown, Palette } from 'lucide-svelte';
-	import AdminButton from '$lib/components/admin/AdminButton.svelte';
+	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import type { ProductUiColor } from './product-ui.types';
 
 	type ColorSelectableVariant = {
