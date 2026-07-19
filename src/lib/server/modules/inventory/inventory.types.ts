@@ -144,45 +144,8 @@ export type AdjustInventoryInput = {
 	now?: Date;
 };
 
-export type ReserveInventoryInput = {
-	variantId: string;
-	quantity: number;
-	referenceId: string;
-	now?: Date;
-};
-
-export type InventoryReservationResult = {
-	variantId: string;
-	requestedQuantity: number;
-	reservedQuantity: number;
-	backorderedQuantity: number;
-	availableBefore: number;
-	availableAfter: number;
-	trackInventory: boolean;
-	allowBackorder: boolean;
-};
-
-export type ReleaseInventoryInput = {
-	variantId: string;
-	quantity: number;
-	referenceId: string;
-	now?: Date;
-};
-
-export type InventoryReleaseResult = {
-	variantId: string;
-	requestedQuantity: number;
-	releasedQuantity: number;
-	outstandingReservedQuantity: number;
-};
-
 export type InventoryAvailabilityLookupInput = {
 	variantIds: string[];
-};
-
-export type OutstandingReservationInput = {
-	variantId: string;
-	referenceId: string;
 };
 
 export type RecordInventorySaleInput = {

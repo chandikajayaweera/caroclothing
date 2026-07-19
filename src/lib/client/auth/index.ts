@@ -11,23 +11,30 @@ import { isCredentialApiUnsupportedError } from './utils';
 
 const clientEnv = getClientEnv();
 const fedCmEnabled = isFedCmSignOutSupported();
+const googleClientId = clientEnv.PUBLIC_GOOGLE_CLIENT_ID;
+
+export const googleOAuthEnabled = Boolean(googleClientId);
 
 export const authClient = createAuthClient({
 	plugins: [
 		anonymousClient(),
-		oneTapClient({
-			clientId: clientEnv.PUBLIC_GOOGLE_CLIENT_ID,
-			autoSelect: false,
-			cancelOnTapOutside: false,
-			uxMode: 'popup',
-			context: 'signin',
+		...(googleClientId
+			? [
+					oneTapClient({
+						clientId: googleClientId,
+						autoSelect: false,
+						cancelOnTapOutside: false,
+						uxMode: 'popup',
+						context: 'signin',
 
-			promptOptions: {
-				baseDelay: 1000,
-				maxAttempts: 5,
-				fedCM: fedCmEnabled
-			}
-		}),
+						promptOptions: {
+							baseDelay: 1000,
+							maxAttempts: 5,
+							fedCM: fedCmEnabled
+						}
+					})
+				]
+			: []),
 		phoneNumberClient(),
 		adminClient({
 			ac,

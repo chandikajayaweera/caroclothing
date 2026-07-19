@@ -75,15 +75,20 @@ export type WishlistListResult = {
 export type ListWishlistSignalsOptions = {
 	productId?: string;
 	includeUnavailable?: boolean;
+	alertLevel?: WishlistSignalAlertStatus;
 	limit?: number;
 	offset?: number;
 };
 
+export type WishlistSignalAlertStatus = 'high' | 'watch' | 'normal';
+
 export type WishlistSignalDTO = {
+	id: string;
 	productId: string;
 	variantId: string | null;
 	saveCount: number;
 	lastSavedAt: Date;
+	alertStatus: WishlistSignalAlertStatus;
 	product: WishlistProductSummaryDTO;
 	variant: WishlistVariantSummaryDTO | null;
 	imageUrl: string | null;
@@ -96,4 +101,9 @@ export type WishlistSignalListResult = {
 	total: number;
 	limit: number;
 	offset: number;
+	stats: {
+		totalSaves: number;
+		totalSignals: number;
+		highRiskVariants: number;
+	};
 };

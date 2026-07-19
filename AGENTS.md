@@ -39,15 +39,17 @@ For notification work, also inspect:
 ## Current Service Status
 
 - Implemented service modules: `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, `reviews`.
-- Inventory exposes public admin stock APIs through its module index; internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and should be imported directly only by server internals already inside a transaction.
+- Inventory exposes public admin stock APIs through its module index; internal prepared D1 batch builders in `inventory.service.ts` support checkout/order workflows and should be imported directly only by server internals composing the owning atomic batch.
 - Bag mutations and checkout start do not reserve stock. Starting checkout opens a 10-minute validation window only.
 - Leaving checkout or mutating the bag cancels that checkout window without clearing bag items.
 - Online checkout persists only a `payment_attempt` before gateway success; failed or cancelled payment creates no order/payment row and holds no stock.
-- Verified online capture revalidates the bag, creates the order/payment, reserves and consumes stock, deletes the bag, and enqueues confirmation notifications in one transaction.
+- Verified online capture revalidates the bag, creates the order/payment, consumes stock, deletes the bag, and enqueues confirmation notifications in one guarded D1 batch.
+- Runtime database access uses the request-scoped Cloudflare D1 `DB` binding through `src/lib/server/db`; Drizzle uses `drizzle-orm/d1`, and Better Auth uses its Drizzle adapter over that D1-backed database with interactive adapter transactions disabled.
 - Implemented foundations: `context.ts`, `guards.ts`, `utils.ts`, and `errors/route-adapter.ts`.
 - Schema-only business modules needing service plans: none in current core service rollout.
 - Implemented notification state: `src/lib/server/modules/notifications/outbox` owns `notification_outbox` schema, types, idempotency, retry/audit state, and claim/mark/cancel APIs.
 - Implemented notification orchestration: `src/lib/server/orchestration/notifications`, `src/lib/server/orchestration/cron`, Cloudflare Queue/Cron adapters under `src/lib/server/infrastructure/cloudflare`, Queue bindings, and DLQ config.
+- Cloudflare uses one per-minute Cron Trigger per environment; `src/lib/server/orchestration/cron` selects due 1-minute, 5-minute, 10-minute, hourly, and daily jobs using UTC time.
 - Implemented semantic senders: `sendOtpEmail`, `sendWelcomeEmail`, `sendGoogleLinkedEmail`, `sendOrderConfirmationEmail`, `sendShippingUpdateEmail`, `sendOtpSms`, `sendOrderConfirmationSms`, `sendShippingUpdateSms`, `sendPaymentUpdateSms`, `sendOrderStatusUpdateSms`.
 - Implemented outbox notification types: `auth_welcome`, `auth_google_linked`, `order_confirmation`, `shipping_update`, `payment_update`, `order_status_update`.
 - SMS sender purposes: `otp` uses `TEXT_LK_OTP_SENDER_ID`, `transactional` uses `TEXT_LK_TRANSACTIONAL_SENDER_ID`, and `promotional` uses `TEXT_LK_PROMOTIONAL_SENDER_ID`.
@@ -61,8 +63,8 @@ For notification work, also inspect:
 - `+page.server.ts` files may use service functions, module form schemas and public types, type-only `ServiceContext`, route error adapters, and `createCloudflareNotificationWakeups` from the Cloudflare infrastructure adapter.
 - Routes must pass the notification wakeup publisher interface through `ServiceContext`; they must not pass raw Queue bindings into domain services.
 - Business writes must go through `*.service.ts`.
-- Multi-table writes must use transactions.
-- Cross-module transaction helpers should remain internal unless a public export is intentionally approved.
+- Multi-table writes must use one D1 `batch()` with guard statements for optimistic preconditions and previous-statement row-count assertions.
+- Cross-module prepared-statement builders should remain internal unless a public export is intentionally approved.
 - Inventory module APIs may manage variant stock rows; `inventoryMovement` remains append-only audit state and is not generic CRUD.
 - Bag DTOs distinguish active competing checkout holds from true unavailability and may expose only hold expiry timing, never competing shopper identity.
 - Product create/update workflows may curate product tags, draft variants, and product images through `products.service.ts`; routes must not write product junction/media tables directly.
@@ -78,7 +80,7 @@ For notification work, also inspect:
 
 - Email and SMS modules are infrastructure helpers, not durable domain-state owners.
 - DB `notification_outbox` is the durable source of truth for async notification state.
-- Domain services enqueue outbox intent inside the same DB transaction as the business state change.
+- Domain services enqueue outbox intent inside the same guarded D1 batch as the business state change.
 - Exception: auth welcome and Google-linked lifecycle emails use outbox rows from Better Auth database hooks; OTP SMS remains synchronous/direct where the auth flow expects thrown failures.
 - Queue messages contain only `outboxId` and/or `idempotencyKey`, never full payloads or customer PII.
 - Cloudflare Queues are fast wakeups only.

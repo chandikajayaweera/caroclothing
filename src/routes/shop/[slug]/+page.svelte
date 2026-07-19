@@ -162,7 +162,7 @@
 		if (addToBagLoading) return 'Adding';
 		if (addedToBag) return 'Added';
 		if (!activeSize) return 'Select Size';
-		if (isSelectedReserved) return 'Reserved at Checkout';
+		if (isSelectedReserved) return 'Checkout in Progress';
 		if (isSelectedPreOrder) return 'Pre-Order';
 		if (isSelectedUnavailable) return 'Sold Out';
 		return 'Add to Bag';

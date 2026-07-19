@@ -12,15 +12,15 @@ import { bag as bagTable, bagItem as bagItemTable } from './bag.drizzle';
 import {
 	addItemToBag,
 	applyPromoCodeToBag,
-	deleteUserBagForAccountDeletionTx,
 	expireDueBagCheckouts,
 	getBag,
+	getBagSummary,
 	getCheckoutBagForOrderTx,
 	getStorefrontVariantAvailability,
 	removePromoCodeFromBag,
+	prepareUserBagDeletion,
 	startCheckout,
-	updateBagItemQuantity,
-	type BagTx
+	updateBagItemQuantity
 } from './bag.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
@@ -56,7 +56,7 @@ describe('bag service integration', () => {
 		harness.close();
 	});
 
-	it('deletes every legacy user bag during account deletion', async () => {
+	it('prepares deletion of every legacy user bag during account deletion', async () => {
 		const user = await seedUser(db(), { id: 'bag-account-deletion-user' });
 		const { product, variant } = await seedProductWithVariant(db(), {
 			product: { slug: 'bag-account-deletion-product' }
@@ -94,14 +94,76 @@ describe('bag service integration', () => {
 				}
 			]);
 
-		const result = await db().transaction((tx) =>
-			deleteUserBagForAccountDeletionTx(tx as BagTx, user.id, now)
-		);
-
-		expect(result).toEqual({ itemCount: 2, releasedQuantity: 0 });
+		await db().batch([prepareUserBagDeletion(db(), user.id)]);
 		await expect(db().select().from(bagTable).where(eq(bagTable.userId, user.id))).resolves.toEqual(
 			[]
 		);
+	});
+
+	it('aggregates bag and active checkout-window statistics without treating them as reservations', async () => {
+		const user = await seedUser(db(), { id: 'bag-summary-user' });
+		const { product, variant } = await seedProductWithVariant(db(), {
+			product: { slug: 'bag-summary-product' }
+		});
+		const checkoutStartedAt = new Date(now.getTime() - 60_000);
+		const checkoutExpiresAt = new Date(now.getTime() + 5 * 60_000);
+		const expiredAt = new Date(now.getTime() - 60_000);
+
+		await db()
+			.insert(bagTable)
+			.values([
+				{
+					id: 'bag-summary-user-bag',
+					userId: user.id,
+					checkoutStartedAt,
+					checkoutExpiresAt,
+					createdAt: now,
+					updatedAt: now
+				},
+				{
+					id: 'bag-summary-expired-guest-bag',
+					sessionToken: 'bag-summary-expired-session',
+					expiresAt: expiredAt,
+					createdAt: now,
+					updatedAt: now
+				}
+			]);
+		await db()
+			.insert(bagItemTable)
+			.values([
+				{
+					id: 'bag-summary-user-item',
+					bagId: 'bag-summary-user-bag',
+					variantId: variant.id,
+					productId: product.id,
+					quantity: 2,
+					unitPrice: 5000,
+					addedAt: now,
+					updatedAt: now
+				},
+				{
+					id: 'bag-summary-expired-item',
+					bagId: 'bag-summary-expired-guest-bag',
+					variantId: variant.id,
+					productId: product.id,
+					quantity: 1,
+					unitPrice: 2000,
+					addedAt: now,
+					updatedAt: now
+				}
+			]);
+
+		await expect(getBagSummary(makeAdminCtx({ now }), { now })).resolves.toEqual({
+			total: 2,
+			active: 1,
+			expired: 1,
+			guest: 1,
+			user: 1,
+			totalSubtotal: 12000,
+			totalItems: 3,
+			activeCheckouts: 1,
+			checkoutWindowItems: 2
+		});
 	});
 
 	it('preserves promo code on DTO when subtotal falls below minimum, and reactivates when subtotal recovers', async () => {
@@ -175,7 +237,7 @@ describe('bag service integration', () => {
 		expect(belowMinimum.promoCodeId).toBeNull();
 
 		await startCheckout(ctx, { now });
-		const checkoutBag = await db().transaction((tx) => getCheckoutBagForOrderTx(tx, ctx, { now }));
+		const checkoutBag = await getCheckoutBagForOrderTx(db(), ctx, { now });
 		expect(checkoutBag.promoCode).toBe('MIN10K');
 		expect(checkoutBag.promoCodeId).toBeNull();
 

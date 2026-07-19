@@ -1,6 +1,11 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
+import {
+	guardBatchCondition,
+	guardPreviousBatchChanges,
+	isD1BatchGuardError
+} from '$lib/server/db/batch';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import { generateSlug } from '$lib/shared/slug';
 import {
@@ -33,6 +38,7 @@ import {
 	normalizeLimit,
 	normalizeOffset,
 	removeUndefinedValues,
+	resolveNow,
 	uniqueStrings
 } from '$lib/server/foundation/utils';
 import {
@@ -116,7 +122,8 @@ import type {
 } from './products.types';
 
 type Db = ReturnType<typeof getDb>;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+type Tx = Db;
+type BatchItem = Parameters<Db['batch']>[0][number];
 
 type UploadedImage = StoredImageMetadata & {
 	bucket: R2Bucket;
@@ -399,38 +406,25 @@ export async function createProduct(
 
 	let created: Product;
 	try {
-		created = await db.transaction(async (tx) => {
-			if (data.categoryId) {
-				await assertCategoryExistsTx(tx, data.categoryId, 'Product category not found.');
-			}
-
-			const resolvedTagIds = await resolveProductTagIdsTx(
-				tx,
-				normalizedTagIds,
-				normalizedNewTagNames
+		if (data.categoryId) {
+			await assertCategoryExistsTx(db, data.categoryId, 'Product category not found.');
+		}
+		const resolvedTagIds = await resolveProductTagIdsTx(
+			db,
+			normalizedTagIds,
+			normalizedNewTagNames
+		);
+		const statements: [BatchItem, ...BatchItem[]] = [
+			db.insert(product).values({ id: productId, ...data } as NewProduct)
+		];
+		if (resolvedTagIds.length > 0) {
+			statements.push(
+				db.insert(productTag).values(resolvedTagIds.map((tagId) => ({ productId, tagId })))
 			);
-			const values: NewProduct = {
-				id: productId,
-				...data
-			};
-
-			const [row] = await tx.insert(product).values(values).returning();
-
-			if (!row) {
-				throw new ProductError('Product was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			if (resolvedTagIds.length > 0) {
-				await tx.insert(productTag).values(
-					resolvedTagIds.map((tagId) => ({
-						productId: row.id,
-						tagId
-					}))
-				);
-			}
-
-			if (prepared.colors.length > 0) {
-				await tx.insert(productVariantColor).values(
+		}
+		if (prepared.colors.length > 0) {
+			statements.push(
+				db.insert(productVariantColor).values(
 					prepared.colors.map(
 						(c): NewProductVariantColor => ({
 							id: c.id,
@@ -443,11 +437,12 @@ export async function createProduct(
 							sortOrder: c.sortOrder
 						})
 					)
-				);
-			}
-
-			if (prepared.variants.length > 0) {
-				await tx.insert(productVariant).values(
+				)
+			);
+		}
+		if (prepared.variants.length > 0) {
+			statements.push(
+				db.insert(productVariant).values(
 					prepared.variants.map(
 						(v): NewProductVariant => ({
 							id: v.id,
@@ -458,14 +453,15 @@ export async function createProduct(
 							sortOrder: v.sortOrder
 						})
 					)
-				);
-			}
-
-			if (uploadedImages.length > 0) {
-				await tx.insert(productImage).values(
+				)
+			);
+		}
+		if (uploadedImages.length > 0) {
+			statements.push(
+				db.insert(productImage).values(
 					uploadedImages.map(
 						(image): NewProductImage => ({
-							productId: row.id,
+							productId,
 							variantId: image.variantId,
 							r2Key: image.key,
 							mimeType: image.mimeType,
@@ -478,11 +474,11 @@ export async function createProduct(
 							isPrimary: image.isPrimary
 						})
 					)
-				);
-			}
-
-			return row;
-		});
+				)
+			);
+		}
+		await db.batch(statements);
+		created = (await findProductByLookup({ id: productId }, { includeInactive: true }))!;
 	} catch (error) {
 		await cleanupUploadedImages(uploadedImages);
 		throw mapProductPersistenceError(error);
@@ -525,7 +521,7 @@ export async function listProducts(
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(product);
 
-	const [rows, totalRows] = await Promise.all([
+	const [rows, totalRows] = await db.batch([
 		where ? listQuery.where(where) : listQuery,
 		where ? countQuery.where(where) : countQuery
 	]);
@@ -563,44 +559,44 @@ export async function updateProduct(
 	}
 
 	try {
-		const updated = await getDb().transaction(async (tx) => {
-			if (data.categoryId) {
-				await assertCategoryExistsTx(tx, data.categoryId, 'Product category not found.');
+		const db = getDb();
+		if (data.categoryId) {
+			await assertCategoryExistsTx(db, data.categoryId, 'Product category not found.');
+		}
+		const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
+		const resolvedTagIds = shouldUpdateTags
+			? await resolveProductTagIdsTx(db, normalizedTagIds, normalizedNewTagNames)
+			: [];
+		let statements: [BatchItem, ...BatchItem[]];
+
+		if (Object.keys(updateValues).length > 0) {
+			statements = [
+				db.update(product).set(updateValues).where(eq(product.id, existing.id)),
+				...guardPreviousBatchChanges(db)
+			];
+		} else {
+			statements = [
+				...guardBatchCondition(
+					db,
+					sql`EXISTS (SELECT 1 FROM ${product} WHERE ${product.id} = ${existing.id})`
+				)
+			];
+		}
+		if (shouldUpdateTags) {
+			statements.push(db.delete(productTag).where(eq(productTag.productId, existing.id)));
+			if (resolvedTagIds.length > 0) {
+				statements.push(
+					db
+						.insert(productTag)
+						.values(resolvedTagIds.map((tagId) => ({ productId: existing.id, tagId })))
+				);
 			}
-
-			const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
-			const resolvedTagIds = shouldUpdateTags
-				? await resolveProductTagIdsTx(tx, normalizedTagIds, normalizedNewTagNames)
-				: [];
-
-			const [row] =
-				Object.keys(updateValues).length > 0
-					? await tx
-							.update(product)
-							.set(updateValues)
-							.where(eq(product.id, existing.id))
-							.returning()
-					: [existing];
-
-			if (!row) {
-				throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
-			}
-
-			if (shouldUpdateTags) {
-				await tx.delete(productTag).where(eq(productTag.productId, existing.id));
-
-				if (resolvedTagIds.length > 0) {
-					await tx.insert(productTag).values(
-						resolvedTagIds.map((tagId) => ({
-							productId: existing.id,
-							tagId
-						}))
-					);
-				}
-			}
-
-			return row;
-		});
+		}
+		await db.batch(statements);
+		const updated = await findProductByLookup({ id: existing.id }, { includeInactive: true });
+		if (!updated) {
+			throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
+		}
 
 		return hydrateProduct(updated, { includeInactiveRelations: true });
 	} catch (error) {
@@ -717,218 +713,195 @@ export async function updateProductFull(
 
 	let updated: Product;
 	try {
-		updated = await getDb().transaction(async (tx) => {
-			if (data.categoryId) {
-				await assertCategoryExistsTx(tx, data.categoryId, 'Product category not found.');
+		const db = getDb();
+		if (data.categoryId) {
+			await assertCategoryExistsTx(db, data.categoryId, 'Product category not found.');
+		}
+		const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
+		const resolvedTagIds = shouldUpdateTags
+			? await resolveProductTagIdsTx(db, normalizedTagIds, normalizedNewTagNames)
+			: [];
+		const [currentSizes, currentImages] = await db.batch([
+			db.select().from(productVariant).where(eq(productVariant.productId, existing.id)),
+			db.select().from(productImage).where(eq(productImage.productId, existing.id))
+		]);
+		const currentImagesById = new Map(currentImages.map((row) => [row.id, row]));
+		const now = resolveNow(ctx);
+		const statements: [BatchItem, ...BatchItem[]] = [
+			db
+				.update(product)
+				.set({ ...updateValues, updatedAt: now })
+				.where(and(eq(product.id, existing.id), eq(product.updatedAt, existing.updatedAt))),
+			...guardPreviousBatchChanges(db)
+		];
+
+		if (shouldUpdateTags) {
+			statements.push(db.delete(productTag).where(eq(productTag.productId, existing.id)));
+			if (resolvedTagIds.length > 0) {
+				statements.push(
+					db
+						.insert(productTag)
+						.values(resolvedTagIds.map((tagId) => ({ productId: existing.id, tagId })))
+				);
 			}
+		}
 
-			const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
-			const resolvedTagIds = shouldUpdateTags
-				? await resolveProductTagIdsTx(tx, normalizedTagIds, normalizedNewTagNames)
-				: [];
-
-			const [productRow] =
-				Object.keys(updateValues).length > 0
-					? await tx
-							.update(product)
-							.set(updateValues)
-							.where(eq(product.id, existing.id))
-							.returning()
-					: [existing];
-
-			if (!productRow) {
-				throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
-			}
-
-			if (shouldUpdateTags) {
-				await tx.delete(productTag).where(eq(productTag.productId, existing.id));
-
-				if (resolvedTagIds.length > 0) {
-					await tx.insert(productTag).values(
-						resolvedTagIds.map((tagId) => ({
-							productId: existing.id,
-							tagId
-						}))
-					);
-				}
-			}
-
-			// Sync variants (variant colors & size variants)
-			for (const v of variants) {
-				const dbColorId = clientToDbColorId.get(v.id)!;
-
-				if (v.isDeleted) {
-					await tx.delete(productVariantColor).where(eq(productVariantColor.id, dbColorId));
-				} else if (v.isNew) {
-					await tx.insert(productVariantColor).values({
-						id: dbColorId,
-						productId: existing.id,
-						colorId: v.colorId ?? null,
-						color: v.color,
-						colorHex: v.colorHex ?? null,
-						basePrice: v.basePrice,
-						compareAtPrice: v.compareAtPrice ?? null,
-						sortOrder: v.sortOrder
-					});
-
-					if (v.sizes && v.sizes.length > 0) {
-						await tx.insert(productVariant).values(
-							v.sizes.map((size) => ({
-								id: nanoid(),
-								productId: existing.id,
-								variantColorId: dbColorId,
-								size,
-								isActive: true,
-								sortOrder: 1
-							}))
-						);
-					}
-				} else {
-					await tx
-						.update(productVariantColor)
-						.set({
-							colorId: v.colorId ?? null,
-							color: v.color,
-							colorHex: v.colorHex ?? null,
-							basePrice: v.basePrice,
-							compareAtPrice: v.compareAtPrice ?? null,
-							sortOrder: v.sortOrder
-						})
-						.where(eq(productVariantColor.id, dbColorId));
-
-					const dbSizes = await tx
-						.select()
-						.from(productVariant)
-						.where(eq(productVariant.variantColorId, dbColorId));
-
-					const dbSizeTiers = dbSizes.map((ds) => ds.size);
-					const sizesToInsert = v.sizes.filter((sz) => !dbSizeTiers.includes(sz));
-					const sizesToDelete = dbSizes.filter((ds) => !v.sizes.includes(ds.size));
-
-					if (sizesToInsert.length > 0) {
-						await tx.insert(productVariant).values(
-							sizesToInsert.map((size) => ({
-								id: nanoid(),
-								productId: existing.id,
-								variantColorId: dbColorId,
-								size,
-								isActive: true,
-								sortOrder: 1
-							}))
-						);
-					}
-
-					if (sizesToDelete.length > 0) {
-						await tx.delete(productVariant).where(
-							inArray(
-								productVariant.id,
-								sizesToDelete.map((d) => d.id)
+		for (const variant of variants) {
+			const colorId = clientToDbColorId.get(variant.id)!;
+			if (variant.isDeleted) {
+				statements.push(
+					db
+						.delete(productVariantColor)
+						.where(
+							and(
+								eq(productVariantColor.id, colorId),
+								eq(productVariantColor.productId, existing.id)
 							)
-						);
-					}
-				}
+						)
+				);
+				continue;
 			}
 
-			// Sync images
-			if (images.length > 0) {
-				await tx
+			if (variant.isNew) {
+				statements.push(
+					db.insert(productVariantColor).values({
+						id: colorId,
+						productId: existing.id,
+						colorId: variant.colorId ?? null,
+						color: variant.color,
+						colorHex: variant.colorHex ?? null,
+						basePrice: variant.basePrice,
+						compareAtPrice: variant.compareAtPrice ?? null,
+						sortOrder: variant.sortOrder
+					})
+				);
+				statements.push(
+					db.insert(productVariant).values(
+						variant.sizes.map((size) => ({
+							id: nanoid(),
+							productId: existing.id,
+							variantColorId: colorId,
+							size,
+							isActive: true,
+							sortOrder: 1
+						}))
+					)
+				);
+				continue;
+			}
+
+			statements.push(
+				db
+					.update(productVariantColor)
+					.set({
+						colorId: variant.colorId ?? null,
+						color: variant.color,
+						colorHex: variant.colorHex ?? null,
+						basePrice: variant.basePrice,
+						compareAtPrice: variant.compareAtPrice ?? null,
+						sortOrder: variant.sortOrder
+					})
+					.where(
+						and(eq(productVariantColor.id, colorId), eq(productVariantColor.productId, existing.id))
+					)
+			);
+			const dbSizes = currentSizes.filter((row) => row.variantColorId === colorId);
+			const existingSizeNames = new Set(dbSizes.map((row) => row.size));
+			const sizesToInsert = variant.sizes.filter((size) => !existingSizeNames.has(size));
+			const sizesToDelete = dbSizes.filter((row) => !variant.sizes.includes(row.size));
+			if (sizesToInsert.length > 0) {
+				statements.push(
+					db.insert(productVariant).values(
+						sizesToInsert.map((size) => ({
+							id: nanoid(),
+							productId: existing.id,
+							variantColorId: colorId,
+							size,
+							isActive: true,
+							sortOrder: 1
+						}))
+					)
+				);
+			}
+			if (sizesToDelete.length > 0) {
+				statements.push(
+					db.delete(productVariant).where(
+						inArray(
+							productVariant.id,
+							sizesToDelete.map((row) => row.id)
+						)
+					)
+				);
+			}
+		}
+
+		if (images.length > 0) {
+			statements.push(
+				db
 					.update(productImage)
 					.set({ isPrimary: false })
-					.where(eq(productImage.productId, existing.id));
-			}
-
-			for (const img of images) {
-				const resolvedVariantId = img.variantId
-					? clientToDbColorId.get(img.variantId) || null
-					: null;
-
-				if (img.isDeleted) {
-					const [dbImg] = await tx
-						.select({ r2Key: productImage.r2Key })
-						.from(productImage)
-						.where(eq(productImage.id, img.id));
-					if (dbImg) {
-						deletedImageKeys.push(dbImg.r2Key);
-					}
-					await tx.delete(productImage).where(eq(productImage.id, img.id));
-				} else if (img.isNew) {
-					const insertData = newImageInsertData.find((d) => d.id === img.id);
-					if (insertData) {
-						await tx.insert(productImage).values({
-							id: insertData.id,
+					.where(eq(productImage.productId, existing.id))
+			);
+		}
+		for (const image of images) {
+			const variantId = image.variantId ? (clientToDbColorId.get(image.variantId) ?? null) : null;
+			if (image.isDeleted) {
+				const stored = currentImagesById.get(image.id);
+				if (stored) deletedImageKeys.push(stored.r2Key);
+				statements.push(
+					db
+						.delete(productImage)
+						.where(and(eq(productImage.id, image.id), eq(productImage.productId, existing.id)))
+				);
+			} else if (image.isNew) {
+				const insertData = newImageInsertData.find((row) => row.id === image.id);
+				if (insertData) {
+					statements.push(
+						db.insert(productImage).values({
+							...insertData,
 							productId: existing.id,
-							variantId: resolvedVariantId,
-							r2Key: insertData.r2Key,
-							mimeType: insertData.mimeType,
-							byteSize: insertData.byteSize,
-							originalFilename: insertData.originalFilename,
-							width: insertData.width,
-							height: insertData.height,
-							altText: img.altText ?? null,
-							position: img.position,
-							isPrimary: img.isPrimary
-						});
-					}
-				} else {
-					await tx
+							variantId,
+							altText: image.altText ?? null,
+							position: image.position,
+							isPrimary: image.isPrimary
+						})
+					);
+				}
+			} else {
+				statements.push(
+					db
 						.update(productImage)
 						.set({
-							variantId: resolvedVariantId,
-							altText: img.altText ?? null,
-							position: img.position,
-							isPrimary: img.isPrimary
+							variantId,
+							altText: image.altText ?? null,
+							position: image.position,
+							isPrimary: image.isPrimary
 						})
-						.where(eq(productImage.id, img.id));
-				}
+						.where(and(eq(productImage.id, image.id), eq(productImage.productId, existing.id)))
+				);
 			}
+		}
 
-			// Normalize primary states (ensuring exactly one primary per product-wide and per variant)
-			const remainingImages = await tx
-				.select()
-				.from(productImage)
-				.where(eq(productImage.productId, existing.id));
+		if (images.length > 0) {
+			statements.push(
+				db
+					.update(productImage)
+					.set({
+						isPrimary: sql`CASE WHEN ${productImage.id} = (
+							SELECT candidate.id FROM product_image AS candidate
+							WHERE candidate.product_id = ${productImage.productId}
+								AND candidate.variant_id IS ${productImage.variantId}
+							ORDER BY candidate.is_primary DESC, candidate.position ASC,
+								candidate.created_at ASC, candidate.id ASC
+							LIMIT 1
+						) THEN 1 ELSE 0 END`
+					})
+					.where(eq(productImage.productId, existing.id))
+			);
+		}
 
-			if (remainingImages.length > 0) {
-				const globalImages = remainingImages.filter((ri) => !ri.variantId);
-				const globalPrimary = globalImages.filter((ri) => ri.isPrimary);
-				if (globalImages.length > 0 && globalPrimary.length !== 1) {
-					await tx
-						.update(productImage)
-						.set({ isPrimary: false })
-						.where(and(eq(productImage.productId, existing.id), isNull(productImage.variantId)));
-					await tx
-						.update(productImage)
-						.set({ isPrimary: true })
-						.where(eq(productImage.id, globalImages[0].id));
-				}
-
-				const variantGroups = new Map<string, typeof remainingImages>();
-				for (const img of remainingImages) {
-					if (img.variantId) {
-						if (!variantGroups.has(img.variantId)) {
-							variantGroups.set(img.variantId, []);
-						}
-						variantGroups.get(img.variantId)!.push(img);
-					}
-				}
-
-				for (const [vId, vImgs] of variantGroups.entries()) {
-					const primary = vImgs.filter((ri) => ri.isPrimary);
-					if (primary.length !== 1) {
-						await tx
-							.update(productImage)
-							.set({ isPrimary: false })
-							.where(eq(productImage.variantId, vId));
-						await tx
-							.update(productImage)
-							.set({ isPrimary: true })
-							.where(eq(productImage.id, vImgs[0].id));
-					}
-				}
-			}
-
-			return productRow;
-		});
+		await db.batch(statements);
+		updated = (await findProductByLookup({ id: existing.id }, { includeInactive: true }))!;
 	} catch (error) {
 		await cleanupUploadedImages(uploadedR2Images);
 		throw mapProductPersistenceError(error);
@@ -953,41 +926,34 @@ export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup):
 	let bucket: R2Bucket | null = null;
 
 	try {
-		const imageKeys = await getDb().transaction(async (tx) => {
-			const variantRows = await tx
+		const db = getDb();
+		const [variantRows, imageRows] = await db.batch([
+			db
 				.select({ id: productVariant.id })
 				.from(productVariant)
-				.where(eq(productVariant.productId, existing.id));
-			await assertProductDeletionHasNoHistoryTx(
-				tx,
-				existing.id,
-				variantRows.map((row) => row.id)
-			);
-
-			const imageRows = await tx
+				.where(eq(productVariant.productId, existing.id)),
+			db
 				.select({ r2Key: productImage.r2Key })
 				.from(productImage)
-				.where(eq(productImage.productId, existing.id));
-			const keys = imageRows.map((row) => row.r2Key);
-
-			if (keys.length > 0 && ctx.event) {
-				bucket = getMediaBucketOptional(ctx.event);
-			}
-
-			// Delete related images first to avoid cascade UNIQUE constraint conflicts in SQLite
-			await tx.delete(productImage).where(eq(productImage.productId, existing.id));
-
-			const [deleted] = await tx
-				.delete(product)
-				.where(eq(product.id, existing.id))
-				.returning({ id: product.id });
-
-			if (!deleted) {
-				throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
-			}
-
-			return keys;
-		});
+				.where(eq(productImage.productId, existing.id))
+		]);
+		await assertProductDeletionHasNoHistoryTx(
+			db,
+			existing.id,
+			variantRows.map((row) => row.id)
+		);
+		const imageKeys = imageRows.map((row) => row.r2Key);
+		if (imageKeys.length > 0 && ctx.event) {
+			bucket = getMediaBucketOptional(ctx.event);
+		}
+		const [, deletedRows] = await db.batch([
+			db.delete(productImage).where(eq(productImage.productId, existing.id)),
+			db.delete(product).where(eq(product.id, existing.id)).returning({ id: product.id }),
+			...guardPreviousBatchChanges(db)
+		]);
+		if (!deletedRows[0]) {
+			throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
+		}
 
 		if (bucket) {
 			const mediaBucket = bucket;
@@ -1102,20 +1068,17 @@ export async function deleteProductVariant(ctx: ServiceContext, variantId: strin
 	}
 
 	try {
-		const [deleted] = await getDb().transaction(async (tx) => {
-			if (await hasInventoryHistoryForVariantIdsTx(tx as InventoryTx, [existing.id])) {
-				throw new ProductError(
-					'Product variants with inventory history cannot be deleted. Deactivate the variant instead.',
-					ErrorCode.CONFLICT,
-					{ variantId: existing.id }
-				);
-			}
-
-			return tx
-				.delete(productVariant)
-				.where(eq(productVariant.id, existing.id))
-				.returning({ id: productVariant.id });
-		});
+		if (await hasInventoryHistoryForVariantIdsTx(getDb(), [existing.id])) {
+			throw new ProductError(
+				'Product variants with inventory history cannot be deleted. Deactivate the variant instead.',
+				ErrorCode.CONFLICT,
+				{ variantId: existing.id }
+			);
+		}
+		const [deleted] = await getDb()
+			.delete(productVariant)
+			.where(eq(productVariant.id, existing.id))
+			.returning({ id: productVariant.id });
 
 		if (!deleted) {
 			throw new ProductError('Product variant not found.', ErrorCode.VARIANT_NOT_FOUND, {
@@ -1208,29 +1171,26 @@ export async function deleteProductVariantColor(
 	const db = getDb();
 
 	try {
-		const [deleted] = await db.transaction(async (tx) => {
-			const variants = await tx
-				.select({ id: productVariant.id })
-				.from(productVariant)
-				.where(eq(productVariant.variantColorId, colorId));
-			if (
-				await hasInventoryHistoryForVariantIdsTx(
-					tx as InventoryTx,
-					variants.map((row) => row.id)
-				)
-			) {
-				throw new ProductError(
-					'Variant colors with inventory history cannot be deleted. Deactivate their variants instead.',
-					ErrorCode.CONFLICT,
-					{ colorId }
-				);
-			}
-
-			return tx
-				.delete(productVariantColor)
-				.where(eq(productVariantColor.id, colorId))
-				.returning({ id: productVariantColor.id });
-		});
+		const variants = await db
+			.select({ id: productVariant.id })
+			.from(productVariant)
+			.where(eq(productVariant.variantColorId, colorId));
+		if (
+			await hasInventoryHistoryForVariantIdsTx(
+				db,
+				variants.map((row) => row.id)
+			)
+		) {
+			throw new ProductError(
+				'Variant colors with inventory history cannot be deleted. Deactivate their variants instead.',
+				ErrorCode.CONFLICT,
+				{ colorId }
+			);
+		}
+		const [deleted] = await db
+			.delete(productVariantColor)
+			.where(eq(productVariantColor.id, colorId))
+			.returning({ id: productVariantColor.id });
 
 		if (!deleted) {
 			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
@@ -1309,19 +1269,21 @@ export async function addProductImage(
 			width: null,
 			height: null
 		};
-		const created = await getDb().transaction(async (tx) => {
-			if (values.isPrimary) {
-				await clearPrimaryProductImagesTx(tx, values.productId, values.variantId ?? null);
-			}
+		const db = getDb();
+		const insertQuery = db.insert(productImage).values(values).returning();
+		const createdRows = values.isPrimary
+			? (
+					await db.batch([
+						clearPrimaryProductImagesTx(db, values.productId, values.variantId ?? null),
+						insertQuery
+					])
+				)[1]
+			: await insertQuery;
+		const [created] = createdRows;
 
-			const [row] = await tx.insert(productImage).values(values).returning();
-
-			if (!row) {
-				throw new ProductError('Product image was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			return row;
-		});
+		if (!created) {
+			throw new ProductError('Product image was not created.', ErrorCode.INTERNAL_ERROR);
+		}
 
 		return toProductImageDTO(created);
 	} catch (error) {
@@ -1337,31 +1299,26 @@ export async function setPrimaryProductImage(
 	requireAdmin(ctx.actor);
 
 	try {
-		const updated = await getDb().transaction(async (tx) => {
-			const existing = await findProductImageByIdTx(tx, imageId);
+		const db = getDb();
+		const existing = await findProductImageByIdTx(db, imageId);
 
-			if (!existing) {
-				throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, {
-					imageId
-				});
-			}
+		if (!existing) {
+			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
+		}
 
-			await clearPrimaryProductImagesTx(tx, existing.productId, existing.variantId);
-
-			const [row] = await tx
+		const [, updatedRows] = await db.batch([
+			clearPrimaryProductImagesTx(db, existing.productId, existing.variantId),
+			db
 				.update(productImage)
 				.set({ isPrimary: true })
 				.where(eq(productImage.id, existing.id))
-				.returning();
+				.returning()
+		]);
+		const [updated] = updatedRows;
 
-			if (!row) {
-				throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, {
-					imageId
-				});
-			}
-
-			return row;
-		});
+		if (!updated) {
+			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
+		}
 
 		return toProductImageDTO(updated);
 	} catch (error) {
@@ -1377,27 +1334,30 @@ export async function reorderProductImages(
 	requireAdmin(ctx.actor);
 
 	try {
-		const rows = await getDb().transaction(async (tx) => {
-			await assertProductExistsTx(tx, productId, 'Product not found.');
+		const db = getDb();
+		await assertProductExistsTx(db, productId, 'Product not found.');
+		const existingRows = await db
+			.select()
+			.from(productImage)
+			.where(eq(productImage.productId, productId))
+			.orderBy(asc(productImage.position), asc(productImage.createdAt));
+		assertExactProductImageOrder(productId, existingRows, imageIdsInOrder);
 
-			const existingRows = await tx
-				.select()
-				.from(productImage)
-				.where(eq(productImage.productId, productId))
-				.orderBy(asc(productImage.position), asc(productImage.createdAt));
-
-			assertExactProductImageOrder(productId, existingRows, imageIdsInOrder);
-
-			for (const [position, imageId] of imageIdsInOrder.entries()) {
-				await tx.update(productImage).set({ position }).where(eq(productImage.id, imageId));
-			}
-
-			return tx
-				.select()
-				.from(productImage)
-				.where(eq(productImage.productId, productId))
-				.orderBy(asc(productImage.position), asc(productImage.createdAt));
-		});
+		const updates = imageIdsInOrder.map((imageId, position) =>
+			db
+				.update(productImage)
+				.set({ position })
+				.where(and(eq(productImage.id, imageId), eq(productImage.productId, productId)))
+		);
+		const [firstUpdate, ...remainingUpdates] = updates;
+		if (firstUpdate) {
+			await db.batch([firstUpdate, ...remainingUpdates]);
+		}
+		const rows = await db
+			.select()
+			.from(productImage)
+			.where(eq(productImage.productId, productId))
+			.orderBy(asc(productImage.position), asc(productImage.createdAt));
 
 		return rows.map(toProductImageDTO);
 	} catch (error) {
@@ -1408,38 +1368,21 @@ export async function reorderProductImages(
 export async function deleteProductImage(ctx: ServiceContext, imageId: string): Promise<void> {
 	requireAdmin(ctx.actor);
 
-	let bucket: R2Bucket | null = null;
-
 	try {
-		const imageKey = await getDb().transaction(async (tx) => {
-			const existing = await findProductImageByIdTx(tx, imageId);
-
-			if (!existing) {
-				throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, {
-					imageId
-				});
-			}
-
-			bucket = requireMediaBucket(ctx);
-
-			const [deleted] = await tx
-				.delete(productImage)
-				.where(eq(productImage.id, existing.id))
-				.returning({ id: productImage.id });
-
-			if (!deleted) {
-				throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, {
-					imageId
-				});
-			}
-
-			return existing.r2Key;
-		});
-
-		if (bucket) {
-			const mediaBucket = bucket;
-			await deleteObjectSafe(mediaBucket, imageKey);
+		const db = getDb();
+		const existing = await findProductImageByIdTx(db, imageId);
+		if (!existing) {
+			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
 		}
+		const bucket = requireMediaBucket(ctx);
+		const [deleted] = await db
+			.delete(productImage)
+			.where(eq(productImage.id, existing.id))
+			.returning({ id: productImage.id });
+		if (!deleted) {
+			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
+		}
+		await deleteObjectSafe(bucket, existing.r2Key);
 	} catch (error) {
 		throw mapProductImagePersistenceError(error);
 	}
@@ -1673,21 +1616,18 @@ export async function setProductTags(
 	const normalizedTagIds = normalizeTagIds(tagIds);
 
 	try {
-		await getDb().transaction(async (tx) => {
-			await assertProductExistsTx(tx, productId, 'Product not found.');
-			await assertTagsExistTx(tx, normalizedTagIds);
-
-			await tx.delete(productTag).where(eq(productTag.productId, productId));
-
-			if (normalizedTagIds.length > 0) {
-				await tx.insert(productTag).values(
-					normalizedTagIds.map((tagId) => ({
-						productId,
-						tagId
-					}))
-				);
-			}
-		});
+		const db = getDb();
+		await assertProductExistsTx(db, productId, 'Product not found.');
+		await assertTagsExistTx(db, normalizedTagIds);
+		const deleteQuery = db.delete(productTag).where(eq(productTag.productId, productId));
+		if (normalizedTagIds.length > 0) {
+			await db.batch([
+				deleteQuery,
+				db.insert(productTag).values(normalizedTagIds.map((tagId) => ({ productId, tagId })))
+			]);
+		} else {
+			await deleteQuery;
+		}
 	} catch (error) {
 		throw mapProductTagPersistenceError(error);
 	}
@@ -1703,23 +1643,10 @@ export async function addProductTag(
 	const normalizedTagId = normalizeTagId(tagId);
 
 	try {
-		await getDb().transaction(async (tx) => {
-			await assertProductExistsTx(tx, productId, 'Product not found.');
-			await assertTagsExistTx(tx, [normalizedTagId]);
-
-			const [existing] = await tx
-				.select({ productId: productTag.productId })
-				.from(productTag)
-				.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)))
-				.limit(1);
-
-			if (existing) return;
-
-			await tx.insert(productTag).values({
-				productId,
-				tagId: normalizedTagId
-			});
-		});
+		const db = getDb();
+		await assertProductExistsTx(db, productId, 'Product not found.');
+		await assertTagsExistTx(db, [normalizedTagId]);
+		await db.insert(productTag).values({ productId, tagId: normalizedTagId }).onConflictDoNothing();
 	} catch (error) {
 		if (isUniqueConstraintError(getErrorMessage(error))) return;
 
@@ -1737,13 +1664,11 @@ export async function removeProductTag(
 	const normalizedTagId = normalizeTagId(tagId);
 
 	try {
-		await getDb().transaction(async (tx) => {
-			await assertProductExistsTx(tx, productId, 'Product not found.');
-
-			await tx
-				.delete(productTag)
-				.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)));
-		});
+		const db = getDb();
+		await assertProductExistsTx(db, productId, 'Product not found.');
+		await db
+			.delete(productTag)
+			.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)));
 	} catch (error) {
 		throw mapProductTagPersistenceError(error);
 	}
@@ -2883,7 +2808,7 @@ async function assertCategoryParentDoesNotCreateCycle(
 }
 
 async function assertProductDeletionHasNoHistoryTx(
-	tx: Tx,
+	tx: Db | Tx,
 	productId: string,
 	variantIds: string[]
 ): Promise<void> {
@@ -2980,12 +2905,8 @@ async function assertTagsExistTx(tx: Db | Tx, tagIds: string[]): Promise<void> {
 	}
 }
 
-async function clearPrimaryProductImagesTx(
-	tx: Db | Tx,
-	productId: string,
-	variantId: string | null
-): Promise<void> {
-	await tx
+function clearPrimaryProductImagesTx(tx: Db | Tx, productId: string, variantId: string | null) {
+	return tx
 		.update(productImage)
 		.set({ isPrimary: false })
 		.where(productImagePrimaryScopePredicate(productId, variantId));
@@ -3081,40 +3002,35 @@ async function hydrateProducts(
 	const categoryIds = uniqueStrings(rows.map((row) => row.categoryId).filter(isString));
 	const db = getDb();
 
-	const categoryPromise =
-		categoryIds.length > 0
-			? db
-					.select()
-					.from(category)
-					.where(
-						options.includeInactiveRelations
-							? inArray(category.id, categoryIds)
-							: and(inArray(category.id, categoryIds), eq(category.isActive, true))
-					)
-			: Promise.resolve([]);
-	const variantsPromise = db
-		.select({
-			variant: productVariant,
-			color: productVariantColor
-		})
+	const categoryQuery = db
+		.select()
+		.from(category)
+		.where(
+			categoryIds.length === 0
+				? sql`0`
+				: options.includeInactiveRelations
+					? inArray(category.id, categoryIds)
+					: and(inArray(category.id, categoryIds), eq(category.isActive, true))
+		);
+	const variantsQuery = db
+		.select()
 		.from(productVariant)
-		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.where(
 			options.includeInactiveRelations
 				? inArray(productVariant.productId, productIds)
 				: and(inArray(productVariant.productId, productIds), eq(productVariant.isActive, true))
 		)
-		.orderBy(
-			asc(productVariant.sortOrder),
-			asc(productVariant.size),
-			asc(productVariantColor.color)
-		);
-	const imagesPromise = db
+		.orderBy(asc(productVariant.sortOrder), asc(productVariant.size));
+	const variantColorsQuery = db
+		.select()
+		.from(productVariantColor)
+		.where(inArray(productVariantColor.productId, productIds));
+	const imagesQuery = db
 		.select()
 		.from(productImage)
 		.where(inArray(productImage.productId, productIds))
 		.orderBy(asc(productImage.position), asc(productImage.createdAt));
-	const tagsPromise = db
+	const tagsQuery = db
 		.select({
 			productId: productTag.productId,
 			id: tag.id,
@@ -3126,20 +3042,35 @@ async function hydrateProducts(
 		.where(inArray(productTag.productId, productIds))
 		.orderBy(asc(tag.name));
 
-	const [categories, variants, images, tagRows] = await Promise.all([
-		categoryPromise,
-		variantsPromise,
-		imagesPromise,
-		tagsPromise
+	const [categories, variants, variantColors, images, tagRows] = await db.batch([
+		categoryQuery,
+		variantsQuery,
+		variantColorsQuery,
+		imagesQuery,
+		tagsQuery
 	]);
 	const categoryById = new Map(categories.map((row) => [row.id, row]));
+	const variantColorById = new Map(variantColors.map((row) => [row.id, row]));
 
 	const variantsByProductId = new Map<string, ProductVariantDTO[]>();
 	for (const row of variants) {
-		const pid = row.variant.productId;
+		const colorRow = variantColorById.get(row.variantColorId);
+		if (!colorRow) {
+			throw new ProductError('Product variant color not found.', ErrorCode.INTERNAL_ERROR, {
+				variantId: row.id,
+				variantColorId: row.variantColorId
+			});
+		}
+		const pid = row.productId;
 		const current = variantsByProductId.get(pid) ?? [];
-		current.push(toProductVariantDTO(row.variant, row.color));
+		current.push(toProductVariantDTO(row, colorRow));
 		variantsByProductId.set(pid, current);
+	}
+	for (const current of variantsByProductId.values()) {
+		current.sort(
+			(a, b) =>
+				a.sortOrder - b.sortOrder || a.size.localeCompare(b.size) || a.color.localeCompare(b.color)
+		);
 	}
 
 	const imagesByProductId = groupByProductId(images);
@@ -3347,6 +3278,12 @@ function mapCategoryPersistenceError(error: unknown): never {
 
 function mapProductPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	if (isD1BatchGuardError(error)) {
+		throw new ProductError(
+			'Product changed while it was being saved. Refresh and try again.',
+			ErrorCode.CONFLICT
+		);
+	}
 
 	const message = getErrorMessage(error);
 

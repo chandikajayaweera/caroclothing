@@ -32,17 +32,15 @@ function db() {
 }
 
 async function enqueueWelcome(idempotencyKey: string, email = 'buyer@example.com') {
-	return db().transaction((tx) =>
-		enqueueNotificationTx(tx as NotificationOutboxTx, {
-			idempotencyKey,
-			type: 'auth_welcome',
-			channel: 'email',
-			recipient: email,
-			aggregateType: 'auth',
-			payload: { email, name: 'Buyer' },
-			now
-		})
-	);
+	return enqueueNotificationTx(db() as NotificationOutboxTx, {
+		idempotencyKey,
+		type: 'auth_welcome',
+		channel: 'email',
+		recipient: email,
+		aggregateType: 'auth',
+		payload: { email, name: 'Buyer' },
+		now
+	});
 }
 
 describe('notification outbox service integration', () => {
@@ -66,17 +64,15 @@ describe('notification outbox service integration', () => {
 		expect(created.payload).toMatchObject({ email: 'buyer@example.com' });
 
 		await expect(
-			db().transaction((tx) =>
-				enqueueNotificationTx(tx as NotificationOutboxTx, {
-					idempotencyKey: 'welcome:mismatch',
-					type: 'auth_welcome',
-					channel: 'email',
-					recipient: 'buyer@example.com',
-					aggregateType: 'auth',
-					payload: { email: 'someone-else@example.com', name: 'Buyer' },
-					now
-				})
-			)
+			enqueueNotificationTx(db() as NotificationOutboxTx, {
+				idempotencyKey: 'welcome:mismatch',
+				type: 'auth_welcome',
+				channel: 'email',
+				recipient: 'buyer@example.com',
+				aggregateType: 'auth',
+				payload: { email: 'someone-else@example.com', name: 'Buyer' },
+				now
+			})
 		).rejects.toMatchObject({ code: ErrorCode.VALIDATION_ERROR });
 	});
 

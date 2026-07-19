@@ -252,7 +252,7 @@
 					? [
 							{
 								label: 'Cancel order',
-								description: 'Cancel order and release reserved stock.',
+								description: 'Cancel order and restore recorded stock.',
 								icon: AlertTriangle,
 								tone: 'danger' as const,
 								onselect: () => (showCancelModal = true)
@@ -800,8 +800,8 @@
 	<div class="flex items-start gap-3 border border-red-500/20 bg-red-500/5 p-4">
 		<AlertTriangle size={18} class="shrink-0 text-red-400" />
 		<p class="font-sans text-sm leading-relaxed text-ash">
-			Cancel order <strong class="text-bone">{order.orderNumber}</strong>? Reserved stock will be
-			released and this action cannot be undone.
+			Cancel order <strong class="text-bone">{order.orderNumber}</strong>? Recorded stock will be
+			restored and this action cannot be undone.
 		</p>
 	</div>
 

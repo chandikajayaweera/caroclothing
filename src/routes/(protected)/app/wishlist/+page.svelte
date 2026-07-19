@@ -114,9 +114,9 @@
 		title="Wishlist"
 		kicker="Customers"
 		metrics={[
-			{ label: 'Total Saves', value: data.stats.total },
-			{ label: 'Products Saved', value: data.stats.active, tone: 'info' },
-			{ label: 'High-risk Variants', value: data.stats.inactive, tone: 'warning' }
+			{ label: 'Total Saves', value: data.stats.totalSaves },
+			{ label: 'Demand Signals', value: data.stats.totalSignals, tone: 'info' },
+			{ label: 'High-risk Variants', value: data.stats.highRiskVariants, tone: 'warning' }
 		]}
 		loading={false}
 		bind:query={searchQuery}

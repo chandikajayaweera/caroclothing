@@ -143,6 +143,18 @@ export type BagListResult = {
 	offset: number;
 };
 
+export type BagSummaryDTO = {
+	total: number;
+	active: number;
+	expired: number;
+	guest: number;
+	user: number;
+	totalSubtotal: number;
+	totalItems: number;
+	activeCheckouts: number;
+	checkoutWindowItems: number;
+};
+
 export type ExpiredGuestBagCleanupResult = {
 	deletedCount: number;
 	bagIds: string[];

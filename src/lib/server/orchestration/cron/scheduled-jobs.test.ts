@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONFIGURED_CRON_SCHEDULES, CRON_SCHEDULES } from './schedules';
+import { CLOUDFLARE_CRON_TRIGGER, CRON_SCHEDULES } from './schedules';
 import { runScheduledJobs, SCHEDULED_JOB_REGISTRY } from './scheduled-jobs';
 
 const jobMocks = vi.hoisted(() => ({
@@ -76,22 +76,56 @@ describe('runScheduledJobs', () => {
 		});
 	});
 
-	it('registers exactly one job definition for every configured cron schedule', () => {
+	it('registers exactly one job definition for every logical job cadence', () => {
 		const registeredSchedules = SCHEDULED_JOB_REGISTRY.map((definition) => definition.schedule);
 
-		expect(registeredSchedules).toEqual([...CONFIGURED_CRON_SCHEDULES]);
+		expect(new Set(registeredSchedules)).toEqual(new Set(Object.values(CRON_SCHEDULES)));
 		expect(new Set(registeredSchedules).size).toBe(registeredSchedules.length);
 	});
 
-	it('runs the notification outbox job on the notification schedule', async () => {
+	it.each([
+		['2026-06-21T10:01:00.000Z', ['bag.expireDueCheckouts']],
+		['2026-06-21T10:05:00.000Z', ['bag.expireDueCheckouts', 'notifications.processDueOutbox']],
+		[
+			'2026-06-21T10:10:00.000Z',
+			[
+				'bag.expireDueCheckouts',
+				'notifications.processDueOutbox',
+				'orders.cancelExpiredPendingOrders'
+			]
+		],
+		[
+			'2026-06-21T11:00:00.000Z',
+			[
+				'bag.expireDueCheckouts',
+				'notifications.processDueOutbox',
+				'orders.cancelExpiredPendingOrders',
+				'bag.deleteExpiredGuestBags'
+			]
+		],
+		[
+			'2026-06-21T20:17:00.000Z',
+			['bag.expireDueCheckouts', 'promotions.reconcilePromoCodeUsageCounts']
+		]
+	])('runs only jobs due at UTC minute %s', async (isoTime, expectedJobs) => {
 		const results = await runScheduledJobs({
-			cron: CRON_SCHEDULES.notifications,
-			scheduledTime
+			cron: CLOUDFLARE_CRON_TRIGGER,
+			scheduledTime: Date.parse(isoTime)
 		});
 
-		expect(results.map((result) => result.job)).toEqual(['notifications.processDueOutbox']);
+		expect(results.map((result) => result.job)).toEqual(expectedJobs);
+	});
+
+	it('passes the scheduled time through to the notification recovery job', async () => {
+		const notificationTime = Date.parse('2026-06-21T10:05:00.000Z');
+
+		await runScheduledJobs({
+			cron: CLOUDFLARE_CRON_TRIGGER,
+			scheduledTime: notificationTime
+		});
+
 		expect(jobMocks.processDueNotificationOutbox).toHaveBeenCalledWith({
-			now: new Date(scheduledTime),
+			now: new Date(notificationTime),
 			limit: 50
 		});
 	});
@@ -117,10 +151,11 @@ describe('runScheduledJobs', () => {
 
 		await expect(
 			runScheduledJobs({
-				cron: CRON_SCHEDULES.notifications,
-				scheduledTime
+				cron: CLOUDFLARE_CRON_TRIGGER,
+				scheduledTime: Date.parse('2026-06-21T10:05:00.000Z')
 			})
 		).rejects.toThrow('[cron] Scheduled job failure: outbox job failed');
 		expect(jobMocks.processDueNotificationOutbox).toHaveBeenCalledTimes(1);
+		expect(jobMocks.expireDueBagCheckouts).toHaveBeenCalledTimes(1);
 	});
 });

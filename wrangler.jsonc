@@ -24,9 +24,9 @@
 	},
 	"routes": [
 		{
-			"pattern": "caroclothing.lk",
-			"zone_name": "caroclothing.lk",
-			"custom_domain": true
+			// Production keeps its existing proxied DNS record; the Worker route runs in front of it.
+			"pattern": "caroclothing.lk/*",
+			"zone_name": "caroclothing.lk"
 		}
 	],
 	"vars": {
@@ -45,18 +45,8 @@
 	"workers_dev": true,
 	"preview_urls": true,
 	"triggers": {
-		"crons": [
-			// Timed checkout stock reservation expiry.
-			"* * * * *",
-			// Notification outbox retries.
-			"*/5 * * * *",
-			// Pending online payment order auto-cancel.
-			"*/10 * * * *",
-			// Expired guest bag cleanup + inventory reservation release.
-			"0 * * * *",
-			// Daily promo usedCount reconciliation. Cron times are UTC.
-			"17 20 * * *"
-		]
+		// One account-level trigger; the Cron registry selects due jobs by UTC minute.
+		"crons": ["* * * * *"]
 	},
 	"queues": {
 		"producers": [
@@ -83,19 +73,18 @@
 			"preview_bucket_name": "caroclothing-media-preview"
 		}
 	],
-	// Declare required secrets — wrangler deploy will fail fast if any are missing.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "caroclothing-production",
+			"database_id": "63dead3e-6801-40aa-a7e7-3f48efd40bb8",
+			"migrations_dir": "drizzle-d1"
+		}
+	],
+	// Declare required secrets - wrangler deploy will fail fast if any are missing.
 	// wrangler types uses this list as the source of truth for type generation.
 	"secrets": {
-		"required": [
-			"DATABASE_URL",
-			"DATABASE_AUTH_TOKEN",
-			"BETTER_AUTH_SECRET",
-			"PUBLIC_GOOGLE_CLIENT_ID",
-			"GOOGLE_CLIENT_SECRET",
-			"PUBLIC_SENTRY_DSN",
-			"RESEND_API_KEY",
-			"TEXT_LK_API_KEY"
-		]
+		"required": ["BETTER_AUTH_SECRET", "PUBLIC_SENTRY_DSN", "RESEND_API_KEY", "TEXT_LK_API_KEY"]
 	},
 	"kv_namespaces": [
 		{
@@ -125,7 +114,7 @@
 					"custom_domain": true
 				}
 			],
-			// NOTE: vars are non-inheritable — must be duplicated per environment.
+			// NOTE: vars are non-inheritable - duplicate them per environment.
 			// Any new top-level var must also be added here.
 			"vars": {
 				"PUBLIC_APP_NAME": "Caro Clothing",
@@ -146,8 +135,16 @@
 					"bucket_name": "caroclothing-media-preview"
 				}
 			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "caroclothing-staging",
+					"database_id": "2552a3a7-4e75-4ae5-a514-7f160499c8e2",
+					"migrations_dir": "drizzle-d1"
+				}
+			],
 			"triggers": {
-				"crons": ["* * * * *", "*/5 * * * *", "*/10 * * * *", "0 * * * *", "17 20 * * *"]
+				"crons": ["* * * * *"]
 			},
 			"queues": {
 				"producers": [
@@ -168,16 +165,7 @@
 				]
 			},
 			"secrets": {
-				"required": [
-					"DATABASE_URL",
-					"DATABASE_AUTH_TOKEN",
-					"BETTER_AUTH_SECRET",
-					"PUBLIC_GOOGLE_CLIENT_ID",
-					"GOOGLE_CLIENT_SECRET",
-					"PUBLIC_SENTRY_DSN",
-					"RESEND_API_KEY",
-					"TEXT_LK_API_KEY"
-				]
+				"required": ["BETTER_AUTH_SECRET", "PUBLIC_SENTRY_DSN", "RESEND_API_KEY", "TEXT_LK_API_KEY"]
 			},
 			"kv_namespaces": [
 				{

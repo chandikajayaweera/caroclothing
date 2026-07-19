@@ -180,7 +180,7 @@
 		message: refundMessage
 	} = recordRefundSuperform;
 
-	// 5. Cancel Expired Holds
+	// 5. Cancel Expired Pending Orders
 	const cancelExpiredSuperform = superForm(
 		initialForm(() => data.cancelExpiredForm!),
 		{
@@ -188,7 +188,7 @@
 			resetForm: true,
 			onUpdated({ form }) {
 				if (form.valid) {
-					toastMessage = form.message ?? 'Expired holds cancelled.';
+					toastMessage = form.message ?? 'Expired pending orders cancelled.';
 					expiredHoldsModalOpen = false;
 				}
 			}
@@ -500,8 +500,8 @@
 					onselect: () => (refundModalOpen = true)
 				},
 				{
-					label: 'Cancel expired holds',
-					description: 'Release all expired unpaid checkout holds.',
+					label: 'Cancel expired pending orders',
+					description: 'Cancel legacy pending orders past expiry and restore recorded stock.',
 					icon: TimerOff,
 					tone: 'danger',
 					onselect: () => (expiredHoldsModalOpen = true)
@@ -1034,9 +1034,9 @@
 
 <AdminConfirmDialog
 	bind:open={expiredHoldsModalOpen}
-	title="Cancel expired holds"
-	message="Cancel expired pending reserve holds and release reserved stock back to inventory?"
-	confirmLabel="Confirm release"
+	title="Cancel expired pending orders"
+	message="Cancel expired pending orders and restore any stock recorded for them?"
+	confirmLabel="Confirm cancellation"
 	loading={$cancelExpiredSubmitting}
 	onconfirm={confirmCancelExpired}
 />

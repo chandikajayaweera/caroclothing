@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNotNull, lte, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
+import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import {
@@ -59,8 +60,9 @@ import type {
 } from './outbox.types';
 
 type Db = ReturnType<typeof getDb>;
-export type NotificationOutboxTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | NotificationOutboxTx;
+export type NotificationOutboxTx = Db;
+type QueryExecutor = Db;
+export type NotificationOutboxBatchItem = Parameters<Db['batch']>[0][number];
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -85,6 +87,48 @@ const SMS_SUPPORTED_TYPES = new Set<NotificationOutboxType>([
 	'payment_update',
 	'order_status_update'
 ]);
+
+export type PreparedNotificationOutboxInsert = {
+	id: string;
+	idempotencyKey: string;
+	statement: NotificationOutboxBatchItem;
+};
+
+/**
+ * Prepare an idempotent outbox insert for inclusion in a larger D1 batch.
+ * This is the bridge that keeps business state and notification intent in one
+ * database commit without sending from the domain service.
+ */
+export function prepareNotificationOutboxInsert<TType extends NotificationOutboxType>(
+	db: Db,
+	input: EnqueueNotificationInput<TType>
+): PreparedNotificationOutboxInsert {
+	const now = resolveNow(null, input.now);
+	const id = nanoid();
+	const values = { id, ...toNewNotificationOutbox(input, now) };
+
+	return {
+		id,
+		idempotencyKey: values.idempotencyKey,
+		statement: db
+			.insert(notificationOutbox)
+			.values(values)
+			.onConflictDoNothing({ target: notificationOutbox.idempotencyKey })
+	};
+}
+
+export async function loadPreparedNotificationOutboxRows(
+	db: Db,
+	prepared: PreparedNotificationOutboxInsert[]
+): Promise<NotificationOutboxDTO[]> {
+	if (prepared.length === 0) return [];
+	const keys = [...new Set(prepared.map((item) => item.idempotencyKey))];
+	const rows = await db
+		.select()
+		.from(notificationOutbox)
+		.where(inArray(notificationOutbox.idempotencyKey, keys));
+	return rows.map(toNotificationOutboxDTO);
+}
 
 export async function getNotificationOutbox(
 	ctx: ServiceContext,
@@ -256,6 +300,31 @@ export async function cancelNotificationsForAccountDeletionTx(
 		.returning({ id: notificationOutbox.id });
 
 	return updated.length;
+}
+
+export function prepareAccountNotificationCancellation(
+	db: NotificationOutboxTx,
+	input: { userId: string; now?: Date }
+): NotificationOutboxBatchItem {
+	const now = resolveNow(null, input.now);
+	const userId = normalizeId(input.userId, 'userId');
+	return db
+		.update(notificationOutbox)
+		.set({
+			status: 'cancelled',
+			cancelledAt: now,
+			lockedAt: null,
+			lockedBy: null,
+			lockToken: null,
+			lastError: 'Account deleted before delivery.',
+			updatedAt: now
+		})
+		.where(
+			and(
+				eq(notificationOutbox.recipientUserId, userId),
+				inArray(notificationOutbox.status, ['pending', 'processing', 'failed'])
+			)
+		);
 }
 
 export async function claimNotification(

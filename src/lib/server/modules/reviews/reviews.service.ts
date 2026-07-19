@@ -1,6 +1,11 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
+import {
+	guardBatchCondition,
+	guardPreviousBatchChanges,
+	isD1BatchGuardError
+} from '$lib/server/db/batch';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -79,8 +84,8 @@ import {
 } from './reviews.types';
 
 type Db = ReturnType<typeof getDb>;
-export type ReviewsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | ReviewsTx;
+export type ReviewsTx = Db;
+type QueryExecutor = Db;
 type User = typeof user.$inferSelect;
 type AnyActor = ServiceActor | SystemActor;
 
@@ -163,7 +168,7 @@ export async function listRecentApprovedReviews(
 		.from(review)
 		.innerJoin(product, eq(review.productId, product.id))
 		.where(where);
-	const [rows, totalRows] = await Promise.all([listQuery, countQuery]);
+	const [rows, totalRows] = await db.batch([listQuery, countQuery]);
 	const dtos = await hydrateReviews(
 		db,
 		rows.map((row) => row.row)
@@ -207,56 +212,60 @@ export async function createReview(
 	const uploadedMedia =
 		files.length > 0 ? await uploadReviewMediaFiles(ctx, reviewId, files, 0) : [];
 
-	let createdId: string;
 	try {
-		createdId = await db.transaction(async (tx) => {
-			await assertProductExistsTx(tx, data.productId, { activeOnly: true });
+		const eligibilityGuard = guardBatchCondition(
+			db,
+			sql`EXISTS (
+				SELECT 1 FROM ${product}
+				WHERE ${product.id} = ${data.productId} AND ${product.isActive} = 1
+			) AND EXISTS (
+				SELECT 1 FROM ${orderItem}
+				INNER JOIN ${orderTable} ON ${orderItem.orderId} = ${orderTable.id}
+				WHERE ${orderTable.id} = ${data.orderId}
+					AND ${orderTable.userId} = ${actor.id}
+					AND ${orderTable.status} = 'delivered'
+					AND ${orderItem.productId} = ${data.productId}
+			) AND NOT EXISTS (
+				SELECT 1 FROM ${review}
+				WHERE ${review.userId} = ${actor.id} AND ${review.productId} = ${data.productId}
+			)`
+		);
+		const insertReview = db.insert(review).values(data);
+		const mediaValues = uploadedMedia.map((item) =>
+			parseNewReviewMedia({
+				reviewId,
+				r2Key: item.key,
+				type: item.type,
+				mimeType: item.mimeType,
+				byteSize: item.byteSize,
+				originalFilename: item.originalFilename,
+				width: null,
+				height: null,
+				position: item.position
+			})
+		);
 
-			const txEligibleOrders = await listEligibleReviewOrdersTx(tx, actor.id, data.productId);
-			if (txEligibleOrders.length === 0) {
-				throw new ReviewError('Verified purchase required to review.', ErrorCode.VALIDATION_ERROR);
-			}
-			data.orderId = data.orderId || txEligibleOrders[0].orderId;
-			data.isVerifiedPurchase = true;
-
-			await assertVerifiedPurchaseEligibleTx(tx, {
-				userId: actor.id,
-				productId: data.productId,
-				orderId: data.orderId
-			});
-			await assertNoExistingReviewTx(tx, actor.id, data.productId);
-
-			const [created] = await tx.insert(review).values(data).returning();
-			if (!created) {
-				throw new ReviewError('Review was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			if (uploadedMedia.length > 0) {
-				await tx.insert(reviewMedia).values(
-					uploadedMedia.map((item) =>
-						parseNewReviewMedia({
-							reviewId,
-							r2Key: item.key,
-							type: item.type,
-							mimeType: item.mimeType,
-							byteSize: item.byteSize,
-							originalFilename: item.originalFilename,
-							width: null,
-							height: null,
-							position: item.position
-						})
-					)
-				);
-			}
-
-			return created.id;
-		});
+		if (mediaValues.length > 0) {
+			await db.batch([
+				...eligibilityGuard,
+				insertReview,
+				db.insert(reviewMedia).values(mediaValues)
+			]);
+		} else {
+			await db.batch([...eligibilityGuard, insertReview]);
+		}
 	} catch (error) {
 		await cleanupUploadedMedia(uploadedMedia);
+		if (isD1BatchGuardError(error)) {
+			throw new ReviewError(
+				'Review eligibility changed. Please refresh and try again.',
+				ErrorCode.REVIEW_NOT_ELIGIBLE
+			);
+		}
 		throw mapReviewPersistenceError(error);
 	}
 
-	return hydrateReviewById(getDb(), createdId);
+	return hydrateReviewById(getDb(), reviewId);
 }
 
 export async function getReview(
@@ -337,33 +346,32 @@ export async function updateMyReview(
 	const values = parseCustomerReviewUpdate(input);
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const existing = await loadReviewByIdTx(tx, reviewId);
-			requireOwnerOrAdmin(actor, existing.userId);
+		const db = getDb();
+		const existing = await loadReviewByIdTx(db, reviewId);
+		requireOwnerOrAdmin(actor, existing.userId);
 
-			if (Object.keys(values).length === 0) {
-				return hydrateReviewById(tx, existing.id);
-			}
+		if (Object.keys(values).length === 0) {
+			return hydrateReviewById(db, existing.id);
+		}
 
-			const shouldResetApproval = !isAdminActor(actor);
-			const updateValues = removeUndefinedValues({
-				...values,
-				isApproved: shouldResetApproval ? false : undefined,
-				adminNote: shouldResetApproval ? null : undefined,
-				updatedAt: resolveNow(ctx, input.now)
-			});
-
-			const [updated] = await tx
-				.update(review)
-				.set(updateValues)
-				.where(eq(review.id, existing.id))
-				.returning();
-			if (!updated) {
-				throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
-			}
-
-			return hydrateReviewById(tx, updated.id);
+		const shouldResetApproval = !isAdminActor(actor);
+		const updateValues = removeUndefinedValues({
+			...values,
+			isApproved: shouldResetApproval ? false : undefined,
+			adminNote: shouldResetApproval ? null : undefined,
+			updatedAt: resolveNow(ctx, input.now)
 		});
+
+		const [updated] = await db
+			.update(review)
+			.set(updateValues)
+			.where(and(eq(review.id, existing.id), eq(review.userId, existing.userId)))
+			.returning();
+		if (!updated) {
+			throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
+		}
+
+		return hydrateReviewById(db, updated.id);
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -385,37 +393,43 @@ export async function addReviewMedia(
 	const uploadedMedia = await uploadReviewMediaFiles(ctx, existing.id, files, existingMedia.length);
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const reviewRow = await loadReviewByIdTx(tx, existing.id);
-			requireOwnerOrAdmin(actor, reviewRow.userId);
+		const db = getDb();
+		const mediaGuard = guardBatchCondition(
+			db,
+			sql`EXISTS (SELECT 1 FROM ${review} WHERE ${review.id} = ${existing.id} AND ${review.userId} = ${existing.userId})
+				AND (SELECT count(*) FROM ${reviewMedia} WHERE ${reviewMedia.reviewId} = ${existing.id}) = ${existingMedia.length}`
+		);
+		const insertMedia = db.insert(reviewMedia).values(
+			uploadedMedia.map((item) =>
+				parseNewReviewMedia({
+					reviewId: existing.id,
+					r2Key: item.key,
+					type: item.type,
+					mimeType: item.mimeType,
+					byteSize: item.byteSize,
+					originalFilename: item.originalFilename,
+					width: null,
+					height: null,
+					position: item.position
+				})
+			)
+		);
+		if (isAdminActor(actor)) {
+			await db.batch([...mediaGuard, insertMedia]);
+		} else {
+			await db.batch([
+				...mediaGuard,
+				insertMedia,
+				resetReviewApproval(db, existing.id, resolveNow(ctx))
+			]);
+		}
 
-			const currentMedia = await loadReviewMediaTx(tx, reviewRow.id);
-			assertReviewMediaLimit(currentMedia.length + uploadedMedia.length);
-
-			await tx.insert(reviewMedia).values(
-				uploadedMedia.map((item) =>
-					parseNewReviewMedia({
-						reviewId: reviewRow.id,
-						r2Key: item.key,
-						type: item.type,
-						mimeType: item.mimeType,
-						byteSize: item.byteSize,
-						originalFilename: item.originalFilename,
-						width: null,
-						height: null,
-						position: currentMedia.length + item.position - existingMedia.length
-					})
-				)
-			);
-
-			if (!isAdminActor(actor)) {
-				await resetReviewApprovalTx(tx, reviewRow.id, resolveNow(ctx));
-			}
-
-			return hydrateReviewById(tx, reviewRow.id);
-		});
+		return hydrateReviewById(db, existing.id);
 	} catch (error) {
 		await cleanupUploadedMedia(uploadedMedia);
+		if (isD1BatchGuardError(error)) {
+			throw new ReviewError('Review media changed. Please try again.', ErrorCode.VALIDATION_ERROR);
+		}
 		throw mapReviewPersistenceError(error);
 	}
 }
@@ -433,29 +447,27 @@ export async function deleteReviewMedia(
 	const bucket = requireMediaBucket(ctx);
 
 	try {
-		const dto = await getDb().transaction(async (tx) => {
-			const currentMedia = await loadReviewMediaByIdTx(tx, mediaId);
-			const currentReview = await loadReviewByIdTx(tx, currentMedia.reviewId);
-			requireOwnerOrAdmin(actor, currentReview.userId);
-
-			const [deleted] = await tx
-				.delete(reviewMedia)
-				.where(eq(reviewMedia.id, currentMedia.id))
-				.returning();
-			if (!deleted) {
-				throw new ReviewError('Review media not found.', ErrorCode.REVIEW_MEDIA_NOT_FOUND, {
-					mediaId
-				});
-			}
-
-			await compactReviewMediaPositionsTx(tx, currentReview.id);
-
-			if (!isAdminActor(actor)) {
-				await resetReviewApprovalTx(tx, currentReview.id, resolveNow(ctx));
-			}
-
-			return hydrateReviewById(tx, currentReview.id);
-		});
+		const db = getDb();
+		const currentRows = await loadReviewMediaTx(db, reviewRow.id);
+		const remainingRows = currentRows.filter((row) => row.id !== mediaId);
+		const deleteQuery = db
+			.delete(reviewMedia)
+			.where(and(eq(reviewMedia.id, mediaId), eq(reviewMedia.reviewId, reviewRow.id)))
+			.returning();
+		const positionUpdates = remainingRows
+			.map((row, position) => ({ row, position }))
+			.filter(({ row, position }) => row.position !== position)
+			.map(({ row, position }) =>
+				db.update(reviewMedia).set({ position }).where(eq(reviewMedia.id, row.id))
+			);
+		const statements = [
+			deleteQuery,
+			...guardPreviousBatchChanges(db),
+			...positionUpdates,
+			...(!isAdminActor(actor) ? [resetReviewApproval(db, reviewRow.id, resolveNow(ctx))] : [])
+		] as const;
+		await db.batch(statements);
+		const dto = await hydrateReviewById(db, reviewRow.id);
 
 		await deleteObjectSafe(bucket, mediaRow.r2Key);
 		return dto;
@@ -473,24 +485,43 @@ export async function reorderReviewMedia(
 	const mediaIdsInOrder = input.mediaIdsInOrder.map((id) => normalizeId(id, 'mediaId'));
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const reviewRow = await loadReviewByIdTx(tx, reviewId);
-			requireOwnerOrAdmin(actor, reviewRow.userId);
+		const db = getDb();
+		const reviewRow = await loadReviewByIdTx(db, reviewId);
+		requireOwnerOrAdmin(actor, reviewRow.userId);
+		const mediaRows = await loadReviewMediaTx(db, reviewRow.id);
+		assertExactReviewMediaOrder(reviewRow.id, mediaRows, mediaIdsInOrder);
+		const idsSql = sql.join(
+			mediaIdsInOrder.map((id) => sql`${id}`),
+			sql`, `
+		);
+		const setGuard = guardBatchCondition(
+			db,
+			sql`(SELECT count(*) FROM ${reviewMedia} WHERE ${reviewMedia.reviewId} = ${reviewRow.id}) = ${mediaIdsInOrder.length}
+				AND NOT EXISTS (
+					SELECT 1 FROM ${reviewMedia}
+					WHERE ${reviewMedia.reviewId} = ${reviewRow.id} AND ${reviewMedia.id} NOT IN (${idsSql})
+				)`
+		);
+		const updates = mediaIdsInOrder.map((mediaId, position) =>
+			db
+				.update(reviewMedia)
+				.set({ position })
+				.where(and(eq(reviewMedia.id, mediaId), eq(reviewMedia.reviewId, reviewRow.id)))
+		);
+		await db.batch([
+			...setGuard,
+			...updates,
+			...(!isAdminActor(actor) ? [resetReviewApproval(db, reviewRow.id, resolveNow(ctx))] : [])
+		]);
 
-			const mediaRows = await loadReviewMediaTx(tx, reviewRow.id);
-			assertExactReviewMediaOrder(reviewRow.id, mediaRows, mediaIdsInOrder);
-
-			for (const [position, mediaId] of mediaIdsInOrder.entries()) {
-				await tx.update(reviewMedia).set({ position }).where(eq(reviewMedia.id, mediaId));
-			}
-
-			if (!isAdminActor(actor)) {
-				await resetReviewApprovalTx(tx, reviewRow.id, resolveNow(ctx));
-			}
-
-			return hydrateReviewById(tx, reviewRow.id);
-		});
+		return hydrateReviewById(db, reviewRow.id);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new ReviewError(
+				'Review media changed. Please refresh and try again.',
+				ErrorCode.VALIDATION_ERROR
+			);
+		}
 		throw mapReviewPersistenceError(error);
 	}
 }
@@ -557,23 +588,22 @@ export async function moderateReview(
 	const adminNote = normalizeNullableText(input.adminNote, 'adminNote', 500);
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const existing = await loadReviewByIdTx(tx, reviewId);
-			const [updated] = await tx
-				.update(review)
-				.set({
-					isApproved: input.isApproved,
-					adminNote,
-					updatedAt: resolveNow(ctx, input.now)
-				})
-				.where(eq(review.id, existing.id))
-				.returning();
-			if (!updated) {
-				throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
-			}
+		const db = getDb();
+		const existing = await loadReviewByIdTx(db, reviewId);
+		const [updated] = await db
+			.update(review)
+			.set({
+				isApproved: input.isApproved,
+				adminNote,
+				updatedAt: resolveNow(ctx, input.now)
+			})
+			.where(eq(review.id, existing.id))
+			.returning();
+		if (!updated) {
+			throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
+		}
 
-			return hydrateReviewById(tx, updated.id);
-		});
+		return hydrateReviewById(db, updated.id);
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -589,17 +619,15 @@ export async function deleteReview(ctx: ServiceContext, input: DeleteReviewInput
 	const bucket = existingMedia.length > 0 ? requireMediaBucket(ctx) : null;
 
 	try {
-		await getDb().transaction(async (tx) => {
-			const reviewRow = await loadReviewByIdTx(tx, existing.id);
-			requireOwnerOrAdmin(actor, reviewRow.userId);
-
-			const [deleted] = await tx.delete(review).where(eq(review.id, reviewRow.id)).returning({
+		const [deleted] = await getDb()
+			.delete(review)
+			.where(and(eq(review.id, existing.id), eq(review.userId, existing.userId)))
+			.returning({
 				id: review.id
 			});
-			if (!deleted) {
-				throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
-			}
-		});
+		if (!deleted) {
+			throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
+		}
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -1052,20 +1080,11 @@ async function listEligibleReviewOrdersTx(
 	return result;
 }
 
-async function resetReviewApprovalTx(tx: ReviewsTx, reviewId: string, now: Date): Promise<void> {
-	await tx
+function resetReviewApproval(db: ReturnType<typeof getDb>, reviewId: string, now: Date) {
+	return db
 		.update(review)
 		.set({ isApproved: false, adminNote: null, updatedAt: now })
 		.where(eq(review.id, reviewId));
-}
-
-async function compactReviewMediaPositionsTx(tx: ReviewsTx, reviewId: string): Promise<void> {
-	const rows = await loadReviewMediaTx(tx, reviewId);
-
-	for (const [position, row] of rows.entries()) {
-		if (row.position === position) continue;
-		await tx.update(reviewMedia).set({ position }).where(eq(reviewMedia.id, row.id));
-	}
 }
 
 function buildAdminReviewWhere(input: ListReviewsInput): SQL | undefined {

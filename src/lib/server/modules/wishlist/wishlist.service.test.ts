@@ -80,6 +80,79 @@ describe('wishlist service integration', () => {
 		});
 	});
 
+	it('paginates and filters demand signals in D1 while keeping global aggregate statistics', async () => {
+		const firstUser = await seedUser(db(), { id: 'wishlist-signal-user-1' });
+		const secondUser = await seedUser(db(), { id: 'wishlist-signal-user-2' });
+		const thirdUser = await seedUser(db(), { id: 'wishlist-signal-user-3' });
+		const highRisk = await seedProductWithVariant(db(), {
+			product: { slug: 'wishlist-high-risk-product' }
+		});
+		const normal = await seedProductWithVariant(db(), {
+			product: { slug: 'wishlist-normal-product' }
+		});
+		await seedInventory(db(), highRisk.variant.id, { quantity: 1, reservedQuantity: 0 });
+		await seedInventory(db(), normal.variant.id, { quantity: 20, reservedQuantity: 0 });
+
+		const firstSavedAt = new Date('2026-07-19T08:00:00.000Z');
+		const lastSavedAt = new Date('2026-07-19T09:00:00.000Z');
+		await db()
+			.insert(wishlistItem)
+			.values([
+				{
+					id: 'wishlist-high-risk-save-1',
+					userId: firstUser.id,
+					productId: highRisk.product.id,
+					variantId: highRisk.variant.id,
+					addedAt: firstSavedAt
+				},
+				{
+					id: 'wishlist-high-risk-save-2',
+					userId: secondUser.id,
+					productId: highRisk.product.id,
+					variantId: highRisk.variant.id,
+					addedAt: lastSavedAt
+				},
+				{
+					id: 'wishlist-normal-save',
+					userId: thirdUser.id,
+					productId: normal.product.id,
+					variantId: normal.variant.id,
+					addedAt: firstSavedAt
+				}
+			]);
+
+		const firstPage = await listWishlistSignals(makeAdminCtx({ now }), { limit: 1 });
+		expect(firstPage).toMatchObject({
+			total: 2,
+			limit: 1,
+			offset: 0,
+			stats: { totalSaves: 3, totalSignals: 2, highRiskVariants: 1 },
+			items: [
+				{
+					id: `${highRisk.product.id}:${highRisk.variant.id}`,
+					saveCount: 2,
+					alertStatus: 'high',
+					lastSavedAt
+				}
+			]
+		});
+
+		await expect(
+			listWishlistSignals(makeAdminCtx({ now }), { alertLevel: 'normal', limit: 1 })
+		).resolves.toMatchObject({
+			total: 1,
+			stats: { totalSaves: 3, totalSignals: 2, highRiskVariants: 1 },
+			items: [{ productId: normal.product.id, alertStatus: 'normal' }]
+		});
+
+		await expect(
+			listWishlistSignals(makeAdminCtx({ now }), { limit: 1, offset: 1 })
+		).resolves.toMatchObject({
+			total: 2,
+			items: [{ productId: normal.product.id }]
+		});
+	});
+
 	it('removes a selected-variant row when the variant is deleted without colliding with product-only rows', async () => {
 		const user = await seedUser(db(), { id: 'wishlist-cascade-user' });
 		const { product, variant } = await seedProductWithVariant(db(), {

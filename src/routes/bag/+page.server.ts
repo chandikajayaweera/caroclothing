@@ -14,7 +14,6 @@ import {
 } from '$lib/server/modules/bag';
 import { ErrorCode, isAppError } from '$lib/server/infrastructure/errors';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-import { withTransientDatabaseRetry } from '$lib/server/infrastructure/errors/transient-database';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -35,7 +34,7 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 	}
 
 	try {
-		const bag = await withTransientDatabaseRetry(() => getOrCreateBag(ctx, { sessionToken }));
+		const bag = await getOrCreateBag(ctx, { sessionToken });
 		return { bag };
 	} catch (error) {
 		throwHttpFromAppError(error);

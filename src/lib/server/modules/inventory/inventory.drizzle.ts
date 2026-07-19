@@ -8,17 +8,18 @@ import { productVariant } from '../products/products.drizzle';
 // ---------------------------------------------------------------------------
 // INVENTORY
 //
-// One row per variant. Tracks total stock and how much is currently reserved
-// by active checkouts / pending orders.
+// One row per variant. `quantity` is physical stock. `reservedQuantity` is
+// retained for legacy/admin reconciliation, but the current checkout flow does
+// not create reservations.
 //
 // available stock (at query time) = quantity - reservedQuantity
 //
-// IMPORTANT: update both `quantity` and `reservedQuantity` in a transaction
-// and always log a matching `inventoryMovement` row for auditability.
+// IMPORTANT: stock mutations and their matching `inventoryMovement` rows must
+// execute in one guarded D1 batch.
 //
 // BACKORDER BEHAVIOUR — reservedQuantity contract:
-//   reservedQuantity tracks physical stock held for active checkouts/pending orders.
-//   It is ONLY incremented when actual stock exists to reserve against.
+//   Starting checkout only opens a validation window and holds no stock.
+//   Verified order capture consumes physical quantity directly.
 //
 //   When allowBackorder = true and quantity = 0:
 //     - The application layer permits the order without incrementing reservedQuantity
@@ -40,9 +41,8 @@ export const inventory = sqliteTable(
 			.unique()
 			.references(() => productVariant.id, { onDelete: 'cascade' }),
 		quantity: integer('quantity').default(0).notNull(),
-		// Items currently held in active checkouts or pending orders.
-		// Increment on checkout start; decrement on checkout expiry/cancellation.
-		// Never incremented for backorder items (see note above).
+		// Legacy/admin reservation state. Current checkout and order-capture paths
+		// never increment this value.
 		reservedQuantity: integer('reserved_quantity').default(0).notNull(),
 		// Alert threshold — surface low-stock warnings in the admin panel
 		lowStockThreshold: integer('low_stock_threshold').default(5).notNull(),
@@ -79,8 +79,8 @@ export const inventory = sqliteTable(
 // INVENTORY MOVEMENTS  (append-only audit log — never delete rows)
 //
 // Every stock or reservation change MUST produce a movement row.
-// quantity* fields track physical stock; reservedQuantity* fields track holds
-// for active checkouts / pending orders. This preserves full reservation auditability.
+// quantity* fields track physical stock; reservedQuantity* fields preserve
+// historical reservation auditability for data created before the validation-window flow.
 // ---------------------------------------------------------------------------
 
 export const inventoryMovement = sqliteTable(

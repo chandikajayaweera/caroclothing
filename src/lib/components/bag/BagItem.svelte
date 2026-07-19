@@ -62,7 +62,7 @@
 			<span class="font-mono text-[9px] text-volt uppercase">Backorder</span>
 		{:else if item.availabilityStatus === 'reserved'}
 			<span class="font-mono text-[9px] text-amber-400 uppercase">
-				Reserved at checkout · {reservationTime}
+				Another checkout in progress · {reservationTime}
 			</span>
 		{:else if item.availabilityStatus === 'unavailable'}
 			<span class="font-mono text-[9px] text-red-400 uppercase">Out of Stock</span>

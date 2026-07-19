@@ -13,7 +13,6 @@ import {
 } from '$lib/server/modules/bag';
 import { jsonFromRouteError } from '$lib/server/infrastructure/errors/route-adapter';
 import { isAppError } from '$lib/server/infrastructure/errors';
-import { withTransientDatabaseRetry } from '$lib/server/infrastructure/errors/transient-database';
 
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -23,7 +22,7 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const sessionToken = cookies.get('bag_session_token');
 
 	try {
-		const bag = await withTransientDatabaseRetry(() => getBag(ctx, { sessionToken }));
+		const bag = await getBag(ctx, { sessionToken });
 		return json(bag, {
 			headers: {
 				'cache-control': 'no-store, max-age=0'

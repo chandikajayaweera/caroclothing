@@ -115,4 +115,18 @@
 ### 17. Separate Payment Attempts from Orders
 
 - **DON'T DO THIS**: Do not create a pending order, transfer inventory reservations, or delete the bag before an online provider has verified payment. Provider setup, cancellation, or failure must never leave a customer with a phantom order or held stock.
-- **INSTEAD DO THIS**: Persist one short-lived pending `payment_attempt` per bag containing the validated checkout intent. Resume identical setup retries, reject conflicting details until the attempt expires, and update terminal states monotonically. Reject PayPal capture before the provider call when the checkout has already expired. On signed PayHere success or verified PayPal capture, revalidate the live bag and create the confirmed order/payment, inventory sale, bag deletion, and confirmation outbox rows in one transaction. If finalization fails after provider capture, retain no partial order and mark the attempt `review_required` for support.
+- **INSTEAD DO THIS**: Persist one short-lived pending `payment_attempt` per bag containing the validated checkout intent. Resume identical setup retries, reject conflicting details until the attempt expires, and update terminal states monotonically. Reject PayPal capture before the provider call when the checkout has already expired. On signed PayHere success or verified PayPal capture, revalidate the live bag and create the confirmed order/payment, inventory sale, bag deletion, and confirmation outbox rows in one guarded D1 batch. If finalization fails after provider capture, retain no partial order and mark the attempt `review_required` for support.
+
+---
+
+### 18. Timestamp Parameters Inside Custom D1 SQL Expressions
+
+- **DON'T DO THIS**: Do not interpolate a JavaScript `Date` directly into a Drizzle `sql` template. Custom SQL fragments bypass the timestamp column encoder and D1 rejects the bound object with `D1_TYPE_ERROR`.
+- **INSTEAD DO THIS**: Prefer Drizzle comparison helpers such as `gt(timestampColumn, date)`. When a custom aggregate or `CASE` expression is required, bind `date.getTime()` so D1 receives the integer millisecond representation used by `timestamp_ms` columns.
+
+---
+
+### 19. Database-Backed Admin Analytics
+
+- **DON'T DO THIS**: Do not request a large capped page, derive global metrics in a route, and paginate the result again in memory. The totals become incomplete once the cap is reached and query cost grows with the full result set.
+- **INSTEAD DO THIS**: Keep aggregate classification, filters, totals, ordering, `LIMIT`, and `OFFSET` in the owning service's D1 query. Return page rows and global summary metrics as an explicit service read-model contract.

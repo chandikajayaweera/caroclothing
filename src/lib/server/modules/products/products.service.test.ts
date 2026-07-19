@@ -37,6 +37,7 @@ import {
 } from '../../../../tests/fakes/media';
 import { makeAdminCtx as makeAdminCtxWithoutMedia } from '../../../../tests/context';
 import { seedUser } from '../../../../tests/factories/auth';
+import { seedInventory } from '../../../../tests/factories/inventory';
 import {
 	seedCategory,
 	seedProduct,
@@ -534,6 +535,7 @@ describe('products service integration', () => {
 			);
 			const inventoryVariantId = inventoryProduct.variants[0]?.id;
 			expect(inventoryVariantId).toBeTruthy();
+			await seedInventory(db(), inventoryVariantId!, { quantity: 1, reservedQuantity: 0 });
 			await db().insert(inventoryMovement).values({
 				variantId: inventoryVariantId!,
 				type: 'restock',

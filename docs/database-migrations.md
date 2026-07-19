@@ -1,27 +1,54 @@
 # Database Migrations
 
-- **Migration directory:** `drizzle/`
+- **Runtime database:** Cloudflare D1 through the `DB` Worker binding
+- **Migration directory:** `drizzle-d1/`
 - **Schema source:** `src/lib/server/db/schema.ts`
-- **Configuration:** `drizzle.config.ts`
+- **Drizzle configuration:** `drizzle.config.ts`
+- **Wrangler configuration:** `wrangler.jsonc`
 
-## Workflow
+Cloudflare D1 is the application's only database runtime. Database access must
+come from the environment-specific `DB` binding; do not add URL/token database
+clients or a parallel database transport.
+
+## Normal Workflow
 
 1. Edit the owning `*.drizzle.ts` schema.
 2. Run `pnpm db:generate --name <change_name>`.
-3. Review the generated SQL and snapshot diff.
-4. Run the affected service tests and `pnpm check`.
-5. Apply reviewed migrations with `pnpm db:migrate` in the target environment.
+3. Review the generated SQL and Drizzle snapshot under `drizzle-d1/`.
+4. Apply pending migrations locally with `pnpm db:migrate`.
+5. Run affected D1 integration tests, `pnpm check:server`, and `pnpm check`.
+6. Apply the reviewed migration to staging with `pnpm db:migrate:staging`.
+7. Validate staging before applying it with `pnpm db:migrate:production`.
 
-Do not use `db:push` as the deployment path for shared staging or production databases. It does not provide the versioned, reviewable rollout history required for schema constraints and data migrations.
+Do not use schema push commands for shared staging or production databases. Do
+not execute remote migrations by binding name in ad hoc commands; use the
+environment-specific package scripts and explicit database names to reduce the
+chance of targeting the wrong database.
 
-## Baseline Transition
+## Baseline
 
-`0000_baseline.sql` is the complete schema baseline for new databases. A new empty database can run the migration chain from `0000` onward.
+`0000_swift_overlord.sql` is the complete schema for a new empty D1 database.
+`0001_legal_violations.sql` adds `_d1_batch_guard`, the internal CHECK constraint
+table used to make conditional multi-table D1 batches fail and roll back
+atomically.
 
-Databases that existed before migration tracking was introduced on 2026-07-19 must not execute `0000_baseline.sql` against their populated schema. Back up the database, verify it matches the `0000` snapshot, register `0000_baseline` as the deployment baseline using the environment's Drizzle/libSQL migration procedure, and then apply `0001_payment_attempt_integrity.sql` normally.
+Apply the complete migration chain to every new environment before deploying the
+Worker. Never edit an already-applied migration. Generate a new migration for
+every later schema change and review its SQL before applying it remotely.
 
-`0001_payment_attempt_integrity.sql` resolves legacy duplicate pending attempts by keeping the newest pending attempt per bag, cancelling older rows, and then creating the partial unique index. A cancelled provider session may still report a late capture; payment finalization treats that as support-review state rather than creating a second order.
+## Environment Commands
 
-`0002_preserve_inventory_audit.sql` rebuilds `inventory_movement` with a restrictive variant foreign key. Product, variant-color, and size-variant deletion services also reject records with inventory or review history, so append-only movements and review-owned media cannot disappear through catalog cascades. Deactivate historical catalog records instead.
+```powershell
+# Local D1
+pnpm db:migrate
 
-`0003_wishlist_variant_integrity.sql` rebuilds `wishlist_item` so deleting a selected variant deletes only its variant-specific wishlist rows. It no longer converts them to product-only rows, which could violate the product-only partial unique index when the shopper had saved both targets.
+# Staging D1
+pnpm db:migrate:staging
+
+# Production D1, only after staging validation
+pnpm db:migrate:production
+```
+
+After remote migrations, confirm that no migrations remain pending and run
+`PRAGMA foreign_key_check` before deployment. Production deployment should use
+the same reviewed Worker build that passed staging smoke tests.

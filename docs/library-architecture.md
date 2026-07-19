@@ -21,7 +21,7 @@ src/lib
 |-- server/                    Server-only application code
 |   |-- db/                    Database client and aggregate Drizzle schema
 |   |-- foundation/            Service context, guards, and cross-cutting utilities
-|   |-- infrastructure/        Provider and platform adapters
+|   |-- infrastructure/        Provider and platform adapters, including runtime context
 |   |-- modules/               Business domains, schemas, forms, services, and DTOs
 |   `-- orchestration/         Runtime-neutral Queue, Cron, and job workflows
 `-- shared/                    Environment-neutral helpers and contracts
@@ -64,9 +64,16 @@ shared <- server <- server routes and Worker entrypoints
 ### Server
 
 - Preserve the `db`, `foundation`, `infrastructure`, `modules`, and `orchestration` boundaries.
-- Domain module `index.ts` files are curated public module surfaces. Internal transaction helpers may be imported from their concrete service file only by server code already participating in a transaction.
+- Keep `db` as the top-level persistence composition root. It owns the D1-backed Drizzle client,
+  aggregate schema, and guarded batch primitives; do not move it wholesale below infrastructure.
+- Cloudflare binding/runtime context belongs in `infrastructure/cloudflare`; foundation must not own
+  request-scoped platform environment storage or runtime singletons.
+- Domain module `index.ts` files are curated public module surfaces. Internal prepared D1 batch builders may be imported from their concrete service file only by server code composing the owning atomic batch.
 - Do not create re-export shims for moved server files. Update consumers to the one canonical path.
 - Notification outbox state remains a domain module; provider delivery remains infrastructure; Queue/Cron processing remains orchestration; Cloudflare event translation remains infrastructure.
+- ESLint enforces the major import boundaries: routes cannot import DB/Drizzle primitives, non-media
+  routes cannot import R2 primitives, server code cannot import client/components, shared code stays
+  environment-neutral, and orchestration cannot import Cloudflare runtime adapters.
 
 ### Shared
 

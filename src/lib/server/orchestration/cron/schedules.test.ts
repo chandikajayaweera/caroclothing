@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import wranglerConfigText from '../../../../../wrangler.jsonc?raw';
 import { CONFIGURED_CRON_SCHEDULES } from './schedules';
 
 describe('cron schedules', () => {
@@ -17,12 +17,7 @@ type WranglerConfig = {
 };
 
 function readWranglerConfig(): WranglerConfig {
-	const wranglerConfig = readFileSync(
-		new URL('../../../../../wrangler.jsonc', import.meta.url),
-		'utf8'
-	);
-
-	return JSON.parse(stripJsonComments(wranglerConfig)) as WranglerConfig;
+	return JSON.parse(stripJsonComments(wranglerConfigText)) as WranglerConfig;
 }
 
 function stripJsonComments(input: string): string {

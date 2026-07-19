@@ -35,11 +35,11 @@ payments
 reviews
 ```
 
-`inventory` exposes curated admin inventory APIs through its module index. Internal `*Tx` helpers in `inventory.service.ts` continue to support bag/order-style transaction workflows and should be imported directly only by server internals that are already inside a transaction.
+`inventory` exposes curated admin inventory APIs through its module index. Internal prepared D1 batch builders in `inventory.service.ts` support checkout/order workflows and should be imported directly only by server internals composing the owning atomic batch.
 
-Bag stock rule: bag writes and `startCheckout` never reserve inventory. `startCheckout` opens a 10-minute validation window only. Quantity increases are rejected when the desired line quantity exceeds tracked available stock, while stale over-quantity lines hydrate as `insufficient` and remain reducible. Online checkout stores only one pending durable `payment_attempt` per bag until the gateway verifies success; identical setup retries resume that attempt, and terminal states never regress. Verified capture revalidates the bag and, in one transaction, creates the order/payment, reserves then consumes inventory, deletes the bag, and enqueues confirmation intent. Failed, cancelled, expired, or provider-setup attempts leave the bag intact and create no order or stock reservation. Availability and hydration reads remain projections and never mutate another shopper's inventory state.
+Bag stock rule: bag writes and `startCheckout` never reserve inventory. `startCheckout` opens a 10-minute validation window only. Quantity increases are rejected when the desired line quantity exceeds tracked available stock, while stale over-quantity lines hydrate as `insufficient` and remain reducible. Online checkout stores only one pending durable `payment_attempt` per bag until the gateway verifies success; identical setup retries resume that attempt, and terminal states never regress. Verified capture revalidates the bag and, in one guarded D1 batch, creates the order/payment, consumes inventory, deletes the bag, and enqueues confirmation intent. Failed, cancelled, expired, or provider-setup attempts leave the bag intact and create no order or stock reservation. Availability and hydration reads remain projections and never mutate another shopper's inventory state.
 
-Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must release checkout inventory, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
+Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must cancel checkout windows, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
 
 Current server layers:
 
@@ -88,8 +88,8 @@ Use `docs/library-architecture.md` as the authority for placement and dependency
 
 3. Design implementation
    - Use `$caro-service-layer` after the API plan is accepted.
-   - Decide transaction boundaries, internal Tx helper use, DTO mapping, validation source, authorization checks, R2 compensation, notification outbox behavior, and test commands before coding.
-   - Background/cleanup tasks that process multiple items must NOT run the entire batch under a single monolithic transaction; use individual transactions per record.
+   - Decide D1 batch boundaries, guard conditions, internal prepared-statement builder use, DTO mapping, validation source, authorization checks, R2 compensation, notification outbox behavior, and test commands before coding.
+   - Background/cleanup tasks that process multiple records must not put the entire job in one oversized D1 batch; use one bounded atomic batch per independent record or aggregate.
 
 4. Build
    - Keep edits scoped to the module and necessary foundations.
@@ -117,7 +117,7 @@ Use `docs/library-architecture.md` as the authority for placement and dependency
 
 7. Review
    - Use `$caro-review`.
-   - Check route boundaries, transactions, R2 compensation, AppError use, access control, notification boundaries, tests, docs drift, and hallucinated imports.
+   - Check route boundaries, D1 batch atomicity and guards, R2 compensation, AppError use, access control, notification boundaries, tests, docs drift, and hallucinated imports.
    - If docs and code disagree, update docs or stop before behavior changes.
 
 ## Current Product Create Contract
@@ -156,7 +156,7 @@ Current notification facts:
 
 Rules:
 
-- Domain services enqueue outbox intent inside the business transaction.
+- Domain services enqueue outbox intent inside the same guarded D1 batch as the business state change.
 - Exception: Better Auth welcome and Google-linked lifecycle emails use outbox rows from database hooks; OTP SMS remains synchronous/direct where the auth flow expects thrown failures.
 - Queue messages contain only `outboxId` and/or `idempotencyKey`.
 - Queue/Cron/job code sends email/SMS and marks rows sent only after successful typed send results.
@@ -205,7 +205,7 @@ Expected current findings:
 ```txt
 src/routes/media/[...key]/+server.ts is the allowed media R2 route exception.
 src/lib/server/infrastructure/cloudflare routes Cloudflare Queue/Cron runtime events.
-src/lib/server/orchestration/cron routes configured Cron expressions to service APIs.
+src/lib/server/orchestration/cron routes one per-minute Cloudflare trigger to due service jobs by UTC cadence.
 src/lib/server/orchestration/notifications claims outbox rows and dispatches semantic senders.
 notification_outbox, Queue bindings, Queue handlers, and notification Cron recovery are implemented.
 ```

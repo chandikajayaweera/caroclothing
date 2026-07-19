@@ -10,6 +10,7 @@ import {
 	runCloudflareScheduledJobs
 } from '$lib/server/infrastructure/cloudflare';
 import { getSentryRuntimeOptions, getSentryServerRuntimeEnv } from '$lib/shared/sentry';
+import { runWithPlatformEnv } from '$lib/server/infrastructure/cloudflare/runtime-context';
 
 const SENTRY_FLUSH_TIMEOUT_MS = 2000;
 let _handle: Handle | null = null;
@@ -60,7 +61,7 @@ async function runCloudflareRuntimeWithSentry<T>(mechanismType: string, task: ()
 	}
 }
 
-export const handle: Handle = (input) => {
+const handleRequest: Handle = (input) => {
 	const sentryOptions = getServerSentryOptions(input.event.platform?.env);
 	if (!sentryOptions.enabled) return Auth(input);
 
@@ -73,6 +74,15 @@ export const handle: Handle = (input) => {
 	}
 
 	return _handle(input);
+};
+
+export const handle: Handle = (input) => {
+	const platformEnv = input.event.platform?.env;
+	if (!platformEnv) {
+		throw new Error('Cloudflare platform bindings are unavailable for this request.');
+	}
+
+	return runWithPlatformEnv(platformEnv, () => handleRequest(input));
 };
 
 const appHandleError: HandleServerError = (input) => {
@@ -103,8 +113,10 @@ export const queue: ExportedHandlerQueueHandler<App.Platform['env'], Notificatio
 	ctx
 ) => {
 	ctx.waitUntil(
-		runCloudflareRuntimeWithSentry('auto.function.cloudflare.queue', () =>
-			processCloudflareQueueBatch(batch, env, ctx)
+		runWithPlatformEnv(env, () =>
+			runCloudflareRuntimeWithSentry('auto.function.cloudflare.queue', () =>
+				processCloudflareQueueBatch(batch, env, ctx)
+			)
 		)
 	);
 };
@@ -115,8 +127,10 @@ export const scheduled: ExportedHandlerScheduledHandler<App.Platform['env']> = (
 	ctx
 ) => {
 	ctx.waitUntil(
-		runCloudflareRuntimeWithSentry('auto.function.cloudflare.scheduled', () =>
-			runCloudflareScheduledJobs(controller, env, ctx)
+		runWithPlatformEnv(env, () =>
+			runCloudflareRuntimeWithSentry('auto.function.cloudflare.scheduled', () =>
+				runCloudflareScheduledJobs(controller, env, ctx)
+			)
 		)
 	);
 };

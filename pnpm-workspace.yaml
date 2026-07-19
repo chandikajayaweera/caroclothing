@@ -1,5 +1,7 @@
 allowBuilds:
+  '@prisma/client': false
   '@sentry/cli': true
-onlyBuiltDependencies:
-  - '@sentry/cli'
-  - esbuild
+  better-sqlite3: true
+  esbuild: true
+  sharp: true
+  workerd: true

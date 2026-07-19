@@ -15,6 +15,11 @@ import {
 } from 'drizzle-orm';
 import { customAlphabet } from 'nanoid';
 import { getDb } from '$lib/server/db';
+import {
+	guardBatchCondition,
+	guardPreviousBatchChanges,
+	isD1BatchGuardError
+} from '$lib/server/db/batch';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { getEnv } from '$lib/server/infrastructure/env';
 import {
@@ -38,47 +43,39 @@ import { address as addressTable, type Address } from '../addresses/addresses.dr
 import { createAddressSnapshot, validateCheckoutAddress } from '../addresses/addresses.service';
 import type { AddressSnapshot, CheckoutAddressDTO } from '../addresses/addresses.types';
 import { user as userTable } from '../auth/auth.drizzle';
+import { getCheckoutBagForOrderTx } from '../bag/bag.service';
+import { bag as bagTable } from '../bag/bag.drizzle';
 import {
-	deleteBagAfterOrderPlacementTx,
-	getCheckoutBagForOrderTx,
-	type BagTx
-} from '../bag/bag.service';
-import {
-	recordInventorySaleTx,
-	releaseInventoryReservationTx,
-	reserveInventoryTx,
-	restoreInventorySaleTx,
-	type InventoryTx
+	prepareInventorySaleBatch,
+	prepareInventorySaleRestoreBatch
 } from '../inventory/inventory.service';
 import {
 	enqueueOrderConfirmationEmailTx,
 	enqueueOrderConfirmationSmsTx,
-	enqueueOrderStatusUpdateSmsTx,
 	enqueuePaymentUpdateSmsTx,
-	enqueueShippingUpdateEmailTx,
 	publishNotificationWakeups,
+	prepareNotificationOutboxInsert,
+	loadPreparedNotificationOutboxRows,
+	type PreparedNotificationOutboxInsert,
 	type NotificationOutboxTx
 } from '../notifications/outbox/outbox.service';
 import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
 import { getManualReviewReason } from '../payments/payments.logic';
 import {
-	recordPromoUsageTx,
-	validatePromoCodeForBagTx,
-	type PromotionsTx
+	preparePromoUsageBatch,
+	validatePromoCodeForBagTx
 } from '../promotions/promotions.service';
 import { promoCode } from '../promotions/promotions.drizzle';
 import {
 	calculateShippingQuoteTx,
 	createShippingMethodSnapshot
 } from '../shipping/shipping.service';
-import type { ShippingTx } from '../shipping/shipping.service';
 import {
 	insertOrderItemSchema,
 	insertOrderSchema,
 	insertOrderStatusHistorySchema,
 	insertPaymentSchema,
 	CHECKOUT_PAYMENT_METHODS,
-	ONLINE_PAYMENT_METHODS,
 	order,
 	orderItem,
 	orderStatusHistory,
@@ -126,18 +123,33 @@ import type {
 } from './orders.types';
 
 type Db = ReturnType<typeof getDb>;
-export type OrdersTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | OrdersTx;
+export type OrdersTx = Db;
+type QueryExecutor = Db;
+export type OrdersBatchItem = Parameters<Db['batch']>[0][number];
 
 const ORDER_NUMBER_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const orderNumberSuffix = customAlphabet(ORDER_NUMBER_ALPHABET, 5);
-const ONLINE_PAYMENT_HOLD_MS = 30 * 60 * 1000;
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const CLEANUP_DEFAULT_LIMIT = 50;
 const CLEANUP_MAX_LIMIT = 200;
 const PHONE_EMAIL_DOMAIN = '@phone.caroclothing.lk';
 const ANONYMOUS_EMAIL_DOMAIN = '@anon.caroclothing.lk';
+
+export type ConfirmedCheckoutPaymentInput = {
+	status: Extract<PaymentStatus, 'pending' | 'captured'>;
+	transactionId?: string | null;
+	gatewayResponse?: unknown;
+	paidAt?: Date | null;
+};
+
+export type PreparedConfirmedOrder = {
+	orderId: string;
+	paymentId: string;
+	order: OrderDTO;
+	statements: [OrdersBatchItem, ...OrdersBatchItem[]];
+	notifications: PreparedNotificationOutboxInsert[];
+};
 
 const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 	pending: ['confirmed', 'cancelled'],
@@ -174,17 +186,38 @@ export async function anonymizeOrdersForAccountDeletionTx(
 	return anonymized.length;
 }
 
+export function prepareAccountOrderAnonymization(
+	db: OrdersTx,
+	input: { userId: string; now?: Date }
+): OrdersBatchItem {
+	const userId = normalizeId(input.userId, 'userId');
+	const now = resolveNow(null, input.now);
+	return db
+		.update(order)
+		.set({
+			userId: null,
+			shippingAddressId: null,
+			shippingAddressSnapshot: null,
+			trackingNumber: null,
+			trackingCarrier: null,
+			trackingUrl: null,
+			customerNote: null,
+			adminNote: null,
+			updatedAt: now
+		})
+		.where(eq(order.userId, userId))
+		.returning({ id: order.id });
+}
+
 export async function previewOrderFromBag(
 	ctx: ServiceContext,
 	input: PreviewOrderFromBagInput
 ): Promise<OrderPreviewDTO> {
 	try {
-		return await getDb().transaction(async (tx) =>
-			buildOrderPreviewTx(tx, ctx, {
-				...input,
-				now: resolveNow(ctx, input.now)
-			})
-		);
+		return await buildOrderPreviewTx(getDb(), ctx, {
+			...input,
+			now: resolveNow(ctx, input.now)
+		});
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
@@ -194,28 +227,45 @@ export async function placeOrderFromBag(
 	ctx: ServiceContext,
 	input: PlaceOrderFromBagInput
 ): Promise<OrderDTO> {
-	let notificationsToPublish: NotificationOutboxDTO[] = [];
-
 	try {
-		const placedOrder = await getDb().transaction(async (tx) => {
-			const orderDto = await placeOrderFromBagTx(tx, ctx, input);
-			if (orderDto.status === 'confirmed') {
-				notificationsToPublish = await enqueueOrderConfirmationNotificationsTx(tx, orderDto);
-			}
-			return orderDto;
-		});
+		if (input.paymentMethod !== 'cash_on_delivery') {
+			throw new PaymentError(
+				'Online checkout must be completed through a verified payment attempt.',
+				ErrorCode.INVALID_PAYMENT_METHOD,
+				{ method: input.paymentMethod }
+			);
+		}
+
+		const db = getDb();
+		const prepared = await prepareConfirmedOrderFromBag(db, ctx, input, { status: 'pending' });
+		await db.batch(prepared.statements);
+		const notificationsToPublish = await loadPreparedNotificationOutboxRows(
+			db,
+			prepared.notifications
+		);
 		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return placedOrder;
+		return hydrateOrderTx(db, await loadOrderByIdTx(db, prepared.orderId), {
+			includeItems: true,
+			includePayments: true,
+			includeStatusHistory: true
+		});
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new OrderError(
+				'Checkout changed or stock is no longer available. Review your bag and try again.',
+				ErrorCode.CONFLICT
+			);
+		}
 		throw mapOrderPersistenceError(error);
 	}
 }
 
-export async function placeOrderFromBagTx(
-	tx: OrdersTx,
+export async function prepareConfirmedOrderFromBag(
+	db: Db,
 	ctx: ServiceContext,
-	input: PlaceOrderFromBagInput
-): Promise<OrderDTO> {
+	input: PlaceOrderFromBagInput,
+	paymentInput: ConfirmedCheckoutPaymentInput
+): Promise<PreparedConfirmedOrder> {
 	const now = resolveNow(ctx, input.now);
 	if (!checkoutPaymentMethodSet.has(input.paymentMethod)) {
 		throw new PaymentError(
@@ -224,43 +274,40 @@ export async function placeOrderFromBagTx(
 			{ method: input.paymentMethod }
 		);
 	}
-	const preview = await buildOrderPreviewTx(tx, ctx, { ...input, now });
+	const preview = await buildOrderPreviewTx(db, ctx, { ...input, now });
 
 	assertCheckoutReady(preview);
 
 	const orderId = crypto.randomUUID();
-	const orderNumber = await generateUniqueOrderNumberTx(tx, now);
-	const paymentExpiresAt = onlinePaymentMethodSet.has(input.paymentMethod)
-		? new Date(now.getTime() + ONLINE_PAYMENT_HOLD_MS)
-		: null;
-	const orderValues = parseNewOrder({
-		id: orderId,
-		orderNumber,
-		userId: preview.bag.userId,
-		status: 'pending',
-		paymentExpiresAt,
-		subtotal: preview.subtotal,
-		discountAmount: preview.discountAmount,
-		shippingAmount: preview.shippingAmount,
-		totalAmount: preview.totalAmount,
-		promoCodeId: preview.promoValidation?.promoCodeId ?? null,
-		promoCodeSnapshot: preview.promoValidation?.snapshot ?? null,
-		shippingMethodId: preview.shippingQuote.shippingMethodId,
-		shippingAddressId: preview.shippingAddressId,
-		shippingMethodSnapshot: preview.shippingMethodSnapshot,
-		shippingAddressSnapshot: preview.shippingAddressSnapshot,
-		customerNote: normalizeNullableText(input.customerNote, 'customerNote', 1000)
-	});
-
-	const [createdOrder] = await tx.insert(order).values(orderValues).returning();
-	if (!createdOrder) {
-		throw new OrderError('Order was not created.', ErrorCode.INTERNAL_ERROR);
-	}
+	const orderNumber = await generateUniqueOrderNumberTx(db, now);
+	const orderValues: NewOrder = {
+		...parseNewOrder({
+			id: orderId,
+			orderNumber,
+			userId: preview.bag.userId,
+			status: 'confirmed',
+			paymentExpiresAt: null,
+			subtotal: preview.subtotal,
+			discountAmount: preview.discountAmount,
+			shippingAmount: preview.shippingAmount,
+			totalAmount: preview.totalAmount,
+			promoCodeId: preview.promoValidation?.promoCodeId ?? null,
+			promoCodeSnapshot: preview.promoValidation?.snapshot ?? null,
+			shippingMethodId: preview.shippingQuote.shippingMethodId,
+			shippingAddressId: preview.shippingAddressId,
+			shippingMethodSnapshot: preview.shippingMethodSnapshot,
+			shippingAddressSnapshot: preview.shippingAddressSnapshot,
+			customerNote: normalizeNullableText(input.customerNote, 'customerNote', 1000)
+		}),
+		confirmedAt: now,
+		createdAt: now,
+		updatedAt: now
+	};
 
 	const createdItems: OrderItem[] = [];
 	for (const previewItem of preview.items) {
 		const orderItemId = crypto.randomUUID();
-		const itemValues = parseNewOrderItem({
+		const parsedItem = parseNewOrderItem({
 			id: orderItemId,
 			orderId,
 			variantId: previewItem.variantId,
@@ -273,94 +320,132 @@ export async function placeOrderFromBagTx(
 			unitPrice: previewItem.unitPrice,
 			totalPrice: previewItem.totalPrice
 		});
-		const [createdItem] = await tx.insert(orderItem).values(itemValues).returning();
-		if (!createdItem) {
-			throw new OrderError('Order item was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
-		const released = await releaseInventoryReservationTx(tx as InventoryTx, {
-			variantId: previewItem.variantId,
-			quantity: previewItem.quantity,
-			referenceId: previewItem.bagItemId,
-			now
-		});
-
-		if (released.releasedQuantity > 0) {
-			await reserveInventoryTx(tx as InventoryTx, {
-				variantId: previewItem.variantId,
-				quantity: released.releasedQuantity,
-				referenceId: orderItemId,
-				now
-			});
-		}
-
-		const quantityStillNeeded = previewItem.quantity - released.releasedQuantity;
-		if (quantityStillNeeded > 0) {
-			await reserveInventoryTx(tx as InventoryTx, {
-				variantId: previewItem.variantId,
-				quantity: quantityStillNeeded,
-				referenceId: orderItemId,
-				now
-			});
-		}
-
-		createdItems.push(createdItem);
+		const itemValues: OrderItem = {
+			id: orderItemId,
+			orderId,
+			variantId: parsedItem.variantId ?? null,
+			productId: parsedItem.productId ?? null,
+			productName: parsedItem.productName,
+			variantSize: parsedItem.variantSize,
+			variantColor: parsedItem.variantColor,
+			productImageR2Key: parsedItem.productImageR2Key ?? null,
+			quantity: parsedItem.quantity,
+			unitPrice: parsedItem.unitPrice,
+			totalPrice: parsedItem.totalPrice
+		};
+		createdItems.push(itemValues);
 	}
 
-	const paymentValues = parseNewPayment({
+	const paymentId = crypto.randomUUID();
+	const parsedPayment = parseNewPayment({
+		id: paymentId,
 		orderId,
 		amount: preview.totalAmount,
 		currency: 'LKR',
 		method: input.paymentMethod,
-		status: 'pending',
-		transactionId: null,
-		gatewayResponse: null,
+		status: paymentInput.status,
+		transactionId: paymentInput.transactionId ?? null,
+		gatewayResponse: paymentInput.gatewayResponse ?? null,
 		refundAmount: null
 	});
-	const [createdPayment] = await tx.insert(payment).values(paymentValues).returning();
-	if (!createdPayment) {
-		throw new PaymentError('Payment was not created.', ErrorCode.INTERNAL_ERROR);
-	}
-
-	const createdHistory = await insertOrderStatusHistoryTx(tx, {
+	const paymentValues: Payment = {
+		id: paymentId,
+		orderId,
+		amount: parsedPayment.amount,
+		currency: parsedPayment.currency ?? 'LKR',
+		method: parsedPayment.method,
+		status: parsedPayment.status ?? paymentInput.status,
+		transactionId: parsedPayment.transactionId ?? null,
+		gatewayResponse: parsedPayment.gatewayResponse ?? null,
+		refundAmount: parsedPayment.refundAmount ?? null,
+		refundedAt: null,
+		paidAt: paymentInput.paidAt ?? (paymentInput.status === 'captured' ? now : null),
+		createdAt: now,
+		updatedAt: now
+	};
+	const historyId = crypto.randomUUID();
+	const parsedHistory = parseNewOrderStatusHistory({
 		orderId,
 		fromStatus: null,
-		toStatus: 'pending',
+		toStatus: 'confirmed',
 		changedBy: actorChangedBy(ctx),
-		note: 'Order placed.'
+		note:
+			input.paymentMethod === 'cash_on_delivery'
+				? 'Cash on delivery order confirmed at placement.'
+				: `${input.paymentMethod === 'paypal' ? 'PayPal' : 'PayHere'} payment captured.`
 	});
-
-	if (preview.promoValidation) {
-		await recordPromoUsageTx(tx as PromotionsTx, {
-			promoCodeId: preview.promoValidation.promoCodeId,
-			orderId,
-			userId: preview.bag.userId,
-			discountAmount: preview.discountAmount,
-			now
-		});
-	}
-
-	await deleteBagAfterOrderPlacementTx(tx as BagTx, { bagId: preview.bag.id });
-
-	const placedOrder = toOrderDTO(createdOrder, {
+	const createdHistory: OrderStatusHistory = {
+		id: historyId,
+		orderId,
+		fromStatus: parsedHistory.fromStatus ?? null,
+		toStatus: parsedHistory.toStatus,
+		changedBy: parsedHistory.changedBy ?? null,
+		note: parsedHistory.note ?? null,
+		createdAt: now
+	};
+	const placedOrder = toOrderDTO(orderValues as Order, {
 		items: createdItems,
-		payments: [createdPayment],
+		payments: [paymentValues],
 		statusHistory: [createdHistory],
 		includeItems: true,
 		includePayments: true,
 		includeStatusHistory: true
 	});
+	const notifications = await prepareOrderConfirmationNotificationInserts(db, placedOrder);
+	const ownerCondition = preview.bag.userId
+		? eq(bagTable.userId, preview.bag.userId)
+		: isNull(bagTable.userId);
+	const checkoutGuard = guardBatchCondition(
+		db,
+		sql`EXISTS (
+				SELECT 1 FROM ${bagTable}
+				WHERE ${bagTable.id} = ${preview.bag.id}
+					AND ${ownerCondition}
+					AND ${bagTable.updatedAt} = ${preview.bag.updatedAt.getTime()}
+					AND ${bagTable.checkoutExpiresAt} > ${now.getTime()}
+			)`
+	);
+	const statements: [OrdersBatchItem, ...OrdersBatchItem[]] = [
+		checkoutGuard[0],
+		checkoutGuard[1],
+		db.insert(order).values(orderValues),
+		db.insert(orderItem).values(createdItems)
+	];
 
-	if (input.paymentMethod !== 'cash_on_delivery') {
-		return placedOrder;
+	for (const item of createdItems) {
+		if (!item.variantId) continue;
+		statements.push(
+			...prepareInventorySaleBatch(db, {
+				variantId: item.variantId,
+				quantity: item.quantity,
+				referenceId: item.id,
+				now,
+				note: `Order ${orderNumber} confirmed.`
+			})
+		);
 	}
 
-	return transitionOrderStatusTx(tx, ctx, {
-		orderId,
-		toStatus: 'confirmed',
-		note: 'Cash on delivery order confirmed at placement.',
-		now
-	});
+	if (preview.promoValidation) {
+		statements.push(
+			...preparePromoUsageBatch(db, {
+				promoCodeId: preview.promoValidation.promoCodeId,
+				orderId,
+				userId: preview.bag.userId,
+				discountAmount: preview.discountAmount,
+				now
+			})
+		);
+	}
+
+	statements.push(
+		db.insert(payment).values(paymentValues),
+		db.insert(orderStatusHistory).values(createdHistory),
+		db.delete(bagTable).where(eq(bagTable.id, preview.bag.id)),
+		...guardPreviousBatchChanges(db),
+		...notifications.map((item) => item.statement)
+	);
+
+	return { orderId, paymentId, order: placedOrder, statements, notifications };
 }
 
 export async function getOrder(ctx: ServiceContext, input: GetOrderInput): Promise<OrderDTO> {
@@ -402,65 +487,142 @@ export async function transitionOrderStatus(
 	input: TransitionOrderStatusInput
 ): Promise<OrderDTO> {
 	requireAdmin(ctx.actor);
-	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		const updatedOrder = await getDb().transaction(async (tx) => {
-			const orderDto = await transitionOrderStatusTx(tx, ctx, input);
-			notificationsToPublish = await enqueueOrderStatusTransitionNotificationsTx(tx, orderDto);
-			return orderDto;
-		});
+		const db = getDb();
+		const prepared = await prepareOrderStatusTransition(db, ctx, input);
+		await db.batch(prepared.statements);
+		const notificationsToPublish = await loadPreparedNotificationOutboxRows(
+			db,
+			prepared.notifications
+		);
 		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return updatedOrder;
+		return hydrateOrderTx(db, await loadOrderByIdTx(db, prepared.order.id), {
+			includeItems: true,
+			includePayments: true,
+			includeStatusHistory: true
+		});
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new OrderError(
+				'Order status changed before the transition completed.',
+				ErrorCode.CONFLICT,
+				{ orderId: input.orderId, toStatus: input.toStatus }
+			);
+		}
 		throw mapOrderPersistenceError(error);
 	}
 }
 
-export async function transitionOrderStatusTx(
-	tx: OrdersTx,
+export async function prepareOrderStatusTransition(
+	db: Db,
 	ctx: ServiceContext,
-	input: TransitionOrderStatusInput
-): Promise<OrderDTO> {
+	input: TransitionOrderStatusInput,
+	options: { includeNotifications?: boolean } = {}
+): Promise<{
+	order: OrderDTO;
+	statements: [OrdersBatchItem, ...OrdersBatchItem[]];
+	notifications: PreparedNotificationOutboxInsert[];
+}> {
 	const now = resolveNow(ctx, input.now);
 	const orderId = normalizeId(input.orderId, 'orderId');
-	const existing = await loadOrderByIdTx(tx, orderId);
+	const existing = await loadOrderByIdTx(db, orderId);
 	const toStatus = input.toStatus;
 
 	assertStatusTransition(existing.status, toStatus);
-	await applyInventoryForStatusTransitionTx(tx, existing, toStatus, now);
-
-	const [updated] = await tx
-		.update(order)
-		.set(parseOrderUpdate({ status: toStatus, ...statusTimestampValues(toStatus, now) }))
-		.where(and(eq(order.id, orderId), eq(order.status, existing.status)))
-		.returning();
-
-	if (!updated) {
-		throw new OrderError(
-			'Order status changed before the transition completed.',
-			ErrorCode.CONFLICT,
-			{
-				orderId,
-				expectedStatus: existing.status,
-				toStatus
-			}
-		);
-	}
-
-	await insertOrderStatusHistoryTx(tx, {
-		orderId,
-		fromStatus: existing.status,
-		toStatus,
-		changedBy: actorChangedBy(ctx),
-		note: normalizeNullableText(input.note, 'note', 500)
+	const updateValues = parseOrderUpdate({
+		status: toStatus,
+		...statusTimestampValues(toStatus, now)
 	});
-
-	return hydrateOrderTx(tx, updated, {
+	const updateStatement = db
+		.update(order)
+		.set(updateValues)
+		.where(and(eq(order.id, orderId), eq(order.status, existing.status)));
+	const historyValues: NewOrderStatusHistory = {
+		id: crypto.randomUUID(),
+		...parseNewOrderStatusHistory({
+			orderId,
+			fromStatus: existing.status,
+			toStatus,
+			changedBy: actorChangedBy(ctx),
+			note: normalizeNullableText(input.note, 'note', 500)
+		}),
+		createdAt: now
+	};
+	const updated: Order = {
+		...existing,
+		...updateValues,
+		status: toStatus,
+		updatedAt: now
+	};
+	const items = await loadOrderItemsTx(db, orderId);
+	const [payments, statusHistory] = await Promise.all([
+		loadPaymentsForOrderTx(db, orderId),
+		loadOrderStatusHistoryForOrderTx(db, orderId)
+	]);
+	const orderDto = toOrderDTO(updated, {
+		items,
+		payments,
+		statusHistory: [
+			...statusHistory,
+			{
+				id: historyValues.id!,
+				orderId,
+				fromStatus: historyValues.fromStatus ?? null,
+				toStatus: historyValues.toStatus,
+				changedBy: historyValues.changedBy ?? null,
+				note: historyValues.note ?? null,
+				createdAt: now
+			}
+		],
 		includeItems: true,
 		includePayments: true,
 		includeStatusHistory: true
 	});
+	const notifications =
+		options.includeNotifications === false
+			? []
+			: await prepareOrderStatusTransitionNotificationInserts(db, orderDto);
+	const guard = guardPreviousBatchChanges(db);
+	const statements: [OrdersBatchItem, ...OrdersBatchItem[]] = [updateStatement, guard[0], guard[1]];
+
+	if (toStatus === 'confirmed') {
+		for (const item of items) {
+			if (!item.variantId) continue;
+			statements.push(
+				...prepareInventorySaleBatch(db, {
+					variantId: item.variantId,
+					quantity: item.quantity,
+					referenceId: item.id,
+					now,
+					note: `Order ${existing.orderNumber} confirmed.`
+				})
+			);
+		}
+	} else if (
+		toStatus === 'cancelled' &&
+		(existing.status === 'confirmed' || existing.status === 'processing')
+	) {
+		for (const item of items) {
+			if (!item.variantId) continue;
+			statements.push(
+				...prepareInventorySaleRestoreBatch(db, {
+					variantId: item.variantId,
+					quantity: item.quantity,
+					referenceId: item.id,
+					now,
+					note: `Order ${existing.orderNumber} cancelled.`,
+					type: 'cancelled'
+				})
+			);
+		}
+	}
+
+	statements.push(
+		db.insert(orderStatusHistory).values(historyValues),
+		...notifications.map((item) => item.statement)
+	);
+	return { order: orderDto, statements, notifications };
 }
 
 export async function cancelOrder(ctx: ServiceContext, input: CancelOrderInput): Promise<OrderDTO> {
@@ -481,60 +643,76 @@ export async function updateOrderFulfillment(
 	requireAdmin(ctx.actor);
 	const now = resolveNow(ctx, input.now);
 	const orderId = normalizeId(input.orderId, 'orderId');
-	let notificationsToPublish: NotificationOutboxDTO[] = [];
 
 	try {
-		const updatedOrder = await getDb().transaction(async (tx) => {
-			const existing = await loadOrderByIdTx(tx, orderId);
-			if (isTerminalOrderStatus(existing.status)) {
-				throw new OrderError('Terminal orders cannot be modified.', ErrorCode.CANNOT_MODIFY_ORDER, {
-					orderId,
-					status: existing.status
-				});
-			}
-
-			const values = parseOrderUpdate({
-				trackingNumber: normalizeNullableText(input.trackingNumber, 'trackingNumber', 100),
-				trackingCarrier: normalizeNullableText(input.trackingCarrier, 'trackingCarrier', 100),
-				trackingUrl: normalizeNullableText(input.trackingUrl, 'trackingUrl', 255),
-				adminNote: normalizeNullableText(input.adminNote, 'adminNote', 1000),
-				updatedAt: now
+		const db = getDb();
+		const existing = await loadOrderByIdTx(db, orderId);
+		if (isTerminalOrderStatus(existing.status)) {
+			throw new OrderError('Terminal orders cannot be modified.', ErrorCode.CANNOT_MODIFY_ORDER, {
+				orderId,
+				status: existing.status
 			});
-			const updateValues = removeUndefinedValues(values);
+		}
 
-			if (Object.keys(updateValues).length === 0) {
-				return hydrateOrderTx(tx, existing, {
-					includeItems: true,
-					includePayments: true,
-					includeStatusHistory: true
-				});
-			}
+		const values = parseOrderUpdate({
+			trackingNumber: normalizeNullableText(input.trackingNumber, 'trackingNumber', 100),
+			trackingCarrier: normalizeNullableText(input.trackingCarrier, 'trackingCarrier', 100),
+			trackingUrl: normalizeNullableText(input.trackingUrl, 'trackingUrl', 255),
+			adminNote: normalizeNullableText(input.adminNote, 'adminNote', 1000),
+			updatedAt: now
+		});
+		const updateValues = removeUndefinedValues(values);
 
-			const [updated] = await tx
-				.update(order)
-				.set(updateValues)
-				.where(eq(order.id, orderId))
-				.returning();
-
-			if (!updated) {
-				throw new OrderError('Order not found.', ErrorCode.ORDER_NOT_FOUND, { orderId });
-			}
-
-			const orderDto = await hydrateOrderTx(tx, updated, {
+		if (Object.keys(updateValues).length === 0) {
+			return hydrateOrderTx(db, existing, {
 				includeItems: true,
 				includePayments: true,
 				includeStatusHistory: true
 			});
+		}
 
-			if (shouldEnqueueShippingUpdateForFulfillment(existing, updated)) {
-				notificationsToPublish = await enqueueShippingUpdateNotificationsTx(tx, orderDto);
-			}
-
-			return orderDto;
+		const updated: Order = { ...existing, ...updateValues, updatedAt: now };
+		const orderDto = await hydrateOrderTx(db, updated, {
+			includeItems: true,
+			includePayments: true,
+			includeStatusHistory: true
 		});
+		const preparedNotifications = shouldEnqueueShippingUpdateForFulfillment(existing, updated)
+			? await prepareOrderStatusTransitionNotificationInserts(db, orderDto)
+			: [];
+		const updateStatement = db
+			.update(order)
+			.set(updateValues)
+			.where(
+				and(
+					eq(order.id, orderId),
+					eq(order.status, existing.status),
+					eq(order.updatedAt, existing.updatedAt)
+				)
+			);
+		await db.batch([
+			updateStatement,
+			...guardPreviousBatchChanges(db),
+			...preparedNotifications.map((item) => item.statement)
+		]);
+		const notificationsToPublish = await loadPreparedNotificationOutboxRows(
+			db,
+			preparedNotifications
+		);
 		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return updatedOrder;
+		return hydrateOrderTx(db, await loadOrderByIdTx(db, orderId), {
+			includeItems: true,
+			includePayments: true,
+			includeStatusHistory: true
+		});
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new OrderError(
+				'Order changed while fulfillment details were being saved.',
+				ErrorCode.CONFLICT,
+				{ orderId }
+			);
+		}
 		throw mapOrderPersistenceError(error);
 	}
 }
@@ -565,25 +743,25 @@ export async function cancelExpiredPendingOrders(
 
 		for (const row of rows) {
 			try {
-				const result = await db.transaction(async (tx) => {
-					const cancelledOrder = await cancelExpiredPendingOrderByIdTx(tx, ctx, row.id, now);
-					if (!cancelledOrder) return null;
-					const notification = await enqueueOrderStatusUpdateNotificationTx(tx, cancelledOrder);
-					return { cancelledOrder, notification };
+				const prepared = await prepareOrderStatusTransition(db, ctx, {
+					orderId: row.id,
+					toStatus: 'cancelled',
+					note: 'Payment window expired.',
+					now
 				});
-
-				if (!result) {
-					skippedCount += 1;
-					continue;
-				}
-
-				orders.push(result.cancelledOrder);
+				await db.batch(prepared.statements);
+				const committed = await hydrateOrderTx(db, await loadOrderByIdTx(db, row.id), {
+					includeItems: true,
+					includePayments: true,
+					includeStatusHistory: true
+				});
+				orders.push(committed);
 				orderIds.push(row.id);
-				if (result.notification) {
-					notificationsToPublish.push(result.notification);
-				}
+				notificationsToPublish.push(
+					...(await loadPreparedNotificationOutboxRows(db, prepared.notifications))
+				);
 			} catch (err) {
-				if (isAppError(err) && err.code === ErrorCode.CONFLICT) {
+				if (isD1BatchGuardError(err) || (isAppError(err) && err.code === ErrorCode.CONFLICT)) {
 					skippedCount += 1;
 					console.warn(`Skipped stale expired order ${row.id}:`, err);
 					continue;
@@ -629,7 +807,7 @@ async function buildOrderPreviewTx(
 	ctx: ServiceContext,
 	input: PreviewOrderFromBagInput & { now: Date }
 ): Promise<OrderPreviewDTO> {
-	const bag = await getCheckoutBagForOrderTx(tx as BagTx, ctx, {
+	const bag = await getCheckoutBagForOrderTx(tx, ctx, {
 		sessionToken: input.sessionToken,
 		now: input.now
 	});
@@ -640,7 +818,7 @@ async function buildOrderPreviewTx(
 	}
 
 	const shippingAddress = await resolveCheckoutShippingAddressTx(tx, ctx, input.shippingAddress);
-	const shippingQuote = await calculateShippingQuoteTx(tx as ShippingTx, {
+	const shippingQuote = await calculateShippingQuoteTx(tx, {
 		shippingMethodId: input.shippingMethodId,
 		district: shippingAddress.address.district,
 		subtotal: bag.subtotal,
@@ -659,7 +837,7 @@ async function buildOrderPreviewTx(
 	}
 
 	const promoValidation = appliedPromoCode
-		? await validatePromoCodeForBagTx(tx as PromotionsTx, {
+		? await validatePromoCodeForBagTx(tx, {
 				code: appliedPromoCode,
 				userId: bag.userId,
 				subtotal: bag.subtotal,
@@ -687,74 +865,6 @@ async function buildOrderPreviewTx(
 		canCheckout: blockingReasons.length === 0,
 		blockingReasons
 	};
-}
-
-async function cancelExpiredPendingOrderByIdTx(
-	tx: OrdersTx,
-	ctx: ServiceContext,
-	orderId: string,
-	now: Date
-): Promise<OrderDTO | null> {
-	const [row] = await tx
-		.select({ id: order.id })
-		.from(order)
-		.where(
-			and(eq(order.id, orderId), eq(order.status, 'pending'), lte(order.paymentExpiresAt, now))
-		)
-		.limit(1);
-
-	if (!row) return null;
-
-	return transitionOrderStatusTx(tx, ctx, {
-		orderId: row.id,
-		toStatus: 'cancelled',
-		note: 'Payment window expired.',
-		now
-	});
-}
-
-async function applyInventoryForStatusTransitionTx(
-	tx: OrdersTx,
-	row: Order,
-	toStatus: OrderStatus,
-	now: Date
-): Promise<void> {
-	if (toStatus !== 'confirmed' && toStatus !== 'cancelled') return;
-
-	const items = await loadOrderItemsTx(tx, row.id);
-
-	for (const item of items) {
-		if (!item.variantId) continue;
-
-		if (toStatus === 'confirmed') {
-			await recordInventorySaleTx(tx as InventoryTx, {
-				variantId: item.variantId,
-				quantity: item.quantity,
-				referenceId: item.id,
-				now,
-				note: `Order ${row.orderNumber} confirmed.`
-			});
-			continue;
-		}
-
-		if (row.status === 'pending') {
-			await releaseInventoryReservationTx(tx as InventoryTx, {
-				variantId: item.variantId,
-				quantity: item.quantity,
-				referenceId: item.id,
-				now
-			});
-		} else if (row.status === 'confirmed' || row.status === 'processing') {
-			await restoreInventorySaleTx(tx as InventoryTx, {
-				variantId: item.variantId,
-				quantity: item.quantity,
-				referenceId: item.id,
-				now,
-				note: `Order ${row.orderNumber} cancelled.`,
-				type: 'cancelled'
-			});
-		}
-	}
 }
 
 async function resolveCheckoutShippingAddressTx(
@@ -920,6 +1030,75 @@ export async function enqueueOrderConfirmationNotificationsTx(
 	return notifications;
 }
 
+export async function prepareOrderConfirmationNotificationInserts(
+	db: Db,
+	orderDto: OrderDTO
+): Promise<PreparedNotificationOutboxInsert[]> {
+	if (!orderDto.shippingAddressSnapshot) return [];
+
+	const prepared: PreparedNotificationOutboxInsert[] = [];
+	if (orderDto.userId && orderDto.items?.length) {
+		const recipient = await loadOrderEmailRecipientTx(
+			db,
+			orderDto.userId,
+			orderDto.shippingAddressSnapshot.recipientName
+		);
+		if (recipient) {
+			prepared.push(
+				prepareNotificationOutboxInsert(db, {
+					idempotencyKey: `order:${orderDto.id}:confirmation:email`,
+					type: 'order_confirmation',
+					channel: 'email',
+					recipient: recipient.email,
+					recipientUserId: recipient.userId,
+					aggregateType: 'order',
+					aggregateId: orderDto.id,
+					payload: {
+						email: recipient.email,
+						customerName: recipient.customerName,
+						orderId: orderDto.id,
+						orderNumber: orderDto.orderNumber,
+						orderDate: formatEmailDate(orderDto.createdAt),
+						items: orderDto.items.map(toOrderEmailItem),
+						subtotal: formatCurrency(orderDto.subtotal),
+						shipping: formatCurrency(orderDto.shippingAmount),
+						total: formatCurrency(orderDto.totalAmount),
+						shippingAddress: formatAddressSnapshot(orderDto.shippingAddressSnapshot),
+						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText,
+						orderUrl: buildOrderUrl(orderDto)
+					},
+					metadata: { orderNumber: orderDto.orderNumber },
+					now: orderDto.updatedAt
+				})
+			);
+		}
+	}
+
+	prepared.push(
+		prepareNotificationOutboxInsert(db, {
+			idempotencyKey: `order:${orderDto.id}:confirmation:sms`,
+			type: 'order_confirmation',
+			channel: 'sms',
+			recipient: orderDto.shippingAddressSnapshot.phone,
+			recipientUserId: orderDto.userId,
+			aggregateType: 'order',
+			aggregateId: orderDto.id,
+			payload: {
+				to: orderDto.shippingAddressSnapshot.phone,
+				customerName: orderDto.shippingAddressSnapshot.recipientName,
+				orderId: orderDto.id,
+				orderNumber: orderDto.orderNumber,
+				total: formatCurrency(orderDto.totalAmount),
+				orderUrl: buildOrderUrl(orderDto)
+			},
+			metadata: { orderNumber: orderDto.orderNumber },
+			now: orderDto.updatedAt
+		})
+	);
+
+	return prepared;
+}
+
 export async function enqueueOrderConfirmationNotificationsForOrderTx(
 	tx: OrdersTx,
 	orderId: string
@@ -933,58 +1112,68 @@ export async function enqueueOrderConfirmationNotificationsForOrderTx(
 	return enqueueOrderConfirmationNotificationsTx(tx, orderDto);
 }
 
-async function enqueueShippingUpdateNotificationsTx(
-	tx: OrdersTx,
+async function prepareOrderStatusTransitionNotificationInserts(
+	db: Db,
 	orderDto: OrderDTO
-): Promise<NotificationOutboxDTO[]> {
-	if (!orderDto.shippingAddressSnapshot || !orderDto.trackingNumber) return [];
+): Promise<PreparedNotificationOutboxInsert[]> {
+	if (!orderDto.shippingAddressSnapshot) return [];
 
-	const notifications: NotificationOutboxDTO[] = [];
-
-	if (orderDto.userId) {
+	if (orderDto.status === 'shipped' && orderDto.trackingNumber && orderDto.userId) {
 		const recipient = await loadOrderEmailRecipientTx(
-			tx,
+			db,
 			orderDto.userId,
 			orderDto.shippingAddressSnapshot.recipientName
 		);
-
-		if (recipient) {
-			notifications.push(
-				await enqueueShippingUpdateEmailTx(tx as NotificationOutboxTx, {
+		if (!recipient) return [];
+		return [
+			prepareNotificationOutboxInsert(db, {
+				idempotencyKey: `order:${orderDto.id}:shipping_update:email`,
+				type: 'shipping_update',
+				channel: 'email',
+				recipient: recipient.email,
+				recipientUserId: recipient.userId,
+				aggregateType: 'order',
+				aggregateId: orderDto.id,
+				payload: {
+					email: recipient.email,
+					customerName: recipient.customerName,
 					orderId: orderDto.id,
-					recipientUserId: recipient.userId,
-					payload: {
-						email: recipient.email,
-						customerName: recipient.customerName,
-						orderId: orderDto.id,
-						orderNumber: orderDto.orderNumber,
-						trackingNumber: orderDto.trackingNumber,
-						trackingUrl: orderDto.trackingUrl ?? undefined,
-						carrier:
-							orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
-						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText,
-						orderUrl: buildOrderUrl(orderDto)
-					},
-					metadata: { orderNumber: orderDto.orderNumber },
-					now: orderDto.updatedAt
-				})
-			);
-		}
+					orderNumber: orderDto.orderNumber,
+					trackingNumber: orderDto.trackingNumber,
+					trackingUrl: orderDto.trackingUrl ?? undefined,
+					carrier:
+						orderDto.trackingCarrier ?? orderDto.shippingMethodSnapshot?.carrier ?? undefined,
+					estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText,
+					orderUrl: buildOrderUrl(orderDto)
+				},
+				metadata: { orderNumber: orderDto.orderNumber },
+				now: orderDto.updatedAt
+			})
+		];
 	}
 
-	return notifications;
-}
-
-async function enqueueOrderStatusTransitionNotificationsTx(
-	tx: OrdersTx,
-	orderDto: OrderDTO
-): Promise<NotificationOutboxDTO[]> {
-	if (orderDto.status === 'shipped' && orderDto.trackingNumber) {
-		return enqueueShippingUpdateNotificationsTx(tx, orderDto);
-	}
-
-	const notification = await enqueueOrderStatusUpdateNotificationTx(tx, orderDto);
-	return notification ? [notification] : [];
+	if (!shouldEnqueueOrderStatusSms(orderDto.status)) return [];
+	return [
+		prepareNotificationOutboxInsert(db, {
+			idempotencyKey: `order:${orderDto.id}:status:${orderDto.status}:sms`,
+			type: 'order_status_update',
+			channel: 'sms',
+			recipient: orderDto.shippingAddressSnapshot.phone,
+			recipientUserId: orderDto.userId,
+			aggregateType: 'order',
+			aggregateId: orderDto.id,
+			payload: {
+				to: orderDto.shippingAddressSnapshot.phone,
+				orderId: orderDto.id,
+				orderNumber: orderDto.orderNumber,
+				status: orderDto.status,
+				statusLabel: formatOrderStatus(orderDto.status),
+				orderUrl: buildOrderUrl(orderDto)
+			},
+			metadata: { orderNumber: orderDto.orderNumber },
+			now: orderDto.updatedAt
+		})
+	];
 }
 
 export async function enqueuePaymentUpdateNotificationTx(
@@ -1019,30 +1208,6 @@ export async function enqueuePaymentUpdateNotificationTx(
 		},
 		metadata: { orderNumber: orderDto.orderNumber, paymentId: paymentDto.id },
 		now: paymentDto.updatedAt
-	});
-}
-
-async function enqueueOrderStatusUpdateNotificationTx(
-	tx: OrdersTx,
-	orderDto: OrderDTO
-): Promise<NotificationOutboxDTO | null> {
-	if (!orderDto.shippingAddressSnapshot || !shouldEnqueueOrderStatusSms(orderDto.status)) {
-		return null;
-	}
-
-	return enqueueOrderStatusUpdateSmsTx(tx as NotificationOutboxTx, {
-		orderId: orderDto.id,
-		recipientUserId: orderDto.userId,
-		payload: {
-			to: orderDto.shippingAddressSnapshot.phone,
-			orderId: orderDto.id,
-			orderNumber: orderDto.orderNumber,
-			status: orderDto.status,
-			statusLabel: formatOrderStatus(orderDto.status),
-			orderUrl: buildOrderUrl(orderDto)
-		},
-		metadata: { orderNumber: orderDto.orderNumber },
-		now: orderDto.updatedAt
 	});
 }
 
@@ -1660,7 +1825,6 @@ function mapOrderPersistenceError(error: unknown): never {
 	throw error;
 }
 
-const onlinePaymentMethodSet = new Set<string>(ONLINE_PAYMENT_METHODS);
 const checkoutPaymentMethodSet = new Set<string>(CHECKOUT_PAYMENT_METHODS);
 
 export async function getOrderAnalytics(ctx: ServiceContext): Promise<{

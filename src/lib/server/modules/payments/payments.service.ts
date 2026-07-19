@@ -1,5 +1,6 @@
-import { and, count, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { ErrorCode, PaymentError, getErrorMessage } from '$lib/server/infrastructure/errors';
@@ -25,17 +26,19 @@ import {
 	type PaymentStatus
 } from './payments.drizzle';
 import { user as userTable } from '../auth/auth.drizzle';
-import { order as orderTable, type OrderStatus } from '../orders/orders.drizzle';
+import { order as orderTable, type Order, type OrderStatus } from '../orders/orders.drizzle';
 import {
-	transitionOrderStatusTx,
-	placeOrderFromBagTx,
-	previewOrderFromBag,
-	enqueueOrderConfirmationNotificationsForOrderTx,
-	enqueueOrderConfirmationNotificationsTx,
-	enqueuePaymentUpdateNotificationTx
+	prepareConfirmedOrderFromBag,
+	prepareOrderConfirmationNotificationInserts,
+	prepareOrderStatusTransition,
+	previewOrderFromBag
 } from '../orders/orders.service';
-import { publishNotificationWakeups } from '../notifications/outbox/outbox.service';
-import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
+import {
+	loadPreparedNotificationOutboxRows,
+	prepareNotificationOutboxInsert,
+	publishNotificationWakeups,
+	type PreparedNotificationOutboxInsert
+} from '../notifications/outbox/outbox.service';
 import {
 	createPayPalFxQuote as buildPayPalFxQuote,
 	decideCapturedOrderAction,
@@ -71,7 +74,7 @@ import type {
 } from './payments.types';
 
 type Db = ReturnType<typeof getDb>;
-export type PaymentsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type PaymentsTx = Db;
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -488,247 +491,12 @@ export async function createPaymentSession(
 	ctx: ServiceContext,
 	input: CreatePaymentSessionInput
 ): Promise<CreatePaymentSessionResult> {
-	const db = getDb();
-	const env = getEnv();
-	const now = resolveNow(ctx);
-	const method = assertCheckoutPaymentMethodAvailable(ctx, input.method);
-
-	if (method === 'cash_on_delivery') {
-		throw new PaymentError(
-			'Cash on delivery does not require a payment session.',
-			ErrorCode.PAYMENT_ALREADY_PROCESSED
-		);
-	}
-
-	// Load order
-	const [orderRow] = await db.select().from(orderTable).where(eq(orderTable.id, input.orderId));
-	if (!orderRow) {
-		throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
-			orderId: input.orderId
-		});
-	}
-
-	requireOwnerOrAdmin(ctx.actor, orderRow.userId);
-
-	if (orderRow.status !== 'pending') {
-		throw new PaymentError(
-			'Payment can no longer be started for this order.',
-			ErrorCode.PAYMENT_ALREADY_PROCESSED,
-			{ orderId: orderRow.id, orderStatus: orderRow.status }
-		);
-	}
-
-	if (orderRow.paymentExpiresAt && orderRow.paymentExpiresAt.getTime() <= now.getTime()) {
-		throw new PaymentError(
-			'The payment window for this order has expired.',
-			ErrorCode.PAYMENT_FAILED,
-			{
-				orderId: orderRow.id,
-				paymentExpiresAt: orderRow.paymentExpiresAt.toISOString()
-			}
-		);
-	}
-
-	// Inside transaction, record or update payment row
-	const paymentDto = await db.transaction(async (tx) => {
-		const existingPayment = await tx
-			.select()
-			.from(paymentTable)
-			.where(eq(paymentTable.orderId, orderRow.id))
-			.orderBy(desc(paymentTable.createdAt))
-			.limit(1)
-			.then((rows) => rows[0]);
-
-		if (existingPayment) {
-			if (
-				existingPayment.status === 'captured' ||
-				existingPayment.status === 'partially_refunded' ||
-				existingPayment.status === 'refunded'
-			) {
-				throw new PaymentError(
-					'This payment has already been processed.',
-					ErrorCode.PAYMENT_ALREADY_PROCESSED,
-					{ paymentId: existingPayment.id, status: existingPayment.status }
-				);
-			}
-			if (existingPayment.method !== method) {
-				throw new PaymentError(
-					'The payment method cannot be changed for this order.',
-					ErrorCode.INVALID_PAYMENT_METHOD,
-					{
-						orderId: orderRow.id,
-						currentMethod: existingPayment.method,
-						requestedMethod: method
-					}
-				);
-			}
-
-			const [updated] = await tx
-				.update(paymentTable)
-				.set({
-					status: 'pending',
-					amount: orderRow.totalAmount,
-					updatedAt: now
-				})
-				.where(eq(paymentTable.id, existingPayment.id))
-				.returning();
-			return toPaymentDTO(updated, orderRow.status);
-		} else {
-			const [created] = await tx
-				.insert(paymentTable)
-				.values({
-					orderId: orderRow.id,
-					amount: orderRow.totalAmount,
-					currency: 'LKR',
-					method,
-					status: 'pending'
-				})
-				.returning();
-			return toPaymentDTO(created, orderRow.status);
-		}
-	});
-
-	if (method === 'payhere') {
-		const { merchantId, merchantSecret } = getPayHereConfiguration(env);
-		const isSandbox = env.PAYHERE_IS_SANDBOX === 'true';
-
-		if (!orderRow.userId) {
-			throw new PaymentError(
-				'PayHere checkout requires an order linked to a customer account.',
-				ErrorCode.VALIDATION_ERROR,
-				{ orderId: orderRow.id }
-			);
-		}
-
-		const [customer] = await db
-			.select({
-				name: userTable.name,
-				email: userTable.email
-			})
-			.from(userTable)
-			.where(eq(userTable.id, orderRow.userId))
-			.limit(1);
-
-		if (!customer) {
-			throw new PaymentError(
-				'Customer details could not be loaded for PayHere checkout.',
-				ErrorCode.INTERNAL_ERROR,
-				{
-					orderId: orderRow.id,
-					userId: orderRow.userId
-				}
-			);
-		}
-
-		const existingMetadata = getGatewayMetadata(paymentDto.gatewayResponse);
-		const billingEmail =
-			resolvePublicPaymentEmail(input.billingEmail) ??
-			resolvePublicPaymentEmail(existingMetadata.billingEmail) ??
-			resolvePublicPaymentEmail(customer.email);
-		if (!billingEmail) {
-			throw new PaymentError(
-				'Enter a valid billing email to continue with card payment.',
-				ErrorCode.VALIDATION_ERROR,
-				{ field: 'billingEmail', orderId: orderRow.id }
-			);
-		}
-
-		const customerFields = buildPayHereCustomerFields(orderRow.shippingAddressSnapshot, {
-			name: customer.name,
-			email: billingEmail
-		});
-		await db
-			.update(paymentTable)
-			.set({
-				gatewayResponse: mergeGatewayEnvelope(paymentDto.gatewayResponse, {
-					metadata: { ...existingMetadata, billingEmail }
-				}),
-				updatedAt: now
-			})
-			.where(eq(paymentTable.id, paymentDto.id));
-		const formattedAmount = formatPayHereAmount(paymentDto.amount);
-		const hash = generatePayHereCheckoutHash(
-			merchantId,
-			orderRow.id,
-			formattedAmount,
-			paymentDto.currency,
-			merchantSecret
-		);
-
-		return {
-			paymentId: paymentDto.id,
-			orderId: orderRow.id,
-			method,
-			paymentData: {
-				sandbox: isSandbox,
-				merchant_id: merchantId,
-				notify_url: `${env.PUBLIC_APP_URL}/api/payments/webhooks/payhere`,
-				order_id: orderRow.id,
-				items: `Order ${orderRow.orderNumber}`,
-				first_name: customerFields.firstName,
-				last_name: customerFields.lastName,
-				email: customerFields.email,
-				phone: customerFields.phone,
-				address: customerFields.address,
-				city: customerFields.city,
-				country: customerFields.country,
-				currency: paymentDto.currency,
-				amount: formattedAmount,
-				hash: hash
-			}
-		};
-	}
-
-	if (method === 'paypal') {
-		const clientId = env.PAYPAL_CLIENT_ID!;
-		const clientSecret = env.PAYPAL_CLIENT_SECRET!;
-		const isSandbox = env.PAYPAL_IS_SANDBOX === 'true';
-		const existingMetadata = getGatewayMetadata(paymentDto.gatewayResponse);
-		const quote =
-			existingMetadata.paypalFxQuote ?? (await createPayPalFxQuote(paymentDto.amount, now));
-		const requestIds = existingMetadata.paypalRequestIds ?? {
-			create: `${paymentDto.id}-create`,
-			capture: `${paymentDto.id}-capture`
-		};
-		const nextMetadata: GatewayMetadata = {
-			...existingMetadata,
-			paypalFxQuote: quote,
-			paypalRequestIds: requestIds
-		};
-
-		const token = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
-		const paypalOrderId = await createPayPalOrder(
-			token,
-			orderRow.id,
-			orderRow.orderNumber,
-			quote.usdAmount,
-			requestIds.create,
-			isSandbox,
-			env.PUBLIC_APP_URL,
-			env.PUBLIC_APP_NAME,
-			`/checkout/confirmation/${orderRow.id}`
-		);
-
-		await db
-			.update(paymentTable)
-			.set({
-				transactionId: paypalOrderId,
-				gatewayResponse: mergeGatewayEnvelope(paymentDto.gatewayResponse, {
-					metadata: nextMetadata
-				}),
-				updatedAt: now
-			})
-			.where(eq(paymentTable.id, paymentDto.id));
-
-		return {
-			paymentId: paymentDto.id,
-			orderId: orderRow.id,
-			method,
-			paypalOrderId
-		};
-	}
-
-	throw new PaymentError(`Unsupported payment method: ${method}`, ErrorCode.INVALID_PAYMENT_METHOD);
+	void ctx;
+	void input;
+	throw new PaymentError(
+		'Order-first online payment sessions are retired. Start payment from the active checkout instead.',
+		ErrorCode.PAYMENT_ALREADY_PROCESSED
+	);
 }
 
 export async function processPayHereWebhook(
@@ -1079,149 +847,125 @@ async function finalizeCapturedPaymentAttempt(
 	attempt: PaymentAttempt,
 	input: { transactionId: string; providerResponse: unknown; now: Date }
 ): Promise<PaymentGatewayResult> {
-	let notifications: NotificationOutboxDTO[] = [];
-
 	try {
-		const result = await getDb().transaction(async (tx) => {
-			const [currentAttempt] = await tx
-				.select()
-				.from(paymentAttemptTable)
-				.where(eq(paymentAttemptTable.id, attempt.id))
+		const db = getDb();
+		const [currentAttempt] = await db
+			.select()
+			.from(paymentAttemptTable)
+			.where(eq(paymentAttemptTable.id, attempt.id))
+			.limit(1);
+		if (!currentAttempt) {
+			throw new PaymentError('Payment attempt not found.', ErrorCode.PAYMENT_NOT_FOUND, {
+				attemptId: attempt.id
+			});
+		}
+		if (currentAttempt.status === 'captured' && currentAttempt.orderId) {
+			const [existingPayment] = await db
+				.select({ id: paymentTable.id })
+				.from(paymentTable)
+				.where(eq(paymentTable.orderId, currentAttempt.orderId))
 				.limit(1);
-			if (!currentAttempt) {
-				throw new PaymentError('Payment attempt not found.', ErrorCode.PAYMENT_NOT_FOUND, {
-					attemptId: attempt.id
-				});
-			}
-
-			if (currentAttempt.status === 'captured' && currentAttempt.orderId) {
-				const [existingPayment] = await tx
-					.select({ id: paymentTable.id })
-					.from(paymentTable)
-					.where(eq(paymentTable.orderId, currentAttempt.orderId))
-					.limit(1);
-				return {
-					success: true,
-					paymentId: existingPayment?.id,
-					orderId: currentAttempt.orderId,
-					status: 'captured' as const
-				};
-			}
-			if (currentAttempt.status !== 'pending') {
-				throw new PaymentError(
-					'This payment attempt can no longer create an order.',
-					ErrorCode.PAYMENT_ALREADY_PROCESSED,
-					{ attemptId: currentAttempt.id, status: currentAttempt.status }
-				);
-			}
-			if (currentAttempt.expiresAt.getTime() <= input.now.getTime()) {
-				throw new PaymentError(
-					'Payment completed after the checkout expired. Support review is required.',
-					ErrorCode.PAYMENT_FAILED,
-					{ attemptId: currentAttempt.id }
-				);
-			}
-
-			const [customer] = await tx
-				.select({ id: userTable.id, role: userTable.role, isAnonymous: userTable.isAnonymous })
-				.from(userTable)
-				.where(eq(userTable.id, currentAttempt.userId))
-				.limit(1);
-			if (!customer) {
-				throw new PaymentError('Checkout customer no longer exists.', ErrorCode.PAYMENT_FAILED, {
-					attemptId: currentAttempt.id
-				});
-			}
-
-			const checkoutInput = currentAttempt.checkoutInput as PaymentAttemptCheckoutInput;
-			const customerActor: ServiceActor = {
-				id: customer.id,
-				role: customer.role,
-				isAnonymous: customer.isAnonymous
-			};
-			const order = await placeOrderFromBagTx(
-				tx,
-				{ ...ctx, actor: customerActor, now: input.now },
-				{
-					...checkoutInput,
-					paymentMethod: currentAttempt.method,
-					now: input.now
-				}
-			);
-			if (order.totalAmount !== currentAttempt.amount) {
-				throw new PaymentError(
-					'Checkout total changed before payment completed. Support review is required.',
-					ErrorCode.PAYMENT_FAILED,
-					{
-						attemptId: currentAttempt.id,
-						paidAmount: currentAttempt.amount,
-						currentAmount: order.totalAmount
-					}
-				);
-			}
-
-			const paymentId = order.payments?.[0]?.id;
-			if (!paymentId) {
-				throw new PaymentError('Order payment was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-			const [updatedPayment] = await tx
-				.update(paymentTable)
-				.set({
-					status: 'captured',
-					transactionId: input.transactionId,
-					gatewayResponse: mergeGatewayEnvelope(currentAttempt.providerResponse, {
-						provider: input.providerResponse,
-						metadata: getGatewayMetadata(currentAttempt.providerResponse)
-					}),
-					paidAt: input.now,
-					updatedAt: input.now
-				})
-				.where(eq(paymentTable.id, paymentId))
-				.returning();
-			if (!updatedPayment) {
-				throw new PaymentError('Order payment was not updated.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			await tx
-				.update(orderTable)
-				.set({ paymentExpiresAt: null, updatedAt: input.now })
-				.where(eq(orderTable.id, order.id));
-			const confirmedOrder = await transitionOrderStatusTx(
-				tx,
-				{ ...ctx, actor: customerActor, now: input.now },
-				{
-					orderId: order.id,
-					toStatus: 'confirmed',
-					note: `${currentAttempt.method === 'paypal' ? 'PayPal' : 'PayHere'} payment captured.`,
-					now: input.now
-				}
-			);
-			notifications = await enqueueOrderConfirmationNotificationsTx(tx, confirmedOrder);
-
-			await tx
-				.update(paymentAttemptTable)
-				.set({
-					status: 'captured',
-					providerOrderId: currentAttempt.providerOrderId ?? input.transactionId,
-					providerResponse: input.providerResponse,
-					orderId: order.id,
-					failureReason: null,
-					updatedAt: input.now
-				})
-				.where(eq(paymentAttemptTable.id, currentAttempt.id));
-
 			return {
 				success: true,
-				paymentId,
-				orderId: order.id,
-				status: 'captured' as const
+				paymentId: existingPayment?.id,
+				orderId: currentAttempt.orderId,
+				status: 'captured'
 			};
-		});
+		}
+		if (currentAttempt.status !== 'pending') {
+			throw new PaymentError(
+				'This payment attempt can no longer create an order.',
+				ErrorCode.PAYMENT_ALREADY_PROCESSED,
+				{ attemptId: currentAttempt.id, status: currentAttempt.status }
+			);
+		}
+		if (currentAttempt.expiresAt.getTime() <= input.now.getTime()) {
+			throw new PaymentError(
+				'Payment completed after the checkout expired. Support review is required.',
+				ErrorCode.PAYMENT_FAILED,
+				{ attemptId: currentAttempt.id }
+			);
+		}
 
+		const [customer] = await db
+			.select({ id: userTable.id, role: userTable.role, isAnonymous: userTable.isAnonymous })
+			.from(userTable)
+			.where(eq(userTable.id, currentAttempt.userId))
+			.limit(1);
+		if (!customer) {
+			throw new PaymentError('Checkout customer no longer exists.', ErrorCode.PAYMENT_FAILED, {
+				attemptId: currentAttempt.id
+			});
+		}
+
+		const checkoutInput = currentAttempt.checkoutInput as PaymentAttemptCheckoutInput;
+		const customerActor: ServiceActor = {
+			id: customer.id,
+			role: customer.role,
+			isAnonymous: customer.isAnonymous
+		};
+		const prepared = await prepareConfirmedOrderFromBag(
+			db,
+			{ ...ctx, actor: customerActor, now: input.now },
+			{ ...checkoutInput, paymentMethod: currentAttempt.method, now: input.now },
+			{
+				status: 'captured',
+				transactionId: input.transactionId,
+				gatewayResponse: mergeGatewayEnvelope(currentAttempt.providerResponse, {
+					provider: input.providerResponse,
+					metadata: getGatewayMetadata(currentAttempt.providerResponse)
+				}),
+				paidAt: input.now
+			}
+		);
+		if (prepared.order.totalAmount !== currentAttempt.amount) {
+			throw new PaymentError(
+				'Checkout total changed before payment completed. Support review is required.',
+				ErrorCode.PAYMENT_FAILED,
+				{
+					attemptId: currentAttempt.id,
+					paidAmount: currentAttempt.amount,
+					currentAmount: prepared.order.totalAmount
+				}
+			);
+		}
+
+		const attemptUpdate = db
+			.update(paymentAttemptTable)
+			.set({
+				status: 'captured',
+				providerOrderId: currentAttempt.providerOrderId ?? input.transactionId,
+				providerResponse: input.providerResponse,
+				orderId: prepared.orderId,
+				failureReason: null,
+				updatedAt: input.now
+			})
+			.where(
+				and(
+					eq(paymentAttemptTable.id, currentAttempt.id),
+					eq(paymentAttemptTable.status, 'pending'),
+					eq(paymentAttemptTable.amount, currentAttempt.amount),
+					eq(paymentAttemptTable.bagId, currentAttempt.bagId)
+				)
+			);
+		const statements = [
+			...prepared.statements,
+			attemptUpdate,
+			...guardPreviousBatchChanges(db)
+		] as [(typeof prepared.statements)[number], ...(typeof prepared.statements)[number][]];
+		await db.batch(statements);
+		const notifications = await loadPreparedNotificationOutboxRows(db, prepared.notifications);
 		await publishNotificationWakeups(ctx, notifications);
-		return result;
+		return {
+			success: true,
+			paymentId: prepared.paymentId,
+			orderId: prepared.orderId,
+			status: 'captured'
+		};
 	} catch (error) {
-		const reason = getErrorMessage(error);
+		const reason = isD1BatchGuardError(error)
+			? 'Checkout changed or stock was no longer available during payment capture.'
+			: getErrorMessage(error);
 		await getDb()
 			.update(paymentAttemptTable)
 			.set({
@@ -1309,133 +1053,202 @@ async function applyGatewayPaymentResult(
 	ctx: ServiceContext,
 	input: ApplyGatewayPaymentResultInput
 ): Promise<PaymentGatewayResult> {
-	let notifications: NotificationOutboxDTO[] = [];
-	const result = await getDb().transaction(async (tx) => {
-		const [paymentRow] = await tx
-			.select()
-			.from(paymentTable)
-			.where(eq(paymentTable.id, input.paymentId))
-			.limit(1);
-		if (!paymentRow) {
-			throw new PaymentError('Payment record not found.', ErrorCode.PAYMENT_NOT_FOUND, {
-				paymentId: input.paymentId
-			});
-		}
+	const db = getDb();
+	const [paymentRow] = await db
+		.select()
+		.from(paymentTable)
+		.where(eq(paymentTable.id, input.paymentId))
+		.limit(1);
+	if (!paymentRow) {
+		throw new PaymentError('Payment record not found.', ErrorCode.PAYMENT_NOT_FOUND, {
+			paymentId: input.paymentId
+		});
+	}
 
-		const [orderRow] = await tx
-			.select()
-			.from(orderTable)
-			.where(eq(orderTable.id, paymentRow.orderId))
-			.limit(1);
-		if (!orderRow) {
-			throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
-				orderId: paymentRow.orderId
-			});
-		}
+	const [orderRow] = await db
+		.select()
+		.from(orderTable)
+		.where(eq(orderTable.id, paymentRow.orderId))
+		.limit(1);
+	if (!orderRow) {
+		throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
+			orderId: paymentRow.orderId
+		});
+	}
 
-		const terminalPayment =
-			paymentRow.status === 'captured' ||
-			paymentRow.status === 'partially_refunded' ||
-			paymentRow.status === 'refunded';
-		const nextStatus = terminalPayment ? paymentRow.status : input.status;
-		const captureAction =
-			input.status === 'captured'
-				? decideCapturedOrderAction(orderRow.status, orderRow.paymentExpiresAt, input.now)
-				: 'none';
-		let nextOrderStatus = orderRow.status;
-		let manualReviewReason: string | null = getManualReviewReason(paymentRow.gatewayResponse);
-		let confirmedOrder: Awaited<ReturnType<typeof transitionOrderStatusTx>> | null = null;
+	const terminalPayment =
+		paymentRow.status === 'captured' ||
+		paymentRow.status === 'partially_refunded' ||
+		paymentRow.status === 'refunded';
+	const nextStatus = terminalPayment ? paymentRow.status : input.status;
+	const captureAction =
+		input.status === 'captured'
+			? decideCapturedOrderAction(orderRow.status, orderRow.paymentExpiresAt, input.now)
+			: 'none';
+	let manualReviewReason: string | null = getManualReviewReason(paymentRow.gatewayResponse);
 
-		if (terminalPayment && input.status !== paymentRow.status) {
-			manualReviewReason = `Provider reported ${input.status} after payment reached ${paymentRow.status}. Manual review required.`;
-		}
-		if (
-			terminalPayment &&
-			paymentRow.transactionId &&
-			input.transactionId &&
-			input.transactionId !== paymentRow.transactionId
-		) {
-			manualReviewReason = `Provider reported transaction ${input.transactionId} after ${paymentRow.transactionId} was finalized. Manual review required.`;
-		}
+	if (terminalPayment && input.status !== paymentRow.status) {
+		manualReviewReason = `Provider reported ${input.status} after payment reached ${paymentRow.status}. Manual review required.`;
+	}
+	if (
+		terminalPayment &&
+		paymentRow.transactionId &&
+		input.transactionId &&
+		input.transactionId !== paymentRow.transactionId
+	) {
+		manualReviewReason = `Provider reported transaction ${input.transactionId} after ${paymentRow.transactionId} was finalized. Manual review required.`;
+	}
 
-		if (!terminalPayment && input.status === 'captured') {
-			if (captureAction === 'confirm') {
-				confirmedOrder = await transitionOrderStatusTx(tx, ctx, {
+	let preparedTransition: Awaited<ReturnType<typeof prepareOrderStatusTransition>> | null = null;
+	if (!terminalPayment && input.status === 'captured') {
+		if (captureAction === 'confirm') {
+			preparedTransition = await prepareOrderStatusTransition(
+				db,
+				ctx,
+				{
 					orderId: orderRow.id,
 					toStatus: 'confirmed',
 					note: input.note,
 					now: input.now
-				});
-				nextOrderStatus = confirmedOrder.status;
-			} else if (captureAction === 'cancel_and_review') {
-				const cancelled = await transitionOrderStatusTx(tx, ctx, {
+				},
+				{ includeNotifications: false }
+			);
+		} else if (captureAction === 'cancel_and_review') {
+			preparedTransition = await prepareOrderStatusTransition(
+				db,
+				ctx,
+				{
 					orderId: orderRow.id,
 					toStatus: 'cancelled',
 					note: 'Payment arrived after the checkout window expired.',
 					now: input.now
-				});
-				nextOrderStatus = cancelled.status;
-				manualReviewReason =
-					'Payment captured after the checkout window expired. Refund review required.';
-			} else if (captureAction === 'review') {
-				manualReviewReason = `Payment captured while order was ${orderRow.status}. Refund review required.`;
-			}
-		}
-
-		const currentMetadata = getGatewayMetadata(paymentRow.gatewayResponse);
-		const gatewayResponse = mergeGatewayEnvelope(paymentRow.gatewayResponse, {
-			provider: input.providerResponse,
-			metadata: {
-				...currentMetadata,
-				...(manualReviewReason
-					? {
-							manualReview: {
-								required: true as const,
-								reason: manualReviewReason,
-								createdAt: currentMetadata.manualReview?.createdAt ?? input.now.toISOString()
-							}
-						}
-					: {})
-			}
-		});
-		const nextTransactionId =
-			terminalPayment && paymentRow.transactionId
-				? paymentRow.transactionId
-				: (input.transactionId ?? paymentRow.transactionId);
-		const changed =
-			nextStatus !== paymentRow.status ||
-			nextTransactionId !== paymentRow.transactionId ||
-			manualReviewReason !== getManualReviewReason(paymentRow.gatewayResponse);
-		const [updated] = await tx
-			.update(paymentTable)
-			.set({
-				status: nextStatus,
-				transactionId: nextTransactionId,
-				gatewayResponse,
-				paidAt: nextStatus === 'captured' ? (paymentRow.paidAt ?? input.now) : paymentRow.paidAt,
-				updatedAt: input.now
-			})
-			.where(eq(paymentTable.id, paymentRow.id))
-			.returning();
-		if (!updated) {
-			throw new PaymentError('Payment update failed.', ErrorCode.INTERNAL_ERROR);
-		}
-
-		const dto = toPaymentDTO(updated, nextOrderStatus);
-		if (changed && confirmedOrder) {
-			notifications = await enqueueOrderConfirmationNotificationsTx(tx, confirmedOrder);
-		} else if (changed) {
-			const notification = await enqueuePaymentUpdateNotificationTx(
-				tx as unknown as Parameters<typeof enqueuePaymentUpdateNotificationTx>[0],
-				dto
+				},
+				{ includeNotifications: false }
 			);
-			if (notification) notifications = [notification];
+			manualReviewReason =
+				'Payment captured after the checkout window expired. Refund review required.';
+		} else if (captureAction === 'review') {
+			manualReviewReason = `Payment captured while order was ${orderRow.status}. Refund review required.`;
 		}
-		return dto;
-	});
+	}
 
+	const currentMetadata = getGatewayMetadata(paymentRow.gatewayResponse);
+	const gatewayResponse = mergeGatewayEnvelope(paymentRow.gatewayResponse, {
+		provider: input.providerResponse,
+		metadata: {
+			...currentMetadata,
+			...(manualReviewReason
+				? {
+						manualReview: {
+							required: true as const,
+							reason: manualReviewReason,
+							createdAt: currentMetadata.manualReview?.createdAt ?? input.now.toISOString()
+						}
+					}
+				: {})
+		}
+	});
+	const nextTransactionId =
+		terminalPayment && paymentRow.transactionId
+			? paymentRow.transactionId
+			: (input.transactionId ?? paymentRow.transactionId);
+	const changed =
+		nextStatus !== paymentRow.status ||
+		nextTransactionId !== paymentRow.transactionId ||
+		manualReviewReason !== getManualReviewReason(paymentRow.gatewayResponse);
+	const nextOrderStatus = preparedTransition?.order.status ?? orderRow.status;
+	const updatedPayment: Payment = {
+		...paymentRow,
+		status: nextStatus,
+		transactionId: nextTransactionId,
+		gatewayResponse,
+		paidAt: nextStatus === 'captured' ? (paymentRow.paidAt ?? input.now) : paymentRow.paidAt,
+		updatedAt: input.now
+	};
+	const paymentDto = toPaymentDTO(updatedPayment, nextOrderStatus);
+	let preparedNotifications: PreparedNotificationOutboxInsert[] =
+		preparedTransition?.notifications ?? [];
+	if (changed && preparedTransition?.order.status === 'confirmed') {
+		preparedNotifications = await prepareOrderConfirmationNotificationInserts(
+			db,
+			preparedTransition.order
+		);
+	} else if (changed && !preparedTransition) {
+		preparedNotifications = preparePaymentUpdateNotificationInserts(db, paymentDto, orderRow);
+	}
+
+	const paymentUpdate = db
+		.update(paymentTable)
+		.set({
+			status: nextStatus,
+			transactionId: nextTransactionId,
+			gatewayResponse,
+			paidAt: updatedPayment.paidAt,
+			updatedAt: input.now
+		})
+		.where(
+			and(
+				eq(paymentTable.id, paymentRow.id),
+				eq(paymentTable.status, paymentRow.status),
+				eq(paymentTable.updatedAt, paymentRow.updatedAt)
+			)
+		);
+	const paymentGuard = guardPreviousBatchChanges(db);
+	const statements: [Parameters<Db['batch']>[0][number], ...Parameters<Db['batch']>[0][number][]] =
+		[paymentUpdate, paymentGuard[0], paymentGuard[1]];
+	if (preparedTransition) statements.push(...preparedTransition.statements);
+	if (preparedTransition?.order.status === 'confirmed') {
+		statements.push(...preparedNotifications.map((item) => item.statement));
+	} else if (!preparedTransition) {
+		statements.push(...preparedNotifications.map((item) => item.statement));
+	}
+
+	try {
+		await db.batch(statements);
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new PaymentError(
+				'Payment or order state changed while the gateway result was being applied.',
+				ErrorCode.CONFLICT,
+				{ paymentId: paymentRow.id }
+			);
+		}
+		throw error;
+	}
+	const notifications = await loadPreparedNotificationOutboxRows(db, preparedNotifications);
 	await publishNotificationWakeups(ctx, notifications);
-	return toGatewayResult(result);
+	return toGatewayResult(paymentDto);
+}
+
+function preparePaymentUpdateNotificationInserts(
+	db: Db,
+	paymentDto: PaymentDTO,
+	orderRow: Order
+): PreparedNotificationOutboxInsert[] {
+	if (paymentDto.status !== 'refunded' || !orderRow.shippingAddressSnapshot) return [];
+	const baseUrl = getEnv().PUBLIC_APP_URL.replace(/\/+$/, '');
+	return [
+		prepareNotificationOutboxInsert(db, {
+			idempotencyKey: `order:${orderRow.id}:payment:${paymentDto.id}:${paymentDto.status}:sms`,
+			type: 'payment_update',
+			channel: 'sms',
+			recipient: orderRow.shippingAddressSnapshot.phone,
+			recipientUserId: orderRow.userId,
+			aggregateType: 'order',
+			aggregateId: orderRow.id,
+			payload: {
+				to: orderRow.shippingAddressSnapshot.phone,
+				orderId: orderRow.id,
+				orderNumber: orderRow.orderNumber,
+				status: paymentDto.status,
+				statusLabel: 'refunded',
+				amount: `LKR ${paymentDto.amount.toLocaleString('en-LK')}`,
+				paymentUrl: `${baseUrl}/view-order/${encodeURIComponent(orderRow.orderNumber)}`
+			},
+			metadata: { orderNumber: orderRow.orderNumber, paymentId: paymentDto.id },
+			now: paymentDto.updatedAt
+		})
+	];
 }
 
 // ---------------------------------------------------------------------------
@@ -1531,131 +1344,149 @@ export async function recordPayment(
 	input: RecordPaymentInput
 ): Promise<PaymentDTO> {
 	requireAdmin(ctx.actor);
-	let notificationsToPublish: NonNullable<
-		Awaited<ReturnType<typeof enqueuePaymentUpdateNotificationTx>>
-	>[] = [];
-	try {
-		const result = await getDb().transaction(async (tx) => {
-			const [orderBefore] = await tx
-				.select({ status: orderTable.status })
-				.from(orderTable)
-				.where(eq(orderTable.id, input.orderId))
-				.limit(1);
-			const paymentDto = await recordPaymentTx(tx, ctx, input);
-			if (orderBefore?.status === 'pending' && paymentDto.orderStatus === 'confirmed') {
-				notificationsToPublish = await enqueueOrderConfirmationNotificationsForOrderTx(
-					tx,
-					paymentDto.orderId
-				);
-			} else {
-				const notification = await enqueuePaymentUpdateNotificationTx(
-					tx as unknown as Parameters<typeof enqueuePaymentUpdateNotificationTx>[0],
-					paymentDto
-				);
-				if (notification) notificationsToPublish = [notification];
-			}
-			return paymentDto;
-		});
-		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return result;
-	} catch (error) {
-		throw mapPaymentPersistenceError(error);
-	}
-}
-
-export async function recordPaymentTx(
-	tx: PaymentsTx,
-	ctx: ServiceContext,
-	input: RecordPaymentInput
-): Promise<PaymentDTO> {
+	const db = getDb();
 	const now = resolveNow(ctx);
 	const nextStatus = input.status;
-
 	assertRecordablePaymentStatus(nextStatus);
 
-	const [orderRow] = await tx.select().from(orderTable).where(eq(orderTable.id, input.orderId));
-	if (!orderRow) {
-		throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
-			orderId: input.orderId
-		});
-	}
-
-	// Fetch existing payment
-	const existing = input.paymentId
-		? await tx
-				.select()
-				.from(paymentTable)
-				.where(eq(paymentTable.id, input.paymentId))
-				.limit(1)
-				.then((rows) => rows[0])
-		: await tx
-				.select()
-				.from(paymentTable)
-				.where(eq(paymentTable.orderId, orderRow.id))
-				.orderBy(desc(paymentTable.createdAt))
-				.limit(1)
-				.then((rows) => rows[0]);
-
-	if (existing && existing.orderId !== orderRow.id) {
-		throw new PaymentError('Payment does not belong to the order.', ErrorCode.PAYMENT_NOT_FOUND, {
-			orderId: orderRow.id,
-			paymentId: existing.id
-		});
-	}
-
-	let row: Payment;
-	if (existing) {
-		assertPaymentStatusTransition(existing.status, nextStatus);
-
-		const [updated] = await tx
-			.update(paymentTable)
-			.set(
-				parsePaymentUpdate({
-					status: nextStatus,
-					transactionId: input.transactionId,
-					gatewayResponse: 'gatewayResponse' in input ? (input.gatewayResponse ?? null) : undefined,
-					paidAt: nextStatus === 'captured' ? (input.paidAt ?? now) : input.paidAt
-				})
-			)
-			.where(eq(paymentTable.id, existing.id))
-			.returning();
-
-		if (!updated) {
-			throw new PaymentError('Payment update failed.', ErrorCode.INTERNAL_ERROR);
+	try {
+		const [orderRow] = await db
+			.select()
+			.from(orderTable)
+			.where(eq(orderTable.id, input.orderId))
+			.limit(1);
+		if (!orderRow) {
+			throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
+				orderId: input.orderId
+			});
 		}
-		row = updated;
-	} else {
-		const createdValues = parseNewPayment({
-			orderId: orderRow.id,
-			amount: input.amount ?? orderRow.totalAmount,
-			currency: 'LKR',
-			method: input.method ?? 'payhere',
-			status: nextStatus,
-			transactionId: input.transactionId ?? null,
-			gatewayResponse: input.gatewayResponse ?? null,
-			refundAmount: null
-		});
-
-		const [created] = await tx.insert(paymentTable).values(createdValues).returning();
-		if (!created) {
-			throw new PaymentError('Payment insertion failed.', ErrorCode.INTERNAL_ERROR);
+		const existing = input.paymentId
+			? await db
+					.select()
+					.from(paymentTable)
+					.where(eq(paymentTable.id, input.paymentId))
+					.limit(1)
+					.then((rows) => rows[0])
+			: await db
+					.select()
+					.from(paymentTable)
+					.where(eq(paymentTable.orderId, orderRow.id))
+					.orderBy(desc(paymentTable.createdAt))
+					.limit(1)
+					.then((rows) => rows[0]);
+		if (existing && existing.orderId !== orderRow.id) {
+			throw new PaymentError('Payment does not belong to the order.', ErrorCode.PAYMENT_NOT_FOUND, {
+				orderId: orderRow.id,
+				paymentId: existing.id
+			});
 		}
-		row = created;
-	}
 
-	// If capturing payment, transition order to confirmed
-	if (nextStatus === 'captured' && orderRow.status === 'pending') {
-		await transitionOrderStatusTx(tx, ctx, {
-			orderId: orderRow.id,
-			toStatus: 'confirmed',
-			note: 'Payment successfully captured.'
-		});
-	}
+		let paymentRow: Payment;
+		let paymentStatement: Parameters<Db['batch']>[0][number];
+		let guardPaymentUpdate = false;
+		if (existing) {
+			assertPaymentStatusTransition(existing.status, nextStatus);
+			const updateValues = parsePaymentUpdate({
+				status: nextStatus,
+				transactionId: input.transactionId,
+				gatewayResponse: 'gatewayResponse' in input ? (input.gatewayResponse ?? null) : undefined,
+				paidAt: nextStatus === 'captured' ? (input.paidAt ?? now) : input.paidAt,
+				updatedAt: now
+			});
+			paymentRow = { ...existing, ...updateValues, status: nextStatus, updatedAt: now };
+			paymentStatement = db
+				.update(paymentTable)
+				.set(updateValues)
+				.where(
+					and(
+						eq(paymentTable.id, existing.id),
+						eq(paymentTable.status, existing.status),
+						eq(paymentTable.updatedAt, existing.updatedAt)
+					)
+				);
+			guardPaymentUpdate = true;
+		} else {
+			const paymentId = crypto.randomUUID();
+			const created = parseNewPayment({
+				id: paymentId,
+				orderId: orderRow.id,
+				amount: input.amount ?? orderRow.totalAmount,
+				currency: 'LKR',
+				method: input.method ?? 'payhere',
+				status: nextStatus,
+				transactionId: input.transactionId ?? null,
+				gatewayResponse: input.gatewayResponse ?? null,
+				refundAmount: null
+			});
+			paymentRow = {
+				id: paymentId,
+				orderId: orderRow.id,
+				amount: created.amount,
+				currency: created.currency ?? 'LKR',
+				method: created.method,
+				status: created.status ?? nextStatus,
+				transactionId: created.transactionId ?? null,
+				gatewayResponse: created.gatewayResponse ?? null,
+				refundAmount: created.refundAmount ?? null,
+				refundedAt: null,
+				paidAt: nextStatus === 'captured' ? (input.paidAt ?? now) : (input.paidAt ?? null),
+				createdAt: now,
+				updatedAt: now
+			};
+			paymentStatement = db.insert(paymentTable).values(paymentRow);
+		}
 
-	return toPaymentDTO(
-		row,
-		nextStatus === 'captured' && orderRow.status === 'pending' ? 'confirmed' : orderRow.status
-	);
+		const preparedTransition =
+			nextStatus === 'captured' && orderRow.status === 'pending'
+				? await prepareOrderStatusTransition(
+						db,
+						ctx,
+						{
+							orderId: orderRow.id,
+							toStatus: 'confirmed',
+							note: 'Payment successfully captured.',
+							now
+						},
+						{ includeNotifications: false }
+					)
+				: null;
+		const paymentDto = toPaymentDTO(
+			paymentRow,
+			preparedTransition?.order.status ?? orderRow.status
+		);
+		const preparedNotifications = preparedTransition
+			? await prepareOrderConfirmationNotificationInserts(db, preparedTransition.order)
+			: preparePaymentUpdateNotificationInserts(db, paymentDto, orderRow);
+		const statements: [
+			Parameters<Db['batch']>[0][number],
+			...Parameters<Db['batch']>[0][number][]
+		] = [paymentStatement];
+		if (guardPaymentUpdate) statements.push(...guardPreviousBatchChanges(db));
+		if (preparedTransition) statements.push(...preparedTransition.statements);
+		statements.push(...preparedNotifications.map((item) => item.statement));
+		await db.batch(statements);
+
+		const notifications = await loadPreparedNotificationOutboxRows(db, preparedNotifications);
+		await publishNotificationWakeups(ctx, notifications);
+		const [committed] = await db
+			.select()
+			.from(paymentTable)
+			.where(eq(paymentTable.id, paymentRow.id))
+			.limit(1);
+		return toPaymentDTO(
+			committed ?? paymentRow,
+			preparedTransition?.order.status ?? orderRow.status
+		);
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new PaymentError(
+				'Payment or order state changed while the update was being saved.',
+				ErrorCode.CONFLICT,
+				{ orderId: input.orderId }
+			);
+		}
+		throw mapPaymentPersistenceError(error);
+	}
 }
 
 export async function recordRefund(
@@ -1663,99 +1494,111 @@ export async function recordRefund(
 	input: RecordRefundInput
 ): Promise<PaymentDTO> {
 	requireAdmin(ctx.actor);
-	let notificationsToPublish: NonNullable<
-		Awaited<ReturnType<typeof enqueuePaymentUpdateNotificationTx>>
-	>[] = [];
-	try {
-		const result = await getDb().transaction(async (tx) => {
-			const paymentDto = await recordRefundTx(tx, ctx, input);
-			const notification = await enqueuePaymentUpdateNotificationTx(
-				tx as unknown as Parameters<typeof enqueuePaymentUpdateNotificationTx>[0],
-				paymentDto
-			);
-			if (notification) notificationsToPublish = [notification];
-			return paymentDto;
-		});
-		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return result;
-	} catch (error) {
-		throw mapPaymentPersistenceError(error);
-	}
-}
-
-export async function recordRefundTx(
-	tx: PaymentsTx,
-	ctx: ServiceContext,
-	input: RecordRefundInput
-): Promise<PaymentDTO> {
+	const db = getDb();
 	const now = resolveNow(ctx);
-	const paymentId = input.paymentId;
 
-	const [existing] = await tx.select().from(paymentTable).where(eq(paymentTable.id, paymentId));
-	if (!existing) {
-		throw new PaymentError('Payment record not found.', ErrorCode.PAYMENT_NOT_FOUND, { paymentId });
-	}
+	try {
+		const [existing] = await db
+			.select()
+			.from(paymentTable)
+			.where(eq(paymentTable.id, input.paymentId))
+			.limit(1);
+		if (!existing) {
+			throw new PaymentError('Payment record not found.', ErrorCode.PAYMENT_NOT_FOUND, {
+				paymentId: input.paymentId
+			});
+		}
+		if (existing.status !== 'captured' && existing.status !== 'partially_refunded') {
+			throw new PaymentError(
+				`Cannot refund payment in status ${existing.status}.`,
+				ErrorCode.VALIDATION_ERROR
+			);
+		}
+		const [orderRow] = await db
+			.select()
+			.from(orderTable)
+			.where(eq(orderTable.id, existing.orderId))
+			.limit(1);
+		if (!orderRow) {
+			throw new PaymentError('Order not found.', ErrorCode.ORDER_NOT_FOUND, {
+				orderId: existing.orderId
+			});
+		}
 
-	if (existing.status !== 'captured' && existing.status !== 'partially_refunded') {
-		throw new PaymentError(
-			`Cannot refund payment in status ${existing.status}.`,
-			ErrorCode.VALIDATION_ERROR
-		);
-	}
-
-	const currentRefunded = existing.refundAmount ?? 0;
-	const nextRefunded = currentRefunded + input.refundAmount;
-
-	if (nextRefunded > existing.amount) {
-		throw new PaymentError(
-			`Total refund amount ${nextRefunded} exceeds original payment amount ${existing.amount}.`,
-			ErrorCode.VALIDATION_ERROR
-		);
-	}
-
-	const finalStatus: PaymentStatus =
-		nextRefunded === existing.amount ? 'refunded' : 'partially_refunded';
-
-	const [updated] = await tx
-		.update(paymentTable)
-		.set({
+		const currentRefunded = existing.refundAmount ?? 0;
+		const nextRefunded = currentRefunded + input.refundAmount;
+		if (nextRefunded > existing.amount) {
+			throw new PaymentError(
+				`Total refund amount ${nextRefunded} exceeds original payment amount ${existing.amount}.`,
+				ErrorCode.VALIDATION_ERROR
+			);
+		}
+		const finalStatus: PaymentStatus =
+			nextRefunded === existing.amount ? 'refunded' : 'partially_refunded';
+		const updated: Payment = {
+			...existing,
 			status: finalStatus,
 			refundAmount: nextRefunded,
 			refundedAt: now,
 			gatewayResponse: input.gatewayResponse ?? existing.gatewayResponse,
 			updatedAt: now
-		})
-		.where(eq(paymentTable.id, paymentId))
-		.returning();
-
-	if (!updated) {
-		throw new PaymentError('Payment refund update failed.', ErrorCode.INTERNAL_ERROR);
-	}
-
-	// Update order status if fully refunded
-	if (finalStatus === 'refunded') {
-		const [orderRow] = await tx
-			.select()
-			.from(orderTable)
-			.where(eq(orderTable.id, existing.orderId));
-		if (orderRow && orderRow.status !== 'refunded') {
-			await transitionOrderStatusTx(tx, ctx, {
-				orderId: orderRow.id,
-				toStatus: 'refunded',
-				note: 'All payments fully refunded.'
-			});
+		};
+		const paymentUpdate = db
+			.update(paymentTable)
+			.set({
+				status: finalStatus,
+				refundAmount: nextRefunded,
+				refundedAt: now,
+				gatewayResponse: updated.gatewayResponse,
+				updatedAt: now
+			})
+			.where(
+				and(
+					eq(paymentTable.id, existing.id),
+					eq(paymentTable.status, existing.status),
+					existing.refundAmount === null
+						? isNull(paymentTable.refundAmount)
+						: eq(paymentTable.refundAmount, existing.refundAmount),
+					eq(paymentTable.updatedAt, existing.updatedAt)
+				)
+			);
+		const preparedTransition =
+			finalStatus === 'refunded' && orderRow.status !== 'refunded'
+				? await prepareOrderStatusTransition(
+						db,
+						ctx,
+						{
+							orderId: orderRow.id,
+							toStatus: 'refunded',
+							note: 'All payments fully refunded.',
+							now
+						},
+						{ includeNotifications: false }
+					)
+				: null;
+		const dto = toPaymentDTO(updated, preparedTransition?.order.status ?? orderRow.status);
+		const preparedNotifications = preparePaymentUpdateNotificationInserts(db, dto, orderRow);
+		const guard = guardPreviousBatchChanges(db);
+		const statements: [
+			Parameters<Db['batch']>[0][number],
+			...Parameters<Db['batch']>[0][number][]
+		] = [paymentUpdate, guard[0], guard[1]];
+		if (preparedTransition) statements.push(...preparedTransition.statements);
+		statements.push(...preparedNotifications.map((item) => item.statement));
+		await db.batch(statements);
+		const notifications = await loadPreparedNotificationOutboxRows(db, preparedNotifications);
+		await publishNotificationWakeups(ctx, notifications);
+		return dto;
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new PaymentError(
+				'Payment or order state changed while the refund was being saved.',
+				ErrorCode.CONFLICT,
+				{ paymentId: input.paymentId }
+			);
 		}
+		throw mapPaymentPersistenceError(error);
 	}
-
-	const [orderRow] = await tx
-		.select({ status: orderTable.status })
-		.from(orderTable)
-		.where(eq(orderTable.id, existing.orderId))
-		.limit(1);
-	return toPaymentDTO(
-		updated,
-		finalStatus === 'refunded' ? 'refunded' : (orderRow?.status ?? null)
-	);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,9 @@
 // ── Auth (BetterAuth managed — do not edit) ────────────────────────────────
 export * from '../modules/auth/auth.drizzle';
 
+// Private D1 atomic-batch infrastructure.
+export * from './d1-batch.drizzle';
+
 // ── Modules ───────────────────────────────────────────────────────────────────
 export * from '../modules/addresses/addresses.drizzle';
 export * from '../modules/bag/bag.drizzle';

@@ -7,7 +7,7 @@ import type {
 	SystemActor
 } from '$lib/server/foundation/context';
 import { processDueNotificationOutbox } from '$lib/server/orchestration/notifications';
-import { CRON_SCHEDULES, type CronSchedule } from './schedules';
+import { CLOUDFLARE_CRON_TRIGGER, CRON_SCHEDULES, type CronSchedule } from './schedules';
 
 const NOTIFICATION_OUTBOX_LIMIT = 50;
 const ORDER_CANCEL_LIMIT = 50;
@@ -42,44 +42,45 @@ type ScheduledJobContext = {
 
 export type ScheduledJobDefinition = {
 	schedule: CronSchedule;
+	isDue: (now: Date) => boolean;
 	jobs: (context: ScheduledJobContext) => Array<() => Promise<ScheduledJobResult>>;
 };
 
 export const SCHEDULED_JOB_REGISTRY = [
 	{
 		schedule: CRON_SCHEDULES.bagCheckoutExpiry,
+		isDue: () => true,
 		jobs: ({ now, serviceCtx }) => [() => expireBagCheckouts(serviceCtx, now)]
 	},
 	{
 		schedule: CRON_SCHEDULES.notifications,
+		isDue: (now) => now.getUTCMinutes() % 5 === 0,
 		jobs: ({ now }) => [() => processDueNotificationOutboxJob(now)]
 	},
 	{
 		schedule: CRON_SCHEDULES.orderPaymentExpiry,
+		isDue: (now) => now.getUTCMinutes() % 10 === 0,
 		jobs: ({ now, serviceCtx }) => [() => cancelExpiredOrderPayments(serviceCtx, now)]
 	},
 	{
 		schedule: CRON_SCHEDULES.bagCleanup,
+		isDue: (now) => now.getUTCMinutes() === 0,
 		jobs: ({ now, serviceCtx }) => [() => cleanupExpiredGuestBags(serviceCtx, now)]
 	},
 	{
 		schedule: CRON_SCHEDULES.promoReconcile,
+		isDue: (now) => now.getUTCHours() === 20 && now.getUTCMinutes() === 17,
 		jobs: ({ serviceCtx }) => [() => reconcilePromoUsageCounts(serviceCtx)]
 	}
 ] as const satisfies readonly ScheduledJobDefinition[];
-
-const scheduledJobsByCron = new Map<CronSchedule, ScheduledJobDefinition>(
-	SCHEDULED_JOB_REGISTRY.map((definition) => [definition.schedule, definition])
-);
 
 export async function runScheduledJobs(
 	input: RunScheduledJobsInput
 ): Promise<ScheduledJobResult[]> {
 	const now = new Date(input.scheduledTime);
 	const serviceCtx = createCronServiceContext(now, input.notificationWakeups);
-	const definition = scheduledJobsByCron.get(input.cron as CronSchedule);
 
-	if (!definition) {
+	if (input.cron !== CLOUDFLARE_CRON_TRIGGER) {
 		console.warn('[cron] Unknown schedule ignored:', { cron: input.cron });
 		return [
 			{
@@ -90,7 +91,11 @@ export async function runScheduledJobs(
 		];
 	}
 
-	return runCronJobs(definition.jobs({ now, serviceCtx }));
+	const dueJobs = SCHEDULED_JOB_REGISTRY.filter((definition) => definition.isDue(now)).flatMap(
+		(definition) => definition.jobs({ now, serviceCtx })
+	);
+
+	return runCronJobs(dueJobs);
 }
 
 function createCronServiceContext(

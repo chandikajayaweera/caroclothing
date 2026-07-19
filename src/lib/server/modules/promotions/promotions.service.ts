@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -56,13 +57,55 @@ import type {
 } from './promotions.types';
 
 type Db = ReturnType<typeof getDb>;
-export type PromotionsTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | PromotionsTx;
+export type PromotionsTx = Db;
+type QueryExecutor = Db;
+export type PromotionsBatchItem = Parameters<Db['batch']>[0][number];
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const RECONCILE_DEFAULT_LIMIT = 100;
 const RECONCILE_MAX_LIMIT = 500;
+
+/** Prepare the promo redemption portion of an order commit D1 batch. */
+export function preparePromoUsageBatch(
+	db: Db,
+	input: RecordPromoUsageInput
+): [PromotionsBatchItem, ...PromotionsBatchItem[]] {
+	const data = parseRecordPromoUsageInput(input);
+	const nowMs = data.now.getTime();
+	const userLimitCondition = data.userId
+		? sql`(
+			SELECT count(*) FROM ${promoCodeUsage}
+			WHERE ${promoCodeUsage.promoCodeId} = ${data.promoCodeId}
+				AND ${promoCodeUsage.userId} = ${data.userId}
+		) < ${promoCode.perUserLimit}`
+		: sql`1 = 1`;
+	const updateQuery = db
+		.update(promoCode)
+		.set({ usedCount: sql`${promoCode.usedCount} + 1`, updatedAt: data.now })
+		.where(
+			and(
+				eq(promoCode.id, data.promoCodeId),
+				eq(promoCode.isActive, true),
+				sql`(${promoCode.startsAt} IS NULL OR ${promoCode.startsAt} <= ${nowMs})`,
+				sql`(${promoCode.expiresAt} IS NULL OR ${promoCode.expiresAt} > ${nowMs})`,
+				sql`(${promoCode.usageLimit} IS NULL OR ${promoCode.usedCount} < ${promoCode.usageLimit})`,
+				userLimitCondition
+			)
+		);
+
+	return [
+		updateQuery,
+		...guardPreviousBatchChanges(db),
+		db.insert(promoCodeUsage).values({
+			promoCodeId: data.promoCodeId,
+			userId: data.userId,
+			orderId: data.orderId,
+			discountAmount: data.discountAmount,
+			usedAt: data.now
+		})
+	];
+}
 
 export async function createPromoCode(
 	ctx: ServiceContext,
@@ -257,8 +300,31 @@ export async function recordPromoUsage(
 	requireAdmin(ctx.actor);
 
 	try {
-		return await getDb().transaction(async (tx) => recordPromoUsageTx(tx, input));
+		const db = getDb();
+		const validated = await validatePromoUsageRecordTx(db, input);
+		const data = validated.data;
+		await db.batch(
+			preparePromoUsageBatch(db, {
+				...input,
+				userId: validated.userId,
+				now: data.now
+			})
+		);
+		const [row] = await db
+			.select()
+			.from(promoCodeUsage)
+			.where(eq(promoCodeUsage.orderId, data.orderId))
+			.limit(1);
+		if (!row) throw new PromotionError('Promo usage was not recorded.', ErrorCode.INTERNAL_ERROR);
+		const promoRow = await loadPromoCodeByIdTx(db, row.promoCodeId);
+		return toPromoCodeUsageDTO(row, promoRow ? { id: promoRow.id, code: promoRow.code } : null);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new PromotionError(
+				'Promo code is no longer redeemable.',
+				ErrorCode.PROMO_USAGE_LIMIT_EXCEEDED
+			);
+		}
 		throw mapPromotionPersistenceError(error);
 	}
 }
@@ -271,7 +337,7 @@ export async function reconcilePromoCodeUsageCount(
 	const now = resolveNow(ctx, input.now);
 
 	try {
-		return await getDb().transaction((tx) => reconcilePromoCodeUsageCountTx(tx, { ...input, now }));
+		return await reconcilePromoCodeUsageCountTx(getDb(), { ...input, now });
 	} catch (error) {
 		throw mapPromotionPersistenceError(error);
 	}
@@ -301,9 +367,7 @@ export async function reconcilePromoCodeUsageCounts(
 
 		for (const row of rows) {
 			try {
-				items.push(
-					await db.transaction(async (tx) => reconcilePromoCodeUsageCountByIdTx(tx, row.id, now))
-				);
+				items.push(await reconcilePromoCodeUsageCountByIdTx(db, row.id, now));
 			} catch (error) {
 				failedItems.push({
 					promoCodeId: row.id,
@@ -364,6 +428,30 @@ export async function recordPromoUsageTx(
 	tx: PromotionsTx,
 	input: RecordPromoUsageInput
 ): Promise<PromoCodeUsageDTO> {
+	const { data, promoRow, userId } = await validatePromoUsageRecordTx(tx, input);
+	const updatedPromo = await incrementPromoUsedCountTx(tx, promoRow, data.now);
+	const [created] = await tx
+		.insert(promoCodeUsage)
+		.values({
+			promoCodeId: data.promoCodeId,
+			userId,
+			orderId: data.orderId,
+			discountAmount: data.discountAmount,
+			usedAt: data.now
+		})
+		.returning();
+
+	if (!created) {
+		throw new PromotionError('Promo usage was not recorded.', ErrorCode.INTERNAL_ERROR);
+	}
+
+	return toPromoCodeUsageDTO(created, {
+		id: updatedPromo.id,
+		code: updatedPromo.code
+	});
+}
+
+async function validatePromoUsageRecordTx(tx: PromotionsTx, input: RecordPromoUsageInput) {
 	const data = parseRecordPromoUsageInput(input);
 	const orderRow = await loadOrderByIdTx(tx, data.orderId);
 
@@ -422,26 +510,7 @@ export async function recordPromoUsageTx(
 		);
 	}
 
-	const updatedPromo = await incrementPromoUsedCountTx(tx, promoRow, data.now);
-	const [created] = await tx
-		.insert(promoCodeUsage)
-		.values({
-			promoCodeId: data.promoCodeId,
-			userId: data.userId ?? orderRow.userId,
-			orderId: data.orderId,
-			discountAmount: data.discountAmount,
-			usedAt: data.now
-		})
-		.returning();
-
-	if (!created) {
-		throw new PromotionError('Promo usage was not recorded.', ErrorCode.INTERNAL_ERROR);
-	}
-
-	return toPromoCodeUsageDTO(created, {
-		id: updatedPromo.id,
-		code: updatedPromo.code
-	});
+	return { data, orderRow, promoRow, userId: data.userId ?? orderRow.userId };
 }
 
 export async function reconcilePromoCodeUsageCountTx(

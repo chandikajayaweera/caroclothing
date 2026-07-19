@@ -297,79 +297,13 @@ describe('payments service integration', () => {
 		expect(wakeups.queue.batches.flat()).toHaveLength(2);
 	});
 
-	it('creates PayPal Orders API sessions with v6 experience context', async () => {
-		const buyer = await seedUser(db(), { id: 'paypal-buyer' });
-		const orderRow = await seedOrder(db(), {
-			id: 'paypal-order',
-			userId: buyer.id,
-			status: 'pending',
-			paymentExpiresAt: new Date(now.getTime() + 30 * 60 * 1000),
-			totalAmount: 5000
-		});
-		await db()
-			.insert(payment)
-			.values({
-				id: 'paypal-payment',
-				orderId: orderRow.id,
-				amount: 5000,
-				currency: 'LKR',
-				method: 'paypal',
-				status: 'pending',
-				gatewayResponse: {
-					metadata: {
-						paypalFxQuote: {
-							rate: 0.003,
-							usdAmount: '15.00',
-							quotedAt: now.toISOString(),
-							source: 'test'
-						},
-						paypalRequestIds: {
-							create: 'paypal-payment-create',
-							capture: 'paypal-payment-capture'
-						}
-					}
-				}
-			});
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ access_token: 'access-token' }), { status: 200 })
-			)
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ id: 'PAYPAL-ORDER-1' }), { status: 201 })
-			);
-		vi.stubGlobal('fetch', fetchMock);
-
+	it('rejects the retired order-first online payment flow', async () => {
 		await expect(
-			createPaymentSession(makeCustomerCtx(buyer.id, { now }), {
-				orderId: orderRow.id,
+			createPaymentSession(makeCustomerCtx('paypal-buyer', { now }), {
+				orderId: 'retired-order-first-flow',
 				method: 'paypal'
 			})
-		).resolves.toMatchObject({
-			orderId: orderRow.id,
-			method: 'paypal',
-			paypalOrderId: 'PAYPAL-ORDER-1'
-		});
-
-		const [, orderRequest] = fetchMock.mock.calls;
-		expect(orderRequest?.[0]).toBe('https://api-m.sandbox.paypal.com/v2/checkout/orders');
-		const body = JSON.parse(String((orderRequest?.[1] as RequestInit | undefined)?.body)) as Record<
-			string,
-			unknown
-		>;
-		expect(body).not.toHaveProperty('application_context');
-		expect(body).toMatchObject({
-			intent: 'CAPTURE',
-			payment_source: {
-				paypal: {
-					experience_context: {
-						brand_name: 'Caro Clothing',
-						shipping_preference: 'NO_SHIPPING',
-						user_action: 'PAY_NOW'
-					}
-				}
-			}
-		});
+		).rejects.toMatchObject({ code: ErrorCode.PAYMENT_ALREADY_PROCESSED });
 	});
 
 	it('authorizes the owner and verifies the PayPal capture object before confirming', async () => {

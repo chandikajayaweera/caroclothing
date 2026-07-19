@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-07-13
+- **Status:** current as of 2026-07-19
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 The repository-wide `src/lib` dependency and folder rules live in `docs/library-architecture.md`.
@@ -24,9 +24,17 @@ payments
 reviews
 ```
 
-`inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and are imported directly by server internals when needed.
+`inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Cross-module checkout and order workflows compose internal prepared D1 batch builders such as `prepareInventorySaleBatch()`; these builders are not public CRUD APIs.
 
-`payments` supports PayHere, PayPal, and cash on delivery only. PayHere checkout uses the official JavaScript SDK while signed server webhooks own payment truth. PayPal checkout uses JavaScript SDK v6 with server-created and server-captured Orders API transactions. Online checkout persists only a `payment_attempt` before provider success; no order/payment row or stock reservation exists yet. A bag can have only one pending payment attempt, identical setup requests resume the existing provider session, terminal attempt states are monotonic, and PayPal capture is rejected before contacting the provider when the checkout window has expired. Verified capture revalidates the live bag and atomically creates and confirms the order, records the captured payment, consumes stock, deletes the bag, and enqueues confirmation intent. Cash-on-delivery confirmation still occurs at placement.
+`payments` supports PayHere, PayPal, and cash on delivery only. PayHere checkout uses the official JavaScript SDK while signed server webhooks own payment truth. PayPal checkout uses JavaScript SDK v6 with server-created and server-captured Orders API transactions. Online checkout persists only a `payment_attempt` before provider success; no order/payment row or stock reservation exists yet. A bag can have only one pending payment attempt, identical setup requests resume the existing provider session, terminal attempt states are monotonic, and PayPal capture is rejected before contacting the provider when the checkout window has expired. Verified capture revalidates the live bag and uses one guarded D1 batch to create and confirm the order, record the captured payment, consume stock, delete the bag, and enqueue confirmation intent. Cash-on-delivery confirmation uses the same atomic order-commit path with a pending COD payment.
+
+Database runtime and atomicity:
+
+- Server code obtains the request-scoped D1 binding through `src/lib/server/db/index.ts`; routes never receive or import the binding directly.
+- Drizzle uses `drizzle-orm/d1`, and the Cloudflare `DB` binding is the only database connection contract. No remote database URL/token transport or callback transaction client exists.
+- D1 `batch()` is the atomic boundary for multi-table writes. Cross-module workflows return prepared statements that the owning service composes into one non-empty batch.
+- `_d1_batch_guard` CHECK failures turn optimistic conditions such as ownership, checkout freshness, stock sufficiency, and previous-statement row counts into full batch rollbacks.
+- Better Auth uses its Drizzle adapter over the request-scoped D1-backed database with interactive adapter transactions disabled. Request, Queue, and Cron handlers establish runtime context through `src/lib/server/infrastructure/cloudflare/runtime-context.ts` before database or environment access.
 
 Bag and checkout inventory lifecycle:
 
@@ -35,14 +43,14 @@ Bag and checkout inventory lifecycle:
 - Bag additions and upward quantity changes reject desired line quantities above tracked available stock unless backorders are allowed.
 - A stale line that exceeds available stock is labelled `insufficient` with its exact available quantity, not `out of stock`; customers can still reduce it.
 - Bag availability uses bounded visible-tab refreshes, stale-on-focus refreshes, and a projection refresh after a known hold deadline.
-- The selected product-detail variant is seeded by its server-rendered snapshot, then uses bounded visible-tab refreshes, failure backoff, stale-on-focus refreshes, and the same checkout-aware status and hold countdown as the bag. A deadline refresh removes the expired hold from the projection; bounded Cron releases authoritative reserved inventory within the following minute.
+- The selected product-detail variant is seeded by its server-rendered snapshot, then uses bounded visible-tab refreshes, failure backoff, and stale-on-focus refreshes.
 - Re-entering an active checkout keeps its original deadline.
 - Navigating away from checkout or mutating the bag cancels the checkout window without clearing bag items.
-- Checkout expiry clears checkout timestamps; new checkout windows hold no stock. Cleanup still safely releases any legacy reservation references.
+- Checkout expiry clears checkout timestamps; checkout windows hold no stock.
 - Online provider setup creates one pending `payment_attempt` per bag. Identical retries resume it; conflicting checkout details wait for the active attempt to finish or expire. Failure or cancellation leaves the bag intact and creates no order or reservation.
-- Verified capture reserves order-item quantities and consumes them during the same order-confirmation transaction before deleting the bag.
-- Cron expires due checkout windows every minute. Availability and bag-hydration projections never release another shopper's reservations.
-- Storefront availability combines bounded read-only projections without opening a libSQL write transaction. A concurrent checkout can make one projection momentarily stale; checkout/order write transactions remain authoritative and revalidate stock.
+- Verified capture consumes order-item quantities inside the same guarded order-confirmation D1 batch before deleting the bag.
+- Cron expires due checkout windows every minute. Availability and bag-hydration projections are read-only.
+- Storefront availability combines bounded read-only projections. A concurrent checkout can make one projection momentarily stale; the guarded checkout/order D1 batch is authoritative and revalidates stock.
 
 Customer account lifecycle:
 
@@ -50,7 +58,7 @@ Customer account lifecycle:
 - Existing phone-derived display names are treated as incomplete and redirected to account profile completion.
 - A customer must always retain at least one sign-in method: verified phone or Google.
 - Self-service account deletion requires a fresh Better Auth session.
-- Before account deletion, the auth workflow releases checkout reservations, deletes every user-owned bag (including legacy duplicates), cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one transaction.
+- Before account deletion, the auth workflow deletes every user-owned bag (including legacy duplicates), cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one guarded D1 batch.
 - User deletion cascades profile-owned data while anonymized order/payment history remains with a null user reference.
 - Review media keys are collected before deletion and removed from R2 after the database deletion succeeds.
 
@@ -131,6 +139,7 @@ Infrastructure:
   src/lib/server/infrastructure/email
   src/lib/server/infrastructure/sms
   src/lib/server/infrastructure/cloudflare
+    runtime-context.ts
 
 Orchestration:
   src/lib/server/orchestration/notifications
@@ -153,9 +162,11 @@ Domain modules:
 Layer rules:
 
 - Domain modules own business state, Drizzle schemas, service functions, DTOs, and domain validation.
-- Infrastructure modules wrap technical providers and runtime adapters such as env, errors, R2, Resend, Text.lk, and Cloudflare Queue/Cron bindings.
+- Infrastructure modules wrap technical providers and runtime adapters such as env, errors, R2, Resend, Text.lk, Cloudflare Queue/Cron bindings, and request-scoped Cloudflare environment storage.
 - Foundation modules hold cross-cutting service context, guards, and utilities.
 - Cloudflare infrastructure adapters translate Worker runtime events and bindings into plain orchestration calls.
+- Cloudflare runtime context owns `App.Platform['env']` storage and per-request runtime singletons;
+  foundation does not own runtime environment storage.
 - Orchestration modules run Queue/Cron/job workflows without depending on Cloudflare runtime message/controller types.
 - `modules/auth` is intentionally mixed because Better Auth runtime/config and auth domain behavior live together.
 - `modules/notifications/outbox` is a domain state module because it owns `notification_outbox`, idempotency, retry/audit state, payload validation, and claim/mark/cancel APIs.
@@ -175,7 +186,7 @@ Form schema files
   -> Superforms schemas, file inputs, UI-only fields, form-level validation
 
 Service files
-  -> business logic, authorization, transactions, R2 side effects, notification intent, domain errors, DTO mapping
+  -> business logic, authorization, guarded D1 batches, R2 side effects, notification intent, domain errors, DTO mapping
 
 Route files
   -> load data, create forms, validate actions, call services, map service errors
@@ -196,9 +207,9 @@ Route rules:
 Service rules:
 
 - Business writes must go through `*.service.ts`.
-- Multi-table writes must use transactions.
-- Cross-module transaction workflows should use internal `*Tx` helpers imported directly by server internals, not exported as public module CRUD.
-- Background/cron/cleanup tasks that process multiple items must NOT run the entire batch under a single monolithic transaction. Instead, select the targeted rows first, then process each record individually within its own transaction. This prevents database timeouts, lock contention, and worker runtime termination on Cloudflare.
+- Multi-table writes must use one guarded D1 `batch()` when atomicity is required.
+- Cross-module atomic workflows compose internal prepared-statement builders imported directly by server internals; they are not exported as public module CRUD.
+- Background/cron/cleanup tasks that process many records must select a bounded page first, then commit each independent record in a small D1 batch. Do not build an unbounded batch for the entire job.
 - Account deletion may use narrowly scoped internal bag, review media, and notification outbox helpers; these are not generic public CRUD APIs.
 - Inventory APIs may manage variant inventory rows, but `inventoryMovement` remains append-only audit state and must not be exposed as generic CRUD.
 - Products, variant colors, and size variants with inventory history cannot be deleted; products with reviews cannot be deleted. Deactivate historical catalog records so audit movements, reviews, and review media remain intact.
@@ -206,6 +217,8 @@ Service rules:
 - Services return DTOs when UI needs derived fields or public URLs.
 - Public reads default to public-safe filtering.
 - Reads that expose inactive, archived, unpublished, moderation, or admin-only data must accept `ServiceContext` and enforce authorization.
+- Admin analytics must paginate and aggregate in D1. Do not fetch a capped collection into a route
+  and derive supposedly global counts or filters in memory.
 - Do not expose generic CRUD for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, or product-tag joins.
 
 Product service contract:
@@ -214,7 +227,7 @@ Product service contract:
 - Product form schemas may include UI-only create fields such as `newTagNames`, `images`, `primaryImageIndex`, draft variant colors (`variants`), `imageMetadata`, and route `redirectTo`. Services strip and validate these fields before persistence.
 - Draft variant colors use client-side `clientId` values during create so image metadata and size-level variants can target a specific color card before the database ID exists. The service generates product, variant color, and variant size IDs, maps client IDs to variant color IDs, and rejects duplicate draft client IDs or duplicate color names.
 - Product image metadata must match the uploaded file count. Each image can set `variantColorClientId`, `altText`, `position`, and `isPrimary`; the service enforces valid variant color mapping, nonnegative positions, alt text length, and one primary image per color card scope.
-- Product image uploads are service-owned R2 side effects associated with a `productVariantColor` (color card) row via `variantColorId`. Routes pass `ctx.event`; the service uploads with generated product/color/variant IDs and deletes uploaded objects if a later validation or transaction step fails.
+- Product image uploads are service-owned R2 side effects associated with a `productVariantColor` (color card) row via `variantColorId`. Routes pass `ctx.event`; the service uploads with generated product/color/variant IDs and deletes uploaded objects if later validation or the database batch fails.
 - Product edit workflows use `updateProductFull()` for full-form synchronization of product rows, tags, variant color cards, size variants, new image uploads, image deletion, primary image state, image alt text, and image `position` display order. Admin edit routes serialize UI image metadata and must not write product image rows directly.
 - `ProductDTO` includes variants, images, tags, and resolved `primaryImageUrl` so admin/storefront routes do not need cross-table joins.
 
@@ -259,7 +272,7 @@ Media:
 
 - Use `src/lib/server/infrastructure/media/r2.ts` and `src/lib/server/infrastructure/media/utils.ts`.
 - Use `getMediaBucket`, `buildMediaKey`, `uploadImage`, and `deleteObjectSafe`.
-- Services that upload media must clean up uploaded R2 objects if the later DB transaction fails.
+- Services that upload media must clean up uploaded R2 objects if the later D1 batch fails.
 - Services that replace or delete media should update DB state first, then best-effort cleanup old keys with `deleteObjectSafe`.
 - DTOs expose media URLs with `mediaUrl(key)`, not raw R2 keys unless admin/debug use requires both.
 
@@ -274,7 +287,7 @@ State ownership:
 
 Domain services:
 
-- Enqueue outbox intent inside the same DB transaction as the business state change.
+- Enqueue outbox intent inside the same D1 batch as the business state change.
 - Use unique idempotency keys.
 - Do not send email/SMS directly unless explicitly approved.
 - For legacy workflows, expose idempotent list/mark helpers rather than sending from routes.
@@ -293,6 +306,7 @@ Queue:
 
 Cron:
 
+- Cloudflare config uses one per-minute Cron Trigger per environment. The runtime-neutral Cron registry selects due jobs by UTC minute for 1-minute, 5-minute, 10-minute, hourly, and daily cadences.
 - Cron scans pending due rows, due failed rows, and stale locked rows.
 - Cron also routes configured scheduled service jobs such as pending-payment cancellation, guest-bag cleanup, and promo usage reconciliation.
 - Cron/job code must be idempotent, limit-aware, retry-safe, explicit about `now`, and free of `$lib/client/*` imports.
@@ -332,7 +346,7 @@ Before completing service-layer work, verify:
 
 - Every business module with a `*.drizzle.ts` file has a `*.service.ts` file or a documented reason not to.
 - Every business route write calls a service.
-- Every multi-table write uses a transaction.
+- Every atomic multi-table write uses a guarded D1 batch.
 - Inventory writes create movement rows.
 - Order status changes create history rows.
 - Promo usage updates usage records and counts atomically.
@@ -344,7 +358,8 @@ Before completing service-layer work, verify:
 - Notification modules do not import from `$lib/client/*`.
 - AppErrors are mapped consistently in route actions.
 - Raw unexpected errors are not swallowed.
-- Schema changes include a reviewed migration under `drizzle/`; see `docs/database-migrations.md`.
+- Schema changes include a reviewed migration under `drizzle-d1/`; see `docs/database-migrations.md`.
+- ESLint import-boundary rules pass for routes, server modules, shared modules, and orchestration.
 
 ## Agent Rules
 

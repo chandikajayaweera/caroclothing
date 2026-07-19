@@ -3,9 +3,14 @@ import { listWishlistSignals, listUserWishlist } from '$lib/server/modules/wishl
 import { listUsers } from '$lib/server/modules/auth';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 import type { ServiceContext } from '$lib/server/foundation/context';
+import type { WishlistSignalAlertStatus } from '$lib/server/modules/wishlist';
 
 function getAdminContext(locals: App.Locals): ServiceContext {
 	return { actor: locals.user };
+}
+
+function getAlertLevel(value: string | null): WishlistSignalAlertStatus | undefined {
+	return value === 'high' || value === 'watch' || value === 'normal' ? value : undefined;
 }
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -18,63 +23,28 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit')) || 25));
 	const offset = Math.max(0, Number(url.searchParams.get('offset')) || 0);
 
-	const alertLevel = url.searchParams.get('alertLevel')?.trim() || 'all';
+	const alertLevel = getAlertLevel(url.searchParams.get('alertLevel'));
 	const includeUnavailable = url.searchParams.get('includeUnavailable') === 'true';
 	const userId = url.searchParams.get('userId')?.trim() || '';
 
 	try {
-		// 1. Fetch Signals (always fetch to compute global stats)
-		const signals = await listWishlistSignals(ctx, {
-			productId: tab === 'signals' && query ? query : undefined,
-			includeUnavailable: tab === 'signals' ? includeUnavailable : true,
-			limit: 1000,
-			offset: 0
-		});
-
-		// Compute stock alert level for each signal item and inject unique id
-		const itemsWithAlert = signals.items.map((item) => {
-			let alertStatus: 'high' | 'watch' | 'normal' = 'normal';
-			if (item.variant && item.variant.trackInventory) {
-				const stock = item.variant.inventoryQuantity ?? 0;
-				const saves = item.saveCount;
-				if (stock <= 5 && saves > stock) {
-					alertStatus = 'high';
-				} else if (stock <= 15 && saves > stock * 0.5) {
-					alertStatus = 'watch';
-				}
-			}
-			return {
-				...item,
-				id: item.variantId ? `${item.productId}:${item.variantId}` : item.productId,
-				alertStatus
-			};
-		});
-
-		// Calculate stats over the entire list of signals
-		const totalUniqueSaves = itemsWithAlert.length;
-		const totalSavesCount = itemsWithAlert.reduce((sum, item) => sum + item.saveCount, 0);
-		const totalHighRiskCount = itemsWithAlert.filter((item) => item.alertStatus === 'high').length;
-
-		const stats = {
-			total: totalSavesCount,
-			active: totalUniqueSaves,
-			inactive: totalHighRiskCount
-		};
-
-		// Filter signals if tab is signals
-		let filteredSignals = itemsWithAlert;
-		if (tab === 'signals') {
-			if (alertLevel && alertLevel !== 'all') {
-				filteredSignals = itemsWithAlert.filter((item) => item.alertStatus === alertLevel);
-			}
-		}
-
-		const paginatedSignals = {
-			items: tab === 'signals' ? filteredSignals.slice(offset, offset + limit) : [],
-			total: filteredSignals.length,
-			limit,
-			offset
-		};
+		// Fetch only the requested page; aggregate statistics are calculated in D1.
+		const signals =
+			tab === 'signals'
+				? await listWishlistSignals(ctx, {
+						productId: query || undefined,
+						includeUnavailable,
+						alertLevel,
+						limit,
+						offset
+					})
+				: {
+						items: [],
+						total: 0,
+						limit,
+						offset,
+						stats: { totalSaves: 0, totalSignals: 0, highRiskVariants: 0 }
+					};
 
 		// 2. Fetch Users (if search query is active on users tab)
 		let searchedUsers: import('$lib/server/modules/auth').UserListResult = {
@@ -103,16 +73,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		return {
 			tab,
-			signals: paginatedSignals,
+			signals,
 			searchedUsers,
 			userWishlist,
-			stats,
+			stats: signals.stats,
 			filters: {
 				query,
 				limit,
 				offset,
 				includeUnavailable,
-				alertLevel,
+				alertLevel: alertLevel ?? 'all',
 				userId
 			}
 		};

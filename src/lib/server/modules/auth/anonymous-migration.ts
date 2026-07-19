@@ -1,21 +1,17 @@
 import { eq } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
-import { mergeUserBagIntoUserBagTx, type BagTx } from '$lib/server/modules/bag/bag.service';
+import { getD1Database, getDb } from '$lib/server/db';
+import { prepareAnonymousBagMergeStatements } from '$lib/server/modules/bag/bag.service';
 import {
 	AuthError,
 	ErrorCode,
 	getErrorMessage,
 	isAppError
 } from '$lib/server/infrastructure/errors';
-import type { ServiceContext } from '$lib/server/foundation/context';
-import {
-	mergeWishlistIntoUserTx,
-	type WishlistTx
-} from '$lib/server/modules/wishlist/wishlist.service';
+import { prepareAnonymousWishlistMergeStatements } from '$lib/server/modules/wishlist/wishlist.service';
 import { user as userTable } from './auth.drizzle';
 
 type Db = ReturnType<typeof getDb>;
-type AnonymousMigrationTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+type AnonymousMigrationTx = Db;
 type AnonymousMigrationUser = {
 	id: string;
 	isAnonymous: boolean | null;
@@ -27,19 +23,23 @@ export async function migrateAnonymousUserData(anonymousUserId: string, targetUs
 
 	if (sourceUserId === destinationUserId) return;
 
-	const actor = { id: destinationUserId, role: 'customerUser' } as const;
-	const ctx = { actor } satisfies ServiceContext;
-
 	try {
-		await getDb().transaction(async (tx) => {
-			await assertAnonymousMigrationUsersTx(tx, {
-				anonymousUserId: sourceUserId,
-				targetUserId: destinationUserId
-			});
-
-			await mergeUserBagIntoUserBagTx(tx as BagTx, ctx, { sourceUserId });
-			await mergeWishlistIntoUserTx(tx as WishlistTx, ctx, { sourceUserId });
+		const db = getDb();
+		await assertAnonymousMigrationUsersTx(db, {
+			anonymousUserId: sourceUserId,
+			targetUserId: destinationUserId
 		});
+		const d1 = getD1Database();
+		await d1.batch([
+			...prepareAnonymousBagMergeStatements(d1, {
+				sourceUserId,
+				targetUserId: destinationUserId
+			}),
+			...prepareAnonymousWishlistMergeStatements(d1, {
+				sourceUserId,
+				targetUserId: destinationUserId
+			})
+		]);
 	} catch (error) {
 		if (isAppError(error)) throw error;
 

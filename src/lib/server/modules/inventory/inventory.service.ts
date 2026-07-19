@@ -1,5 +1,11 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
+import {
+	guardBatchCondition,
+	guardPreviousBatchChanges,
+	isD1BatchGuardError
+} from '$lib/server/db/batch';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
@@ -26,11 +32,9 @@ import {
 } from '../products/products.drizzle';
 import {
 	insertInventorySchema,
-	insertInventoryMovementSchema,
 	inventory,
 	inventoryMovement,
 	type InsertInventory,
-	type InsertInventoryMovement,
 	type Inventory,
 	type InventoryMovement
 } from './inventory.drizzle';
@@ -47,21 +51,17 @@ import type {
 	InventoryMovementDTO,
 	InventoryMovementListOptions,
 	InventoryMovementListResult,
-	InventoryReleaseResult,
-	InventoryReservationResult,
 	InventorySummaryDTO,
-	OutstandingReservationInput,
-	ReleaseInventoryInput,
 	RecordInventorySaleInput,
 	RestockInventoryInput,
-	ReserveInventoryInput,
 	RestoreInventorySaleInput,
 	UpdateInventorySettingsInput
 } from './inventory.types';
 
 type Db = ReturnType<typeof getDb>;
-export type InventoryTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | InventoryTx;
+export type InventoryTx = Db;
+type QueryExecutor = Db;
+export type InventoryBatchItem = Parameters<Db['batch']>[0][number];
 type InventoryListRow = {
 	variant: ProductVariant;
 	color: ProductVariantColor;
@@ -70,7 +70,127 @@ type InventoryListRow = {
 };
 
 const UNTRACKED_AVAILABLE_QUANTITY = 1_000_000;
-const RESERVATION_LOOKUP_BATCH_SIZE = 400;
+
+/**
+ * Build the stock statements used by the checkout commit batch.
+ *
+ * The guard is authoritative: a tracked, non-backorder variant must still have
+ * enough uncommitted physical stock when D1 executes the batch. Untracked
+ * variants and zero-stock backorders intentionally produce no movement row.
+ */
+export function prepareInventorySaleBatch(
+	db: Db,
+	input: RecordInventorySaleInput
+): InventoryBatchItem[] {
+	const quantity = normalizeQuantity(input.quantity, 'quantity');
+	const referenceId = normalizeId(input.referenceId, 'referenceId');
+	const variantId = normalizeId(input.variantId, 'variantId');
+	const now = input.now ?? new Date();
+	const nowMs = now.getTime();
+	const sellable = sql`EXISTS (
+		SELECT 1 FROM ${inventory}
+		WHERE ${inventory.variantId} = ${variantId}
+			AND (
+				${inventory.trackInventory} = 0
+				OR ${inventory.allowBackorder} = 1
+				OR (${inventory.quantity} - ${inventory.reservedQuantity}) >= ${quantity}
+			)
+	)`;
+	const physicalSaleQuantity = sql<number>`min(${quantity}, ${inventory.quantity})`;
+	const quantityAfter = sql<number>`max(0, ${inventory.quantity} - ${quantity})`;
+
+	return [
+		...guardBatchCondition(db, sellable),
+		db.insert(inventoryMovement).select(
+			db
+				.select({
+					id: sql<string>`${nanoid()}`.as('id'),
+					variantId: inventory.variantId,
+					type: sql<'sale'>`'sale'`.as('type'),
+					quantityDelta: sql<number>`-${physicalSaleQuantity}`.as('quantity_delta'),
+					quantityAfter: quantityAfter.as('quantity_after'),
+					reservedQuantityDelta: sql<number>`0`.as('reserved_quantity_delta'),
+					reservedQuantityAfter: inventory.reservedQuantity,
+					referenceId: sql<string>`${referenceId}`.as('reference_id'),
+					note: sql<string | null>`${input.note ?? null}`.as('note'),
+					createdAt: sql<Date>`${nowMs}`.as('created_at')
+				})
+				.from(inventory)
+				.where(
+					and(
+						eq(inventory.variantId, variantId),
+						eq(inventory.trackInventory, true),
+						sql`${inventory.quantity} > 0`
+					)
+				)
+		),
+		db
+			.update(inventory)
+			.set({ quantity: quantityAfter, updatedAt: now })
+			.where(
+				and(
+					eq(inventory.variantId, variantId),
+					eq(inventory.trackInventory, true),
+					sql`${inventory.quantity} > 0`
+				)
+			)
+	] as InventoryBatchItem[];
+}
+
+/** Build idempotent physical-stock restoration statements for a status batch. */
+export function prepareInventorySaleRestoreBatch(
+	db: Db,
+	input: RestoreInventorySaleInput
+): InventoryBatchItem[] {
+	const quantity = normalizeQuantity(input.quantity, 'quantity');
+	const referenceId = normalizeId(input.referenceId, 'referenceId');
+	const variantId = normalizeId(input.variantId, 'variantId');
+	const now = input.now ?? new Date();
+	const nowMs = now.getTime();
+	const outstandingSold = sql<number>`max(0, -coalesce((
+		SELECT sum(${inventoryMovement.quantityDelta})
+		FROM ${inventoryMovement}
+		WHERE ${inventoryMovement.variantId} = ${variantId}
+			AND ${inventoryMovement.referenceId} = ${referenceId}
+	), 0))`;
+	const restoreQuantity = sql<number>`min(${quantity}, ${outstandingSold})`;
+
+	return [
+		db
+			.update(inventory)
+			.set({ quantity: sql`${inventory.quantity} + ${restoreQuantity}`, updatedAt: now })
+			.where(
+				and(
+					eq(inventory.variantId, variantId),
+					eq(inventory.trackInventory, true),
+					sql`${outstandingSold} > 0`
+				)
+			),
+		db.insert(inventoryMovement).select(
+			db
+				.select({
+					id: sql<string>`${nanoid()}`.as('id'),
+					variantId: inventory.variantId,
+					type: sql<'return' | 'cancelled'>`${input.type ?? 'cancelled'}`.as('type'),
+					quantityDelta: restoreQuantity.as('quantity_delta'),
+					quantityAfter: inventory.quantity,
+					reservedQuantityDelta: sql<number>`0`.as('reserved_quantity_delta'),
+					reservedQuantityAfter: inventory.reservedQuantity,
+					referenceId: sql<string>`${referenceId}`.as('reference_id'),
+					note: sql<string | null>`${input.note ?? null}`.as('note'),
+					createdAt: sql<Date>`${nowMs}`.as('created_at')
+				})
+				.from(inventory)
+				.where(
+					and(
+						eq(inventory.variantId, variantId),
+						eq(inventory.trackInventory, true),
+						sql`${restoreQuantity} > 0`
+					)
+				)
+		)
+	] as InventoryBatchItem[];
+}
 
 export async function getInventorySummary(ctx: ServiceContext): Promise<InventorySummaryDTO> {
 	requireAdmin(ctx.actor);
@@ -221,43 +341,41 @@ export async function initializeInventory(
 	const now = ctx.now ?? new Date();
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			await assertVariantExistsTx(tx, data.variantId);
-			const existing = await loadInventoryByVariantId(tx, data.variantId);
-
-			if (existing) {
-				throw new InventoryError('Inventory already exists for this variant.', ErrorCode.CONFLICT, {
-					variantId: data.variantId
-				});
-			}
-
-			const [created] = await tx
-				.insert(inventory)
-				.values({
-					...data,
-					updatedAt: now
-				})
-				.returning();
-
-			if (!created) {
-				throw new InventoryError('Inventory was not initialized.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			if (created.quantity > 0) {
-				await insertInventoryMovementTx(tx, {
-					variantId: created.variantId,
-					type: 'restock',
-					quantityDelta: created.quantity,
-					quantityAfter: created.quantity,
-					reservedQuantityDelta: 0,
-					reservedQuantityAfter: 0,
-					referenceId: null,
-					note: note ?? 'Initial inventory'
-				});
-			}
-
-			return toInventoryDTO(created);
-		});
+		const db = getDb();
+		await assertVariantExistsTx(db, data.variantId);
+		const existing = await loadInventoryByVariantId(db, data.variantId);
+		if (existing) {
+			throw new InventoryError('Inventory already exists for this variant.', ErrorCode.CONFLICT, {
+				variantId: data.variantId
+			});
+		}
+		const insertInventory = db
+			.insert(inventory)
+			.values({ ...data, updatedAt: now })
+			.returning();
+		const createdRows =
+			data.quantity > 0
+				? (
+						await db.batch([
+							insertInventory,
+							db.insert(inventoryMovement).values({
+								variantId: data.variantId,
+								type: 'restock',
+								quantityDelta: data.quantity,
+								quantityAfter: data.quantity,
+								reservedQuantityDelta: 0,
+								reservedQuantityAfter: 0,
+								referenceId: null,
+								note: note ?? 'Initial inventory'
+							})
+						])
+					)[0]
+				: await insertInventory;
+		const [created] = createdRows;
+		if (!created) {
+			throw new InventoryError('Inventory was not initialized.', ErrorCode.INTERNAL_ERROR);
+		}
+		return toInventoryDTO(created);
 	} catch (error) {
 		throw mapInventoryPersistenceError(error);
 	}
@@ -288,39 +406,35 @@ export async function updateInventorySettings(
 	}
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const existing = await loadInventoryByVariantId(tx, variantId);
-			if (!existing) {
-				throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-					variantId
-				});
-			}
-
-			if (data.trackInventory === false && existing.reservedQuantity > 0) {
-				throw new InventoryError(
-					'Release reserved stock before disabling inventory tracking.',
-					ErrorCode.INVENTORY_TRACKING_DISABLED,
-					{ variantId, reservedQuantity: existing.reservedQuantity }
-				);
-			}
-
-			const [updated] = await tx
-				.update(inventory)
-				.set({
-					...data,
-					updatedAt: now
-				})
-				.where(eq(inventory.id, existing.id))
-				.returning();
-
-			if (!updated) {
-				throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-					variantId
-				});
-			}
-
-			return toInventoryDTO(updated);
-		});
+		const db = getDb();
+		const existing = await loadInventoryByVariantId(db, variantId);
+		if (!existing) {
+			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
+				variantId
+			});
+		}
+		if (data.trackInventory === false && existing.reservedQuantity > 0) {
+			throw new InventoryError(
+				'Release reserved stock before disabling inventory tracking.',
+				ErrorCode.INVENTORY_TRACKING_DISABLED,
+				{ variantId, reservedQuantity: existing.reservedQuantity }
+			);
+		}
+		const conditions = [eq(inventory.id, existing.id)];
+		if (data.trackInventory === false) conditions.push(eq(inventory.reservedQuantity, 0));
+		const [updated] = await db
+			.update(inventory)
+			.set({ ...data, updatedAt: now })
+			.where(and(...conditions))
+			.returning();
+		if (!updated) {
+			throw new InventoryError(
+				'Inventory changed while settings were being saved.',
+				ErrorCode.CONFLICT,
+				{ variantId }
+			);
+		}
+		return toInventoryDTO(updated);
 	} catch (error) {
 		throw mapInventoryPersistenceError(error);
 	}
@@ -337,38 +451,39 @@ export async function restockInventory(
 	const now = input.now ?? ctx.now ?? new Date();
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const row = await loadInventoryByVariantId(tx, variantId);
-			if (!row) {
-				throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-					variantId
-				});
-			}
-
-			const updated = await updateInventoryQuantitiesTx(
-				tx,
-				row,
-				{
-					quantity: row.quantity + quantity,
-					reservedQuantity: row.reservedQuantity
-				},
-				now
-			);
-
-			await insertInventoryMovementTx(tx, {
+		const db = getDb();
+		const updateQuery = db
+			.update(inventory)
+			.set({ quantity: sql`${inventory.quantity} + ${quantity}`, updatedAt: now })
+			.where(eq(inventory.variantId, variantId))
+			.returning();
+		const [updatedRows] = await db.batch([
+			updateQuery,
+			...guardPreviousBatchChanges(db),
+			db.insert(inventoryMovement).values({
 				variantId,
 				type: 'restock',
 				quantityDelta: quantity,
-				quantityAfter: updated.quantity,
+				quantityAfter: sql`(SELECT ${inventory.quantity} FROM ${inventory} WHERE ${inventory.variantId} = ${variantId})`,
 				reservedQuantityDelta: 0,
-				reservedQuantityAfter: updated.reservedQuantity,
+				reservedQuantityAfter: sql`(SELECT ${inventory.reservedQuantity} FROM ${inventory} WHERE ${inventory.variantId} = ${variantId})`,
 				referenceId: null,
 				note: input.note ?? null
+			})
+		]);
+		const [updated] = updatedRows;
+		if (!updated) {
+			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
+				variantId
 			});
-
-			return toInventoryDTO(updated);
-		});
+		}
+		return toInventoryDTO(updated);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
+				variantId
+			});
+		}
 		throw mapInventoryPersistenceError(error);
 	}
 }
@@ -384,65 +499,68 @@ export async function adjustInventory(
 	const now = input.now ?? ctx.now ?? new Date();
 
 	try {
-		return await getDb().transaction(async (tx) => {
-			const row = await loadInventoryByVariantId(tx, variantId);
-			if (!row) {
-				throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-					variantId
-				});
-			}
-
-			const quantityAfter = row.quantity + quantityDelta;
-
-			if (quantityAfter < 0) {
-				throw new InventoryError(
-					'Inventory quantity cannot be negative.',
-					ErrorCode.VALIDATION_ERROR,
-					{
-						variantId,
-						quantityDelta,
-						quantityAfter
-					}
-				);
-			}
-
-			if (quantityAfter < row.reservedQuantity) {
-				throw new InventoryError(
-					'Inventory quantity cannot be lower than reserved stock.',
-					ErrorCode.INVALID_INVENTORY_MOVEMENT,
-					{
-						variantId,
-						quantityDelta,
-						quantityAfter,
-						reservedQuantity: row.reservedQuantity
-					}
-				);
-			}
-
-			const updated = await updateInventoryQuantitiesTx(
-				tx,
-				row,
+		const db = getDb();
+		const row = await loadInventoryByVariantId(db, variantId);
+		if (!row) {
+			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
+				variantId
+			});
+		}
+		const quantityAfter = row.quantity + quantityDelta;
+		if (quantityAfter < 0) {
+			throw new InventoryError(
+				'Inventory quantity cannot be negative.',
+				ErrorCode.VALIDATION_ERROR,
 				{
-					quantity: quantityAfter,
-					reservedQuantity: row.reservedQuantity
-				},
-				now
+					variantId,
+					quantityDelta,
+					quantityAfter
+				}
 			);
-
-			await insertInventoryMovementTx(tx, {
+		}
+		if (quantityAfter < row.reservedQuantity) {
+			throw new InventoryError(
+				'Inventory quantity cannot be lower than reserved stock.',
+				ErrorCode.INVALID_INVENTORY_MOVEMENT,
+				{ variantId, quantityDelta, quantityAfter, reservedQuantity: row.reservedQuantity }
+			);
+		}
+		const updateQuery = db
+			.update(inventory)
+			.set({ quantity: sql`${inventory.quantity} + ${quantityDelta}`, updatedAt: now })
+			.where(
+				and(
+					eq(inventory.variantId, variantId),
+					sql`${inventory.quantity} + ${quantityDelta} >= ${inventory.reservedQuantity}`,
+					sql`${inventory.quantity} + ${quantityDelta} >= 0`
+				)
+			)
+			.returning();
+		const [updatedRows] = await db.batch([
+			updateQuery,
+			...guardPreviousBatchChanges(db),
+			db.insert(inventoryMovement).values({
 				variantId,
 				type: 'adjustment',
 				quantityDelta,
-				quantityAfter: updated.quantity,
+				quantityAfter: sql`(SELECT ${inventory.quantity} FROM ${inventory} WHERE ${inventory.variantId} = ${variantId})`,
 				reservedQuantityDelta: 0,
-				reservedQuantityAfter: updated.reservedQuantity,
+				reservedQuantityAfter: sql`(SELECT ${inventory.reservedQuantity} FROM ${inventory} WHERE ${inventory.variantId} = ${variantId})`,
 				referenceId: null,
 				note: input.note ?? null
-			});
-
-			return toInventoryDTO(updated);
-		});
+			})
+		]);
+		const [updated] = updatedRows;
+		if (!updated) throw new InventoryError('Inventory update failed.', ErrorCode.CONFLICT);
+		return toInventoryDTO(updated);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new InventoryError(
+				'Inventory changed while it was being adjusted. Refresh and try again.',
+				ErrorCode.CONFLICT,
+				{ variantId }
+			);
+		}
 		throw mapInventoryPersistenceError(error);
 	}
 }
@@ -458,277 +576,8 @@ export async function getInventoryAvailabilityByVariantIdsTx(
 	return rows.map(toInventoryAvailabilityDTO);
 }
 
-export async function reserveInventoryTx(
-	tx: InventoryTx,
-	input: ReserveInventoryInput
-): Promise<InventoryReservationResult> {
-	const quantity = normalizeQuantity(input.quantity, 'quantity');
-	const referenceId = normalizeId(input.referenceId, 'referenceId');
-	const variantId = normalizeId(input.variantId, 'variantId');
-	const now = input.now ?? new Date();
-	const row = await loadInventoryByVariantId(tx, variantId);
-
-	if (!row) {
-		throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-			variantId
-		});
-	}
-
-	const availableBefore = availableQuantity(row);
-
-	if (!row.trackInventory) {
-		return {
-			variantId,
-			requestedQuantity: quantity,
-			reservedQuantity: 0,
-			backorderedQuantity: 0,
-			availableBefore,
-			availableAfter: availableBefore,
-			trackInventory: false,
-			allowBackorder: row.allowBackorder
-		};
-	}
-
-	if (availableBefore < quantity && !row.allowBackorder) {
-		throw new InventoryError('Insufficient stock.', ErrorCode.INSUFFICIENT_STOCK, {
-			variantId,
-			requestedQuantity: quantity,
-			availableQuantity: availableBefore
-		});
-	}
-
-	const reservedQuantity = Math.min(quantity, availableBefore);
-	const backorderedQuantity = quantity - reservedQuantity;
-
-	if (reservedQuantity === 0) {
-		return {
-			variantId,
-			requestedQuantity: quantity,
-			reservedQuantity,
-			backorderedQuantity,
-			availableBefore,
-			availableAfter: availableBefore,
-			trackInventory: true,
-			allowBackorder: row.allowBackorder
-		};
-	}
-
-	const reservedAfter = row.reservedQuantity + reservedQuantity;
-	const updated = await updateReservedQuantityTx(tx, row, reservedAfter, now);
-
-	await insertInventoryMovementTx(tx, {
-		variantId,
-		type: 'reserved',
-		quantityDelta: 0,
-		quantityAfter: updated.quantity,
-		reservedQuantityDelta: reservedQuantity,
-		reservedQuantityAfter: updated.reservedQuantity,
-		referenceId,
-		note: null
-	});
-
-	return {
-		variantId,
-		requestedQuantity: quantity,
-		reservedQuantity,
-		backorderedQuantity,
-		availableBefore,
-		availableAfter: availableQuantity(updated),
-		trackInventory: true,
-		allowBackorder: row.allowBackorder
-	};
-}
-
-export async function releaseInventoryReservationTx(
-	tx: InventoryTx,
-	input: ReleaseInventoryInput
-): Promise<InventoryReleaseResult> {
-	const quantity = normalizeQuantity(input.quantity, 'quantity');
-	const referenceId = normalizeId(input.referenceId, 'referenceId');
-	const variantId = normalizeId(input.variantId, 'variantId');
-	const now = input.now ?? new Date();
-	const outstandingReservedQuantity = await getOutstandingReservedQuantityTx(tx, {
-		variantId,
-		referenceId
-	});
-	const releasedQuantity = Math.min(quantity, outstandingReservedQuantity);
-
-	if (releasedQuantity === 0) {
-		return {
-			variantId,
-			requestedQuantity: quantity,
-			releasedQuantity: 0,
-			outstandingReservedQuantity
-		};
-	}
-
-	const row = await loadInventoryByVariantId(tx, variantId);
-	if (!row) {
-		throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-			variantId
-		});
-	}
-
-	const reservedAfter = Math.max(0, row.reservedQuantity - releasedQuantity);
-	const updated = await updateReservedQuantityTx(tx, row, reservedAfter, now);
-
-	await insertInventoryMovementTx(tx, {
-		variantId,
-		type: 'released',
-		quantityDelta: 0,
-		quantityAfter: updated.quantity,
-		reservedQuantityDelta: -releasedQuantity,
-		reservedQuantityAfter: updated.reservedQuantity,
-		referenceId,
-		note: null
-	});
-
-	return {
-		variantId,
-		requestedQuantity: quantity,
-		releasedQuantity,
-		outstandingReservedQuantity
-	};
-}
-
-export async function recordInventorySaleTx(
-	tx: InventoryTx,
-	input: RecordInventorySaleInput
-): Promise<InventoryDTO> {
-	const quantity = normalizeQuantity(input.quantity, 'quantity');
-	const referenceId = normalizeId(input.referenceId, 'referenceId');
-	const variantId = normalizeId(input.variantId, 'variantId');
-	const now = input.now ?? new Date();
-	const row = await loadInventoryByVariantId(tx, variantId);
-
-	if (!row) {
-		throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-			variantId
-		});
-	}
-
-	if (!row.trackInventory) {
-		return toInventoryDTO(row);
-	}
-
-	const outstandingReservedQuantity = await getOutstandingReservedQuantityTx(tx, {
-		variantId,
-		referenceId
-	});
-	const saleQuantity = Math.min(quantity, outstandingReservedQuantity);
-
-	if (saleQuantity === 0) {
-		if (row.allowBackorder) return toInventoryDTO(row);
-
-		throw new InventoryError(
-			'No inventory reservation found for sale.',
-			ErrorCode.INSUFFICIENT_STOCK,
-			{
-				variantId,
-				referenceId,
-				requestedQuantity: quantity
-			}
-		);
-	}
-
-	if (saleQuantity < quantity && !row.allowBackorder) {
-		throw new InventoryError(
-			'Inventory reservation does not cover the sale.',
-			ErrorCode.INSUFFICIENT_STOCK,
-			{
-				variantId,
-				referenceId,
-				requestedQuantity: quantity,
-				reservedQuantity: outstandingReservedQuantity
-			}
-		);
-	}
-
-	if (row.quantity < saleQuantity) {
-		throw new InventoryError('Insufficient stock.', ErrorCode.INSUFFICIENT_STOCK, {
-			variantId,
-			requestedQuantity: saleQuantity,
-			availableQuantity: row.quantity
-		});
-	}
-
-	const updated = await updateInventoryQuantitiesTx(
-		tx,
-		row,
-		{
-			quantity: row.quantity - saleQuantity,
-			reservedQuantity: Math.max(0, row.reservedQuantity - saleQuantity)
-		},
-		now
-	);
-
-	await insertInventoryMovementTx(tx, {
-		variantId,
-		type: 'sale',
-		quantityDelta: -saleQuantity,
-		quantityAfter: updated.quantity,
-		reservedQuantityDelta: -saleQuantity,
-		reservedQuantityAfter: updated.reservedQuantity,
-		referenceId,
-		note: input.note ?? null
-	});
-
-	return toInventoryDTO(updated);
-}
-
-export async function restoreInventorySaleTx(
-	tx: InventoryTx,
-	input: RestoreInventorySaleInput
-): Promise<InventoryDTO> {
-	const quantity = normalizeQuantity(input.quantity, 'quantity');
-	const referenceId = normalizeId(input.referenceId, 'referenceId');
-	const variantId = normalizeId(input.variantId, 'variantId');
-	const now = input.now ?? new Date();
-	const row = await loadInventoryByVariantId(tx, variantId);
-
-	if (!row) {
-		throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-			variantId
-		});
-	}
-
-	if (!row.trackInventory) {
-		return toInventoryDTO(row);
-	}
-
-	const soldQuantity = await getSoldQuantityTx(tx, { variantId, referenceId });
-	const restoreQuantity = Math.min(quantity, soldQuantity);
-
-	if (restoreQuantity === 0) {
-		return toInventoryDTO(row);
-	}
-
-	const updated = await updateInventoryQuantitiesTx(
-		tx,
-		row,
-		{
-			quantity: row.quantity + restoreQuantity,
-			reservedQuantity: row.reservedQuantity
-		},
-		now
-	);
-
-	await insertInventoryMovementTx(tx, {
-		variantId,
-		type: input.type ?? 'cancelled',
-		quantityDelta: restoreQuantity,
-		quantityAfter: updated.quantity,
-		reservedQuantityDelta: 0,
-		reservedQuantityAfter: updated.reservedQuantity,
-		referenceId,
-		note: input.note ?? null
-	});
-
-	return toInventoryDTO(updated);
-}
-
 export async function hasInventoryHistoryForVariantIdsTx(
-	tx: InventoryTx,
+	tx: QueryExecutor,
 	variantIds: string[]
 ): Promise<boolean> {
 	const ids = uniqueStrings(variantIds.map((id) => normalizeId(id, 'variantId')));
@@ -741,115 +590,6 @@ export async function hasInventoryHistoryForVariantIdsTx(
 		.limit(1);
 
 	return Boolean(row);
-}
-
-export async function getOutstandingReservedQuantityTx(
-	tx: QueryExecutor,
-	input: OutstandingReservationInput
-): Promise<number> {
-	const variantId = normalizeId(input.variantId, 'variantId');
-	const referenceId = normalizeId(input.referenceId, 'referenceId');
-	const [row] = await tx
-		.select({
-			total: sql<number>`coalesce(sum(${inventoryMovement.reservedQuantityDelta}), 0)`
-		})
-		.from(inventoryMovement)
-		.where(
-			sql`${inventoryMovement.variantId} = ${variantId} and ${inventoryMovement.referenceId} = ${referenceId}`
-		);
-
-	return Math.max(0, Number(row?.total ?? 0));
-}
-
-export async function getOutstandingReservedQuantitiesByReferenceIds(
-	inputs: OutstandingReservationInput[]
-): Promise<Map<string, number>> {
-	return loadOutstandingReservedQuantitiesByReferenceIds(getDb(), inputs);
-}
-
-export async function getOutstandingReservedQuantitiesByReferenceIdsTx(
-	tx: InventoryTx,
-	inputs: OutstandingReservationInput[]
-): Promise<Map<string, number>> {
-	return loadOutstandingReservedQuantitiesByReferenceIds(tx, inputs);
-}
-
-async function loadOutstandingReservedQuantitiesByReferenceIds(
-	tx: QueryExecutor,
-	inputs: OutstandingReservationInput[]
-): Promise<Map<string, number>> {
-	if (inputs.length === 0) return new Map();
-
-	const normalizedInputs = inputs.map((input) => ({
-		variantId: normalizeId(input.variantId, 'variantId'),
-		referenceId: normalizeId(input.referenceId, 'referenceId')
-	}));
-	const uniqueInputs = [
-		...new Map(
-			normalizedInputs.map((input) => [`${input.variantId}\u0000${input.referenceId}`, input])
-		).values()
-	];
-	const quantitiesByReferenceId = new Map<string, number>();
-
-	for (let offset = 0; offset < uniqueInputs.length; offset += RESERVATION_LOOKUP_BATCH_SIZE) {
-		const batch = uniqueInputs.slice(offset, offset + RESERVATION_LOOKUP_BATCH_SIZE);
-		const variantIds = uniqueStrings(batch.map((input) => input.variantId));
-		const referenceIds = uniqueStrings(batch.map((input) => input.referenceId));
-		const requestedPairs = new Set(
-			batch.map((input) => `${input.variantId}\u0000${input.referenceId}`)
-		);
-		const rows = await tx
-			.select({
-				variantId: inventoryMovement.variantId,
-				referenceId: inventoryMovement.referenceId,
-				total: sql<number>`coalesce(sum(${inventoryMovement.reservedQuantityDelta}), 0)`
-			})
-			.from(inventoryMovement)
-			.where(
-				and(
-					inArray(inventoryMovement.variantId, variantIds),
-					inArray(inventoryMovement.referenceId, referenceIds)
-				)
-			)
-			.groupBy(inventoryMovement.variantId, inventoryMovement.referenceId);
-
-		for (const row of rows) {
-			if (!row.referenceId || !requestedPairs.has(`${row.variantId}\u0000${row.referenceId}`)) {
-				continue;
-			}
-
-			quantitiesByReferenceId.set(
-				row.referenceId,
-				(quantitiesByReferenceId.get(row.referenceId) ?? 0) + Math.max(0, Number(row.total ?? 0))
-			);
-		}
-	}
-
-	return quantitiesByReferenceId;
-}
-
-async function getSoldQuantityTx(
-	tx: QueryExecutor,
-	input: OutstandingReservationInput
-): Promise<number> {
-	const variantId = normalizeId(input.variantId, 'variantId');
-	const referenceId = normalizeId(input.referenceId, 'referenceId');
-	const [row] = await tx
-		.select({
-			total: sql<number>`coalesce(sum(${inventoryMovement.quantityDelta}), 0)`
-		})
-		.from(inventoryMovement)
-		.where(
-			and(
-				eq(inventoryMovement.variantId, variantId),
-				eq(inventoryMovement.referenceId, referenceId),
-				inArray(inventoryMovement.type, ['sale', 'return', 'cancelled'])
-			)
-		);
-
-	// Sale deltas are negative while return/cancelled deltas are positive.
-	// Summing the full sale lifecycle makes repeated restoration idempotent.
-	return Math.max(0, -Number(row?.total ?? 0));
 }
 
 function buildInventoryListWhere(options: InventoryListOptions): SQL | undefined {
@@ -1038,91 +778,6 @@ async function loadInventoryByVariantId(
 		.where(eq(inventory.variantId, variantId))
 		.limit(1);
 	return row ?? null;
-}
-
-async function updateReservedQuantityTx(
-	tx: InventoryTx,
-	row: Inventory,
-	reservedQuantity: number,
-	now: Date
-): Promise<Inventory> {
-	try {
-		const [updated] = await tx
-			.update(inventory)
-			.set({ reservedQuantity, updatedAt: now })
-			.where(eq(inventory.id, row.id))
-			.returning();
-
-		if (!updated) {
-			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-				variantId: row.variantId
-			});
-		}
-
-		return updated;
-	} catch (error) {
-		throw mapInventoryPersistenceError(error);
-	}
-}
-
-async function updateInventoryQuantitiesTx(
-	tx: InventoryTx,
-	row: Inventory,
-	values: { quantity: number; reservedQuantity: number },
-	now: Date
-): Promise<Inventory> {
-	try {
-		const [updated] = await tx
-			.update(inventory)
-			.set({
-				quantity: values.quantity,
-				reservedQuantity: values.reservedQuantity,
-				updatedAt: now
-			})
-			.where(eq(inventory.id, row.id))
-			.returning();
-
-		if (!updated) {
-			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-				variantId: row.variantId
-			});
-		}
-
-		return updated;
-	} catch (error) {
-		throw mapInventoryPersistenceError(error);
-	}
-}
-
-async function insertInventoryMovementTx(
-	tx: InventoryTx,
-	input: InsertInventoryMovement
-): Promise<InventoryMovement> {
-	const data = parseInventoryMovement(input);
-
-	try {
-		const [created] = await tx.insert(inventoryMovement).values(data).returning();
-
-		if (!created) {
-			throw new InventoryError('Inventory movement was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
-		return created;
-	} catch (error) {
-		throw mapInventoryPersistenceError(error);
-	}
-}
-
-function parseInventoryMovement(input: InsertInventoryMovement): InsertInventoryMovement {
-	const result = insertInventoryMovementSchema.safeParse(input);
-
-	if (!result.success) {
-		throw new InventoryError('Invalid inventory movement.', ErrorCode.INVALID_INVENTORY_MOVEMENT, {
-			issues: result.error.issues
-		});
-	}
-
-	return result.data;
 }
 
 function availableQuantity(row: Inventory): number {

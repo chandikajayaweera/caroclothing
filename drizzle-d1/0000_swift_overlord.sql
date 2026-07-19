@@ -151,7 +151,7 @@ CREATE TABLE `inventory_movement` (
 	`reference_id` text,
 	`note` text,
 	`created_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
-	FOREIGN KEY (`variant_id`) REFERENCES `product_variant`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`variant_id`) REFERENCES `product_variant`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "inv_movement_delta_nonzero" CHECK("inventory_movement"."quantity_delta" <> 0 OR "inventory_movement"."reserved_quantity_delta" <> 0),
 	CONSTRAINT "inv_movement_quantity_after_nonnegative" CHECK("inventory_movement"."quantity_after" >= 0),
 	CONSTRAINT "inv_movement_reserved_after_nonnegative" CHECK("inventory_movement"."reserved_quantity_after" >= 0)
@@ -592,7 +592,7 @@ CREATE TABLE `wishlist_item` (
 	`added_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`product_id`) REFERENCES `product`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`variant_id`) REFERENCES `product_variant`(`id`) ON UPDATE no action ON DELETE set null
+	FOREIGN KEY (`variant_id`) REFERENCES `product_variant`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE INDEX `wishlist_user_idx` ON `wishlist_item` (`user_id`);--> statement-breakpoint
@@ -624,6 +624,7 @@ CREATE TABLE `payment_attempt` (
 --> statement-breakpoint
 CREATE INDEX `payment_attempt_user_idx` ON `payment_attempt` (`user_id`);--> statement-breakpoint
 CREATE INDEX `payment_attempt_bag_idx` ON `payment_attempt` (`bag_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `payment_attempt_one_pending_per_bag_idx` ON `payment_attempt` (`bag_id`) WHERE "payment_attempt"."status" = 'pending';--> statement-breakpoint
 CREATE INDEX `payment_attempt_provider_order_idx` ON `payment_attempt` (`provider_order_id`);--> statement-breakpoint
 CREATE INDEX `payment_attempt_status_expiry_idx` ON `payment_attempt` (`status`,`expires_at`);--> statement-breakpoint
 CREATE TABLE `payment_webhook_log` (

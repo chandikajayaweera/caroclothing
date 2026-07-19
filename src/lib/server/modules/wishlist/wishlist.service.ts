@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { getDb } from '$lib/server/db';
+import { getD1Database, getDb } from '$lib/server/db';
 import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -45,6 +45,7 @@ import type {
 	WishlistMergeResult,
 	WishlistProductSummaryDTO,
 	WishlistSignalDTO,
+	WishlistSignalAlertStatus,
 	WishlistSignalListResult,
 	WishlistStatusDTO,
 	WishlistTargetInput,
@@ -52,9 +53,8 @@ import type {
 } from './wishlist.types';
 
 type Db = ReturnType<typeof getDb>;
-export type WishlistTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type Tx = WishlistTx;
-type QueryExecutor = Db | Tx;
+export type WishlistTx = Db;
+type QueryExecutor = Db;
 
 type NormalizedWishlistTarget = {
 	productId: string;
@@ -74,6 +74,7 @@ type WishlistSignalAggregateRow = {
 	variantId: string | null;
 	saveCount: number;
 	lastSavedAtMs: number;
+	alertStatus: WishlistSignalAlertStatus;
 };
 
 export async function addToWishlist(
@@ -153,11 +154,55 @@ export async function mergeWishlistIntoUser(
 	ctx: ServiceContext,
 	input: MergeWishlistIntoUserInput
 ): Promise<WishlistMergeResult> {
+	const actor = requireActor(ctx.actor);
+	const sourceUserId = normalizeId(input.sourceUserId, 'sourceUserId');
+
+	if (sourceUserId === actor.id) {
+		return { sourceUserId, targetUserId: actor.id, movedCount: 0, duplicateCount: 0 };
+	}
+
 	try {
-		return await getDb().transaction(async (tx) => mergeWishlistIntoUserTx(tx, ctx, input));
+		const d1 = getD1Database();
+		const [insertResult, deleteResult] = await d1.batch([
+			d1
+				.prepare(
+					`INSERT OR IGNORE INTO wishlist_item (id, user_id, product_id, variant_id, added_at)
+					 SELECT lower(hex(randomblob(16))), ?, product_id, variant_id, added_at
+					 FROM wishlist_item WHERE user_id = ?`
+				)
+				.bind(actor.id, sourceUserId),
+			d1.prepare('DELETE FROM wishlist_item WHERE user_id = ?').bind(sourceUserId)
+		]);
+		const movedCount = insertResult.meta.changes;
+		const deletedCount = deleteResult.meta.changes;
+
+		return {
+			sourceUserId,
+			targetUserId: actor.id,
+			movedCount,
+			duplicateCount: Math.max(deletedCount - movedCount, 0)
+		};
 	} catch (error) {
 		throw mapWishlistPersistenceError(error);
 	}
+}
+
+export function prepareAnonymousWishlistMergeStatements(
+	d1: D1Database,
+	input: { sourceUserId: string; targetUserId: string }
+): D1PreparedStatement[] {
+	const sourceUserId = normalizeId(input.sourceUserId, 'sourceUserId');
+	const targetUserId = normalizeId(input.targetUserId, 'targetUserId');
+	return [
+		d1
+			.prepare(
+				`INSERT OR IGNORE INTO wishlist_item (id, user_id, product_id, variant_id, added_at)
+				 SELECT lower(hex(randomblob(16))), ?, product_id, variant_id, added_at
+				 FROM wishlist_item WHERE user_id = ?`
+			)
+			.bind(targetUserId, sourceUserId),
+		d1.prepare('DELETE FROM wishlist_item WHERE user_id = ?').bind(sourceUserId)
+	];
 }
 
 export async function mergeWishlistIntoUserTx(
@@ -266,30 +311,81 @@ export async function listWishlistSignals(
 	}
 
 	const where = conditions.length > 0 ? and(...conditions) : undefined;
-	const aggregateRows = await getDb()
+	const db = getDb();
+	const saveCount = count();
+	const alertStatus = sql<WishlistSignalAlertStatus>`CASE
+		WHEN ${inventory.trackInventory} = 1
+			AND ${inventory.quantity} <= 5
+			AND ${saveCount} > ${inventory.quantity}
+			THEN 'high'
+		WHEN ${inventory.trackInventory} = 1
+			AND ${inventory.quantity} <= 15
+			AND ${saveCount} > (${inventory.quantity} * 0.5)
+			THEN 'watch'
+		ELSE 'normal'
+	END`;
+	const signals = db
 		.select({
 			productId: wishlistItem.productId,
 			variantId: wishlistItem.variantId,
-			saveCount: count(),
+			saveCount: saveCount.as('save_count'),
 			lastSavedAtMs: sql<number>`max(${wishlistItem.addedAt})`
+				.mapWith(Number)
+				.as('last_saved_at_ms'),
+			alertStatus: alertStatus.as('alert_status')
 		})
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(where)
-		.groupBy(wishlistItem.productId, wishlistItem.variantId)
-		.orderBy(desc(count()), desc(sql`max(${wishlistItem.addedAt})`));
+		.groupBy(
+			wishlistItem.productId,
+			wishlistItem.variantId,
+			inventory.trackInventory,
+			inventory.quantity
+		)
+		.as('wishlist_signals');
+	const alertFilter = options.alertLevel ? eq(signals.alertStatus, options.alertLevel) : undefined;
+	const filteredTotal = options.alertLevel
+		? sql<number>`coalesce(sum(CASE WHEN ${signals.alertStatus} = ${options.alertLevel} THEN 1 ELSE 0 END), 0)`.mapWith(
+				Number
+			)
+		: count();
 
-	const total = aggregateRows.length;
-	const pageRows = aggregateRows.slice(offset, offset + limit);
+	const [[summary], pageRows] = await Promise.all([
+		db
+			.select({
+				total: filteredTotal,
+				totalSignals: count(),
+				totalSaves: sql<number>`coalesce(sum(${signals.saveCount}), 0)`.mapWith(Number),
+				highRiskVariants:
+					sql<number>`coalesce(sum(CASE WHEN ${signals.alertStatus} = 'high' THEN 1 ELSE 0 END), 0)`.mapWith(
+						Number
+					)
+			})
+			.from(signals),
+		db
+			.select()
+			.from(signals)
+			.where(alertFilter)
+			.orderBy(desc(signals.saveCount), desc(signals.lastSavedAtMs))
+			.limit(limit)
+			.offset(offset)
+	]);
+
 	const items = await hydrateWishlistSignals(pageRows);
 
 	return {
 		items,
-		total,
+		total: Number(summary?.total ?? 0),
 		limit,
-		offset
+		offset,
+		stats: {
+			totalSaves: Number(summary?.totalSaves ?? 0),
+			totalSignals: Number(summary?.totalSignals ?? 0),
+			highRiskVariants: Number(summary?.highRiskVariants ?? 0)
+		}
 	};
 }
 
@@ -451,10 +547,12 @@ async function hydrateWishlistSignals(
 			const primaryPrices = primaryPricesByProductId.get(row.productId);
 
 			return {
+				id: row.variantId ? `${row.productId}:${row.variantId}` : row.productId,
 				productId: row.productId,
 				variantId: row.variantId,
 				saveCount: row.saveCount,
 				lastSavedAt: new Date(row.lastSavedAtMs),
+				alertStatus: row.alertStatus,
 				product: toWishlistProductSummaryDTO(
 					productRow,
 					imageUrl,

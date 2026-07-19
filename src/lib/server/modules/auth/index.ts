@@ -4,10 +4,11 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { eq } from 'drizzle-orm';
-import { user as userTable } from '$lib/server/db/schema';
+import * as databaseSchema from '$lib/server/db/schema';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
+import { getRuntimeSingleton } from '$lib/server/infrastructure/cloudflare/runtime-context';
 import { databaseHooks, tempBanPlugin } from './database-hook';
 import { sendOtpSms } from '$lib/server/infrastructure/sms';
 import { reserveOtpCooldown } from './otp-cooldown';
@@ -65,6 +66,10 @@ function throwForBetterAuth(error: unknown): never {
 function createAuth() {
 	const env = getEnv();
 	const db = getDb();
+	const googleClientId = env.PUBLIC_GOOGLE_CLIENT_ID;
+	const googleClientSecret = env.GOOGLE_CLIENT_SECRET;
+	const googleOAuthEnabled = Boolean(googleClientId && googleClientSecret);
+	const userTable = databaseSchema.user;
 	const pendingReviewMediaCleanup = new WeakMap<Request, string[]>();
 	const pendingReviewMediaCleanupFallback = new Map<string, string[]>();
 
@@ -158,7 +163,11 @@ function createAuth() {
 			})
 		},
 
-		database: drizzleAdapter(db, { provider: 'sqlite' }),
+		database: drizzleAdapter(db, {
+			provider: 'sqlite',
+			schema: databaseSchema,
+			transaction: false
+		}),
 
 		emailAndPassword: {
 			enabled: false
@@ -199,17 +208,19 @@ function createAuth() {
 			}
 		},
 
-		socialProviders: {
-			google: {
-				clientId: env.PUBLIC_GOOGLE_CLIENT_ID,
-				clientSecret: env.GOOGLE_CLIENT_SECRET
-			}
-		},
+		socialProviders: googleOAuthEnabled
+			? {
+					google: {
+						clientId: googleClientId!,
+						clientSecret: googleClientSecret!
+					}
+				}
+			: undefined,
 
 		account: {
 			accountLinking: {
 				enabled: true,
-				trustedProviders: ['google'],
+				trustedProviders: googleOAuthEnabled ? ['google'] : [],
 				allowDifferentEmails: true,
 				allowUnlinkingAll: true,
 				updateUserInfoOnLink: true
@@ -239,9 +250,7 @@ function createAuth() {
 				}
 			}),
 
-			oneTap({
-				clientId: env.PUBLIC_GOOGLE_CLIENT_ID
-			}),
+			...(googleOAuthEnabled ? [oneTap({ clientId: googleClientId! })] : []),
 
 			phoneNumber({
 				signUpOnVerification: {
@@ -318,13 +327,8 @@ function createAuth() {
 }
 
 type Auth = ReturnType<typeof createAuth>;
-
-let authInstance: Auth | undefined;
+const AUTH_KEY = Symbol('auth');
 
 export function getAuth(): Auth {
-	if (!authInstance) {
-		authInstance = createAuth();
-	}
-
-	return authInstance;
+	return getRuntimeSingleton(AUTH_KEY, createAuth);
 }

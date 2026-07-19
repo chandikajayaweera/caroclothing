@@ -14,8 +14,7 @@ import { createCloudflareNotificationWakeupPublisher } from '$lib/server/infrast
 import {
 	enqueueAuthGoogleLinkedEmailTx,
 	enqueueAuthWelcomeEmailTx,
-	publishNotificationWakeups,
-	type NotificationOutboxTx
+	publishNotificationWakeups
 } from '$lib/server/modules/notifications/outbox/outbox.service';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { isValidDisplayName } from '$lib/shared/auth/profile';
@@ -71,16 +70,14 @@ async function enqueueAuthWelcomeEmailForUser(user: {
 
 	try {
 		const now = new Date();
-		const notification = await getDb().transaction((tx) =>
-			enqueueAuthWelcomeEmailTx(tx as NotificationOutboxTx, {
-				userId: user.id,
-				payload: {
-					email,
-					name: getUserDisplayName(user)
-				},
-				now
-			})
-		);
+		const notification = await enqueueAuthWelcomeEmailTx(getDb(), {
+			userId: user.id,
+			payload: {
+				email,
+				name: getUserDisplayName(user)
+			},
+			now
+		});
 
 		await publishNotificationWakeups({ notificationWakeups: getNotificationWakeups(), now }, [
 			notification
@@ -98,14 +95,12 @@ async function enqueueAuthGoogleLinkedEmailForAccount(input: {
 }): Promise<void> {
 	try {
 		const now = new Date();
-		const notification = await getDb().transaction((tx) =>
-			enqueueAuthGoogleLinkedEmailTx(tx as NotificationOutboxTx, {
-				userId: input.userId,
-				accountId: input.accountId,
-				payload: { email: input.email },
-				now
-			})
-		);
+		const notification = await enqueueAuthGoogleLinkedEmailTx(getDb(), {
+			userId: input.userId,
+			accountId: input.accountId,
+			payload: { email: input.email },
+			now
+		});
 
 		await publishNotificationWakeups({ notificationWakeups: getNotificationWakeups(), now }, [
 			notification

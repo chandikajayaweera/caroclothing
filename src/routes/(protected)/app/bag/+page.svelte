@@ -174,7 +174,7 @@
 		{
 			label: 'Active Checkouts',
 			value: data.summary.activeCheckouts,
-			description: `${data.summary.reservedItems} units reserved`,
+			description: `${data.summary.checkoutWindowItems} units in checkout windows`,
 			tone: 'info'
 		},
 		{
@@ -611,13 +611,13 @@
 			<div class="flex items-start gap-3 border border-charcoal bg-charcoal/10 p-4">
 				<Clock class="mt-0.5 shrink-0 text-volt" size={16} />
 				<div>
-					<p class="font-mono text-[9px] font-bold text-bone uppercase">Checkout Hold</p>
+					<p class="font-mono text-[9px] font-bold text-bone uppercase">Checkout Window</p>
 					<p class="mt-1 font-mono text-[10px] leading-relaxed text-ash">
 						Status: {selectedBag.checkoutStatus}.
 						{#if selectedBag.checkoutExpiresAt}
-							Stock hold deadline: {formatAdminDateTime(selectedBag.checkoutExpiresAt, '—')}.
+							Window deadline: {formatAdminDateTime(selectedBag.checkoutExpiresAt, '—')}.
 						{:else}
-							No stock is reserved for this bag.
+							No active checkout window.
 						{/if}
 					</p>
 				</div>

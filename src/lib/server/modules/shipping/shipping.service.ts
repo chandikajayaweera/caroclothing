@@ -56,8 +56,8 @@ import type {
 } from './shipping.types';
 
 type Db = ReturnType<typeof getDb>;
-export type ShippingTx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | ShippingTx;
+export type ShippingTx = Db;
+type QueryExecutor = Db;
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -524,7 +524,7 @@ export async function setShippingZone(
 	ctx: ServiceContext,
 	input: SetShippingZoneInput
 ): Promise<ShippingZoneDTO> {
-	return setShippingZoneWithRetry(ctx, input, true);
+	return saveShippingZone(ctx, input);
 }
 
 export async function removeShippingZone(
@@ -586,61 +586,37 @@ export async function listShippingZones(
 // SERVICE INTERNAL HELPERS
 // ---------------------------------------------------------------------------
 
-async function setShippingZoneWithRetry(
+async function saveShippingZone(
 	ctx: ServiceContext,
-	input: SetShippingZoneInput,
-	retryOnConflict: boolean
+	input: SetShippingZoneInput
 ): Promise<ShippingZoneDTO> {
 	requireAdmin(ctx.actor);
 	const data = parseInsertShippingZone(input);
 
 	try {
-		const row = await getDb().transaction(async (tx) => {
-			await loadShippingMethodByIdTx(tx, data.shippingMethodId);
-			const existing = await loadShippingZoneByMethodDistrictTx(
-				tx,
-				data.shippingMethodId,
-				data.district
-			);
-
-			if (existing) {
-				const [updated] = await tx
-					.update(shippingZone)
-					.set({
-						priceOverride: data.priceOverride,
-						estimatedDaysMin: data.estimatedDaysMin,
-						estimatedDaysMax: data.estimatedDaysMax,
-						isAvailable: data.isAvailable,
-						carrierIdOverride: data.carrierIdOverride
-					})
-					.where(eq(shippingZone.id, existing.id))
-					.returning();
-
-				if (!updated) {
-					throw new ShippingError('Shipping zone not found.', ErrorCode.SHIPPING_ZONE_NOT_FOUND, {
-						shippingMethodId: data.shippingMethodId,
-						district: data.district
-					});
+		const db = getDb();
+		await loadShippingMethodByIdTx(db, data.shippingMethodId);
+		const [row] = await db
+			.insert(shippingZone)
+			.values(data)
+			.onConflictDoUpdate({
+				target: [shippingZone.district, shippingZone.shippingMethodId],
+				set: {
+					priceOverride: data.priceOverride,
+					estimatedDaysMin: data.estimatedDaysMin,
+					estimatedDaysMax: data.estimatedDaysMax,
+					isAvailable: data.isAvailable,
+					carrierIdOverride: data.carrierIdOverride
 				}
+			})
+			.returning();
 
-				return updated;
-			}
-
-			const [created] = await tx.insert(shippingZone).values(data).returning();
-
-			if (!created) {
-				throw new ShippingError('Shipping zone was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			return created;
-		});
+		if (!row) {
+			throw new ShippingError('Shipping zone was not saved.', ErrorCode.INTERNAL_ERROR);
+		}
 
 		return toShippingZoneDTO(row);
 	} catch (error) {
-		if (retryOnConflict && isUniqueConstraintError(getErrorMessage(error))) {
-			return setShippingZoneWithRetry(ctx, input, false);
-		}
-
 		throw mapShippingPersistenceError(error);
 	}
 }

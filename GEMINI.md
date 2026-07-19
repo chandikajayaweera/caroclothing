@@ -6,7 +6,7 @@ This file defines the foundational mandates and technical context for Caro Cloth
 
 - **Framework**: Svelte 5 (Runes) + SvelteKit.
 - **Styling**: Tailwind CSS 4.
-- **Database**: Turso/LibSQL (SQLite-compatible) managed via Drizzle ORM.
+- **Database**: Cloudflare D1 managed through the native Worker `DB` binding and Drizzle ORM's D1 adapter.
 - **Authentication**: Better Auth (Phone OTP, Google One Tap, Anonymous sessions).
 - **Media**: Cloudflare R2 (keys stored in DB, resolved via `media/utils.ts`).
 - **Deployment**: Cloudflare Workers.
@@ -46,8 +46,9 @@ Full brand system in `.gemini/skills/caro-ux-strategy/references/brand.md`. Quic
 
 - **Local Dev**: `pnpm run dev`
 - **Database**:
-  - `pnpm run db:generate` — Create migrations after schema changes.
-  - `pnpm run db:push` — Push schema to the database.
-  - `pnpm run db:studio` — Visual schema explorer.
+  - `pnpm run db:generate --name <change_name>` — Create a reviewed D1 migration after schema changes.
+  - `pnpm run db:migrate` — Apply pending D1 migrations locally.
+  - `pnpm run db:migrate:staging` — Apply pending migrations to the staging D1 database.
+  - `pnpm run db:migrate:production` — Apply pending migrations to the production D1 database after staging validation.
 - **Auth**: `pnpm run auth:schema` — Regenerate auth-specific Drizzle schema. BetterAuth-managed — never edit `auth.drizzle.ts` manually.
 - **Types**: `pnpm run cf-typegen` — Regenerate Cloudflare Worker binding types.

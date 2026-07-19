@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, isNotNull, isNull, like, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, isNull, like, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
+import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import {
 	AddressError,
@@ -40,8 +41,6 @@ import type {
 } from './addresses.types';
 
 type Db = ReturnType<typeof getDb>;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | Tx;
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -64,29 +63,21 @@ export async function createAddress(
 	});
 
 	try {
-		const created = await getDb().transaction(async (tx) => {
-			const existingCount = await countAddressesForUserTx(tx, actor.id);
-			const shouldBeDefault = data.isDefault === true || existingCount === 0;
+		const db = getDb();
+		const existingCount = await countAddressesForUser(db, actor.id);
+		const shouldBeDefault = data.isDefault === true || existingCount === 0;
+		const insertQuery = db
+			.insert(address)
+			.values({ ...data, userId: actor.id, isDefault: shouldBeDefault })
+			.returning();
+		const createdRows = shouldBeDefault
+			? (await db.batch([clearDefaultAddress(db, actor.id), insertQuery]))[1]
+			: await insertQuery;
+		const [created] = createdRows;
 
-			if (shouldBeDefault) {
-				await clearDefaultAddressTx(tx, actor.id);
-			}
-
-			const [row] = await tx
-				.insert(address)
-				.values({
-					...data,
-					userId: actor.id,
-					isDefault: shouldBeDefault
-				})
-				.returning();
-
-			if (!row) {
-				throw new AddressError('Address was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			return row;
-		});
+		if (!created) {
+			throw new AddressError('Address was not created.', ErrorCode.INTERNAL_ERROR);
+		}
 
 		return toAddressDTO(created);
 	} catch (error) {
@@ -162,25 +153,21 @@ export async function updateAddress(
 	}
 
 	try {
-		const updated = await getDb().transaction(async (tx) => {
-			if (data.isDefault === true) {
-				await clearDefaultAddressTx(tx, actor.id);
-			}
+		const db = getDb();
+		const updateQuery = db
+			.update(address)
+			.set(updateValues)
+			.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+			.returning();
+		const updatedRows =
+			data.isDefault === true
+				? (await db.batch([clearDefaultAddress(db, actor.id), updateQuery]))[1]
+				: await updateQuery;
+		const [updated] = updatedRows;
 
-			const [row] = await tx
-				.update(address)
-				.set(updateValues)
-				.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
-				.returning();
-
-			if (!row) {
-				throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, {
-					addressId
-				});
-			}
-
-			return row;
-		});
+		if (!updated) {
+			throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
+		}
 
 		return toAddressDTO(updated);
 	} catch (error) {
@@ -194,27 +181,37 @@ export async function deleteAddress(
 ): Promise<void> {
 	const actor = requireActor(ctx.actor);
 	const addressId = normalizeId(input.addressId, 'addressId');
-	const [deleted] = await getDb().transaction(async (tx) => {
-		const existing = await loadOwnedAddressTx(tx, actor.id, addressId);
-		const deletedRows = await tx
-			.delete(address)
-			.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
-			.returning({ id: address.id });
+	const db = getDb();
+	const existing = await loadOwnedAddress(db, actor.id, addressId);
+	const deleteQuery = db
+		.delete(address)
+		.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+		.returning({ id: address.id });
+	const guard = guardPreviousBatchChanges(db);
 
+	let deletedRows: { id: string }[];
+	try {
 		if (existing.isDefault) {
-			const [nextAddress] = await tx
-				.select({ id: address.id })
-				.from(address)
-				.where(eq(address.userId, actor.id))
-				.orderBy(desc(address.updatedAt), asc(address.createdAt))
-				.limit(1);
-			if (nextAddress) {
-				await tx.update(address).set({ isDefault: true }).where(eq(address.id, nextAddress.id));
-			}
+			const setNextDefault = db
+				.update(address)
+				.set({ isDefault: true })
+				.where(
+					eq(
+						address.id,
+						sql`(SELECT ${address.id} FROM ${address} WHERE ${address.userId} = ${actor.id} ORDER BY ${address.updatedAt} DESC, ${address.createdAt} ASC LIMIT 1)`
+					)
+				);
+			[deletedRows] = await db.batch([deleteQuery, ...guard, setNextDefault]);
+		} else {
+			[deletedRows] = await db.batch([deleteQuery, ...guard]);
 		}
-
-		return deletedRows;
-	});
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
+		}
+		throw error;
+	}
+	const [deleted] = deletedRows;
 
 	if (!deleted) {
 		throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
@@ -229,24 +226,23 @@ export async function setDefaultAddress(
 	const addressId = normalizeId(input.addressId, 'addressId');
 
 	try {
-		const updated = await getDb().transaction(async (tx) => {
-			await loadOwnedAddressTx(tx, actor.id, addressId);
-			await clearDefaultAddressTx(tx, actor.id);
+		const db = getDb();
+		await loadOwnedAddress(db, actor.id, addressId);
+		const updateQuery = db
+			.update(address)
+			.set({ isDefault: true })
+			.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+			.returning();
+		const [, updatedRows] = await db.batch([
+			clearDefaultAddress(db, actor.id),
+			updateQuery,
+			...guardPreviousBatchChanges(db)
+		]);
+		const [updated] = updatedRows;
 
-			const [row] = await tx
-				.update(address)
-				.set({ isDefault: true })
-				.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
-				.returning();
-
-			if (!row) {
-				throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, {
-					addressId
-				});
-			}
-
-			return row;
-		});
+		if (!updated) {
+			throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
+		}
 
 		return toAddressDTO(updated);
 	} catch (error) {
@@ -318,7 +314,7 @@ export function formatAddressSnapshot(input: AddressSnapshot): string {
 	return formatAddressLines(input).join(', ');
 }
 
-async function loadAddressById(db: QueryExecutor, addressId: string): Promise<Address> {
+async function loadAddressById(db: Db, addressId: string): Promise<Address> {
 	const normalizedId = normalizeId(addressId, 'addressId');
 	const [row] = await db.select().from(address).where(eq(address.id, normalizedId)).limit(1);
 
@@ -331,8 +327,8 @@ async function loadAddressById(db: QueryExecutor, addressId: string): Promise<Ad
 	return row;
 }
 
-async function loadOwnedAddressTx(tx: Tx, userId: string, addressId: string): Promise<Address> {
-	const [row] = await tx
+async function loadOwnedAddress(db: Db, userId: string, addressId: string): Promise<Address> {
+	const [row] = await db
 		.select()
 		.from(address)
 		.where(and(eq(address.id, addressId), eq(address.userId, userId)))
@@ -345,14 +341,14 @@ async function loadOwnedAddressTx(tx: Tx, userId: string, addressId: string): Pr
 	return row;
 }
 
-async function countAddressesForUserTx(tx: Tx, userId: string): Promise<number> {
-	const [row] = await tx.select({ total: count() }).from(address).where(eq(address.userId, userId));
+async function countAddressesForUser(db: Db, userId: string): Promise<number> {
+	const [row] = await db.select({ total: count() }).from(address).where(eq(address.userId, userId));
 
 	return row?.total ?? 0;
 }
 
-async function clearDefaultAddressTx(tx: Tx, userId: string): Promise<void> {
-	await tx.update(address).set({ isDefault: false }).where(eq(address.userId, userId));
+function clearDefaultAddress(db: Db, userId: string) {
+	return db.update(address).set({ isDefault: false }).where(eq(address.userId, userId));
 }
 
 function parseInsertAddress(input: InsertAddress): InsertAddress {

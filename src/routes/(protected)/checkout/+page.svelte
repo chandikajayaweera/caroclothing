@@ -446,7 +446,7 @@
 		return url.pathname.startsWith(resolve('/checkout'));
 	}
 
-	async function cancelCheckoutReservation(keepalive = false) {
+	async function cancelCheckoutWindow(keepalive = false) {
 		if (checkoutCancelRequest) return checkoutCancelRequest;
 
 		checkoutCancelRequest = fetch(resolve('/api/bag'), {
@@ -462,7 +462,7 @@
 				bag.applyMutationResult(await response.json());
 			})
 			.catch((error) => {
-				console.error('[checkout] Failed to release checkout reservation:', error);
+				console.error('[checkout] Failed to cancel checkout window:', error);
 			})
 			.finally(() => {
 				checkoutCancelRequest = null;
@@ -549,7 +549,7 @@
 		) {
 			return;
 		}
-		void cancelCheckoutReservation(true);
+		void cancelCheckoutWindow(true);
 	});
 
 	beforeNavigate((navigation) => {
@@ -561,7 +561,7 @@
 		) {
 			return;
 		}
-		void cancelCheckoutReservation(true);
+		void cancelCheckoutWindow(true);
 	});
 </script>
 

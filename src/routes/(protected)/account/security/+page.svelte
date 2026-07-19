@@ -15,7 +15,7 @@
 		Trash2,
 		Unlink
 	} from 'lucide-svelte';
-	import { authClient, signOutSession } from '$lib/client/auth';
+	import { authClient, googleOAuthEnabled, signOutSession } from '$lib/client/auth';
 	import {
 		getAuthErrorRetryAfterSeconds,
 		OTP_RATE_LIMITED_MESSAGE,
@@ -60,7 +60,7 @@
 	}
 
 	async function linkGoogle() {
-		if (providerBusy) return;
+		if (providerBusy || !googleOAuthEnabled) return;
 		resetProviderFeedback();
 		providerBusy = true;
 		try {
@@ -422,7 +422,7 @@
 							Remove
 						</button>
 					{/if}
-				{:else}
+				{:else if googleOAuthEnabled}
 					<button
 						type="button"
 						onclick={linkGoogle}
@@ -432,6 +432,8 @@
 						<Link size={14} aria-hidden="true" />
 						Link Google
 					</button>
+				{:else}
+					<p class="font-mono text-[9px] tracking-widest text-ash uppercase">Not configured</p>
 				{/if}
 			</div>
 		</div>

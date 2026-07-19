@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+const optionalPublicCredential = z.preprocess(
+	(value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+	z.string().min(1).optional()
+);
+
 export const clientEnvSchema = z.object({
 	PUBLIC_APP_NAME: z.string().min(1, 'PUBLIC_APP_NAME is required'),
 	PUBLIC_APP_URL: z.url('PUBLIC_APP_URL must be a valid URL'),
@@ -15,7 +20,7 @@ export const clientEnvSchema = z.object({
 		.optional()
 		.default(0.05),
 	PUBLIC_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional().default(1),
-	PUBLIC_GOOGLE_CLIENT_ID: z.string().min(1, 'PUBLIC_GOOGLE_CLIENT_ID is required'),
+	PUBLIC_GOOGLE_CLIENT_ID: optionalPublicCredential,
 	PUBLIC_OTP_COOLDOWN_SECONDS: z.coerce
 		.number()
 		.min(1, 'OTP_COOLDOWN_SECONDS must be at least 1 second')

@@ -4,7 +4,6 @@ import {
 	count,
 	desc,
 	eq,
-	gt,
 	inArray,
 	isNull,
 	like,
@@ -18,6 +17,7 @@ import {
 } from 'drizzle-orm';
 
 import { getDb } from '$lib/server/db';
+import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
 import { AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
 import { getEnv } from '$lib/server/infrastructure/env';
 import type { ServiceContext } from '$lib/server/foundation/context';
@@ -35,16 +35,10 @@ import {
 } from './auth.drizzle';
 import { repairTempUserEmailFromLinkedGoogleAccount } from './database-hook';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
-import { deleteUserBagForAccountDeletionTx, type BagTx } from '../bag/bag.service';
-import {
-	cancelNotificationsForAccountDeletionTx,
-	type NotificationOutboxTx
-} from '../notifications/outbox/outbox.service';
-import { anonymizeOrdersForAccountDeletionTx, type OrdersTx } from '../orders/orders.service';
-import {
-	listReviewMediaKeysForAccountDeletionTx,
-	type ReviewsTx
-} from '../reviews/reviews.service';
+import { prepareUserBagDeletion } from '../bag/bag.service';
+import { prepareAccountNotificationCancellation } from '../notifications/outbox/outbox.service';
+import { prepareAccountOrderAnonymization } from '../orders/orders.service';
+import { listReviewMediaKeysForAccountDeletionTx } from '../reviews/reviews.service';
 import type {
 	AccountDeletionPreparation,
 	AccountProfileDTO,
@@ -66,8 +60,7 @@ import type {
 } from './auth.types';
 
 type Db = ReturnType<typeof getDb>;
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
-type QueryExecutor = Db | Tx;
+type QueryExecutor = Db;
 type UserRow = typeof userTable.$inferSelect;
 
 type SafeAccountRow = {
@@ -196,21 +189,15 @@ export async function prepareAccountDeletion(input: {
 	const userId = normalizeId(input.userId, 'userId');
 	const now = input.now ?? new Date();
 
-	return getDb().transaction(async (tx) => {
-		const reviewMediaKeys = await listReviewMediaKeysForAccountDeletionTx(tx as ReviewsTx, userId);
+	const db = getDb();
+	const reviewMediaKeys = await listReviewMediaKeysForAccountDeletionTx(db, userId);
+	const [, , anonymizedOrders] = await db.batch([
+		prepareUserBagDeletion(db, userId),
+		prepareAccountNotificationCancellation(db, { userId, now }),
+		prepareAccountOrderAnonymization(db, { userId, now })
+	]);
 
-		await deleteUserBagForAccountDeletionTx(tx as BagTx, userId, now);
-		await cancelNotificationsForAccountDeletionTx(tx as NotificationOutboxTx, {
-			userId,
-			now
-		});
-		const anonymizedOrderCount = await anonymizeOrdersForAccountDeletionTx(tx as OrdersTx, {
-			userId,
-			now
-		});
-
-		return { reviewMediaKeys, anonymizedOrderCount };
-	});
+	return { reviewMediaKeys, anonymizedOrderCount: anonymizedOrders.length };
 }
 
 export async function repairMyTempEmailFromLinkedGoogle(
@@ -306,18 +293,33 @@ export async function setUserRole(
 		throw new AuthError('You cannot change your own role.', ErrorCode.FORBIDDEN);
 	}
 
-	await getDb().transaction(async (tx) => {
-		const target = await loadUserById(tx, userId);
-
-		if (isActiveAdmin(target, getNow(ctx)) && role !== ADMIN_ROLE) {
-			await assertAnotherActiveAdminExists(tx, userId, ctx);
+	const db = getDb();
+	const now = getNow(ctx);
+	const target = await loadUserById(db, userId);
+	if (resolveUserRole(target.role) === role) {
+		return loadUserAdminDTO(db, userId, ctx, { includeAuthMethods: true });
+	}
+	const conditions = [eq(userTable.id, userId), eq(userTable.updatedAt, target.updatedAt)];
+	if (isActiveAdmin(target, now) && role !== ADMIN_ROLE) {
+		conditions.push(activeAdminExistsCondition(db, userId, now));
+	}
+	try {
+		await db.batch([
+			db
+				.update(userTable)
+				.set({ role, updatedAt: now })
+				.where(and(...conditions)),
+			...guardPreviousBatchChanges(db)
+		]);
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new AuthError(
+				'User changed or at least one active admin must remain.',
+				ErrorCode.CONFLICT
+			);
 		}
-
-		await tx
-			.update(userTable)
-			.set({ role, updatedAt: getNow(ctx) })
-			.where(eq(userTable.id, userId));
-	});
+		throw error;
+	}
 
 	return loadUserAdminDTO(getDb(), userId, ctx, { includeAuthMethods: true });
 }
@@ -332,27 +334,36 @@ export async function banUser(ctx: ServiceContext, input: BanUserInput): Promise
 		throw new AuthError('You cannot ban your own account.', ErrorCode.FORBIDDEN);
 	}
 
-	await getDb().transaction(async (tx) => {
-		const target = await loadUserById(tx, userId);
-
-		if (isActiveAdmin(target, getNow(ctx))) {
-			await assertAnotherActiveAdminExists(tx, userId, ctx);
+	const db = getDb();
+	const now = getNow(ctx);
+	const target = await loadUserById(db, userId);
+	const conditions = [eq(userTable.id, userId), eq(userTable.updatedAt, target.updatedAt)];
+	if (isActiveAdmin(target, now)) conditions.push(activeAdminExistsCondition(db, userId, now));
+	try {
+		await db.batch([
+			db
+				.update(userTable)
+				.set({
+					banned: true,
+					banReason: reason,
+					banExpires: expiresAt,
+					updatedAt: now
+				})
+				.where(and(...conditions)),
+			...guardPreviousBatchChanges(db),
+			...((input.revokeSessions ?? true)
+				? [db.delete(sessionTable).where(eq(sessionTable.userId, userId))]
+				: [])
+		]);
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new AuthError(
+				'User changed or at least one active admin must remain.',
+				ErrorCode.CONFLICT
+			);
 		}
-
-		await tx
-			.update(userTable)
-			.set({
-				banned: true,
-				banReason: reason,
-				banExpires: expiresAt,
-				updatedAt: getNow(ctx)
-			})
-			.where(eq(userTable.id, userId));
-
-		if (input.revokeSessions ?? true) {
-			await tx.delete(sessionTable).where(eq(sessionTable.userId, userId));
-		}
-	});
+		throw error;
+	}
 
 	return loadUserAdminDTO(getDb(), userId, ctx, { includeAuthMethods: true });
 }
@@ -407,16 +418,13 @@ export async function revokeUserSessions(
 		return { revokedCount: 0 };
 	}
 
-	const revokedCount = await getDb().transaction(async (tx) => {
-		await loadUserById(tx, userId);
-
-		const where = sessionIds
-			? and(eq(sessionTable.userId, userId), inArray(sessionTable.id, sessionIds))
-			: eq(sessionTable.userId, userId);
-		const deleted = await tx.delete(sessionTable).where(where).returning({ id: sessionTable.id });
-
-		return deleted.length;
-	});
+	const db = getDb();
+	await loadUserById(db, userId);
+	const where = sessionIds
+		? and(eq(sessionTable.userId, userId), inArray(sessionTable.id, sessionIds))
+		: eq(sessionTable.userId, userId);
+	const deleted = await db.delete(sessionTable).where(where).returning({ id: sessionTable.id });
+	const revokedCount = deleted.length;
 
 	return { revokedCount };
 }
@@ -648,27 +656,27 @@ async function loadLatestSessionsForUserIds(
 	return latestMap;
 }
 
-async function assertAnotherActiveAdminExists(
-	tx: Tx,
-	excludedUserId: string,
-	ctx: ServiceContext
-): Promise<void> {
-	const [row] = await tx
-		.select({ id: userTable.id })
-		.from(userTable)
-		.where(
-			and(
-				ne(userTable.id, excludedUserId),
-				eq(userTable.role, ADMIN_ROLE),
-				or(eq(userTable.banned, false), isNull(userTable.banned)),
-				or(isNull(userTable.banExpires), gt(userTable.banExpires, getNow(ctx)))
+function activeAdminExistsCondition(db: Db, excludedUserId: string, now: Date): SQL {
+	return exists(
+		db
+			.select({ id: userTable.id })
+			.from(userTable)
+			.where(
+				and(
+					ne(userTable.id, excludedUserId),
+					eq(userTable.role, ADMIN_ROLE),
+					or(
+						eq(userTable.banned, false),
+						isNull(userTable.banned),
+						and(
+							eq(userTable.banned, true),
+							isNotNull(userTable.banExpires),
+							lte(userTable.banExpires, now)
+						)
+					)
+				)
 			)
-		)
-		.limit(1);
-
-	if (!row) {
-		throw new AuthError('At least one active admin is required.', ErrorCode.FORBIDDEN);
-	}
+	);
 }
 
 function buildUserListWhere(options: ListUsersOptions): SQL | undefined {
