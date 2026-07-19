@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, index, check } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, check } from 'drizzle-orm/sqlite-core';
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from 'drizzle-zod';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
@@ -83,6 +83,9 @@ export const paymentAttempt = sqliteTable(
 	(table) => [
 		index('payment_attempt_user_idx').on(table.userId),
 		index('payment_attempt_bag_idx').on(table.bagId),
+		uniqueIndex('payment_attempt_one_pending_per_bag_idx')
+			.on(table.bagId)
+			.where(sql`${table.status} = 'pending'`),
 		index('payment_attempt_provider_order_idx').on(table.providerOrderId),
 		index('payment_attempt_status_expiry_idx').on(table.status, table.expiresAt),
 		check('payment_attempt_amount_positive', sql`${table.amount} > 0`),

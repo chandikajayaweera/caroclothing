@@ -207,8 +207,9 @@ export async function createReview(
 	const uploadedMedia =
 		files.length > 0 ? await uploadReviewMediaFiles(ctx, reviewId, files, 0) : [];
 
+	let createdId: string;
 	try {
-		const createdId = await db.transaction(async (tx) => {
+		createdId = await db.transaction(async (tx) => {
 			await assertProductExistsTx(tx, data.productId, { activeOnly: true });
 
 			const txEligibleOrders = await listEligibleReviewOrdersTx(tx, actor.id, data.productId);
@@ -250,12 +251,12 @@ export async function createReview(
 
 			return created.id;
 		});
-
-		return hydrateReviewById(getDb(), createdId);
 	} catch (error) {
 		await cleanupUploadedMedia(uploadedMedia);
 		throw mapReviewPersistenceError(error);
 	}
+
+	return hydrateReviewById(getDb(), createdId);
 }
 
 export async function getReview(
@@ -1002,6 +1003,7 @@ async function assertVerifiedPurchaseEligibleTx(
 			and(
 				eq(orderTable.id, normalizeId(input.orderId, 'orderId')),
 				eq(orderTable.userId, input.userId),
+				eq(orderTable.status, 'delivered'),
 				eq(orderItem.productId, input.productId)
 			)
 		)
@@ -1030,7 +1032,13 @@ async function listEligibleReviewOrdersTx(
 		})
 		.from(orderItem)
 		.innerJoin(orderTable, eq(orderItem.orderId, orderTable.id))
-		.where(and(eq(orderTable.userId, userId), eq(orderItem.productId, productId)))
+		.where(
+			and(
+				eq(orderTable.userId, userId),
+				eq(orderTable.status, 'delivered'),
+				eq(orderItem.productId, productId)
+			)
+		)
 		.orderBy(desc(orderTable.createdAt));
 	const seen = new Set<string>();
 	const result: ReviewEligibleOrderDTO[] = [];

@@ -1,12 +1,16 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '$lib/server/infrastructure/errors';
+import { inventoryMovement } from '../inventory/inventory.drizzle';
+import { review } from '../reviews/reviews.drizzle';
 import {
+	category,
 	color,
 	product,
 	productImage,
 	productTag,
 	productVariant,
+	productVariantColor,
 	tag,
 	type SizeTier
 } from './products.drizzle';
@@ -15,10 +19,13 @@ import {
 	createColor,
 	createProduct,
 	createProductVariant,
+	createProductVariantColor,
 	deleteProduct,
+	listColors,
 	listProducts,
 	setPrimaryProductImage,
 	setProductTags,
+	updateCategory,
 	updateProductFull
 } from './products.service';
 import { createTestDatabase, type TestDatabaseHarness } from '../../../../tests/db';
@@ -29,7 +36,13 @@ import {
 	makeMediaCustomerCtx as makePublicCtx
 } from '../../../../tests/fakes/media';
 import { makeAdminCtx as makeAdminCtxWithoutMedia } from '../../../../tests/context';
-import { seedProduct, seedTag, seedVariantColor } from '../../../../tests/factories/products';
+import { seedUser } from '../../../../tests/factories/auth';
+import {
+	seedCategory,
+	seedProduct,
+	seedTag,
+	seedVariantColor
+} from '../../../../tests/factories/products';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
 
@@ -509,9 +522,77 @@ describe('products service integration', () => {
 			expect(bucket.deleteCalls.toSorted()).toEqual(keys);
 			expect(bucket.objects.size).toBe(0);
 		});
+
+		it('preserves products that own review or append-only inventory history', async () => {
+			const inventoryProduct = await createProduct(
+				makeAdminCtx(createFakeR2Bucket()),
+				baseProductInput({
+					name: 'Inventory History Tee',
+					slug: 'inventory-history-tee',
+					variants: [variantInput()]
+				})
+			);
+			const inventoryVariantId = inventoryProduct.variants[0]?.id;
+			expect(inventoryVariantId).toBeTruthy();
+			await db().insert(inventoryMovement).values({
+				variantId: inventoryVariantId!,
+				type: 'restock',
+				quantityDelta: 1,
+				quantityAfter: 1,
+				reservedQuantityDelta: 0,
+				reservedQuantityAfter: 0,
+				referenceId: 'inventory-history-test'
+			});
+
+			await expect(
+				deleteProduct(makeAdminCtxWithoutMedia(), { id: inventoryProduct.id })
+			).rejects.toMatchObject({ code: ErrorCode.CONFLICT });
+
+			const reviewedProduct = await seedProduct(db(), { slug: 'review-history-product' });
+			const reviewer = await seedUser(db(), { id: 'review-history-user' });
+			await db().insert(review).values({
+				id: 'review-history-row',
+				productId: reviewedProduct.id,
+				userId: reviewer.id,
+				orderId: null,
+				rating: 5,
+				title: 'Keeps history',
+				body: 'This review must remain attached to its product.',
+				isVerifiedPurchase: false,
+				isApproved: true
+			});
+
+			await expect(
+				deleteProduct(makeAdminCtxWithoutMedia(), { id: reviewedProduct.id })
+			).rejects.toMatchObject({ code: ErrorCode.CONFLICT });
+			expect(await db().select().from(product)).toHaveLength(2);
+			expect(await db().select().from(review)).toHaveLength(1);
+			expect(await db().select().from(inventoryMovement)).toHaveLength(1);
+		});
 	});
 
 	describe('catalog reads and product rules', () => {
+		it('rejects moving a category beneath one of its descendants', async () => {
+			const parent = await seedCategory(db(), { name: 'Parent', slug: 'parent' });
+			const child = await seedCategory(db(), {
+				name: 'Child',
+				slug: 'child',
+				parentId: parent.id
+			});
+			const grandchild = await seedCategory(db(), {
+				name: 'Grandchild',
+				slug: 'grandchild',
+				parentId: child.id
+			});
+
+			await expect(
+				updateCategory(makeAdminCtxWithoutMedia(), { id: parent.id }, { parentId: grandchild.id })
+			).rejects.toMatchObject({ code: ErrorCode.VALIDATION_ERROR });
+			await expect(
+				db().select().from(category).where(eq(category.id, parent.id)).get()
+			).resolves.toMatchObject({ parentId: null });
+		});
+
 		it('hides inactive products from public reads and exposes them to admins only when requested', async () => {
 			await seedProduct(db(), { name: 'Active Tee', slug: 'active-tee', isActive: true });
 			await seedProduct(db(), { name: 'Inactive Tee', slug: 'inactive-tee', isActive: false });
@@ -561,6 +642,30 @@ describe('products service integration', () => {
 	});
 
 	describe('variants, colors, and tags', () => {
+		it('keeps color reads side-effect free and persists a selected palette color', async () => {
+			await expect(listColors(makeAdminCtxWithoutMedia())).resolves.toEqual([]);
+			expect(await db().select().from(color)).toHaveLength(0);
+
+			const paletteColor = await createColor(makeAdminCtxWithoutMedia(), {
+				name: 'Washed olive',
+				hex: '#5F6648'
+			});
+			const productRow = await seedProduct(db(), { slug: 'palette-color-product' });
+			const created = await createProductVariantColor(makeAdminCtxWithoutMedia(), productRow.id, {
+				colorId: paletteColor.id,
+				color: paletteColor.name,
+				colorHex: paletteColor.hex,
+				basePrice: 2800,
+				compareAtPrice: null,
+				sortOrder: 0
+			});
+
+			expect(created.colorId).toBe(paletteColor.id);
+			await expect(
+				db().select().from(productVariantColor).where(eq(productVariantColor.id, created.id)).get()
+			).resolves.toMatchObject({ colorId: paletteColor.id });
+		});
+
 		it('rejects creating a size variant with a color card from another product', async () => {
 			const firstProduct = await seedProduct(db(), { slug: 'first-product' });
 			const secondProduct = await seedProduct(db(), { slug: 'second-product' });

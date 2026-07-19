@@ -1046,17 +1046,21 @@ export async function deleteUserBagForAccountDeletionTx(
 	userId: string,
 	now: Date
 ): Promise<BagDeleteResult> {
-	const [row] = await tx
+	const rows = await tx
 		.select()
 		.from(bagTable)
-		.where(eq(bagTable.userId, normalizeId(userId, 'userId')))
-		.limit(1);
+		.where(eq(bagTable.userId, normalizeId(userId, 'userId')));
 
-	if (!row) {
-		return { itemCount: 0, releasedQuantity: 0 };
+	let itemCount = 0;
+	let releasedQuantity = 0;
+
+	for (const row of rows) {
+		const result = await deleteBagByIdTx(tx, row.id, now);
+		itemCount += result.itemCount;
+		releasedQuantity += result.releasedQuantity;
 	}
 
-	return deleteBagByIdTx(tx, row.id, now);
+	return { itemCount, releasedQuantity };
 }
 
 async function mergeBagRowsTx(tx: Tx, sourceBag: Bag, targetBag: Bag, now: Date): Promise<void> {

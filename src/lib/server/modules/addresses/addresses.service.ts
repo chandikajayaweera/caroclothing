@@ -149,6 +149,13 @@ export async function updateAddress(
 
 	const data = parseUpdateAddress(input);
 	const updateValues = removeUndefinedValues(data);
+	if (existing.isDefault && data.isDefault === false) {
+		throw new AddressError(
+			'Set another address as default before unsetting this one.',
+			ErrorCode.INVALID_ADDRESS,
+			{ addressId }
+		);
+	}
 
 	if (Object.keys(updateValues).length === 0) {
 		return toAddressDTO(existing);
@@ -187,10 +194,27 @@ export async function deleteAddress(
 ): Promise<void> {
 	const actor = requireActor(ctx.actor);
 	const addressId = normalizeId(input.addressId, 'addressId');
-	const [deleted] = await getDb()
-		.delete(address)
-		.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
-		.returning({ id: address.id });
+	const [deleted] = await getDb().transaction(async (tx) => {
+		const existing = await loadOwnedAddressTx(tx, actor.id, addressId);
+		const deletedRows = await tx
+			.delete(address)
+			.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+			.returning({ id: address.id });
+
+		if (existing.isDefault) {
+			const [nextAddress] = await tx
+				.select({ id: address.id })
+				.from(address)
+				.where(eq(address.userId, actor.id))
+				.orderBy(desc(address.updatedAt), asc(address.createdAt))
+				.limit(1);
+			if (nextAddress) {
+				await tx.update(address).set({ isDefault: true }).where(eq(address.id, nextAddress.id));
+			}
+		}
+
+		return deletedRows;
+	});
 
 	if (!deleted) {
 		throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });

@@ -727,6 +727,22 @@ export async function restoreInventorySaleTx(
 	return toInventoryDTO(updated);
 }
 
+export async function hasInventoryHistoryForVariantIdsTx(
+	tx: InventoryTx,
+	variantIds: string[]
+): Promise<boolean> {
+	const ids = uniqueStrings(variantIds.map((id) => normalizeId(id, 'variantId')));
+	if (ids.length === 0) return false;
+
+	const [row] = await tx
+		.select({ id: inventoryMovement.id })
+		.from(inventoryMovement)
+		.where(inArray(inventoryMovement.variantId, ids))
+		.limit(1);
+
+	return Boolean(row);
+}
+
 export async function getOutstandingReservedQuantityTx(
 	tx: QueryExecutor,
 	input: OutstandingReservationInput
@@ -827,10 +843,12 @@ async function getSoldQuantityTx(
 			and(
 				eq(inventoryMovement.variantId, variantId),
 				eq(inventoryMovement.referenceId, referenceId),
-				eq(inventoryMovement.type, 'sale')
+				inArray(inventoryMovement.type, ['sale', 'return', 'cancelled'])
 			)
 		);
 
+	// Sale deltas are negative while return/cancelled deltas are positive.
+	// Summing the full sale lifecycle makes repeated restoration idempotent.
 	return Math.max(0, -Number(row?.total ?? 0));
 }
 

@@ -26,7 +26,7 @@ reviews
 
 `inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Internal `*Tx` helpers in `inventory.service.ts` still support bag/order transaction workflows and are imported directly by server internals when needed.
 
-`payments` supports PayHere, PayPal, and cash on delivery only. PayHere checkout uses the official JavaScript SDK while signed server webhooks own payment truth. PayPal checkout uses JavaScript SDK v6 with server-created and server-captured Orders API transactions. Online checkout persists only a `payment_attempt` before provider success; no order/payment row or stock reservation exists yet. Verified capture revalidates the live bag and atomically creates and confirms the order, records the captured payment, consumes stock, deletes the bag, and enqueues confirmation intent. Cash-on-delivery confirmation still occurs at placement.
+`payments` supports PayHere, PayPal, and cash on delivery only. PayHere checkout uses the official JavaScript SDK while signed server webhooks own payment truth. PayPal checkout uses JavaScript SDK v6 with server-created and server-captured Orders API transactions. Online checkout persists only a `payment_attempt` before provider success; no order/payment row or stock reservation exists yet. A bag can have only one pending payment attempt, identical setup requests resume the existing provider session, terminal attempt states are monotonic, and PayPal capture is rejected before contacting the provider when the checkout window has expired. Verified capture revalidates the live bag and atomically creates and confirms the order, records the captured payment, consumes stock, deletes the bag, and enqueues confirmation intent. Cash-on-delivery confirmation still occurs at placement.
 
 Bag and checkout inventory lifecycle:
 
@@ -39,7 +39,7 @@ Bag and checkout inventory lifecycle:
 - Re-entering an active checkout keeps its original deadline.
 - Navigating away from checkout or mutating the bag cancels the checkout window without clearing bag items.
 - Checkout expiry clears checkout timestamps; new checkout windows hold no stock. Cleanup still safely releases any legacy reservation references.
-- Online provider setup creates a `payment_attempt` only. Failure or cancellation leaves the bag intact and creates no order or reservation.
+- Online provider setup creates one pending `payment_attempt` per bag. Identical retries resume it; conflicting checkout details wait for the active attempt to finish or expire. Failure or cancellation leaves the bag intact and creates no order or reservation.
 - Verified capture reserves order-item quantities and consumes them during the same order-confirmation transaction before deleting the bag.
 - Cron expires due checkout windows every minute. Availability and bag-hydration projections never release another shopper's reservations.
 - Storefront availability combines bounded read-only projections without opening a libSQL write transaction. A concurrent checkout can make one projection momentarily stale; checkout/order write transactions remain authoritative and revalidate stock.
@@ -50,7 +50,7 @@ Customer account lifecycle:
 - Existing phone-derived display names are treated as incomplete and redirected to account profile completion.
 - A customer must always retain at least one sign-in method: verified phone or Google.
 - Self-service account deletion requires a fresh Better Auth session.
-- Before account deletion, the auth workflow releases checkout reservations, deletes the bag, cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one transaction.
+- Before account deletion, the auth workflow releases checkout reservations, deletes every user-owned bag (including legacy duplicates), cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one transaction.
 - User deletion cascades profile-owned data while anonymized order/payment history remains with a null user reference.
 - Review media keys are collected before deletion and removed from R2 after the database deletion succeeds.
 
@@ -201,6 +201,8 @@ Service rules:
 - Background/cron/cleanup tasks that process multiple items must NOT run the entire batch under a single monolithic transaction. Instead, select the targeted rows first, then process each record individually within its own transaction. This prevents database timeouts, lock contention, and worker runtime termination on Cloudflare.
 - Account deletion may use narrowly scoped internal bag, review media, and notification outbox helpers; these are not generic public CRUD APIs.
 - Inventory APIs may manage variant inventory rows, but `inventoryMovement` remains append-only audit state and must not be exposed as generic CRUD.
+- Products, variant colors, and size variants with inventory history cannot be deleted; products with reviews cannot be deleted. Deactivate historical catalog records so audit movements, reviews, and review media remain intact.
+- Customer review eligibility requires a delivered order containing the product; confirmed, processing, shipped, cancelled, or refunded orders are not verified-review sources.
 - Services return DTOs when UI needs derived fields or public URLs.
 - Public reads default to public-safe filtering.
 - Reads that expose inactive, archived, unpublished, moderation, or admin-only data must accept `ServiceContext` and enforce authorization.
@@ -284,6 +286,7 @@ Queue:
 - Queue messages contain only `outboxId` and/or `idempotencyKey`.
 - Domain services receive a notification wakeup publisher interface, not a raw Cloudflare Queue binding.
 - Queue consumers must claim the outbox row before sending.
+- Admin cancellation may cancel pending or failed rows only; it must never clear an active processing lock.
 - Duplicate Queue delivery must not duplicate notification sends when the outbox row is already terminal or locked.
 - Queue processing marks records sent only after `EmailResult.ok` or `SmsResult.ok`.
 - Provider failures mark outbox state failed/retryable without marking sent.
@@ -341,6 +344,7 @@ Before completing service-layer work, verify:
 - Notification modules do not import from `$lib/client/*`.
 - AppErrors are mapped consistently in route actions.
 - Raw unexpected errors are not swallowed.
+- Schema changes include a reviewed migration under `drizzle/`; see `docs/database-migrations.md`.
 
 ## Agent Rules
 

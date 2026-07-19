@@ -668,6 +668,33 @@ describe('inventory service integration', () => {
 				referenceId: 'order-item-1',
 				note: 'Customer return'
 			});
+
+			const repeatedRestore = await db().transaction((tx) =>
+				restoreInventorySaleTx(tx as InventoryTx, {
+					variantId: variant.id,
+					quantity: 2,
+					referenceId: 'order-item-1',
+					type: 'return',
+					note: 'Repeated customer return',
+					now
+				})
+			);
+			expect(repeatedRestore).toMatchObject({ quantity: 5, availableQuantity: 5 });
+
+			const fullyRestored = await db().transaction((tx) =>
+				restoreInventorySaleTx(tx as InventoryTx, {
+					variantId: variant.id,
+					quantity: 2,
+					referenceId: 'order-item-1',
+					type: 'return',
+					note: 'No stock remains to restore',
+					now
+				})
+			);
+			expect(fullyRestored).toMatchObject({ quantity: 5, availableQuantity: 5 });
+			expect((await movementRows(variant.id)).filter((row) => row.type === 'return')).toHaveLength(
+				2
+			);
 		});
 
 		it('rejects sales without reservations when backorder is disabled', async () => {

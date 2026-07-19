@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '$lib/server/db';
 import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
@@ -35,7 +35,7 @@ import {
 	type NewWishlistItem,
 	type WishlistItem
 } from './wishlist.drizzle';
-import { inventory } from '../inventory/inventory.drizzle';
+import { inventory, type Inventory } from '../inventory/inventory.drizzle';
 import type {
 	ListWishlistOptions,
 	ListWishlistSignalsOptions,
@@ -66,6 +66,7 @@ type WishlistJoinedRow = {
 	product: Product;
 	variant: ProductVariant | null;
 	color: ProductVariantColor | null;
+	inventory: Inventory | null;
 };
 
 type WishlistSignalAggregateRow = {
@@ -261,8 +262,7 @@ export async function listWishlistSignals(
 	}
 
 	if (!includeUnavailable) {
-		conditions.push(eq(product.isActive, true));
-		conditions.push(or(isNull(wishlistItem.variantId), eq(productVariant.isActive, true)) as SQL);
+		conditions.push(wishlistAvailabilityCondition());
 	}
 
 	const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -276,6 +276,7 @@ export async function listWishlistSignals(
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
+		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(where)
 		.groupBy(wishlistItem.productId, wishlistItem.variantId)
 		.orderBy(desc(count()), desc(sql`max(${wishlistItem.addedAt})`));
@@ -308,18 +309,21 @@ async function listWishlistForUser(
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
+		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(where);
 	const rows = await db
 		.select({
 			item: wishlistItem,
 			product,
 			variant: productVariant,
-			color: productVariantColor
+			color: productVariantColor,
+			inventory
 		})
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
 		.leftJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(where)
 		.orderBy(desc(wishlistItem.addedAt))
 		.limit(limit)
@@ -338,8 +342,7 @@ function wishlistListConditions(userId: string, includeUnavailable: boolean): SQ
 	const conditions: SQL[] = [eq(wishlistItem.userId, userId)];
 
 	if (!includeUnavailable) {
-		conditions.push(eq(product.isActive, true));
-		conditions.push(or(isNull(wishlistItem.variantId), eq(productVariant.isActive, true)) as SQL);
+		conditions.push(wishlistAvailabilityCondition());
 	}
 
 	return conditions;
@@ -351,12 +354,14 @@ async function getWishlistItemDTOById(id: string): Promise<WishlistItemDTO> {
 			item: wishlistItem,
 			product: product,
 			variant: productVariant,
-			color: productVariantColor
+			color: productVariantColor,
+			inventory
 		})
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
 		.leftJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(eq(wishlistItem.id, id))
 		.limit(1);
 
@@ -469,7 +474,9 @@ async function hydrateWishlistSignals(
 					: (primaryPrices?.basePrice ?? 0),
 				isAvailable:
 					productRow.isActive &&
-					(row.variantId === null || variantJoined?.variant.isActive === true)
+					(row.variantId === null ||
+						(variantJoined?.variant.isActive === true &&
+							isWishlistInventoryAvailable(variantJoined.inventory)))
 			};
 		})
 		.filter((row): row is WishlistSignalDTO => row !== null);
@@ -499,7 +506,9 @@ function toWishlistItemDTO(
 		row.variant ? row.variant.variantColorId : null
 	);
 	const variant =
-		row.variant && row.color ? toWishlistVariantSummaryDTO(row.variant, row.color) : null;
+		row.variant && row.color
+			? toWishlistVariantSummaryDTO(row.variant, row.color, row.inventory)
+			: null;
 	const primaryPrices = primaryPricesByProductId.get(row.product.id);
 
 	return {
@@ -518,8 +527,36 @@ function toWishlistItemDTO(
 		imageUrl,
 		effectivePrice: variant?.effectivePrice ?? primaryPrices?.basePrice ?? 0,
 		isAvailable:
-			row.product.isActive && (row.item.variantId === null || row.variant?.isActive === true)
+			row.product.isActive &&
+			(row.item.variantId === null ||
+				(row.variant?.isActive === true && isWishlistInventoryAvailable(row.inventory)))
 	};
+}
+
+function wishlistAvailabilityCondition(): SQL {
+	return and(
+		eq(product.isActive, true),
+		or(
+			isNull(wishlistItem.variantId),
+			and(
+				eq(productVariant.isActive, true),
+				or(
+					eq(inventory.trackInventory, false),
+					eq(inventory.allowBackorder, true),
+					gt(inventory.quantity, inventory.reservedQuantity)
+				)
+			)
+		)
+	) as SQL;
+}
+
+function isWishlistInventoryAvailable(inventoryRow: Inventory | null): boolean {
+	if (!inventoryRow) return false;
+	return (
+		!inventoryRow.trackInventory ||
+		inventoryRow.allowBackorder ||
+		inventoryRow.quantity > inventoryRow.reservedQuantity
+	);
 }
 
 function toWishlistProductSummaryDTO(

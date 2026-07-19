@@ -295,8 +295,19 @@ export async function calculateShippingQuoteTx(
 			shippingMethodId
 		});
 	}
+	if (input.activeOnly !== false && methodWithCarrier.methodCarrier?.isActive === false) {
+		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
+			shippingMethodId
+		});
+	}
 
 	const zone = await loadShippingZoneByMethodDistrictTx(tx, shippingMethodId, input.district);
+	if (input.activeOnly !== false && zone?.isAvailable === false) {
+		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
+			shippingMethodId,
+			district: input.district
+		});
+	}
 
 	let resolvedCarrierName = methodWithCarrier.methodCarrier?.name ?? null;
 	if (zone?.carrierIdOverride) {
@@ -305,6 +316,12 @@ export async function calculateShippingQuoteTx(
 			.from(carrier)
 			.where(eq(carrier.id, zone.carrierIdOverride))
 			.limit(1);
+		if (input.activeOnly !== false && zoneCarrierRow?.isActive === false) {
+			throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
+				shippingMethodId,
+				district: input.district
+			});
+		}
 		if (zoneCarrierRow) resolvedCarrierName = zoneCarrierRow.name;
 	}
 

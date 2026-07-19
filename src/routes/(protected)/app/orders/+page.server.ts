@@ -9,9 +9,7 @@ import {
 	cancelOrderFormSchema,
 	listOrders,
 	listOrdersFormSchema,
-	recordPayment,
 	recordPaymentFormSchema,
-	recordRefund,
 	recordRefundFormSchema,
 	transitionOrderStatus,
 	transitionOrderStatusFormSchema,
@@ -21,6 +19,7 @@ import {
 	bulkTransitionOrderStatus,
 	bulkTransitionOrderStatusFormSchema
 } from '$lib/server/modules/orders';
+import { recordPayment, recordRefund } from '$lib/server/modules/payments';
 import {
 	formFailFromAppError,
 	throwHttpFromAppError

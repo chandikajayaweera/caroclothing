@@ -12,13 +12,15 @@ import { bag as bagTable, bagItem as bagItemTable } from './bag.drizzle';
 import {
 	addItemToBag,
 	applyPromoCodeToBag,
+	deleteUserBagForAccountDeletionTx,
 	expireDueBagCheckouts,
 	getBag,
 	getCheckoutBagForOrderTx,
 	getStorefrontVariantAvailability,
 	removePromoCodeFromBag,
 	startCheckout,
-	updateBagItemQuantity
+	updateBagItemQuantity,
+	type BagTx
 } from './bag.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
@@ -52,6 +54,54 @@ describe('bag service integration', () => {
 	afterAll(() => {
 		dbState.db = undefined;
 		harness.close();
+	});
+
+	it('deletes every legacy user bag during account deletion', async () => {
+		const user = await seedUser(db(), { id: 'bag-account-deletion-user' });
+		const { product, variant } = await seedProductWithVariant(db(), {
+			product: { slug: 'bag-account-deletion-product' }
+		});
+		await seedInventory(db(), variant.id, { quantity: 10, reservedQuantity: 0 });
+
+		await db()
+			.insert(bagTable)
+			.values([
+				{ id: 'legacy-user-bag-1', userId: user.id, createdAt: now, updatedAt: now },
+				{ id: 'legacy-user-bag-2', userId: user.id, createdAt: now, updatedAt: now }
+			]);
+		await db()
+			.insert(bagItemTable)
+			.values([
+				{
+					id: 'legacy-user-bag-item-1',
+					bagId: 'legacy-user-bag-1',
+					variantId: variant.id,
+					productId: product.id,
+					quantity: 1,
+					unitPrice: 5000,
+					addedAt: now,
+					updatedAt: now
+				},
+				{
+					id: 'legacy-user-bag-item-2',
+					bagId: 'legacy-user-bag-2',
+					variantId: variant.id,
+					productId: product.id,
+					quantity: 2,
+					unitPrice: 5000,
+					addedAt: now,
+					updatedAt: now
+				}
+			]);
+
+		const result = await db().transaction((tx) =>
+			deleteUserBagForAccountDeletionTx(tx as BagTx, user.id, now)
+		);
+
+		expect(result).toEqual({ itemCount: 2, releasedQuantity: 0 });
+		await expect(db().select().from(bagTable).where(eq(bagTable.userId, user.id))).resolves.toEqual(
+			[]
+		);
 	});
 
 	it('preserves promo code on DTO when subtotal falls below minimum, and reactivates when subtotal recovers', async () => {

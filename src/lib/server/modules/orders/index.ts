@@ -16,10 +16,3 @@ export {
 	bulkTransitionOrderStatus,
 	listAllOrdersForExport
 } from './orders.service';
-
-export {
-	getPayment,
-	listPayments,
-	recordPayment,
-	recordRefund
-} from '../payments/payments.service';

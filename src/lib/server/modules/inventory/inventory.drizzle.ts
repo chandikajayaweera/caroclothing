@@ -91,7 +91,7 @@ export const inventoryMovement = sqliteTable(
 			.$defaultFn(() => nanoid()),
 		variantId: text('variant_id')
 			.notNull()
-			.references(() => productVariant.id, { onDelete: 'cascade' }),
+			.references(() => productVariant.id, { onDelete: 'restrict' }),
 		type: text('type', {
 			enum: [
 				'restock', // admin top-up

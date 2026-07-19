@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ErrorCode } from '$lib/server/infrastructure/errors';
 import { notificationOutbox } from '../notifications/outbox/outbox.drizzle';
 import { bag as bagTable } from '../bag/bag.drizzle';
 import { addItemToBag, startCheckout } from '../bag/bag.service';
@@ -158,6 +159,23 @@ describe('payments service integration', () => {
 			method: 'paypal',
 			paypalOrderId: 'PAYPAL-ATTEMPT-ORDER'
 		});
+		await expect(
+			createCheckoutPaymentSession(ctx, {
+				shippingAddress: {
+					recipientName: 'Attempt Buyer',
+					phone: '+94770000002',
+					addressLine1: '3 Main Street',
+					addressLine2: null,
+					city: 'Colombo',
+					district: 'Colombo',
+					postalCode: '00100'
+				},
+				shippingMethodId: 'attempt-shipping',
+				paymentMethod: 'paypal'
+			})
+		).resolves.toEqual(session);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(await db().select().from(paymentAttempt)).toHaveLength(1);
 		expect(await db().select().from(order)).toHaveLength(0);
 		expect(await db().select().from(payment)).toHaveLength(0);
 		await expect(
@@ -446,5 +464,179 @@ describe('payments service integration', () => {
 		expect((await db().select().from(notificationOutbox)).map((row) => row.channel)).toEqual([
 			'sms'
 		]);
+	});
+
+	it('does not call PayPal after an attempt checkout window expires', async () => {
+		const buyer = await seedUser(db(), { id: 'expired-paypal-buyer' });
+		await db()
+			.insert(paymentAttempt)
+			.values({
+				id: 'expired-paypal-attempt',
+				userId: buyer.id,
+				bagId: 'expired-paypal-bag',
+				method: 'paypal',
+				status: 'pending',
+				amount: 5000,
+				currency: 'LKR',
+				checkoutInput: {},
+				providerOrderId: 'EXPIRED-PAYPAL-ORDER',
+				expiresAt: new Date(now.getTime() - 1),
+				createdAt: new Date(now.getTime() - 60_000),
+				updatedAt: new Date(now.getTime() - 60_000)
+			});
+		const fetchMock = vi.fn();
+		vi.stubGlobal('fetch', fetchMock);
+
+		await expect(
+			capturePayPalPayment(makeCustomerCtx(buyer.id, { now }), {
+				paypalOrderId: 'EXPIRED-PAYPAL-ORDER'
+			})
+		).rejects.toMatchObject({ code: ErrorCode.CHECKOUT_SESSION_EXPIRED });
+		expect(fetchMock).not.toHaveBeenCalled();
+		await expect(
+			db()
+				.select()
+				.from(paymentAttempt)
+				.where(eq(paymentAttempt.id, 'expired-paypal-attempt'))
+				.get()
+		).resolves.toMatchObject({ status: 'cancelled' });
+	});
+
+	it('keeps captured attempts terminal when a late PayHere failure arrives', async () => {
+		const buyer = await seedUser(db(), { id: 'terminal-payhere-buyer' });
+		const orderRow = await seedOrder(db(), {
+			id: 'terminal-payhere-order',
+			userId: buyer.id,
+			status: 'confirmed',
+			totalAmount: 5000
+		});
+		await db().insert(payment).values({
+			id: 'terminal-payhere-payment',
+			orderId: orderRow.id,
+			amount: 5000,
+			currency: 'LKR',
+			method: 'payhere',
+			status: 'captured',
+			transactionId: 'terminal-provider-payment',
+			paidAt: now
+		});
+		await db()
+			.insert(paymentAttempt)
+			.values({
+				id: 'terminal-payhere-attempt',
+				userId: buyer.id,
+				bagId: 'terminal-payhere-bag',
+				method: 'payhere',
+				status: 'captured',
+				amount: 5000,
+				currency: 'LKR',
+				checkoutInput: {},
+				providerOrderId: 'terminal-provider-payment',
+				orderId: orderRow.id,
+				expiresAt: new Date(now.getTime() + 60_000),
+				createdAt: now,
+				updatedAt: now
+			});
+		const payload = {
+			merchant_id: envState.PAYHERE_MERCHANT_ID,
+			order_id: 'terminal-payhere-attempt',
+			payment_id: 'terminal-provider-payment',
+			payhere_amount: '5000.00',
+			payhere_currency: 'LKR',
+			status_code: '-2',
+			status_message: 'Late failure',
+			md5sig: generatePayHereWebhookSignature({
+				merchantId: envState.PAYHERE_MERCHANT_ID,
+				orderId: 'terminal-payhere-attempt',
+				amount: '5000.00',
+				currency: 'LKR',
+				statusCode: '-2',
+				merchantSecret: envState.PAYHERE_MERCHANT_SECRET
+			})
+		};
+
+		await expect(
+			processPayHereWebhook(
+				{ actor: { id: 'system:payhere-webhook', role: 'adminUser' }, now },
+				{ payload, headers: {} }
+			)
+		).resolves.toMatchObject({ success: true, status: 'captured', orderId: orderRow.id });
+		await expect(
+			db()
+				.select()
+				.from(paymentAttempt)
+				.where(eq(paymentAttempt.id, 'terminal-payhere-attempt'))
+				.get()
+		).resolves.toMatchObject({ status: 'captured', failureReason: null });
+	});
+
+	it('escalates a verified late PayHere capture to durable review state', async () => {
+		const buyer = await seedUser(db(), { id: 'late-capture-payhere-buyer' });
+		await db()
+			.insert(paymentAttempt)
+			.values({
+				id: 'late-capture-payhere-attempt',
+				userId: buyer.id,
+				bagId: 'expired-bag',
+				method: 'payhere',
+				status: 'cancelled',
+				amount: 5000,
+				currency: 'LKR',
+				checkoutInput: {
+					shippingAddress: {
+						fullName: 'Late Buyer',
+						phone: '0771234567',
+						addressLine1: '1 Main Street',
+						city: 'Colombo',
+						postalCode: '00100',
+						country: 'Sri Lanka'
+					},
+					shippingMethodId: 'expired-shipping-method',
+					paymentMethod: 'payhere'
+				},
+				billingEmail: 'late@example.com',
+				expiresAt: new Date(now.getTime() - 60_000),
+				failureReason: 'Checkout expired.',
+				createdAt: new Date(now.getTime() - 120_000),
+				updatedAt: new Date(now.getTime() - 60_000)
+			});
+		const payload = {
+			merchant_id: envState.PAYHERE_MERCHANT_ID,
+			order_id: 'late-capture-payhere-attempt',
+			payment_id: 'late-provider-payment',
+			payhere_amount: '5000.00',
+			payhere_currency: 'LKR',
+			status_code: '2',
+			md5sig: generatePayHereWebhookSignature({
+				merchantId: envState.PAYHERE_MERCHANT_ID,
+				orderId: 'late-capture-payhere-attempt',
+				amount: '5000.00',
+				currency: 'LKR',
+				statusCode: '2',
+				merchantSecret: envState.PAYHERE_MERCHANT_SECRET
+			})
+		};
+
+		await expect(
+			processPayHereWebhook(
+				{ actor: { id: 'system:payhere-webhook', role: 'adminUser' }, now },
+				{ payload, headers: {} }
+			)
+		).resolves.toMatchObject({
+			success: false,
+			status: 'captured',
+			requiresManualReview: true
+		});
+		await expect(
+			db()
+				.select()
+				.from(paymentAttempt)
+				.where(eq(paymentAttempt.id, 'late-capture-payhere-attempt'))
+				.get()
+		).resolves.toMatchObject({
+			status: 'review_required',
+			providerOrderId: 'late-provider-payment'
+		});
+		expect(await db().select().from(order)).toHaveLength(0);
 	});
 });

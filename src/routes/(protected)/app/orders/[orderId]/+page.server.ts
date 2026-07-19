@@ -7,14 +7,13 @@ import {
 	transitionOrderStatus,
 	cancelOrder,
 	updateOrderFulfillment,
-	recordPayment,
-	recordRefund,
 	transitionOrderStatusFormSchema,
 	cancelOrderFormSchema,
 	updateOrderFulfillmentFormSchema,
 	recordPaymentFormSchema,
 	recordRefundFormSchema
 } from '$lib/server/modules/orders';
+import { recordPayment, recordRefund } from '$lib/server/modules/payments';
 import { listCarriers } from '$lib/server/modules/shipping';
 import {
 	formFailFromAppError,

@@ -15,8 +15,9 @@ import { product, productVariant } from '../products/products.drizzle';
 //   - one row per selected variant
 //   - one row per product when variantId is NULL
 //
-// variantId is nullable and has a real FK to productVariant. This keeps
-// referential integrity while still supporting "no variant selected yet".
+// variantId is nullable and has a real FK to productVariant. Deleting a selected
+// variant removes that specific wishlist row instead of converting it into a
+// product-only row that could collide with the partial unique index.
 // ---------------------------------------------------------------------------
 
 export const wishlistItem = sqliteTable(
@@ -31,7 +32,7 @@ export const wishlistItem = sqliteTable(
 		productId: text('product_id')
 			.notNull()
 			.references(() => product.id, { onDelete: 'cascade' }),
-		variantId: text('variant_id').references(() => productVariant.id, { onDelete: 'set null' }),
+		variantId: text('variant_id').references(() => productVariant.id, { onDelete: 'cascade' }),
 		addedAt: integer('added_at', { mode: 'timestamp_ms' })
 			.default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
 			.notNull()

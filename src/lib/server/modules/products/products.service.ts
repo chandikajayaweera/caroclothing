@@ -21,6 +21,11 @@ import {
 import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
+	hasInventoryHistoryForVariantIdsTx,
+	type InventoryTx
+} from '../inventory/inventory.service';
+import { review as reviewTable } from '../reviews/reviews.drizzle';
+import {
 	isCheckConstraintError,
 	isForeignKeyConstraintError,
 	isString,
@@ -277,13 +282,7 @@ export async function updateCategory(
 	const data = parseUpdateCategory(rawData);
 
 	if (data.parentId) {
-		if (data.parentId === existing.id) {
-			throw new ProductError('A category cannot be its own parent.', ErrorCode.VALIDATION_ERROR, {
-				categoryId: existing.id
-			});
-		}
-
-		await assertCategoryExists(data.parentId, 'Parent category not found.');
+		await assertCategoryParentDoesNotCreateCycle(existing.id, data.parentId);
 	}
 
 	const uploadedImage = image ? await uploadCategoryImage(ctx, existing.id, image) : null;
@@ -398,8 +397,9 @@ export async function createProduct(
 	);
 	const db = getDb();
 
+	let created: Product;
 	try {
-		const created = await db.transaction(async (tx) => {
+		created = await db.transaction(async (tx) => {
 			if (data.categoryId) {
 				await assertCategoryExistsTx(tx, data.categoryId, 'Product category not found.');
 			}
@@ -483,12 +483,12 @@ export async function createProduct(
 
 			return row;
 		});
-
-		return hydrateProduct(created, { includeInactiveRelations: true });
 	} catch (error) {
 		await cleanupUploadedImages(uploadedImages);
 		throw mapProductPersistenceError(error);
 	}
+
+	return hydrateProduct(created, { includeInactiveRelations: true });
 }
 
 export async function getProduct(
@@ -715,8 +715,9 @@ export async function updateProductFull(
 
 	const deletedImageKeys: string[] = [];
 
+	let updated: Product;
 	try {
-		const updated = await getDb().transaction(async (tx) => {
+		updated = await getDb().transaction(async (tx) => {
 			if (data.categoryId) {
 				await assertCategoryExistsTx(tx, data.categoryId, 'Product category not found.');
 			}
@@ -928,16 +929,16 @@ export async function updateProductFull(
 
 			return productRow;
 		});
-
-		if (deleteMediaBucket && deletedImageKeys.length > 0) {
-			await Promise.all(deletedImageKeys.map((key) => deleteObjectSafe(deleteMediaBucket, key)));
-		}
-
-		return hydrateProduct(updated, { includeInactiveRelations: true });
 	} catch (error) {
 		await cleanupUploadedImages(uploadedR2Images);
 		throw mapProductPersistenceError(error);
 	}
+
+	if (deleteMediaBucket && deletedImageKeys.length > 0) {
+		await Promise.all(deletedImageKeys.map((key) => deleteObjectSafe(deleteMediaBucket, key)));
+	}
+
+	return hydrateProduct(updated, { includeInactiveRelations: true });
 }
 
 export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup): Promise<void> {
@@ -953,6 +954,16 @@ export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup):
 
 	try {
 		const imageKeys = await getDb().transaction(async (tx) => {
+			const variantRows = await tx
+				.select({ id: productVariant.id })
+				.from(productVariant)
+				.where(eq(productVariant.productId, existing.id));
+			await assertProductDeletionHasNoHistoryTx(
+				tx,
+				existing.id,
+				variantRows.map((row) => row.id)
+			);
+
 			const imageRows = await tx
 				.select({ r2Key: productImage.r2Key })
 				.from(productImage)
@@ -1091,10 +1102,20 @@ export async function deleteProductVariant(ctx: ServiceContext, variantId: strin
 	}
 
 	try {
-		const [deleted] = await getDb()
-			.delete(productVariant)
-			.where(eq(productVariant.id, existing.id))
-			.returning({ id: productVariant.id });
+		const [deleted] = await getDb().transaction(async (tx) => {
+			if (await hasInventoryHistoryForVariantIdsTx(tx as InventoryTx, [existing.id])) {
+				throw new ProductError(
+					'Product variants with inventory history cannot be deleted. Deactivate the variant instead.',
+					ErrorCode.CONFLICT,
+					{ variantId: existing.id }
+				);
+			}
+
+			return tx
+				.delete(productVariant)
+				.where(eq(productVariant.id, existing.id))
+				.returning({ id: productVariant.id });
+		});
 
 		if (!deleted) {
 			throw new ProductError('Product variant not found.', ErrorCode.VARIANT_NOT_FOUND, {
@@ -1122,6 +1143,7 @@ export async function createProductVariantColor(
 			.values({
 				id: nanoid(),
 				productId,
+				colorId: parsed.colorId ?? null,
 				color: parsed.color,
 				colorHex: parsed.colorHex,
 				basePrice: parsed.basePrice,
@@ -1186,10 +1208,29 @@ export async function deleteProductVariantColor(
 	const db = getDb();
 
 	try {
-		const [deleted] = await db
-			.delete(productVariantColor)
-			.where(eq(productVariantColor.id, colorId))
-			.returning({ id: productVariantColor.id });
+		const [deleted] = await db.transaction(async (tx) => {
+			const variants = await tx
+				.select({ id: productVariant.id })
+				.from(productVariant)
+				.where(eq(productVariant.variantColorId, colorId));
+			if (
+				await hasInventoryHistoryForVariantIdsTx(
+					tx as InventoryTx,
+					variants.map((row) => row.id)
+				)
+			) {
+				throw new ProductError(
+					'Variant colors with inventory history cannot be deleted. Deactivate their variants instead.',
+					ErrorCode.CONFLICT,
+					{ colorId }
+				);
+			}
+
+			return tx
+				.delete(productVariantColor)
+				.where(eq(productVariantColor.id, colorId))
+				.returning({ id: productVariantColor.id });
+		});
 
 		if (!deleted) {
 			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
@@ -1445,21 +1486,7 @@ export async function listTags(options: ListTagsOptions = {}): Promise<TagDTO[]>
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function listColors(_ctx: ServiceContext): Promise<Color[]> {
-	const db = getDb();
-	let rows = await db.select().from(color).orderBy(asc(color.name));
-	if (rows.length === 0) {
-		const blackId = nanoid();
-		const whiteId = nanoid();
-		await db
-			.insert(color)
-			.values([
-				{ id: blackId, name: 'Black', hex: '#000000' },
-				{ id: whiteId, name: 'White', hex: '#ffffff' }
-			])
-			.onConflictDoNothing();
-		rows = await db.select().from(color).orderBy(asc(color.name));
-	}
-	return rows;
+	return getDb().select().from(color).orderBy(asc(color.name));
 }
 
 function formatColorName(val: string): string {
@@ -1476,7 +1503,13 @@ function formatColorName(val: string): string {
 export async function createColor(ctx: ServiceContext, input: InsertColor): Promise<Color> {
 	requireAdmin(ctx.actor);
 
-	const parsed = insertColorSchema.parse(input);
+	const result = insertColorSchema.safeParse(input);
+	if (!result.success) {
+		throw new ProductError('Invalid color data.', ErrorCode.VALIDATION_ERROR, {
+			issues: result.error.issues
+		});
+	}
+	const parsed = result.data;
 	const db = getDb();
 
 	const formattedName = formatColorName(parsed.name);
@@ -2814,6 +2847,61 @@ async function assertCategoryExists(id: string, message: string): Promise<void> 
 
 	if (!row) {
 		throw new ProductError(message, ErrorCode.CATEGORY_NOT_FOUND, { categoryId: id });
+	}
+}
+
+async function assertCategoryParentDoesNotCreateCycle(
+	categoryId: string,
+	parentId: string
+): Promise<void> {
+	let currentId: string | null = parentId;
+	const visited = new Set<string>();
+
+	while (currentId) {
+		if (currentId === categoryId || visited.has(currentId)) {
+			throw new ProductError(
+				'A category cannot be moved beneath itself or one of its descendants.',
+				ErrorCode.VALIDATION_ERROR,
+				{ categoryId, parentId }
+			);
+		}
+		visited.add(currentId);
+
+		const [row] = await getDb()
+			.select({ id: category.id, parentId: category.parentId })
+			.from(category)
+			.where(eq(category.id, currentId))
+			.limit(1);
+		if (!row) {
+			throw new ProductError('Parent category not found.', ErrorCode.CATEGORY_NOT_FOUND, {
+				categoryId: currentId
+			});
+		}
+
+		currentId = row.parentId;
+	}
+}
+
+async function assertProductDeletionHasNoHistoryTx(
+	tx: Tx,
+	productId: string,
+	variantIds: string[]
+): Promise<void> {
+	const [reviewRows, hasInventoryHistory] = await Promise.all([
+		tx
+			.select({ id: reviewTable.id })
+			.from(reviewTable)
+			.where(eq(reviewTable.productId, productId))
+			.limit(1),
+		hasInventoryHistoryForVariantIdsTx(tx as InventoryTx, variantIds)
+	]);
+
+	if (reviewRows[0] || hasInventoryHistory) {
+		throw new ProductError(
+			'Products with review or inventory history cannot be deleted. Deactivate the product instead.',
+			ErrorCode.CONFLICT,
+			{ productId }
+		);
 	}
 }
 

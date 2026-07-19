@@ -184,10 +184,14 @@ export async function cancelNotification(
 	const id = normalizeId(input.id, 'id');
 	const existing = await loadNotificationOutboxByIdTx(getDb(), id);
 
-	if (existing.status === 'sent') {
-		throw new NotificationError('Sent notifications cannot be cancelled.', ErrorCode.CONFLICT, {
-			id
-		});
+	if (existing.status === 'sent' || existing.status === 'processing') {
+		throw new NotificationError(
+			'This notification can no longer be cancelled.',
+			ErrorCode.CONFLICT,
+			{
+				id
+			}
+		);
 	}
 
 	if (existing.status === 'cancelled') {
@@ -205,11 +209,22 @@ export async function cancelNotification(
 			lastError: normalizeOptionalText(input.reason, 'reason', MAX_ERROR_LENGTH),
 			updatedAt: now
 		})
-		.where(eq(notificationOutbox.id, id))
+		.where(
+			and(eq(notificationOutbox.id, id), inArray(notificationOutbox.status, ['pending', 'failed']))
+		)
 		.returning();
 
 	if (!updated) {
-		throw new NotificationError('Notification not found.', ErrorCode.NOT_FOUND, { id });
+		const current = await loadNotificationOutboxByIdTx(getDb(), id);
+		if (current.status === 'cancelled') return toNotificationOutboxDTO(current);
+		throw new NotificationError(
+			'This notification can no longer be cancelled.',
+			ErrorCode.CONFLICT,
+			{
+				id,
+				status: current.status
+			}
+		);
 	}
 
 	return toNotificationOutboxDTO(updated);
@@ -769,6 +784,7 @@ function toNewNotificationOutbox<TType extends NotificationOutboxType>(
 	assertSupportedTypeChannel(input.type, input.channel);
 	const recipient = normalizeRecipient(input.channel, input.recipient);
 	const payload = normalizeNotificationPayload(input.type, input.channel, input.payload);
+	assertPayloadRecipientMatches(input.channel, recipient, payload);
 	const metadata = normalizeMetadata(input.metadata);
 
 	return removeUndefinedValues({
@@ -870,6 +886,12 @@ function normalizeNotificationPayload<TType extends NotificationOutboxType>(
 	}
 
 	const normalizedPayload = { ...payload };
+	if (channel === 'email') {
+		normalizedPayload.email = normalizeRecipient(
+			'email',
+			requireString(payload.email, 'payload.email')
+		);
+	}
 	if (channel === 'sms') {
 		normalizedPayload.to = normalizePhoneRecipientField(payload.to, 'payload.to');
 	}
@@ -925,6 +947,26 @@ function normalizeNotificationPayload<TType extends NotificationOutboxType>(
 	}
 
 	return normalizedPayload as unknown as NotificationPayloadByType[TType];
+}
+
+function assertPayloadRecipientMatches(
+	channel: NotificationChannel,
+	recipient: string,
+	payload: NotificationPayload
+): void {
+	const payloadRecord = payload as unknown as Record<string, unknown>;
+	const payloadRecipient =
+		channel === 'email'
+			? normalizeRecipient('email', requireString(payloadRecord.email, 'payload.email'))
+			: normalizePhoneRecipientField(payloadRecord.to, 'payload.to');
+
+	if (payloadRecipient !== recipient) {
+		throw new NotificationError(
+			'Notification recipient does not match the payload recipient.',
+			ErrorCode.VALIDATION_ERROR,
+			{ channel }
+		);
+	}
 }
 
 function parseMetadata(value: unknown): Record<string, unknown> | null {
