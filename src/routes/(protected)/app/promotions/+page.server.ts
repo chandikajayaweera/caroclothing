@@ -1,212 +1,250 @@
 import { fail } from '@sveltejs/kit';
+import type { z } from 'zod';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import {
-	createPromoCode,
-	createPromoCodeFormSchema,
-	listPromoCodeUsages,
-	listPromoCodes,
-	reconcilePromoCodeUsageCount,
-	reconcilePromoCodeUsageCountFormSchema,
-	reconcilePromoCodeUsageCounts,
-	reconcilePromoCodeUsageCountsFormSchema,
-	setPromoCodeActive,
-	setPromoCodeActiveFormSchema,
-	updatePromoCode,
-	updatePromoCodeFormSchema,
-	type ListPromoCodeUsagesOptions,
-	type ListPromoCodesOptions
-} from '$lib/server/modules/promotions';
-import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
+import {
+	addPromotionCode,
+	addPromotionCodeFormSchema,
+	createPromotion,
+	createPromotionFormSchema,
+	grantPromotionToCustomer,
+	grantPromotionToCustomerFormSchema,
+	listPromoCodeUsages,
+	listPromotionCustomerGrants,
+	listPromotions,
+	revokePromotionCustomerGrant,
+	setPromotionActive,
+	setPromotionActiveFormSchema,
+	updatePromotion,
+	updatePromotionCode,
+	updatePromotionCodeFormSchema,
+	updatePromotionFormSchema
+} from '$lib/server/modules/promotions';
 
-function getAdminContext(locals: App.Locals) {
+function ctx(locals: App.Locals) {
 	return { actor: locals.user };
 }
-
-function getPromoCodeOptions(url: URL): ListPromoCodesOptions {
-	const tab = url.searchParams.get('tab') || 'codes';
-	return {
-		isActive: getStatusFilter(url.searchParams.get('status')),
-		query: url.searchParams.get('query')?.trim() || undefined,
-		limit: tab === 'codes' ? getIntegerParam(url.searchParams.get('limit')) : undefined,
-		offset: tab === 'codes' ? getIntegerParam(url.searchParams.get('offset')) : undefined
-	};
+function int(value: string | null, fallback: number) {
+	const number = Number(value);
+	return Number.isInteger(number) && number >= 0 ? number : fallback;
 }
-
-function getPromoUsageOptions(url: URL): ListPromoCodeUsagesOptions {
-	const tab = url.searchParams.get('tab') || 'codes';
-	return {
-		promoCodeId: url.searchParams.get('promoCodeId')?.trim() || undefined,
-		userId: url.searchParams.get('userId')?.trim() || undefined,
-		orderId: url.searchParams.get('orderId')?.trim() || undefined,
-		limit: tab === 'usages' ? (getIntegerParam(url.searchParams.get('limit')) ?? 25) : 25,
-		offset: tab === 'usages' ? getIntegerParam(url.searchParams.get('offset')) : undefined
-	};
-}
-
-function getStatusFilter(value: string | null): boolean | undefined {
-	if (value === 'active') return true;
-	if (value === 'inactive') return false;
-	return undefined;
-}
-
-function getIntegerParam(value: string | null): number | undefined {
-	if (!value) return undefined;
-
-	const parsed = Number(value);
-	return Number.isFinite(parsed) ? parsed : undefined;
-}
+const defaults = {
+	name: '',
+	publicTitle: null,
+	internalDescription: null,
+	publicDescription: null,
+	discountType: 'fixed' as const,
+	discountValue: 1,
+	minOrderAmount: null,
+	maxDiscountAmount: null,
+	usageLimit: null,
+	perUserLimit: 1,
+	applicationMode: 'code' as const,
+	eligibilityScope: 'all' as const,
+	visibility: 'internal' as const,
+	priority: 0,
+	startsAt: null,
+	expiresAt: null,
+	code: null,
+	distribution: 'private' as const,
+	isDiscoverable: false,
+	redemptionChannel: 'storefront' as const,
+	partnerReference: null,
+	codeUsageLimit: null
+};
 
 export const load: PageServerLoad = async ({ locals, url }) => {
-	const ctx = getAdminContext(locals);
-	const promoCodeOptions = getPromoCodeOptions(url);
-	const promoUsageOptions = getPromoUsageOptions(url);
-
 	try {
-		const [
-			promoCodes,
-			promoUsages,
-			createPromoCodeForm,
-			updatePromoCodeForm,
-			setPromoCodeActiveForm,
-			reconcilePromoCodeUsageCountForm,
-			reconcilePromoCodeUsageCountsForm
-		] = await Promise.all([
-			listPromoCodes(ctx, promoCodeOptions),
-			listPromoCodeUsages(ctx, promoUsageOptions),
-			superValidate(zod4(createPromoCodeFormSchema), {
-				id: 'createPromoCode'
+		const limit = int(url.searchParams.get('limit'), 50);
+		const offset = int(url.searchParams.get('offset'), 0);
+		const [promotions, usages, grants] = await Promise.all([
+			listPromotions(ctx(locals), {
+				query: url.searchParams.get('query')?.trim() || undefined,
+				applicationMode:
+					url.searchParams.get('mode') === 'automatic'
+						? 'automatic'
+						: url.searchParams.get('mode') === 'code'
+							? 'code'
+							: undefined,
+				limit,
+				offset
 			}),
-			superValidate(zod4(updatePromoCodeFormSchema), {
-				id: 'updatePromoCode'
-			}),
-			superValidate(zod4(setPromoCodeActiveFormSchema), {
-				id: 'setPromoCodeActive'
-			}),
-			superValidate(zod4(reconcilePromoCodeUsageCountFormSchema), {
-				id: 'reconcilePromoCodeUsageCount'
-			}),
-			superValidate(zod4(reconcilePromoCodeUsageCountsFormSchema), {
-				id: 'reconcilePromoCodeUsageCounts'
-			})
+			listPromoCodeUsages(ctx(locals), { limit: 25, offset: 0 }),
+			listPromotionCustomerGrants(ctx(locals))
 		]);
-
 		return {
-			promoCodes,
-			promoUsages,
+			promotions,
+			usages,
+			grants,
 			filters: {
-				status: url.searchParams.get('status') ?? '',
-				query: url.searchParams.get('query')?.trim() ?? '',
-				promoCodeId: promoUsageOptions.promoCodeId ?? '',
-				userId: promoUsageOptions.userId ?? '',
-				orderId: promoUsageOptions.orderId ?? '',
-				limit: getIntegerParam(url.searchParams.get('limit')) ?? promoCodes.limit,
-				offset: getIntegerParam(url.searchParams.get('offset')) ?? promoCodes.offset,
-				usageLimit: promoUsageOptions.limit ?? promoUsages.limit,
-				usageOffset: promoUsageOptions.offset ?? promoUsages.offset
+				query: url.searchParams.get('query') ?? '',
+				mode: url.searchParams.get('mode') ?? ''
 			},
-			createPromoCodeForm,
-			updatePromoCodeForm,
-			setPromoCodeActiveForm,
-			reconcilePromoCodeUsageCountForm,
-			reconcilePromoCodeUsageCountsForm
+			createForm: await superValidate(defaults, zod4(createPromotionFormSchema), {
+				id: 'promotion-create',
+				errors: false
+			}),
+			updateForm: await superValidate(
+				{ promotionId: '', ...defaults },
+				zod4(updatePromotionFormSchema),
+				{ id: 'promotion-update', errors: false }
+			),
+			activeForm: await superValidate(zod4(setPromotionActiveFormSchema), {
+				id: 'promotion-active'
+			})
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
 	}
 };
 
+type PromotionRuleData = Omit<z.infer<typeof updatePromotionFormSchema>, 'promotionId'>;
+
+function promotionData(data: PromotionRuleData) {
+	return {
+		name: data.name,
+		publicTitle: data.publicTitle,
+		internalDescription: data.internalDescription,
+		publicDescription: data.publicDescription,
+		discountType: data.discountType,
+		discountValue: data.discountValue,
+		minOrderAmount: data.minOrderAmount,
+		maxDiscountAmount: data.maxDiscountAmount,
+		usageLimit: data.usageLimit,
+		perUserLimit: data.perUserLimit,
+		applicationMode: data.applicationMode,
+		eligibilityScope: data.eligibilityScope,
+		visibility: data.visibility,
+		priority: data.priority,
+		startsAt: data.startsAt,
+		expiresAt: data.expiresAt
+	};
+}
+
 export const actions: Actions = {
-	createCode: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
-		const form = await superValidate(request, zod4(createPromoCodeFormSchema), {
-			id: 'createPromoCode'
+	create: async ({ locals, request }) => {
+		const form = await superValidate(request, zod4(createPromotionFormSchema), {
+			id: 'promotion-create'
 		});
-
 		if (!form.valid) return fail(400, { form });
-
 		try {
-			await createPromoCode(ctx, form.data);
-			return message(form, 'Promo code created inactive.');
+			await createPromotion(ctx(locals), {
+				...promotionData(form.data),
+				code:
+					form.data.applicationMode === 'code' && form.data.code
+						? {
+								code: form.data.code,
+								distribution: form.data.distribution,
+								isDiscoverable: form.data.isDiscoverable,
+								redemptionChannel: form.data.redemptionChannel,
+								partnerReference: form.data.partnerReference,
+								usageLimit: form.data.codeUsageLimit
+							}
+						: null
+			});
+			return message(form, 'Promotion created inactive.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
 	},
-
+	update: async ({ locals, request }) => {
+		const form = await superValidate(request, zod4(updatePromotionFormSchema), {
+			id: 'promotion-update'
+		});
+		if (!form.valid) return fail(400, { form });
+		try {
+			await updatePromotion(ctx(locals), {
+				promotionId: form.data.promotionId,
+				data: promotionData(form.data)
+			});
+			return message(form, 'Promotion updated.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
+	addCode: async ({ locals, request }) => {
+		const form = await superValidate(request, zod4(addPromotionCodeFormSchema), {
+			id: 'promotion-add-code'
+		});
+		if (!form.valid) return fail(400, { form });
+		try {
+			await addPromotionCode(ctx(locals), {
+				promotionId: form.data.promotionId,
+				code: form.data.code,
+				distribution: form.data.distribution,
+				isDiscoverable: form.data.isDiscoverable,
+				redemptionChannel: form.data.redemptionChannel,
+				partnerReference: form.data.partnerReference,
+				usageLimit: form.data.codeUsageLimit
+			});
+			return message(form, 'Redemption code added.');
+		} catch (error) {
+			return formFailFromAppError(form, error);
+		}
+	},
 	updateCode: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
-		const form = await superValidate(request, zod4(updatePromoCodeFormSchema), {
-			id: 'updatePromoCode'
+		const form = await superValidate(request, zod4(updatePromotionCodeFormSchema), {
+			id: 'promotion-update-code'
 		});
-
 		if (!form.valid) return fail(400, { form });
-
-		const { promoCodeId, ...data } = form.data;
-
 		try {
-			await updatePromoCode(ctx, { lookup: { id: promoCodeId }, data });
-			return message(form, 'Promo code updated.');
+			await updatePromotionCode(ctx(locals), {
+				promoCodeId: form.data.promoCodeId,
+				data: {
+					code: form.data.code,
+					distribution: form.data.distribution,
+					isDiscoverable: form.data.isDiscoverable,
+					redemptionChannel: form.data.redemptionChannel,
+					partnerReference: form.data.partnerReference,
+					usageLimit: form.data.codeUsageLimit,
+					isActive: form.data.isActive
+				}
+			});
+			return message(form, 'Redemption code updated.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
 	},
-
 	setActive: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
-		const form = await superValidate(request, zod4(setPromoCodeActiveFormSchema), {
-			id: 'setPromoCodeActive'
+		const form = await superValidate(request, zod4(setPromotionActiveFormSchema), {
+			id: 'promotion-active'
 		});
-
 		if (!form.valid) return fail(400, { form });
-
 		try {
-			await setPromoCodeActive(ctx, {
-				lookup: { id: form.data.promoCodeId },
-				isActive: form.data.isActive
-			});
-			return message(form, form.data.isActive ? 'Promo code activated.' : 'Promo code paused.');
+			await setPromotionActive(ctx(locals), form.data);
+			return message(form, form.data.isActive ? 'Promotion activated.' : 'Promotion paused.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
 	},
-
-	reconcileCode: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
-		const form = await superValidate(request, zod4(reconcilePromoCodeUsageCountFormSchema), {
-			id: 'reconcilePromoCodeUsageCount'
+	grant: async ({ locals, request }) => {
+		const form = await superValidate(request, zod4(grantPromotionToCustomerFormSchema), {
+			id: 'promotion-grant'
 		});
-
 		if (!form.valid) return fail(400, { form });
-
 		try {
-			await reconcilePromoCodeUsageCount(ctx, { lookup: { id: form.data.promoCodeId } });
-			return message(form, 'Promo usage count reconciled.');
+			await grantPromotionToCustomer(ctx(locals), form.data);
+			return message(form, 'Customer grant added.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
 	},
-
-	reconcileCodes: async ({ locals, request }) => {
-		const ctx = getAdminContext(locals);
-		const form = await superValidate(request, zod4(reconcilePromoCodeUsageCountsFormSchema), {
-			id: 'reconcilePromoCodeUsageCounts'
+	revokeGrant: async ({ locals, request }) => {
+		const form = await superValidate(request, zod4(grantPromotionToCustomerFormSchema), {
+			id: 'promotion-revoke-grant'
 		});
-
 		if (!form.valid) return fail(400, { form });
-
 		try {
-			const result = await reconcilePromoCodeUsageCounts(ctx, {
-				limit: form.data.limit,
-				offset: form.data.offset
+			await revokePromotionCustomerGrant(ctx(locals), {
+				promotionId: form.data.promotionId,
+				userId: form.data.userId
 			});
-			return message(
-				form,
-				`Reconciled ${result.checkedCount} promo codes; ${result.changedCount} changed.`
-			);
+			return message(form, 'Customer grant revoked.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}

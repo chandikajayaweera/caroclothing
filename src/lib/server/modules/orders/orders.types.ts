@@ -79,6 +79,7 @@ export type OrderDTO = {
 	discountAmount: number;
 	shippingAmount: number;
 	totalAmount: number;
+	promotionId: string | null;
 	promoCodeId: string | null;
 	promoCodeSnapshot: PromoCodeSnapshot | null;
 	shippingMethodId: string | null;

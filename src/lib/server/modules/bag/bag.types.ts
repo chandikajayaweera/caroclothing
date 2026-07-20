@@ -95,6 +95,9 @@ export type BagDTO = {
 	hasUnavailableItems: boolean;
 	hasInsufficientItems: boolean;
 	hasReservedItems: boolean;
+	promotionId: string | null;
+	promotionName: string | null;
+	promotionApplicationMode: 'automatic' | 'code' | null;
 	promoCodeId: string | null;
 	promoCode: string | null;
 	promoMinOrderAmount: number | null;
@@ -114,6 +117,7 @@ export type CheckoutOrderBagItemDTO = BagItemDTO & {
 
 export type CheckoutOrderBagDTO = Omit<CheckoutBagDTO, 'items'> & {
 	items: CheckoutOrderBagItemDTO[];
+	promotionId: string | null;
 	promoCodeId: string | null;
 };
 
@@ -124,6 +128,7 @@ export type OrderBagDeleteResult = {
 
 export type AdminBagDTO = BagDTO & {
 	sessionToken: string | null;
+	promotionId: string | null;
 	promoCodeId: string | null;
 };
 

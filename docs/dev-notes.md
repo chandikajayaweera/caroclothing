@@ -130,3 +130,17 @@
 
 - **DON'T DO THIS**: Do not request a large capped page, derive global metrics in a route, and paginate the result again in memory. The totals become incomplete once the cap is reached and query cost grows with the full result set.
 - **INSTEAD DO THIS**: Keep aggregate classification, filters, totals, ordering, `LIMIT`, and `OFFSET` in the owning service's D1 query. Return page rows and global summary metrics as an explicit service read-model contract.
+
+---
+
+### 20. Bounded Storefront Composition
+
+- **DON'T DO THIS**: Do not model the homepage as arbitrary HTML, component-name strings, unvalidated JSON blobs, or route-owned product/category queries. Those designs bypass domain validation and turn publishing into runtime code execution or fragile content coupling.
+- **INSTEAD DO THIS**: Use the fixed storefront section, source, and layout enums. Resolve catalogue, promotion, shipping, and review content inside `getHomePage()`. Keep section ordering, schedules, references, and desktop/mobile R2 media inside the storefront service.
+
+---
+
+### 21. Promotion Policy vs Redemption Codes
+
+- **DON'T DO THIS**: Do not store discount rules, eligibility, visibility, and lifecycle independently on every promo code or treat a code as the canonical discount identity in bags/orders.
+- **INSTEAD DO THIS**: Store policy on the parent promotion, distribution metadata on optional code children, restricted eligibility in customer grants, and append-only redemptions in usage rows. Persist `promotionId` plus optional `promoCodeId` through bag and order workflows.

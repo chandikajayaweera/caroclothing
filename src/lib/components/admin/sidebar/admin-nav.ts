@@ -11,7 +11,8 @@ import {
 	Star,
 	MessageSquareText,
 	Mail,
-	Archive
+	Archive,
+	PanelsTopLeft
 } from 'lucide-svelte';
 
 export type NavHref =
@@ -27,6 +28,7 @@ export type NavHref =
 	| '/app/promotions'
 	| '/app/reviews'
 	| '/app/shipping'
+	| '/app/storefront'
 	| '/app/users'
 	| '/app/wishlist';
 
@@ -52,6 +54,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
 	{
 		label: 'Catalog',
 		items: [
+			{ label: 'Storefront', href: '/app/storefront', icon: PanelsTopLeft },
 			{ label: 'Products', href: '/app/products', icon: Package },
 			{ label: 'Categories', href: '/app/categories', icon: Boxes }
 		]

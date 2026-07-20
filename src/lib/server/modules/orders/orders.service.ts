@@ -63,9 +63,9 @@ import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types
 import { getManualReviewReason } from '../payments/payments.logic';
 import {
 	preparePromoUsageBatch,
+	resolveStoredPromotionForBagTx,
 	validatePromoCodeForBagTx
 } from '../promotions/promotions.service';
-import { promoCode } from '../promotions/promotions.drizzle';
 import {
 	calculateShippingQuoteTx,
 	createShippingMethodSnapshot
@@ -291,6 +291,7 @@ export async function prepareConfirmedOrderFromBag(
 			discountAmount: preview.discountAmount,
 			shippingAmount: preview.shippingAmount,
 			totalAmount: preview.totalAmount,
+			promotionId: preview.promoValidation?.promotionId ?? null,
 			promoCodeId: preview.promoValidation?.promoCodeId ?? null,
 			promoCodeSnapshot: preview.promoValidation?.snapshot ?? null,
 			shippingMethodId: preview.shippingQuote.shippingMethodId,
@@ -428,6 +429,7 @@ export async function prepareConfirmedOrderFromBag(
 	if (preview.promoValidation) {
 		statements.push(
 			...preparePromoUsageBatch(db, {
+				promotionId: preview.promoValidation.promotionId,
 				promoCodeId: preview.promoValidation.promoCodeId,
 				orderId,
 				userId: preview.bag.userId,
@@ -824,26 +826,20 @@ async function buildOrderPreviewTx(
 		subtotal: bag.subtotal,
 		activeOnly: true
 	});
-	let appliedPromoCode: string | null = input.promoCode ?? null;
-	if (!appliedPromoCode && bag.promoCodeId) {
-		const [promoRow] = await tx
-			.select({ code: promoCode.code })
-			.from(promoCode)
-			.where(eq(promoCode.id, bag.promoCodeId))
-			.limit(1);
-		if (promoRow) {
-			appliedPromoCode = promoRow.code;
-		}
-	}
-
-	const promoValidation = appliedPromoCode
+	const promoValidation = input.promoCode
 		? await validatePromoCodeForBagTx(tx, {
-				code: appliedPromoCode,
+				code: input.promoCode,
 				userId: bag.userId,
 				subtotal: bag.subtotal,
 				now: input.now
 			})
-		: null;
+		: await resolveStoredPromotionForBagTx(tx, {
+				promotionId: bag.promotionId,
+				promoCodeId: bag.promoCodeId,
+				userId: bag.userId,
+				subtotal: bag.subtotal,
+				now: input.now
+			});
 	const discountAmount = promoValidation?.discountAmount ?? 0;
 	const shippingAmount = shippingQuote.price;
 	const totalAmount = bag.subtotal - discountAmount + shippingAmount;
@@ -1336,6 +1332,7 @@ function toOrderDTO(
 		discountAmount: row.discountAmount,
 		shippingAmount: row.shippingAmount,
 		totalAmount: row.totalAmount,
+		promotionId: row.promotionId,
 		promoCodeId: row.promoCodeId,
 		promoCodeSnapshot: row.promoCodeSnapshot,
 		shippingMethodId: row.shippingMethodId,

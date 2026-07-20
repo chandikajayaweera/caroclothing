@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { user } from '../auth/auth.drizzle';
 import { product, productVariant } from '../products/products.drizzle';
-import { promoCode } from '../promotions/promotions.drizzle';
+import { promoCode, promotion } from '../promotions/promotions.drizzle';
 
 // ---------------------------------------------------------------------------
 // BAG
@@ -31,6 +31,9 @@ export const bag = sqliteTable(
 		userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
 		// Used for guest session identification. Populated from a secure httpOnly cookie.
 		sessionToken: text('session_token').unique(),
+		promotionId: text('promotion_id').references(() => promotion.id, {
+			onDelete: 'set null'
+		}),
 		promoCodeId: text('promo_code_id').references(() => promoCode.id, {
 			onDelete: 'set null'
 		}),
@@ -137,6 +140,10 @@ export const bagRelations = relations(bag, ({ one, many }) => ({
 		fields: [bag.promoCodeId],
 		references: [promoCode.id]
 	}),
+	promotion: one(promotion, {
+		fields: [bag.promotionId],
+		references: [promotion.id]
+	}),
 	items: many(bagItem)
 }));
 
@@ -179,6 +186,7 @@ function validateBagOwner(
 export const insertBagBaseSchema = createInsertSchema(bag, {
 	userId: idSchema.optional().nullable(),
 	sessionToken: z.string().min(1).max(255).optional().nullable(),
+	promotionId: idSchema.optional().nullable(),
 	promoCodeId: idSchema.optional().nullable(),
 	expiresAt: timestampMsSchema.optional().nullable(),
 	checkoutStartedAt: timestampMsSchema.optional().nullable(),
@@ -191,6 +199,7 @@ export const insertBagBaseSchema = createInsertSchema(bag, {
 export const insertBagSchema = insertBagBaseSchema.superRefine(validateBagOwner);
 export const selectBagSchema = createSelectSchema(bag);
 export const updateBagSchema = createUpdateSchema(bag, {
+	promotionId: idSchema.optional().nullable(),
 	promoCodeId: idSchema.optional().nullable(),
 	expiresAt: timestampMsSchema.optional().nullable(),
 	checkoutStartedAt: timestampMsSchema.optional().nullable(),

@@ -1,7 +1,7 @@
 # Codex Service-Layer Workflow
 
 - **Audience:** Codex agents and humans using Codex in CaroClothing
-- **Status:** current as of 2026-05-19
+- **Status:** current as of 2026-07-20
 - **Scope:** prompts, repo guidance, skills, custom agents, planning, implementation, review, and validation for service-layer work
 
 ## Source Of Truth
@@ -33,6 +33,7 @@ inventory
 orders
 payments
 reviews
+storefront
 ```
 
 `inventory` exposes curated admin inventory APIs through its module index. Internal prepared D1 batch builders in `inventory.service.ts` support checkout/order workflows and should be imported directly only by server internals composing the owning atomic batch.
@@ -40,6 +41,10 @@ reviews
 Bag stock rule: bag writes and `startCheckout` never reserve inventory. `startCheckout` opens a 10-minute validation window only. Quantity increases are rejected when the desired line quantity exceeds tracked available stock, while stale over-quantity lines hydrate as `insufficient` and remain reducible. Online checkout stores only one pending durable `payment_attempt` per bag until the gateway verifies success; identical setup retries resume that attempt, and terminal states never regress. Verified capture revalidates the bag and, in one guarded D1 batch, creates the order/payment, consumes inventory, deletes the bag, and enqueues confirmation intent. Failed, cancelled, expired, or provider-setup attempts leave the bag intact and create no order or stock reservation. Availability and hydration reads remain projections and never mutate another shopper's inventory state.
 
 Account rule: phone registration must not persist the phone number as the display name. Phone-created accounts require name completion, and account deletion must cancel checkout windows, cancel unsent notifications, preserve anonymized order history, and clean review media through the owning services.
+
+Promotion rule: discount policy belongs to the parent promotion; redemption codes are optional distribution handles. Bags/orders keep `promotionId` and optional `promoCodeId`. Customer grants are explicit eligibility state, usage rows are append-only audit records, automatic application chooses the best eligible discount, and new promotions remain inactive until an admin enables them.
+
+Storefront rule: homepage composition uses the bounded section types/sources/layouts in `src/lib/server/modules/storefront`. The public route calls `getHomePage()`; admin `/app/storefront` routes use service APIs and Superforms. Section images are service-owned R2 uploads with compensation. Never turn this module into arbitrary HTML/JSON/component-name page building.
 
 Current server layers:
 

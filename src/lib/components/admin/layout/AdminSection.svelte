@@ -3,12 +3,14 @@
 
 	let {
 		title,
+		description,
 		action,
 		class: className = '',
 		border = true,
 		children
 	}: {
 		title: string;
+		description?: string;
 		action?: Snippet;
 		class?: string;
 		border?: boolean;
@@ -22,9 +24,10 @@
 			? 'border-b border-charcoal p-4 sm:p-5'
 			: 'mb-4'}"
 	>
-		<h2 class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">
-			{title}
-		</h2>
+		<div>
+			<h2 class="font-mono text-[10px] tracking-[0.2em] text-ash uppercase">{title}</h2>
+			{#if description}<p class="mt-1 max-w-2xl text-xs text-ash/55">{description}</p>{/if}
+		</div>
 		{#if action}
 			{@render action()}
 		{/if}

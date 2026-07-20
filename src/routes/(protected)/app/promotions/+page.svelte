@@ -1,1173 +1,549 @@
 <script lang="ts">
-	import type { ActionData, PageData } from './$types';
-	import { resolve } from '$app/paths';
-	import { page } from '$app/state';
 	import { superForm } from 'sveltekit-superforms';
-	import { goto } from '$app/navigation';
-	import { RotateCw, Play, Pause, Edit2, Plus } from 'lucide-svelte';
-	import AdminDateTimePicker from '$lib/components/admin/controls/AdminDateTimePicker.svelte';
-	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
-	import AdminDrawer from '$lib/components/admin/overlays/AdminDrawer.svelte';
+	import { BadgePercent, ChevronDown, Plus } from 'lucide-svelte';
+	import type { ActionData, PageData } from './$types';
+	import AdminPageShell from '$lib/components/admin/layout/AdminPageShell.svelte';
+	import AdminPageHeader from '$lib/components/admin/layout/AdminPageHeader.svelte';
+	import AdminSection from '$lib/components/admin/layout/AdminSection.svelte';
 	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
 	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
 	import AdminTextarea from '$lib/components/admin/controls/AdminTextarea.svelte';
-	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
+	import AdminToggle from '$lib/components/admin/controls/AdminToggle.svelte';
+	import AdminDateTimePicker from '$lib/components/admin/controls/AdminDateTimePicker.svelte';
 	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
-	import AdminTabs from '$lib/components/admin/controls/AdminTabs.svelte';
-	import AdminModal from '$lib/components/admin/overlays/AdminModal.svelte';
-	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
-	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
-	import AdminRowActions from '$lib/components/admin/data-display/AdminRowActions.svelte';
-	import AdminIconAction from '$lib/components/admin/data-display/AdminIconAction.svelte';
-	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
-	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
-	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
-	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
-	import {
-		formatAdminDateTime,
-		formatAdminDiscount,
-		formatAdminMoney,
-		formatAdminStatus
-	} from '$lib/shared/admin/format';
-	import { promotionStatusVariant } from '$lib/shared/admin/status';
+	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
 
 	let { data, form: actionData }: { data: PageData; form?: ActionData } = $props();
-	type PromotionAdminItem = PageData['promoCodes']['items'][number] &
-		PageData['promoUsages']['items'][number];
-
-	// Active tab derived from query params
-	type PromotionTab = 'codes' | 'usages';
-	const activeTab = $derived<PromotionTab>(
-		page.url.searchParams.get('tab') === 'usages' ? 'usages' : 'codes'
-	);
-
-	let currentQuery = $state('');
-
-	$effect(() => {
-		if (activeTab === 'codes') {
-			currentQuery = data.filters.query ?? '';
-		} else {
-			currentQuery = data.filters.promoCodeId ?? '';
-		}
-	});
-
-	function handleFormSubmit(event: SubmitEvent) {
-		const form = event.target as HTMLFormElement;
-		if (form.method.toLowerCase() === 'get') {
-			event.preventDefault();
-			const formData = new FormData(form);
-			const url = new URL(form.action || window.location.href);
-
-			url.searchParams.forEach((_, key) => {
-				url.searchParams.delete(key);
-			});
-
-			url.searchParams.set('tab', activeTab);
-			url.searchParams.set('offset', '0');
-
-			for (const [key, value] of formData.entries()) {
-				if (value) {
-					if (activeTab === 'usages' && key === 'query') {
-						url.searchParams.set('promoCodeId', String(value));
-					} else {
-						url.searchParams.set(key, String(value));
-					}
-				}
-			}
-
-			// eslint-disable-next-line svelte/no-navigation-without-resolve
-			goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), {
-				keepFocus: true,
-				noScroll: true
-			});
-		}
+	function initial<T>(read: () => T): T {
+		return read();
 	}
-
-	// Dialog opening states
-	let createPromoModalOpen = $state(false);
-	let editPromoModalOpen = $state(false);
-	let syncConfirmModalOpen = $state(false);
-
-	function initialForm<T>(getValue: () => T): T {
-		return getValue();
-	}
-
-	// ── Superforms Initialization ─────────────────────────────────────────
-
-	const createPromoCodeSuperform = superForm(
-		initialForm(() => data.createPromoCodeForm),
-		{
-			id: 'createPromoCode',
-			resetForm: true,
-			onUpdated({ form }) {
-				if (form.valid) {
-					createPromoModalOpen = false;
-					toastMessage = form.message ?? 'Promo code created.';
-				}
-			}
-		}
+	const createSf = superForm(
+		initial(() => data.createForm),
+		{ resetForm: true }
 	);
-
 	const {
 		form: createForm,
 		errors: createErrors,
-		message: createMessage,
 		enhance: createEnhance,
 		submitting: createSubmitting
-	} = createPromoCodeSuperform;
-
-	const updatePromoCodeSuperform = superForm(
-		initialForm(() => data.updatePromoCodeForm),
-		{
-			id: 'updatePromoCode',
-			resetForm: false,
-			onUpdated({ form }) {
-				if (form.valid) {
-					editPromoModalOpen = false;
-					toastMessage = form.message ?? 'Promo code updated.';
-				}
-			}
-		}
-	);
-
-	const {
-		form: updateForm,
-		errors: updateErrors,
-		message: updateMessage,
-		enhance: updateEnhance,
-		submitting: updateSubmitting
-	} = updatePromoCodeSuperform;
-
-	const setPromoCodeActiveSuperform = superForm(
-		initialForm(() => data.setPromoCodeActiveForm),
-		{
-			id: 'setPromoCodeActive',
-			resetForm: false,
-			onUpdated({ form }) {
-				if (form.valid) {
-					toastMessage = form.message ?? 'Promo code active state updated.';
-				}
-			}
-		}
-	);
-
-	const { message: setActiveMessage, enhance: setActiveEnhance } = setPromoCodeActiveSuperform;
-
-	const reconcilePromoCodeUsageCountSuperform = superForm(
-		initialForm(() => data.reconcilePromoCodeUsageCountForm),
-		{
-			id: 'reconcilePromoCodeUsageCount',
-			resetForm: false,
-			onUpdated({ form }) {
-				if (form.valid) {
-					toastMessage = form.message ?? 'Reconciled promo code count.';
-				}
-			}
-		}
-	);
-
-	const { message: reconcileCodeMessage, enhance: reconcileCodeEnhance } =
-		reconcilePromoCodeUsageCountSuperform;
-
-	const reconcilePromoCodeUsageCountsSuperform = superForm(
-		initialForm(() => data.reconcilePromoCodeUsageCountsForm),
-		{
-			id: 'reconcilePromoCodeUsageCounts',
-			resetForm: false,
-			onUpdated({ form }) {
-				if (form.valid) {
-					syncConfirmModalOpen = false;
-					toastMessage = form.message ?? 'Usage counts reconciled.';
-				}
-			}
-		}
-	);
-
-	const {
-		message: reconcileCodesMessage,
-		enhance: reconcileCodesEnhance,
-		submitting: reconcileCodesSubmitting
-	} = reconcilePromoCodeUsageCountsSuperform;
-
-	// Toast / message banner handling
-	let toastMessage = $state<string | null>(null);
-	const combinedMessage = $derived(
-		$createMessage ||
-			$updateMessage ||
-			$setActiveMessage ||
-			$reconcileCodeMessage ||
-			$reconcileCodesMessage ||
-			actionData?.form?.message
-	);
-
-	$effect(() => {
-		if (combinedMessage) {
-			toastMessage = combinedMessage;
-		}
-	});
-
-	// Helper to enter edit mode for a promo code
-	function startEdit(codeItem: (typeof data.promoCodes.items)[number]) {
-		$updateForm.promoCodeId = codeItem.id;
-		$updateForm.code = codeItem.code;
-		$updateForm.description = codeItem.description ?? '';
-		$updateForm.discountType = codeItem.discountType;
-		$updateForm.discountValue = codeItem.discountValue;
-		$updateForm.minOrderAmount = codeItem.minOrderAmount ?? null;
-		$updateForm.maxDiscountAmount = codeItem.maxDiscountAmount ?? null;
-		$updateForm.usageLimit = codeItem.usageLimit ?? null;
-		$updateForm.perUserLimit = codeItem.perUserLimit ?? 1;
-		$updateForm.startsAt = codeItem.startsAt ? codeItem.startsAt.getTime() : null;
-		$updateForm.expiresAt = codeItem.expiresAt ? codeItem.expiresAt.getTime() : null;
-		editPromoModalOpen = true;
-	}
-
-	let nowMs = $state(Date.now());
-
-	$effect(() => {
-		const interval = setInterval(() => {
-			nowMs = Date.now();
-		}, 30000);
-		return () => clearInterval(interval);
-	});
-
-	const originalPromoCode = $derived(
-		data.promoCodes.items.find((code) => code.id === $updateForm.promoCodeId)
-	);
-
-	const isPromoStarted = $derived(
-		!!(
-			originalPromoCode &&
-			originalPromoCode.startsAt !== null &&
-			originalPromoCode.startsAt !== undefined &&
-			new Date(originalPromoCode.startsAt).getTime() < nowMs
-		)
-	);
-
-	$effect(() => {
-		if (
-			$createForm.startsAt &&
-			$createForm.expiresAt &&
-			$createForm.expiresAt <= $createForm.startsAt
-		) {
-			$createForm.expiresAt = null;
-		}
-	});
-
-	$effect(() => {
-		if (
-			$updateForm.startsAt &&
-			$updateForm.expiresAt &&
-			$updateForm.expiresAt <= $updateForm.startsAt
-		) {
-			$updateForm.expiresAt = null;
-		}
-	});
-
-	// ── Tab Navigation ───────────────────────────────────────────────────────
-	function handleTabChange(tab: 'codes' | 'usages') {
-		const url = new URL(page.url);
-		url.searchParams.set('tab', tab);
-		url.searchParams.delete('query');
-		url.searchParams.delete('offset');
-		url.searchParams.delete('status');
-		url.searchParams.delete('promoCodeId');
-		url.searchParams.delete('userId');
-		url.searchParams.delete('orderId');
-		url.searchParams.delete('offset');
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), { noScroll: true });
-	}
-
-	// ── Live Filters ────────────────────────────────────────────────────────
-	function getInitialFilter<T>(getValue: () => T): T {
-		return getValue();
-	}
-
-	let queryInput = $state(getInitialFilter(() => data.filters.query ?? ''));
-	let statusInput = $state(getInitialFilter(() => data.filters.status ?? ''));
-	let promoCodeIdInput = $state(getInitialFilter(() => data.filters.promoCodeId ?? ''));
-	let userIdInput = $state(getInitialFilter(() => data.filters.userId ?? ''));
-	let orderIdInput = $state(getInitialFilter(() => data.filters.orderId ?? ''));
-
-	let showFilters = $state(false);
-
-	$effect(() => {
-		queryInput = data.filters.query ?? '';
-		statusInput = data.filters.status ?? '';
-		promoCodeIdInput = data.filters.promoCodeId ?? '';
-		userIdInput = data.filters.userId ?? '';
-		orderIdInput = data.filters.orderId ?? '';
-	});
-
-	function applyCodesFilters() {
-		const url = new URL(page.url);
-		url.searchParams.set('tab', 'codes');
-		if (queryInput) {
-			url.searchParams.set('query', queryInput);
-		} else {
-			url.searchParams.delete('query');
-		}
-		if (statusInput) {
-			url.searchParams.set('status', statusInput);
-		} else {
-			url.searchParams.delete('status');
-		}
-		url.searchParams.delete('offset');
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), {
-			keepFocus: true,
-			replaceState: true
-		});
-	}
-
-	function applyUsagesFilters() {
-		const url = new URL(page.url);
-		url.searchParams.set('tab', 'usages');
-		if (promoCodeIdInput) {
-			url.searchParams.set('promoCodeId', promoCodeIdInput);
-		} else {
-			url.searchParams.delete('promoCodeId');
-		}
-		if (userIdInput) {
-			url.searchParams.set('userId', userIdInput);
-		} else {
-			url.searchParams.delete('userId');
-		}
-		if (orderIdInput) {
-			url.searchParams.set('orderId', orderIdInput);
-		} else {
-			url.searchParams.delete('orderId');
-		}
-		url.searchParams.delete('offset');
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), {
-			keepFocus: true,
-			replaceState: true
-		});
-	}
-
-	let debounceTimer: number;
-	function handleUsagesSearchInput() {
-		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => {
-			applyUsagesFilters();
-		}, 300) as unknown as number;
-	}
-
-	function clearCodesFilters() {
-		queryInput = '';
-		statusInput = '';
-		const url = new URL(page.url);
-		url.searchParams.delete('query');
-		url.searchParams.delete('status');
-		url.searchParams.delete('offset');
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), { noScroll: true });
-	}
-
-	function clearUsagesFilters() {
-		promoCodeIdInput = '';
-		userIdInput = '';
-		orderIdInput = '';
-		const url = new URL(page.url);
-		url.searchParams.delete('promoCodeId');
-		url.searchParams.delete('userId');
-		url.searchParams.delete('orderId');
-		url.searchParams.delete('usageOffset');
-		// eslint-disable-next-line svelte/no-navigation-without-resolve
-		goto(resolve('/app/promotions') + '?' + url.searchParams.toString(), { noScroll: true });
-	}
-
-	// ── Stats ───────────────────────────────────────────────────────────────
-	const promotionMetrics = $derived.by(() => {
-		if (activeTab === 'codes') {
-			return [
-				{ label: 'Filtered Codes', value: data.promoCodes.total },
-				{
-					label: 'Active on Page',
-					value: data.promoCodes.items.filter((code) => code.isActive).length,
-					tone: 'success' as const
-				},
-				{
-					label: 'Inactive on Page',
-					value: data.promoCodes.items.filter((code) => !code.isActive).length,
-					tone: 'neutral' as const
-				}
-			];
-		}
-
-		return [
-			{ label: 'Redemption Records', value: data.promoUsages.total },
-			{
-				label: 'Users on Page',
-				value: new Set(data.promoUsages.items.map((usage) => usage.userId).filter(Boolean)).size,
-				description: 'Distinct customer references',
-				tone: 'info' as const
-			},
-			{
-				label: 'Discount on Page',
-				value: formatAdminMoney(
-					data.promoUsages.items.reduce((total, usage) => total + usage.discountAmount, 0)
-				),
-				description: 'Current result page',
-				tone: 'accent' as const
-			}
-		];
-	});
-
-	const promotionsKicker = $derived(
-		`Commerce · Codes: ${data.promoCodes.total} · Redemptions: ${data.promoUsages.total}`
-	);
-
-	const codeHeaders = [
-		{ label: 'Code & Description' },
-		{ label: 'Discount' },
-		{ label: 'Limits / Thresholds' },
-		{ label: 'Active Window' },
-		{ label: 'Status' },
-		{ label: 'Actions', class: 'text-right' }
-	];
-
-	const usageHeaders = [
-		{ label: 'Audit Log ID' },
-		{ label: 'Promo Code' },
-		{ label: 'User Reference' },
-		{ label: 'Order Reference' },
-		{ label: 'Discount Applied' },
-		{ label: 'Redeemed At', class: 'text-right' }
-	];
-
-	function formatValidity(
-		startsAt: number | Date | null | undefined,
-		expiresAt: number | Date | null | undefined
-	): string {
-		if (!startsAt && !expiresAt) return 'Always Active';
-		if (startsAt && !expiresAt) return `Starts ${formatAdminDateTime(startsAt, '—')}`;
-		if (!startsAt && expiresAt) return `Expires ${formatAdminDateTime(expiresAt, '—')}`;
-		return `${formatAdminDateTime(startsAt, '—')} – ${formatAdminDateTime(expiresAt, '—')}`;
+	} = createSf;
+	let createOpen = $state(false);
+	function statusTone(status: string) {
+		return status === 'active'
+			? 'success'
+			: status === 'scheduled'
+				? 'info'
+				: status === 'expired' || status === 'exhausted'
+					? 'warning'
+					: 'neutral';
 	}
 </script>
 
-<svelte:head>
-	<title>Promotions | Caro Admin</title>
-	<meta
-		name="description"
-		content="Manage promo codes, usage limits, minimum order value, per-user limits, expiry windows, and redemption logs."
-	/>
-</svelte:head>
-
-{#if toastMessage}
-	<AdminToast
-		message={toastMessage}
-		type={page.status >= 400 ? 'error' : 'success'}
-		onclose={() => (toastMessage = null)}
-	/>
-{/if}
-
-<div onsubmit={handleFormSubmit}>
-	<AdminListLayout
+<AdminPageShell>
+	<AdminPageHeader
+		kicker="Commerce"
 		title="Promotions"
-		kicker={promotionsKicker}
-		loading={false}
-		metrics={promotionMetrics}
-		bind:query={currentQuery}
-		bind:showFilters
-		hasActiveFilters={activeTab === 'codes'
-			? statusInput !== ''
-			: promoCodeIdInput !== '' || userIdInput !== '' || orderIdInput !== ''}
-		totalItems={activeTab === 'codes' ? data.promoCodes.total : data.promoUsages.total}
-		limit={activeTab === 'codes' ? data.filters.limit : data.filters.usageLimit}
-		offset={activeTab === 'codes' ? data.promoCodes.offset : data.promoUsages.offset}
-		tableHeaders={activeTab === 'codes' ? codeHeaders : usageHeaders}
-		items={activeTab === 'codes'
-			? (data.promoCodes.items as unknown as PromotionAdminItem[])
-			: (data.promoUsages.items as unknown as PromotionAdminItem[])}
-		preserveParams={['tab']}
-		onclearfilters={activeTab === 'codes' ? clearCodesFilters : clearUsagesFilters}
-		searchPlaceholder={activeTab === 'codes'
-			? 'Search promo codes...'
-			: 'Filter by Promo Code ID...'}
-		searchParamName={activeTab === 'codes' ? 'query' : 'promoCodeId'}
+		description="Discount rules, eligibility, lifecycle, visibility, and optional redemption codes."
 	>
-		{#snippet headerActions()}
-			<AdminActionToolbar
-				ariaLabel="Promotion page actions"
-				menuItems={[
-					{
-						label: 'Sync first 100 counts',
-						description: 'Reconcile stored redemption counters for first 100 codes.',
-						icon: RotateCw,
-						onselect: () => (syncConfirmModalOpen = true)
-					}
-				]}
+		{#snippet actions()}<AdminButton onclick={() => (createOpen = !createOpen)}
+				><Plus size={14} /> New promotion</AdminButton
+			>{/snippet}
+	</AdminPageHeader>
+	{#if actionData?.form?.message}<p
+			role="status"
+			class="mt-5 border border-volt/30 bg-volt/10 px-4 py-3 font-mono text-[10px] tracking-widest text-volt uppercase"
+		>
+			{actionData.form.message}
+		</p>{/if}
+
+	{#if createOpen}
+		<form method="POST" action="?/create" use:createEnhance class="mt-7">
+			<AdminSection
+				title="Create promotion"
+				description="New promotions remain inactive. Public visibility never applies a discount by itself."
 			>
-				{#snippet views()}
-					<AdminTabs
-						label="Promotion views"
-						value={activeTab}
-						items={[
-							{ value: 'codes', label: 'Codes', count: data.promoCodes.total },
-							{ value: 'usages', label: 'Audit Logs', count: data.promoUsages.total }
-						]}
-						onchange={(tab) => handleTabChange(tab as PromotionTab)}
+				<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+					<AdminInput
+						label="Internal name"
+						name="name"
+						bind:value={$createForm.name}
+						error={$createErrors.name}
+						required
 					/>
-				{/snippet}
-				{#snippet primary()}
-					<AdminButton type="button" variant="volt" onclick={() => (createPromoModalOpen = true)}>
-						<Plus size={15} aria-hidden="true" />
-						Add promo code
-					</AdminButton>
-				{/snippet}
-			</AdminActionToolbar>
-		{/snippet}
-
-		{#snippet advancedFilters()}
-			{#if activeTab === 'codes'}
-				<AdminFilterBar class="mt-2" cols={3}>
+					<AdminInput
+						label="Public title"
+						name="publicTitle"
+						bind:value={$createForm.publicTitle}
+						error={$createErrors.publicTitle}
+					/>
 					<AdminSelect
-						label="Filter Status"
-						name="status"
-						bind:value={statusInput}
-						options={[
-							{ value: '', label: 'All Statuses' },
-							{ value: 'active', label: 'Active' },
-							{ value: 'inactive', label: 'Inactive' }
-						]}
-						onchange={applyCodesFilters}
-					/>
-				</AdminFilterBar>
-			{:else}
-				<AdminFilterBar class="mt-2" cols={3}>
+						label="Application"
+						name="applicationMode"
+						bind:value={$createForm.applicationMode}
+						error={$createErrors.applicationMode}
+						><option value="code">Code</option><option value="automatic">Automatic</option
+						></AdminSelect
+					>
+					<AdminSelect
+						label="Discount type"
+						name="discountType"
+						bind:value={$createForm.discountType}
+						error={$createErrors.discountType}
+						><option value="fixed">Fixed LKR</option><option value="percentage">Percentage</option
+						></AdminSelect
+					>
 					<AdminInput
-						label="Promo Code ID"
-						name="promoCodeId"
-						bind:value={promoCodeIdInput}
-						placeholder="Filter by Promo Code ID..."
-						oninput={handleUsagesSearchInput}
-					/>
-					<AdminInput
-						label="User ID"
-						name="userId"
-						bind:value={userIdInput}
-						placeholder="Filter by customer User ID..."
-						oninput={handleUsagesSearchInput}
+						label="Discount value"
+						name="discountValue"
+						type="number"
+						min="1"
+						bind:value={$createForm.discountValue}
+						error={$createErrors.discountValue}
 					/>
 					<AdminInput
-						label="Order ID"
-						name="orderId"
-						bind:value={orderIdInput}
-						placeholder="Filter by Order ID..."
-						oninput={handleUsagesSearchInput}
+						label="Minimum order"
+						name="minOrderAmount"
+						type="number"
+						min="0"
+						bind:value={$createForm.minOrderAmount}
+						error={$createErrors.minOrderAmount}
 					/>
-				</AdminFilterBar>
-			{/if}
-		{/snippet}
-
-		{#snippet row(item)}
-			{#if activeTab === 'codes'}
-				{@const code = item}
-				<tr
-					class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/5"
-				>
-					<td class="px-5 py-4">
-						<div class="flex flex-col gap-1">
-							<span class="font-mono text-xs font-bold tracking-wide text-bone uppercase">
-								{code.code}
-							</span>
-							{#if code.description}
-								<span
-									class="min-w-50 truncate font-sans text-xs text-ash/80"
-									title={code.description}
-								>
-									{code.description}
-								</span>
-							{/if}
-							<span class="font-mono text-[9px] text-ash/40">ID: {code.id}</span>
-						</div>
-					</td>
-					<td class="px-5 py-4 font-mono text-xs text-bone">
-						<div class="flex flex-col gap-0.5">
-							<span>{formatAdminDiscount(code.discountType, code.discountValue)}</span>
-							<span class="text-[9px] font-normal text-ash uppercase">{code.discountType}</span>
-						</div>
-					</td>
-					<td class="px-5 py-4 font-mono text-xs text-bone">
-						<div class="flex flex-col gap-1 text-[10px]">
-							{#if code.minOrderAmount}
-								<span class="text-ash">
-									Min Order: <span class="text-bone">{formatAdminMoney(code.minOrderAmount)}</span>
-								</span>
-							{/if}
-							{#if code.maxDiscountAmount}
-								<span class="text-ash">
-									Max Discount: <span class="text-bone"
-										>{formatAdminMoney(code.maxDiscountAmount)}</span
-									>
-								</span>
-							{/if}
-							<span class="text-ash">
-								Usage: <span class="text-bone">{code.usedCount} / {code.usageLimit ?? '∞'}</span>
-							</span>
-							<span class="text-ash">
-								Per-User Limit: <span class="text-bone">{code.perUserLimit}</span>
-							</span>
-						</div>
-					</td>
-					<td class="px-5 py-4 font-mono text-[10px] text-ash uppercase">
-						{formatValidity(code.startsAt, code.expiresAt)}
-					</td>
-					<td class="px-5 py-4">
-						<AdminBadge variant={promotionStatusVariant(code.status)}>
-							{formatAdminStatus(code.status)}
-						</AdminBadge>
-					</td>
-					<td class="px-5 py-4 text-right">
-						<AdminRowActions cols={3} ariaLabel={`Actions for ${code.code}`}>
-							<form method="POST" action="?/reconcileCode" use:reconcileCodeEnhance>
-								<input type="hidden" name="promoCodeId" value={code.id} />
-								<AdminIconAction
-									type="submit"
-									variant="info"
-									title="Reconcile count from logs"
-									ariaLabel={`Reconcile ${code.code}`}
-								>
-									<RotateCw size={14} />
-								</AdminIconAction>
-							</form>
-
-							<AdminIconAction
-								onclick={() => startEdit(code)}
-								variant="neutral"
-								title="Edit promo code"
-								ariaLabel={`Edit ${code.code}`}
-							>
-								<Edit2 size={14} />
-							</AdminIconAction>
-
-							<form method="POST" action="?/setActive" use:setActiveEnhance>
-								<input type="hidden" name="promoCodeId" value={code.id} />
-								<input type="hidden" name="isActive" value={code.isActive ? 'false' : 'true'} />
-								<AdminIconAction
-									type="submit"
-									variant={code.isActive ? 'warning' : 'success'}
-									title={code.isActive ? 'Pause promo code' : 'Activate promo code'}
-									ariaLabel={`${code.isActive ? 'Pause' : 'Activate'} ${code.code}`}
-								>
-									{#if code.isActive}
-										<Pause size={14} />
-									{:else}
-										<Play size={14} />
-									{/if}
-								</AdminIconAction>
-							</form>
-						</AdminRowActions>
-					</td>
-				</tr>
-			{:else}
-				{@const usage = item}
-				<tr
-					class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/5"
-				>
-					<td class="px-5 py-4 font-mono text-xs text-ash/60">
-						{usage.id}
-					</td>
-					<td class="px-5 py-4">
-						<div class="flex flex-col gap-0.5">
-							<span class="font-mono text-xs font-bold text-bone uppercase">
-								{usage.promoCode?.code ?? 'UNKNOWN'}
-							</span>
-							<span class="font-mono text-[9px] text-ash/40">ID: {usage.promoCodeId}</span>
-						</div>
-					</td>
-					<td class="px-5 py-4 font-mono text-xs text-bone">
-						{usage.userId ?? 'Guest User'}
-					</td>
-					<td class="px-5 py-4 font-mono text-xs text-bone">
-						<a
-							href={resolve(`/app/orders/${usage.orderId}`)}
-							class="underline transition-colors hover:text-volt"
+					<AdminInput
+						label="Max discount"
+						name="maxDiscountAmount"
+						type="number"
+						min="1"
+						bind:value={$createForm.maxDiscountAmount}
+						error={$createErrors.maxDiscountAmount}
+					/>
+					<AdminInput
+						label="Overall usage limit"
+						name="usageLimit"
+						type="number"
+						min="1"
+						bind:value={$createForm.usageLimit}
+						error={$createErrors.usageLimit}
+					/>
+					<AdminInput
+						label="Per-customer limit"
+						name="perUserLimit"
+						type="number"
+						min="1"
+						bind:value={$createForm.perUserLimit}
+						error={$createErrors.perUserLimit}
+					/>
+					<AdminSelect
+						label="Eligibility"
+						name="eligibilityScope"
+						bind:value={$createForm.eligibilityScope}
+						><option value="all">All customers</option><option value="authenticated"
+							>Signed-in customers</option
+						><option value="customer_grant">Granted customers</option></AdminSelect
+					>
+					<AdminSelect label="Visibility" name="visibility" bind:value={$createForm.visibility}
+						><option value="internal">Internal</option><option value="unlisted">Unlisted</option
+						><option value="public">Public placement eligible</option></AdminSelect
+					>
+					<AdminInput
+						label="Priority"
+						name="priority"
+						type="number"
+						min="0"
+						bind:value={$createForm.priority}
+						error={$createErrors.priority}
+					/>
+					<div class="md:col-span-2 lg:col-span-3">
+						<AdminTextarea
+							label="Internal note"
+							name="internalDescription"
+							bind:value={$createForm.internalDescription}
+							error={$createErrors.internalDescription}
+						/>
+					</div>
+					<div class="md:col-span-2 lg:col-span-3">
+						<AdminTextarea
+							label="Public description"
+							name="publicDescription"
+							bind:value={$createForm.publicDescription}
+							error={$createErrors.publicDescription}
+						/>
+					</div>
+					{#if $createForm.applicationMode === 'code'}
+						<AdminInput
+							label="Redemption code"
+							name="code"
+							bind:value={$createForm.code}
+							error={$createErrors.code}
+							required
+						/>
+						<AdminSelect
+							label="Distribution"
+							name="distribution"
+							bind:value={$createForm.distribution}
+							><option value="private">Private</option><option value="public">Public</option><option
+								value="influencer">Influencer</option
+							><option value="internal">Internal</option></AdminSelect
 						>
-							{usage.orderId}
-						</a>
-					</td>
-					<td class="px-5 py-4 font-mono text-xs font-bold text-volt">
-						{formatAdminMoney(usage.discountAmount)}
-					</td>
-					<td class="px-5 py-4 text-right font-mono text-[10px] text-ash">
-						{formatAdminDateTime(usage.usedAt, '—')}
-					</td>
-				</tr>
-			{/if}
-		{/snippet}
-
-		{#snippet card(item)}
-			{#if activeTab === 'codes'}
-				{@const code = item}
-				<AdminEntityCard>
-					{#snippet header()}
-						<div class="flex items-start justify-between gap-4">
-							<div>
-								<span class="font-mono text-sm font-bold tracking-wide text-bone uppercase">
-									{code.code}
-								</span>
-								{#if code.description}
-									<p class="mt-1 font-sans text-xs text-ash/80">{code.description}</p>
-								{/if}
-							</div>
-							<AdminBadge variant={promotionStatusVariant(code.status)}>
-								{formatAdminStatus(code.status)}
-							</AdminBadge>
+						<AdminSelect
+							label="Redemption channel"
+							name="redemptionChannel"
+							bind:value={$createForm.redemptionChannel}
+							><option value="storefront">Storefront</option><option value="admin">Admin</option
+							><option value="both">Both</option></AdminSelect
+						>
+						<AdminInput
+							label="Partner reference"
+							name="partnerReference"
+							bind:value={$createForm.partnerReference}
+						/>
+						<AdminInput
+							label="Code usage limit"
+							name="codeUsageLimit"
+							type="number"
+							min="1"
+							bind:value={$createForm.codeUsageLimit}
+						/>
+						<div class="border border-ash/20 px-4">
+							<AdminToggle
+								label="Discoverable code"
+								description="Visibility and discoverability remain separate."
+								name="isDiscoverable"
+								bind:checked={$createForm.isDiscoverable}
+							/>
 						</div>
-					{/snippet}
+					{/if}
+					<AdminDateTimePicker
+						label="Starts at"
+						name="startsAt"
+						bind:value={$createForm.startsAt}
+						error={$createErrors.startsAt}
+					/>
+					<AdminDateTimePicker
+						label="Expires at"
+						name="expiresAt"
+						bind:value={$createForm.expiresAt}
+						error={$createErrors.expiresAt}
+					/>
+				</div>
+				<div class="mt-5 flex justify-end">
+					<AdminButton type="submit" disabled={$createSubmitting}
+						>{$createSubmitting ? 'Creating…' : 'Create inactive promotion'}</AdminButton
+					>
+				</div>
+			</AdminSection>
+		</form>
+	{/if}
 
-					{#snippet metadata()}
-						<AdminMetaGrid>
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Discount</p>
-								<p class="mt-0.5 font-medium text-bone">
-									{formatAdminDiscount(code.discountType, code.discountValue)} ({code.discountType})
-								</p>
-							</div>
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Usage</p>
-								<p class="mt-0.5 font-medium text-bone">
-									{code.usedCount} / {code.usageLimit ?? '∞'}
-								</p>
-							</div>
-							{#if code.minOrderAmount}
-								<div>
-									<p class="text-[8px] tracking-wider text-ash/60 uppercase">Min Order</p>
-									<p class="mt-0.5 font-medium text-bone">
-										{formatAdminMoney(code.minOrderAmount)}
-									</p>
-								</div>
-							{/if}
-							{#if code.maxDiscountAmount}
-								<div>
-									<p class="text-[8px] tracking-wider text-ash/60 uppercase">Max Discount</p>
-									<p class="mt-0.5 font-medium text-bone">
-										{formatAdminMoney(code.maxDiscountAmount)}
-									</p>
-								</div>
-							{/if}
-							<div class="min-[430px]:col-span-2">
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Active Window</p>
-								<p class="mt-0.5 font-medium text-bone">
-									{formatValidity(code.startsAt, code.expiresAt)}
-								</p>
-							</div>
-						</AdminMetaGrid>
-					{/snippet}
+	<form
+		method="GET"
+		class="mt-7 grid gap-3 border border-charcoal bg-charcoal/20 p-4 md:grid-cols-[1fr_220px_auto]"
+	>
+		<AdminInput
+			label="Search"
+			name="query"
+			value={data.filters.query}
+			placeholder="Name or public title"
+		/>
+		<AdminSelect label="Application" name="mode" value={data.filters.mode}
+			><option value="">All</option><option value="code">Code</option><option value="automatic"
+				>Automatic</option
+			></AdminSelect
+		>
+		<AdminButton type="submit" variant="outline" class="self-end">Filter</AdminButton>
+	</form>
 
-					{#snippet actions()}
-						<AdminRowActions cols={3} ariaLabel={`Actions for ${code.code}`}>
-							<form method="POST" action="?/reconcileCode" use:reconcileCodeEnhance>
-								<input type="hidden" name="promoCodeId" value={code.id} />
-								<AdminIconAction
-									type="submit"
-									variant="info"
-									title="Reconcile count from logs"
-									ariaLabel={`Reconcile ${code.code}`}
-								>
-									<RotateCw size={14} />
-								</AdminIconAction>
-							</form>
-							<AdminIconAction
-								onclick={() => startEdit(code)}
-								variant="neutral"
-								title="Edit promo code"
-								ariaLabel={`Edit ${code.code}`}
+	<div class="mt-4 grid gap-3">
+		{#each data.promotions.items as promotion (promotion.id)}
+			<details class="group border border-charcoal bg-charcoal/20">
+				<summary class="flex cursor-pointer list-none items-center gap-4 p-4 md:p-5">
+					<div class="grid h-12 w-12 shrink-0 place-items-center bg-charcoal text-volt">
+						<BadgePercent size={20} />
+					</div>
+					<div class="min-w-0 flex-1">
+						<div class="flex flex-wrap items-center gap-2">
+							<h2 class="font-sans text-sm font-semibold text-bone">{promotion.name}</h2>
+							<AdminBadge variant={statusTone(promotion.status)}>{promotion.status}</AdminBadge
+							><AdminBadge>{promotion.applicationMode}</AdminBadge><AdminBadge
+								>{promotion.visibility}</AdminBadge
 							>
-								<Edit2 size={14} />
-							</AdminIconAction>
-							<form method="POST" action="?/setActive" use:setActiveEnhance>
-								<input type="hidden" name="promoCodeId" value={code.id} />
-								<input type="hidden" name="isActive" value={code.isActive ? 'false' : 'true'} />
-								<AdminIconAction
-									type="submit"
-									variant={code.isActive ? 'warning' : 'success'}
-									title={code.isActive ? 'Pause promo code' : 'Activate promo code'}
-									ariaLabel={`${code.isActive ? 'Pause' : 'Activate'} ${code.code}`}
-								>
-									{#if code.isActive}
-										<Pause size={14} />
-									{:else}
-										<Play size={14} />
-									{/if}
-								</AdminIconAction>
-							</form>
-						</AdminRowActions>
-					{/snippet}
-				</AdminEntityCard>
-			{:else}
-				{@const usage = item}
-				<AdminEntityCard>
-					{#snippet header()}
-						<div class="flex items-start justify-between gap-4 font-mono">
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Log ID</p>
-								<p class="mt-0.5 text-[10px] text-ash/60">{usage.id}</p>
-							</div>
-							<span class="font-mono text-xs font-bold text-volt">
-								-{formatAdminMoney(usage.discountAmount)}
-							</span>
 						</div>
-					{/snippet}
-
-					{#snippet metadata()}
-						<AdminMetaGrid>
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Promo Code</p>
-								<p class="mt-0.5 font-medium text-bone">{usage.promoCode?.code ?? 'UNKNOWN'}</p>
+						<p class="mt-1 font-mono text-[10px] tracking-widest text-ash uppercase">
+							{promotion.discountType === 'fixed'
+								? `LKR ${promotion.discountValue.toLocaleString()}`
+								: `${promotion.discountValue}%`} · priority {promotion.priority} · {promotion.usedCount}/{promotion.usageLimit ??
+								'∞'} used
+						</p>
+					</div>
+					<ChevronDown size={18} class="text-ash transition-transform group-open:rotate-180" />
+				</summary>
+				<div class="border-t border-charcoal p-4 md:p-5">
+					<div class="mb-4 flex justify-end">
+						<form method="POST" action="?/setActive">
+							<input type="hidden" name="promotionId" value={promotion.id} /><input
+								type="hidden"
+								name="isActive"
+								value={promotion.isActive ? 'false' : 'true'}
+							/><AdminButton
+								type="submit"
+								variant={promotion.isActive ? 'danger' : 'outline'}
+								size="sm">{promotion.isActive ? 'Pause' : 'Activate'}</AdminButton
+							>
+						</form>
+					</div>
+					<div class="mb-5 grid gap-3 text-xs text-ash sm:grid-cols-2 lg:grid-cols-4">
+						<p>Eligibility<br /><span class="text-bone">{promotion.eligibilityScope}</span></p>
+						<p>
+							Schedule<br /><span class="text-bone"
+								>{promotion.startsAt?.toLocaleString() ?? 'Immediate'} → {promotion.expiresAt?.toLocaleString() ??
+									'No expiry'}</span
+							>
+						</p>
+						<p>Public copy<br /><span class="text-bone">{promotion.publicTitle ?? 'None'}</span></p>
+						<p>
+							Codes<br /><span class="text-bone"
+								>{promotion.codes.map((item) => item.code).join(', ') || 'Automatic'}</span
+							>
+						</p>
+					</div>
+					<form method="POST" action="?/update" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+						<input type="hidden" name="promotionId" value={promotion.id} />
+						<AdminInput
+							label="Internal name"
+							name="name"
+							value={promotion.name}
+							required
+						/><AdminInput label="Public title" name="publicTitle" value={promotion.publicTitle} />
+						<div>
+							<p class="mb-2 font-mono text-[9px] tracking-widest text-ash uppercase">
+								Application
+							</p>
+							<p class="bg-ink border border-charcoal px-3 py-2.5 text-sm text-bone capitalize">
+								{promotion.applicationMode}
+							</p>
+							<input type="hidden" name="applicationMode" value={promotion.applicationMode} />
+						</div>
+						<AdminSelect label="Discount type" name="discountType" value={promotion.discountType}
+							><option value="fixed">Fixed LKR</option><option value="percentage">Percentage</option
+							></AdminSelect
+						><AdminInput
+							label="Discount value"
+							name="discountValue"
+							type="number"
+							min="1"
+							value={promotion.discountValue}
+						/><AdminInput
+							label="Minimum order"
+							name="minOrderAmount"
+							type="number"
+							min="0"
+							value={promotion.minOrderAmount}
+						/>
+						<AdminInput
+							label="Max discount"
+							name="maxDiscountAmount"
+							type="number"
+							min="1"
+							value={promotion.maxDiscountAmount}
+						/><AdminInput
+							label="Usage limit"
+							name="usageLimit"
+							type="number"
+							min="1"
+							value={promotion.usageLimit}
+						/><AdminInput
+							label="Per-customer limit"
+							name="perUserLimit"
+							type="number"
+							min="1"
+							value={promotion.perUserLimit}
+						/>
+						<AdminSelect
+							label="Eligibility"
+							name="eligibilityScope"
+							value={promotion.eligibilityScope}
+							><option value="all">All</option><option value="authenticated">Authenticated</option
+							><option value="customer_grant">Customer grant</option></AdminSelect
+						><AdminSelect label="Visibility" name="visibility" value={promotion.visibility}
+							><option value="internal">Internal</option><option value="unlisted">Unlisted</option
+							><option value="public">Public</option></AdminSelect
+						><AdminInput
+							label="Priority"
+							name="priority"
+							type="number"
+							min="0"
+							value={promotion.priority}
+						/>
+						<div class="lg:col-span-3">
+							<AdminTextarea
+								label="Internal note"
+								name="internalDescription"
+								value={promotion.internalDescription}
+							/>
+						</div>
+						<div class="lg:col-span-3">
+							<AdminTextarea
+								label="Public description"
+								name="publicDescription"
+								value={promotion.publicDescription}
+							/>
+						</div>
+						<input
+							type="hidden"
+							name="startsAt"
+							value={promotion.startsAt?.getTime() ?? ''}
+						/><input type="hidden" name="expiresAt" value={promotion.expiresAt?.getTime() ?? ''} />
+						<div class="flex justify-end lg:col-span-3">
+							<AdminButton type="submit" variant="outline">Save promotion</AdminButton>
+						</div>
+					</form>
+					{#if promotion.applicationMode === 'code'}
+						<div class="mt-6 border-t border-charcoal pt-5">
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">
+								Redemption codes
+							</p>
+							<p class="mt-1 text-xs text-ash">
+								Each code has its own channel, distribution, usage limit, and lifecycle.
+							</p>
+							<div class="mt-4 grid gap-4">
+								{#each promotion.codes as code (code.id)}
+									<form
+										method="POST"
+										action="?/updateCode"
+										class="bg-ink/40 grid gap-3 border border-charcoal p-4 md:grid-cols-2 lg:grid-cols-3"
+									>
+										<input type="hidden" name="promoCodeId" value={code.id} />
+										<AdminInput label="Code" name="code" value={code.code} required />
+										<AdminSelect label="Distribution" name="distribution" value={code.distribution}
+											><option value="private">Private</option><option value="public">Public</option
+											><option value="influencer">Influencer</option><option value="internal"
+												>Internal</option
+											></AdminSelect
+										><AdminSelect
+											label="Channel"
+											name="redemptionChannel"
+											value={code.redemptionChannel}
+											><option value="storefront">Storefront</option><option value="admin"
+												>Admin</option
+											><option value="both">Both</option></AdminSelect
+										><AdminInput
+											label="Partner reference"
+											name="partnerReference"
+											value={code.partnerReference}
+										/><AdminInput
+											label="Code usage limit"
+											name="codeUsageLimit"
+											type="number"
+											min="1"
+											value={code.usageLimit}
+										/>
+										<div class="border border-ash/20 px-3">
+											<AdminToggle
+												label="Discoverable"
+												name="isDiscoverable"
+												checked={code.isDiscoverable}
+											/>
+										</div>
+										<div class="border border-ash/20 px-3">
+											<AdminToggle label="Active" name="isActive" checked={code.codeIsActive} />
+										</div>
+										<div class="flex items-end justify-end">
+											<AdminButton type="submit" variant="outline">Save code</AdminButton>
+										</div>
+									</form>
+								{/each}
 							</div>
-							<div>
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Customer ID</p>
-								<p class="mt-0.5 max-w-30 truncate font-medium text-bone">
-									{usage.userId ?? 'Guest User'}
-								</p>
-							</div>
-							<div class="min-[430px]:col-span-2">
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Order ID</p>
-								<a
-									href={resolve(`/app/orders/${usage.orderId}`)}
-									class="mt-0.5 block font-medium text-bone hover:underline"
+							<form
+								method="POST"
+								action="?/addCode"
+								class="mt-4 grid gap-3 border border-dashed border-ash/20 p-4 md:grid-cols-2 lg:grid-cols-3"
+							>
+								<input type="hidden" name="promotionId" value={promotion.id} />
+								<AdminInput label="New code" name="code" required />
+								<AdminSelect label="Distribution" name="distribution" value="private"
+									><option value="private">Private</option><option value="public">Public</option
+									><option value="influencer">Influencer</option><option value="internal"
+										>Internal</option
+									></AdminSelect
+								><AdminSelect label="Channel" name="redemptionChannel" value="storefront"
+									><option value="storefront">Storefront</option><option value="admin">Admin</option
+									><option value="both">Both</option></AdminSelect
+								><AdminInput label="Partner reference" name="partnerReference" />
+								<AdminInput label="Code usage limit" name="codeUsageLimit" type="number" min="1" />
+								<div class="border border-ash/20 px-3">
+									<AdminToggle label="Discoverable" name="isDiscoverable" checked={false} />
+								</div>
+								<div class="flex items-end justify-end lg:col-span-3">
+									<AdminButton type="submit" variant="outline">Add code</AdminButton>
+								</div>
+							</form>
+						</div>
+					{/if}
+					{#if promotion.eligibilityScope === 'customer_grant'}
+						<div class="mt-6 border-t border-charcoal pt-5">
+							<p class="font-mono text-[9px] tracking-widest text-ash uppercase">Customer grants</p>
+							<form method="POST" action="?/grant" class="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
+								<input type="hidden" name="promotionId" value={promotion.id} />
+								<AdminInput label="Customer user ID" name="userId" required />
+								<AdminButton type="submit" variant="outline" class="self-end"
+									>Grant access</AdminButton
 								>
-									{usage.orderId}
-								</a>
+							</form>
+							<div class="mt-3 grid gap-2">
+								{#each data.grants.filter((grant) => grant.promotionId === promotion.id) as grant (grant.id)}
+									<div
+										class="bg-ink flex flex-wrap items-center justify-between gap-3 border border-charcoal px-3 py-2"
+									>
+										<p class="font-mono text-[10px] text-bone">{grant.userId}</p>
+										<form method="POST" action="?/revokeGrant">
+											<input type="hidden" name="promotionId" value={promotion.id} />
+											<input type="hidden" name="userId" value={grant.userId} />
+											<AdminButton type="submit" variant="danger" size="sm">Revoke</AdminButton>
+										</form>
+									</div>
+								{:else}
+									<p class="border border-dashed border-ash/20 px-3 py-4 text-xs text-ash">
+										No customers granted yet.
+									</p>
+								{/each}
 							</div>
-							<div class="min-[430px]:col-span-2">
-								<p class="text-[8px] tracking-wider text-ash/60 uppercase">Redeemed At</p>
-								<p class="mt-0.5 font-medium text-bone">{formatAdminDateTime(usage.usedAt, '—')}</p>
-							</div>
-						</AdminMetaGrid>
-					{/snippet}
-				</AdminEntityCard>
-			{/if}
-		{/snippet}
+						</div>
+					{/if}
+				</div>
+			</details>
+		{:else}
+			<div class="border border-dashed border-ash/20 px-6 py-16 text-center">
+				<p class="font-display text-5xl text-bone uppercase">No promotions</p>
+				<p class="mt-2 text-sm text-ash">Create an inactive promotion when policy allows.</p>
+			</div>
+		{/each}
+	</div>
 
-		{#snippet emptyState()}
-			<AdminEmptyState
-				title={activeTab === 'codes' ? 'No promo codes found' : 'No redemption logs found'}
-				description="Adjust filters or query parameters."
-			/>
-		{/snippet}
-	</AdminListLayout>
-</div>
-
-<!-- CREATE PROMO CODE DRAWER -->
-<AdminDrawer
-	bind:open={createPromoModalOpen}
-	title="Add Promo Code"
-	description="Create a new promotion code to deploy campaigns."
->
-	<form
-		id="createPromoForm"
-		method="POST"
-		action="?/createCode"
-		use:createEnhance
-		class="flex flex-col gap-4"
+	<AdminSection
+		title="Redemption audit"
+		description="Append-only usage. Not generic CRUD."
+		class="mt-8"
 	>
-		<AdminInput
-			label="Code"
-			name="code"
-			bind:value={$createForm.code}
-			oninput={(event) => {
-				const input = event.currentTarget as HTMLInputElement;
-				$createForm.code = input.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '');
-			}}
-			placeholder="e.g. CARO20"
-			required
-			error={$createErrors.code}
-		/>
-
-		<AdminTextarea
-			label="Description"
-			name="description"
-			bind:value={$createForm.description}
-			placeholder="Internal campaign details..."
-			rows={3}
-			error={$createErrors.description}
-		/>
-
-		<div class="grid gap-4 sm:grid-cols-2">
-			<AdminSelect
-				label="Discount Type"
-				name="discountType"
-				bind:value={$createForm.discountType}
-				options={[
-					{ value: 'percentage', label: 'Percentage (%)' },
-					{ value: 'fixed', label: 'Fixed (LKR)' }
-				]}
-				required
-				error={$createErrors.discountType}
-			/>
-
-			<AdminInput
-				label="Value"
-				name="discountValue"
-				type="number"
-				min="1"
-				max={$createForm.discountType === 'percentage' ? 100 : undefined}
-				bind:value={$createForm.discountValue}
-				placeholder={$createForm.discountType === 'percentage' ? 'e.g. 20' : 'e.g. 1000'}
-				helpText={$createForm.discountType === 'percentage'
-					? 'Percentage must be 1-100%.'
-					: undefined}
-				required
-				error={$createErrors.discountValue}
-			/>
+		<div class="overflow-x-auto">
+			<table class="w-full min-w-[720px] text-left text-xs">
+				<thead class="font-mono text-[9px] tracking-widest text-ash uppercase"
+					><tr
+						><th class="p-3">Order</th><th class="p-3">Promotion</th><th class="p-3">Code</th><th
+							class="p-3">Customer</th
+						><th class="p-3">Discount</th><th class="p-3">Used</th></tr
+					></thead
+				><tbody
+					>{#each data.usages.items as usage (usage.id)}<tr
+							class="border-t border-charcoal text-bone"
+							><td class="p-3 font-mono">{usage.orderId}</td><td class="p-3 font-mono"
+								>{usage.promotionId}</td
+							><td class="p-3">{usage.promoCode?.code ?? 'Automatic'}</td><td class="p-3"
+								>{usage.userId ?? 'Guest'}</td
+							><td class="p-3">LKR {usage.discountAmount.toLocaleString()}</td><td
+								class="p-3 text-ash">{usage.usedAt.toLocaleString()}</td
+							></tr
+						>{/each}</tbody
+				>
+			</table>
 		</div>
-
-		<div class="grid gap-4 sm:grid-cols-2">
-			<AdminInput
-				label="Min Order (LKR)"
-				name="minOrderAmount"
-				type="number"
-				min="0"
-				bind:value={$createForm.minOrderAmount}
-				placeholder="None"
-				error={$createErrors.minOrderAmount}
-			/>
-
-			<AdminInput
-				label="Max Discount (LKR)"
-				name="maxDiscountAmount"
-				type="number"
-				min="1"
-				bind:value={$createForm.maxDiscountAmount}
-				placeholder="None"
-				disabled={$createForm.discountType !== 'percentage'}
-				error={$createErrors.maxDiscountAmount}
-			/>
-		</div>
-
-		<div class="grid gap-4 sm:grid-cols-2">
-			<AdminInput
-				label="Usage Limit"
-				name="usageLimit"
-				type="number"
-				min="1"
-				bind:value={$createForm.usageLimit}
-				placeholder="Unlimited"
-				error={$createErrors.usageLimit}
-			/>
-
-			<AdminInput
-				label="Per User Limit"
-				name="perUserLimit"
-				type="number"
-				min="1"
-				bind:value={$createForm.perUserLimit}
-				required
-				error={$createErrors.perUserLimit}
-			/>
-		</div>
-
-		<div class="mt-2 grid gap-4">
-			<AdminDateTimePicker
-				label="Starts At"
-				name="startsAt"
-				bind:value={$createForm.startsAt}
-				minValue={nowMs - 60000}
-				error={$createErrors.startsAt?.[0]}
-			/>
-			<AdminDateTimePicker
-				label="Expires At"
-				name="expiresAt"
-				bind:value={$createForm.expiresAt}
-				minValue={$createForm.startsAt || nowMs}
-				error={$createErrors.expiresAt?.[0]}
-			/>
-		</div>
-	</form>
-
-	{#snippet footer()}
-		<AdminButton
-			type="submit"
-			form="createPromoForm"
-			variant="volt"
-			class="flex-1 font-mono text-xs uppercase"
-			disabled={$createSubmitting}
-		>
-			{#if $createSubmitting}Creating...{:else}Create Code{/if}
-		</AdminButton>
-		<AdminButton type="button" variant="outline" onclick={() => (createPromoModalOpen = false)}>
-			Cancel
-		</AdminButton>
-	{/snippet}
-</AdminDrawer>
-<!-- EDIT PROMO CODE DRAWER -->
-<AdminDrawer
-	bind:open={editPromoModalOpen}
-	title="Edit Promo Code"
-	description="Modify existing campaign conditions for this promo code."
->
-	<form
-		id="editPromoForm"
-		method="POST"
-		action="?/updateCode"
-		use:updateEnhance
-		class="flex flex-col gap-4"
-	>
-		<input type="hidden" name="promoCodeId" bind:value={$updateForm.promoCodeId} />
-
-		<AdminInput
-			label="Code"
-			name="code"
-			bind:value={$updateForm.code}
-			required
-			error={$updateErrors.code}
-		/>
-
-		<AdminTextarea
-			label="Description"
-			name="description"
-			bind:value={$updateForm.description}
-			placeholder="Internal campaign details..."
-			rows={3}
-			error={$updateErrors.description}
-		/>
-
-		<div class="grid gap-4 sm:grid-cols-2">
-			<AdminSelect
-				label="Discount Type"
-				name="discountType"
-				bind:value={$updateForm.discountType}
-				options={[
-					{ value: 'percentage', label: 'Percentage (%)' },
-					{ value: 'fixed', label: 'Fixed (LKR)' }
-				]}
-				required
-				error={$updateErrors.discountType}
-			/>
-
-			<AdminInput
-				label="Value"
-				name="discountValue"
-				type="number"
-				min="1"
-				max={$updateForm.discountType === 'percentage' ? 100 : undefined}
-				bind:value={$updateForm.discountValue}
-				helpText={$updateForm.discountType === 'percentage'
-					? 'Percentage must be 1-100%.'
-					: undefined}
-				required
-				error={$updateErrors.discountValue}
-			/>
-		</div>
-
-		<div class="grid gap-4 sm:grid-cols-2">
-			<AdminInput
-				label="Min Order (LKR)"
-				name="minOrderAmount"
-				type="number"
-				min="0"
-				bind:value={$updateForm.minOrderAmount}
-				placeholder="None"
-				error={$updateErrors.minOrderAmount}
-			/>
-
-			<AdminInput
-				label="Max Discount (LKR)"
-				name="maxDiscountAmount"
-				type="number"
-				min="1"
-				bind:value={$updateForm.maxDiscountAmount}
-				placeholder="None"
-				disabled={$updateForm.discountType !== 'percentage'}
-				error={$updateErrors.maxDiscountAmount}
-			/>
-		</div>
-
-		<div class="grid gap-4 sm:grid-cols-2">
-			<AdminInput
-				label="Usage Limit"
-				name="usageLimit"
-				type="number"
-				min="1"
-				bind:value={$updateForm.usageLimit}
-				placeholder="Unlimited"
-				error={$updateErrors.usageLimit}
-			/>
-
-			<AdminInput
-				label="Per User Limit"
-				name="perUserLimit"
-				type="number"
-				min="1"
-				bind:value={$updateForm.perUserLimit}
-				required
-				error={$updateErrors.perUserLimit}
-			/>
-		</div>
-
-		<div class="mt-2 grid gap-4">
-			<AdminDateTimePicker
-				label="Starts At"
-				name="startsAt"
-				bind:value={$updateForm.startsAt}
-				disabled={isPromoStarted}
-				error={$updateErrors.startsAt?.[0]}
-			/>
-			{#if isPromoStarted}
-				<span class="mt-0.5 font-sans text-[10px] leading-snug text-yellow-400/80 italic">
-					Start date cannot be modified because this promotion has already started.
-				</span>
-			{/if}
-			<AdminDateTimePicker
-				label="Expires At"
-				name="expiresAt"
-				bind:value={$updateForm.expiresAt}
-				minValue={$updateForm.startsAt || nowMs}
-				error={$updateErrors.expiresAt?.[0]}
-			/>
-		</div>
-	</form>
-
-	{#snippet footer()}
-		<AdminButton
-			type="submit"
-			form="editPromoForm"
-			variant="volt"
-			class="flex-1 font-mono text-xs uppercase"
-			disabled={$updateSubmitting}
-		>
-			{#if $updateSubmitting}Saving...{:else}Save Changes{/if}
-		</AdminButton>
-		<AdminButton type="button" variant="outline" onclick={() => (editPromoModalOpen = false)}>
-			Cancel
-		</AdminButton>
-	{/snippet}
-</AdminDrawer>
-
-<AdminModal
-	bind:open={syncConfirmModalOpen}
-	kicker="Operations"
-	title="Sync First 100 Usage Counts"
-	size="md"
->
-	<form
-		method="POST"
-		action="?/reconcileCodes"
-		use:reconcileCodesEnhance
-		class="flex flex-col gap-6"
-	>
-		<input type="hidden" name="limit" value="100" />
-		<input type="hidden" name="offset" value="0" />
-
-		<p class="font-sans text-sm leading-relaxed text-ash">
-			Reconcile up to 100 promo code usage counters against the append-only redemption audit trail.
-			Run again for remaining codes after this batch completes.
-		</p>
-
-		<div class="flex justify-end gap-3 border-t border-ash/10 pt-4">
-			<AdminButton type="button" variant="charcoal" onclick={() => (syncConfirmModalOpen = false)}>
-				Cancel
-			</AdminButton>
-			<AdminButton type="submit" variant="volt" disabled={$reconcileCodesSubmitting}>
-				{#if $reconcileCodesSubmitting}Syncing...{:else}Confirm Sync{/if}
-			</AdminButton>
-		</div>
-	</form>
-</AdminModal>
+	</AdminSection>
+</AdminPageShell>

@@ -33,12 +33,14 @@ import {
 	isUniqueConstraintError,
 	normalizeLimit,
 	normalizeOffset,
-	resolveNow,
-	isString
+	resolveNow
 } from '$lib/server/foundation/utils';
-import { promoCode as promoCodeTable } from '../promotions/promotions.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
-import { validatePromoCodeForBagTx } from '../promotions/promotions.service';
+import {
+	getStoredPromotionBagPresentationTx,
+	resolveStoredPromotionForBagTx,
+	validatePromoCodeForBagTx
+} from '../promotions/promotions.service';
 import {
 	getInventoryAvailabilityByVariantIds,
 	getInventoryAvailabilityByVariantIdsTx
@@ -256,6 +258,7 @@ export async function clearBag(ctx: ServiceContext, input: BagAccessInput = {}):
 			db
 				.update(bagTable)
 				.set({
+					promotionId: null,
 					promoCodeId: null,
 					checkoutStartedAt: null,
 					checkoutExpiresAt: null,
@@ -1330,6 +1333,7 @@ async function hydrateAdminBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<Admin
 		return {
 			...bag,
 			sessionToken: row?.sessionToken ?? null,
+			promotionId: row?.promotionId ?? null,
 			promoCodeId: row?.promoCodeId ?? null
 		};
 	});
@@ -1365,13 +1369,6 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 	);
 	const itemsByBagId = groupByBagId(itemRows);
 
-	const promoCodeIds = uniqueStrings(rows.map((row) => row.promoCodeId).filter(isString));
-	const promoCodes =
-		promoCodeIds.length > 0
-			? await tx.select().from(promoCodeTable).where(inArray(promoCodeTable.id, promoCodeIds))
-			: [];
-	const promoCodesById = new Map(promoCodes.map((p) => [p.id, p]));
-
 	const activeMethods = await tx
 		.select({
 			freeShippingThreshold: shippingMethod.freeShippingThreshold
@@ -1388,76 +1385,69 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		}
 	}
 
-	return rows.map((row) => {
-		const items = (itemsByBagId.get(row.id) ?? []).map((item) =>
-			toBagItemDTO({
-				item,
-				product: productsById.get(item.productId) ?? null,
-				variant: variantsById.get(item.variantId) ?? null,
-				images: imagesByProductId.get(item.productId) ?? [],
-				inventory: inventoryByVariantId.get(item.variantId) ?? null,
-				reservedForItem: reservedByItemId.get(item.id) ?? 0,
-				activeCheckoutHolds: activeCheckoutHoldsByVariantId.get(item.variantId) ?? [],
-				now
-			})
-		);
-		const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
+	return Promise.all(
+		rows.map(async (row) => {
+			const items = (itemsByBagId.get(row.id) ?? []).map((item) =>
+				toBagItemDTO({
+					item,
+					product: productsById.get(item.productId) ?? null,
+					variant: variantsById.get(item.variantId) ?? null,
+					images: imagesByProductId.get(item.productId) ?? [],
+					inventory: inventoryByVariantId.get(item.variantId) ?? null,
+					reservedForItem: reservedByItemId.get(item.id) ?? 0,
+					activeCheckoutHolds: activeCheckoutHoldsByVariantId.get(item.variantId) ?? [],
+					now
+				})
+			);
+			const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
 
-		let discountAmount = 0;
-		const promoCodeId = row.promoCodeId;
-		let promoCodeCode: string | null = null;
-		let effectivePromoCodeId: string | null = null;
-		let promoMinOrderAmount: number | null = null;
-		if (promoCodeId) {
-			const promo = promoCodesById.get(promoCodeId);
-			if (promo) {
-				promoCodeCode = promo.code;
-				promoMinOrderAmount = promo.minOrderAmount;
-				if (
-					promo.isActive &&
-					(promo.startsAt === null || promo.startsAt <= now) &&
-					(promo.expiresAt === null || promo.expiresAt > now) &&
-					(promo.minOrderAmount === null || subtotal >= promo.minOrderAmount) &&
-					(promo.usageLimit === null || promo.usedCount < promo.usageLimit)
-				) {
-					const rawDiscount =
-						promo.discountType === 'percentage'
-							? Math.floor((subtotal * promo.discountValue) / 100)
-							: promo.discountValue;
-					const cappedByMaxDiscount =
-						promo.maxDiscountAmount === null
-							? rawDiscount
-							: Math.min(rawDiscount, promo.maxDiscountAmount);
-					discountAmount = Math.min(cappedByMaxDiscount, subtotal);
-					effectivePromoCodeId = promo.id;
-				}
+			const storedPromotion = await getStoredPromotionBagPresentationTx(tx, {
+				promotionId: row.promotionId,
+				promoCodeId: row.promoCodeId
+			});
+			let promotionResult = null;
+			try {
+				promotionResult = await resolveStoredPromotionForBagTx(tx, {
+					promotionId: row.promotionId,
+					promoCodeId: row.promoCodeId,
+					userId: row.userId,
+					subtotal,
+					now
+				});
+			} catch (error) {
+				if (!isAppError(error)) throw error;
 			}
-		}
+			const discountAmount = promotionResult?.discountAmount ?? 0;
 
-		return {
-			id: row.id,
-			ownerType: row.userId ? 'user' : 'guest',
-			userId: row.userId,
-			expiresAt: row.expiresAt,
-			checkoutStartedAt: row.checkoutStartedAt,
-			checkoutExpiresAt: row.checkoutExpiresAt,
-			checkoutStatus: checkoutStatus(row, now),
-			items,
-			itemCount: items.reduce((total, item) => total + item.quantity, 0),
-			subtotal,
-			discountAmount,
-			totalBeforeShipping: Math.max(0, subtotal - discountAmount),
-			hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
-			hasInsufficientItems: items.some((item) => item.availabilityStatus === 'insufficient'),
-			hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
-			promoCodeId: effectivePromoCodeId,
-			promoCode: promoCodeCode,
-			promoMinOrderAmount,
-			freeShippingThreshold,
-			createdAt: row.createdAt,
-			updatedAt: row.updatedAt
-		};
-	});
+			return {
+				id: row.id,
+				ownerType: row.userId ? 'user' : 'guest',
+				userId: row.userId,
+				expiresAt: row.expiresAt,
+				checkoutStartedAt: row.checkoutStartedAt,
+				checkoutExpiresAt: row.checkoutExpiresAt,
+				checkoutStatus: checkoutStatus(row, now),
+				items,
+				itemCount: items.reduce((total, item) => total + item.quantity, 0),
+				subtotal,
+				discountAmount,
+				totalBeforeShipping: Math.max(0, subtotal - discountAmount),
+				hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
+				hasInsufficientItems: items.some((item) => item.availabilityStatus === 'insufficient'),
+				hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
+				promotionId: promotionResult?.promotionId ?? null,
+				promotionName: promotionResult?.promotionName ?? storedPromotion?.promotionName ?? null,
+				promotionApplicationMode:
+					promotionResult?.applicationMode ?? storedPromotion?.applicationMode ?? null,
+				promoCodeId: promotionResult?.promoCodeId ?? null,
+				promoCode: promotionResult?.code ?? storedPromotion?.code ?? null,
+				promoMinOrderAmount: storedPromotion?.minOrderAmount ?? null,
+				freeShippingThreshold,
+				createdAt: row.createdAt,
+				updatedAt: row.updatedAt
+			};
+		})
+	);
 }
 
 type HydratedBagVariant = ProductVariant & {
@@ -2103,6 +2093,7 @@ export async function applyPromoCodeToBag(
 			db
 				.update(bagTable)
 				.set({
+					promotionId: validation.promotionId,
 					promoCodeId: validation.promoCodeId,
 					checkoutStartedAt: null,
 					checkoutExpiresAt: null,
@@ -2135,6 +2126,7 @@ export async function removePromoCodeFromBag(
 			db
 				.update(bagTable)
 				.set({
+					promotionId: null,
 					promoCodeId: null,
 					checkoutStartedAt: null,
 					checkoutExpiresAt: null,

@@ -1,7 +1,7 @@
 # `src/lib` Architecture
 
 - **Audience:** project collaborators and coding agents
-- **Status:** current as of 2026-07-18
+- **Status:** current as of 2026-07-20
 - **Scope:** reusable application code under `src/lib`
 
 ## Canonical Structure
@@ -56,7 +56,7 @@ shared <- server <- server routes and Worker entrypoints
 
 ### Components
 
-- Group storefront components by product feature (`bag`, `checkout`, `product`, `reviews`) or shell responsibility (`layout`, `shared`, `ui`).
+- Group storefront components by product feature (`bag`, `checkout`, `home`, `product`, `reviews`) or shell responsibility (`layout`, `shared`, `ui`). Homepage section renderers belong in `components/home` and consume load DTOs through type-only imports; they must not query server modules.
 - Admin components use the canonical folders `categories`, `controls`, `data-display`, `feedback`, `filters`, `forms`, `inventory`, `layout`, `notifications`, `overlays`, `products`, and `sidebar`.
 - Keep component filenames in PascalCase. The `Admin` prefix is intentional because it makes imports and diagnostics unambiguous outside the admin folder.
 - Remove obsolete scaffolds once production routes no longer consume them; do not retain placeholder compatibility components.
@@ -69,6 +69,7 @@ shared <- server <- server routes and Worker entrypoints
 - Cloudflare binding/runtime context belongs in `infrastructure/cloudflare`; foundation must not own
   request-scoped platform environment storage or runtime singletons.
 - Domain module `index.ts` files are curated public module surfaces. Internal prepared D1 batch builders may be imported from their concrete service file only by server code composing the owning atomic batch.
+- `server/modules/storefront` owns the bounded homepage section schema, editor forms, service aggregate, source validation, ordering, schedules, and section media state. It is not a generic page-builder or arbitrary-content infrastructure layer.
 - Do not create re-export shims for moved server files. Update consumers to the one canonical path.
 - Notification outbox state remains a domain module; provider delivery remains infrastructure; Queue/Cron processing remains orchestration; Cloudflare event translation remains infrastructure.
 - ESLint enforces the major import boundaries: routes cannot import DB/Drizzle primitives, non-media

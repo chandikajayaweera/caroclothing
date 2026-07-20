@@ -4,14 +4,23 @@ import { ErrorCode } from '$lib/server/infrastructure/errors';
 import { order } from '../orders/orders.drizzle';
 import { promoCode, promoCodeUsage } from './promotions.drizzle';
 import {
+	addPromotionCode,
+	createPromotion,
 	createPromoCode,
 	getPromoCode,
+	grantPromotionToCustomer,
+	listPromotionCustomerGrants,
 	listPromoCodeUsages,
 	listPromoCodes,
 	reconcilePromoCodeUsageCount,
 	reconcilePromoCodeUsageCounts,
 	recordPromoUsage,
+	resolvePromotionForBag,
+	revokePromotionCustomerGrant,
+	setPromotionActive,
 	setPromoCodeActive,
+	updatePromotion,
+	updatePromotionCode,
 	updatePromoCode,
 	validatePromoCodeForBag
 } from './promotions.service';
@@ -69,6 +78,118 @@ describe('promotions service integration', () => {
 	afterAll(() => {
 		dbState.db = undefined;
 		harness.close();
+	});
+
+	describe('canonical promotion lifecycle', () => {
+		it('keeps application mode immutable and manages multiple child codes', async () => {
+			const created = await createPromotion(adminCtx(), {
+				name: 'Creator partners',
+				discountType: 'percentage',
+				discountValue: 15,
+				applicationMode: 'code',
+				code: { code: 'CREATOR15' }
+			});
+
+			await expect(
+				updatePromotion(adminCtx(), {
+					promotionId: created.id,
+					data: { applicationMode: 'automatic' }
+				})
+			).rejects.toMatchObject({ code: ErrorCode.CONFLICT });
+
+			const partnerCode = await addPromotionCode(adminCtx(), {
+				promotionId: created.id,
+				code: 'partner_15',
+				distribution: 'influencer',
+				partnerReference: 'creator-one',
+				usageLimit: 25
+			});
+			expect(partnerCode).toMatchObject({
+				code: 'PARTNER_15',
+				distribution: 'influencer',
+				codeIsActive: true,
+				usageLimit: 25
+			});
+
+			await expect(
+				updatePromotionCode(adminCtx(), {
+					promoCodeId: partnerCode.id,
+					data: { isActive: false, isDiscoverable: true }
+				})
+			).resolves.toMatchObject({ codeIsActive: false, isDiscoverable: true });
+		});
+
+		it('selects the highest-value eligible automatic promotion', async () => {
+			const smaller = await createPromotion(adminCtx(), {
+				name: 'Priority five hundred',
+				discountType: 'fixed',
+				discountValue: 500,
+				applicationMode: 'automatic',
+				priority: 10
+			});
+			const larger = await createPromotion(adminCtx(), {
+				name: 'Best one thousand',
+				discountType: 'fixed',
+				discountValue: 1000,
+				applicationMode: 'automatic',
+				priority: 1
+			});
+			await setPromotionActive(adminCtx(), { promotionId: smaller.id, isActive: true });
+			await setPromotionActive(adminCtx(), { promotionId: larger.id, isActive: true });
+
+			await expect(resolvePromotionForBag({ subtotal: 5000, now })).resolves.toMatchObject({
+				promotionId: larger.id,
+				promoCodeId: null,
+				code: null,
+				discountAmount: 1000
+			});
+		});
+
+		it('enforces, lists, and revokes customer grants for code promotions', async () => {
+			const user = await seedUser(db(), { id: 'granted-customer' });
+			const created = await createPromotion(adminCtx(), {
+				name: 'Invite only',
+				discountType: 'fixed',
+				discountValue: 750,
+				applicationMode: 'code',
+				eligibilityScope: 'customer_grant',
+				code: { code: 'INVITE750' }
+			});
+			await setPromotionActive(adminCtx(), { promotionId: created.id, isActive: true });
+
+			await expect(
+				validatePromoCodeForBag({
+					code: 'INVITE750',
+					userId: user.id,
+					subtotal: 5000,
+					now
+				})
+			).rejects.toMatchObject({ code: ErrorCode.PROMO_NOT_APPLICABLE });
+
+			await grantPromotionToCustomer(adminCtx(), {
+				promotionId: created.id,
+				userId: user.id
+			});
+			expect(await listPromotionCustomerGrants(adminCtx(), { promotionId: created.id })).toEqual([
+				expect.objectContaining({ promotionId: created.id, userId: user.id })
+			]);
+			await expect(
+				validatePromoCodeForBag({
+					code: 'INVITE750',
+					userId: user.id,
+					subtotal: 5000,
+					now
+				})
+			).resolves.toMatchObject({ promotionId: created.id, discountAmount: 750 });
+
+			await revokePromotionCustomerGrant(adminCtx(), {
+				promotionId: created.id,
+				userId: user.id
+			});
+			expect(
+				await listPromotionCustomerGrants(adminCtx(), { promotionId: created.id })
+			).toHaveLength(0);
+		});
 	});
 
 	describe('admin promo code lifecycle', () => {

@@ -1,5 +1,7 @@
 import { nanoid } from 'nanoid';
+import { eq } from 'drizzle-orm';
 import { order, type Order } from '$lib/server/modules/orders/orders.drizzle';
+import { promoCode } from '$lib/server/modules/promotions/promotions.drizzle';
 import type { TestDatabase } from '../db';
 
 export async function seedOrder(
@@ -10,6 +12,15 @@ export async function seedOrder(
 	const subtotal = overrides.subtotal ?? 5000;
 	const discountAmount = overrides.discountAmount ?? 0;
 	const shippingAmount = overrides.shippingAmount ?? 0;
+	let promotionId = overrides.promotionId ?? null;
+	if (!promotionId && overrides.promoCodeId) {
+		const [code] = await db
+			.select({ promotionId: promoCode.promotionId })
+			.from(promoCode)
+			.where(eq(promoCode.id, overrides.promoCodeId))
+			.limit(1);
+		promotionId = code?.promotionId ?? null;
+	}
 
 	const [created] = await db
 		.insert(order)
@@ -23,6 +34,7 @@ export async function seedOrder(
 			discountAmount,
 			shippingAmount,
 			totalAmount: overrides.totalAmount ?? subtotal - discountAmount + shippingAmount,
+			promotionId,
 			promoCodeId: overrides.promoCodeId ?? null,
 			promoCodeSnapshot: overrides.promoCodeSnapshot ?? null,
 			shippingMethodId: overrides.shippingMethodId ?? null,

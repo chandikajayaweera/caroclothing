@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-07-19
+- **Status:** current as of 2026-07-20
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 The repository-wide `src/lib` dependency and folder rules live in `docs/library-architecture.md`.
@@ -22,9 +22,14 @@ inventory
 orders
 payments
 reviews
+storefront
 ```
 
 `inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Cross-module checkout and order workflows compose internal prepared D1 batch builders such as `prepareInventorySaleBatch()`; these builders are not public CRUD APIs.
+
+`promotions` separates the canonical discount rule/lifecycle record from optional redemption codes. Parent promotions own discount value, minimums, usage limits, eligibility, visibility, priority, active window, and inactive-by-default state. Code children own distribution metadata and code-level limits. Customer grants qualify restricted users; `promo_code_usage` remains append-only redemption audit state. Bags and orders persist the canonical `promotionId` plus an optional `promoCodeId`, and automatic promotion resolution selects the largest valid discount with priority as the tie-breaker.
+
+`storefront` is a bounded composition service for the homepage. It supports only `hero`, `product_grid`, `product_spotlight`, `category_showcase`, `promotion_campaign`, `service_strip`, and `review_rail`, with fixed source and layout enums. `getHomePage()` hydrates live product/category/promotion/shipping/review data; admin APIs own create/update/enable/reorder/delete workflows. Section images use R2 under the existing media pipeline with upload compensation and separate desktop/mobile roles. Arbitrary HTML, component names, and open-ended JSON page definitions are not allowed.
 
 `payments` supports PayHere, PayPal, and cash on delivery only. PayHere checkout uses the official JavaScript SDK while signed server webhooks own payment truth. PayPal checkout uses JavaScript SDK v6 with server-created and server-captured Orders API transactions. Online checkout persists only a `payment_attempt` before provider success; no order/payment row or stock reservation exists yet. A bag can have only one pending payment attempt, identical setup requests resume the existing provider session, terminal attempt states are monotonic, and PayPal capture is rejected before contacting the provider when the checkout window has expired. Verified capture revalidates the live bag and uses one guarded D1 batch to create and confirm the order, record the captured payment, consume stock, delete the bag, and enqueue confirmation intent. Cash-on-delivery confirmation uses the same atomic order-commit path with a pending COD payment.
 
@@ -156,6 +161,7 @@ Domain modules:
   src/lib/server/modules/promotions
   src/lib/server/modules/reviews
   src/lib/server/modules/shipping
+  src/lib/server/modules/storefront
   src/lib/server/modules/wishlist
 ```
 
@@ -220,6 +226,8 @@ Service rules:
 - Admin analytics must paginate and aggregate in D1. Do not fetch a capped collection into a route
   and derive supposedly global counts or filters in memory.
 - Do not expose generic CRUD for audit/internal/junction tables such as inventory movements, promo usage, order status history, notification outbox, or product-tag joins.
+- Storefront routes consume `getHomePage()` and section editor services; they do not assemble homepage catalogue queries or write section/category/media rows directly.
+- Promotion routes manage parent promotions, child-code metadata, and customer grants through promotion services. They do not treat a promo-code row as the owner of discount policy.
 
 Product service contract:
 
@@ -275,6 +283,7 @@ Media:
 - Services that upload media must clean up uploaded R2 objects if the later D1 batch fails.
 - Services that replace or delete media should update DB state first, then best-effort cleanup old keys with `deleteObjectSafe`.
 - DTOs expose media URLs with `mediaUrl(key)`, not raw R2 keys unless admin/debug use requires both.
+- Storefront desktop/mobile section images use the `banners` media scope, retain original bytes in R2, and expose fixed transform presets through `src/lib/shared/media.ts`; route code never imports R2 helpers.
 
 ## Notification Contract
 

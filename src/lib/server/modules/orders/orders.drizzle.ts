@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { user } from '../auth/auth.drizzle';
 import { product, productVariant, r2KeySchema } from '../products/products.drizzle';
 import { address } from '../addresses/addresses.drizzle';
-import { promoCode } from '../promotions/promotions.drizzle';
+import { promoCode, promotion } from '../promotions/promotions.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
 import type { AddressSnapshot } from '../addresses/addresses.types';
 import type { PromoCodeSnapshot } from '../promotions/promotions.types';
@@ -92,6 +92,9 @@ export const order = sqliteTable(
 		totalAmount: integer('total_amount').notNull(),
 
 		// ── Promo ─────────────────────────────────────────────────────────────
+		promotionId: text('promotion_id').references(() => promotion.id, {
+			onDelete: 'set null'
+		}),
 		promoCodeId: text('promo_code_id').references(() => promoCode.id, {
 			onDelete: 'set null'
 		}),
@@ -272,6 +275,10 @@ export const orderRelations = relations(order, ({ one, many }) => ({
 		fields: [order.promoCodeId],
 		references: [promoCode.id]
 	}),
+	promotion: one(promotion, {
+		fields: [order.promotionId],
+		references: [promotion.id]
+	}),
 	shippingMethod: one(shippingMethod, {
 		fields: [order.shippingMethodId],
 		references: [shippingMethod.id]
@@ -352,6 +359,7 @@ export const insertOrderBaseSchema = createInsertSchema(order, {
 	discountAmount: z.number().int().min(0).optional(),
 	shippingAmount: z.number().int().min(0).optional(),
 	totalAmount: z.number().int().min(0),
+	promotionId: idSchema.optional().nullable(),
 	promoCodeId: idSchema.optional().nullable(),
 	shippingMethodId: idSchema.optional().nullable(),
 	shippingAddressId: idSchema.optional().nullable(),
@@ -395,6 +403,7 @@ export const updateOrderSchema = createUpdateSchema(order, {
 	discountAmount: true,
 	shippingAmount: true,
 	totalAmount: true,
+	promotionId: true,
 	promoCodeId: true,
 	promoCodeSnapshot: true,
 	shippingMethodId: true,

@@ -82,6 +82,9 @@ export const ErrorCode = {
 	PROMO_USAGE_NOT_FOUND: 'PROMO_USAGE_NOT_FOUND',
 	MINIMUM_ORDER_VALUE_NOT_MET: 'MINIMUM_ORDER_VALUE_NOT_MET',
 
+	// Storefront content
+	STOREFRONT_SECTION_NOT_FOUND: 'STOREFRONT_SECTION_NOT_FOUND',
+
 	// Reviews
 	REVIEW_NOT_FOUND: 'REVIEW_NOT_FOUND',
 	REVIEW_ALREADY_EXISTS: 'REVIEW_ALREADY_EXISTS',
@@ -191,6 +194,7 @@ const defaultStatusByCode = {
 	PROMO_USAGE_LIMIT_EXCEEDED: 409,
 	PROMO_USAGE_NOT_FOUND: 404,
 	MINIMUM_ORDER_VALUE_NOT_MET: 400,
+	STOREFRONT_SECTION_NOT_FOUND: 404,
 
 	REVIEW_NOT_FOUND: 404,
 	REVIEW_ALREADY_EXISTS: 409,
@@ -360,6 +364,17 @@ export class ShippingError extends AppError {
 }
 
 export class PromotionError extends AppError {
+	constructor(
+		message: string,
+		code: ErrorCode,
+		details?: Record<string, unknown>,
+		statusCode?: number
+	) {
+		super(message, code, statusCode ?? getDefaultStatusCode(code), details);
+	}
+}
+
+export class StorefrontError extends AppError {
 	constructor(
 		message: string,
 		code: ErrorCode,

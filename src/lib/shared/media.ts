@@ -62,6 +62,13 @@ export const MEDIA_IMAGE_PRESETS = {
 		fit: 'crop',
 		gravity: 'auto',
 		quality: 80
+	},
+	heroMobile720: {
+		width: 720,
+		height: 960,
+		fit: 'crop',
+		gravity: 'auto',
+		quality: 80
 	}
 } as const;
 
@@ -168,6 +175,24 @@ export function heroImageAttrs(
 		sizes: '100vw',
 		width: 1600,
 		height: 700,
+		loading: options.priority ? 'eager' : 'lazy',
+		decoding: 'async',
+		fetchpriority: options.priority ? 'high' : undefined
+	};
+}
+
+export function heroMobileImageAttrs(
+	image: MediaImageLike,
+	options: { priority?: boolean } = {}
+): MediaImageAttrs | null {
+	if (!image.r2Key) return image.imageUrl ? fallbackAttrs(image.imageUrl) : null;
+
+	return {
+		src: mediaPresetUrl(image.r2Key, 'heroMobile720'),
+		srcset: '',
+		sizes: '100vw',
+		width: 720,
+		height: 960,
 		loading: options.priority ? 'eager' : 'lazy',
 		decoding: 'async',
 		fetchpriority: options.priority ? 'high' : undefined
