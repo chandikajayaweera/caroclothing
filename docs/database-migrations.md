@@ -49,6 +49,16 @@ pnpm db:migrate:staging
 pnpm db:migrate:production
 ```
 
+## Local Drizzle Studio
+
+Run `pnpm db:studio` to apply pending local migrations and open Drizzle Studio
+against the persisted Wrangler D1 database under `.wrangler/state/v3`. Studio is
+local-only and does not connect to staging or production D1.
+
+The Studio config expects one local D1 `.sqlite` file. If the Wrangler state
+directory contains multiple databases, set `LOCAL_D1_DB_PATH` to the intended
+file before running the command.
+
 After remote migrations, confirm that no migrations remain pending and run
 `PRAGMA foreign_key_check` before deployment. Production deployment should use
 the same reviewed Worker build that passed staging smoke tests.

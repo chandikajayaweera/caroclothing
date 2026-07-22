@@ -144,3 +144,11 @@
 
 - **DON'T DO THIS**: Do not store discount rules, eligibility, visibility, and lifecycle independently on every promo code or treat a code as the canonical discount identity in bags/orders.
 - **INSTEAD DO THIS**: Store policy on the parent promotion, distribution metadata on optional code children, restricted eligibility in customer grants, and append-only redemptions in usage rows. Persist `promotionId` plus optional `promoCodeId` through bag and order workflows.
+
+---
+
+### 22. Canonical Local Runtime and Origin
+
+- **DON'T DO THIS**: Do not alternate between `localhost`, `127.0.0.1`, ports `5173` and `8787`, or use plain `wrangler dev` while the production route is configured. Better Auth requires the request origin to match `PUBLIC_APP_URL`, and Wrangler otherwise derives its local upstream from `caroclothing.lk`.
+- **INSTEAD DO THIS**: Use `http://127.0.0.1:8787` everywhere locally. Run `pnpm dev` for the Vite HMR workflow and `pnpm preview` for the built Cloudflare Worker smoke test. Both commands apply pending local D1 migrations first, use the same persisted `.wrangler/state/v3` data, and keep remote bindings disabled.
+- Configure Google with authorized JavaScript origin `http://127.0.0.1:8787` and authorized redirect URI `http://127.0.0.1:8787/api/auth/callback/google`. Keep staging and production origins separate.
