@@ -3,6 +3,7 @@ import { ErrorCode } from '$lib/server/infrastructure/errors';
 import { createTestDatabase, type TestDatabaseHarness } from '../../../../tests/db';
 import { makeAdminCtx, makeAnonymousCtx } from '../../../../tests/context';
 import { seedProduct } from '../../../../tests/factories/products';
+import { createFakeR2Bucket, makeMediaAdminCtx } from '../../../../tests/fakes/media';
 import {
 	createStorefrontSection,
 	getHomePage,
@@ -108,5 +109,27 @@ describe('storefront service integration', () => {
 		await expect(listStorefrontSections(makeAnonymousCtx({ now }))).rejects.toMatchObject({
 			code: ErrorCode.AUTHENTICATION_REQUIRED
 		});
+	});
+
+	it('classifies unsupported storefront images as client validation errors', async () => {
+		const bucket = createFakeR2Bucket();
+		const desktopImage = new File([new Uint8Array([1, 2, 3])], 'hero.heic', {
+			type: 'image/heic'
+		});
+
+		await expect(
+			createStorefrontSection(makeMediaAdminCtx(bucket, { now }), {
+				type: 'hero',
+				adminName: 'Unsupported image hero',
+				layoutVariant: 'full_bleed',
+				sourceType: 'manual',
+				desktopImage
+			})
+		).rejects.toMatchObject({
+			code: ErrorCode.INVALID_MEDIA_TYPE,
+			statusCode: 400,
+			message: 'Unsupported content type "image/heic".'
+		});
+		expect(bucket.putCalls).toHaveLength(0);
 	});
 });

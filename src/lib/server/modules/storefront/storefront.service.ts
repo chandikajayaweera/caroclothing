@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, max, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { guardPreviousBatchChanges } from '$lib/server/db/batch';
+import { withTransientD1ReadRetry } from '$lib/server/db/retry';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import {
@@ -67,18 +68,20 @@ const allowedSources: Record<
 
 export async function getHomePage(ctx: ServiceContext): Promise<HomePageDTO> {
 	const now = ctx.now ?? new Date();
-	const rows = await getDb()
-		.select()
-		.from(storefrontSection)
-		.where(
-			and(
-				eq(storefrontSection.pageKey, 'home'),
-				eq(storefrontSection.enabled, true),
-				sql`(${storefrontSection.startsAt} IS NULL OR ${storefrontSection.startsAt} <= ${now.getTime()})`,
-				sql`(${storefrontSection.endsAt} IS NULL OR ${storefrontSection.endsAt} > ${now.getTime()})`
+	const rows = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(storefrontSection)
+			.where(
+				and(
+					eq(storefrontSection.pageKey, 'home'),
+					eq(storefrontSection.enabled, true),
+					sql`(${storefrontSection.startsAt} IS NULL OR ${storefrontSection.startsAt} <= ${now.getTime()})`,
+					sql`(${storefrontSection.endsAt} IS NULL OR ${storefrontSection.endsAt} > ${now.getTime()})`
+				)
 			)
-		)
-		.orderBy(asc(storefrontSection.sortOrder), asc(storefrontSection.id));
+			.orderBy(asc(storefrontSection.sortOrder), asc(storefrontSection.id))
+	);
 
 	const [mediaBySection, categoryIdsBySection] = await Promise.all([
 		loadMediaBySectionIds(
@@ -687,9 +690,13 @@ async function uploadInputMedia(
 	} catch (error) {
 		await cleanupUploads(uploaded);
 		if (isAppError(error)) throw error;
-		throw new MediaError('Storefront image upload failed.', ErrorCode.MEDIA_UPLOAD_FAILED, {
-			cause: getErrorMessage(error)
-		});
+		const cause = getErrorMessage(error);
+		const code = resolveMediaUploadCode(cause);
+		throw new MediaError(
+			code === ErrorCode.INVALID_MEDIA_TYPE ? cause : 'Storefront image upload failed.',
+			code,
+			{ cause }
+		);
 	}
 }
 
@@ -744,6 +751,14 @@ function optionalMediaBucket(ctx: ServiceContext) {
 }
 async function cleanupUploads(items: UploadedSectionMedia[]) {
 	await Promise.all(items.map((item) => deleteObjectSafe(item.bucket, item.key)));
+}
+function resolveMediaUploadCode(message: string): ErrorCode {
+	const normalized = message.toLowerCase();
+	return normalized.includes('unsupported') ||
+		normalized.includes('empty') ||
+		normalized.includes('too large')
+		? ErrorCode.INVALID_MEDIA_TYPE
+		: ErrorCode.MEDIA_UPLOAD_FAILED;
 }
 function normalizeId(value: string, field: string) {
 	const id = value.trim();

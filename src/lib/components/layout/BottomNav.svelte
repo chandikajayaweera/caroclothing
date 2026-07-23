@@ -11,7 +11,10 @@
 	const session = authClient.useSession();
 	const wishlistCount = $derived(wishlist.allIds.length);
 
-	const navItems = $derived([
+	type NavHref = '/' | '/shop' | '/bag' | '#wishlist' | '/account' | '/sign-in' | '/app';
+	type NavItem = { label: string; href: NavHref; icon: typeof Home };
+
+	const navItems = $derived<NavItem[]>([
 		{
 			label: 'Home',
 			href: '/',
@@ -41,14 +44,14 @@
 			? [
 					{
 						label: 'Admin',
-						href: '/app',
+						href: '/app' as const,
 						icon: LayoutDashboard
 					}
 				]
 			: [])
 	]);
 
-	const isActive = (item: { label: string; href: string }) => {
+	const isActive = (item: NavItem) => {
 		if (item.label === 'Wishlist') return $uiStore.wishlistDrawerOpen;
 		if (item.href === '/') return page.url.pathname === '/';
 		if (item.href === '/account') return page.url.pathname === '/account';
@@ -63,7 +66,7 @@
 		{#each navItems as item (item.href)}
 			{@const IconComponent = item.icon}
 			<a
-				href={resolve((item.href === '#wishlist' ? page.url.pathname : item.href) as '/')}
+				href={resolve(item.href === '#wishlist' ? '/#wishlist' : item.href)}
 				onclick={(e) => {
 					if (item.label === 'Wishlist') {
 						e.preventDefault();

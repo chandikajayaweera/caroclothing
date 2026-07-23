@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_BYTES } from '$lib/server/infrastructure/media/r2';
 import {
 	STOREFRONT_LAYOUT_VARIANTS,
 	STOREFRONT_PAGE_KEYS,
@@ -14,7 +15,15 @@ const boolFromForm = z.preprocess(
 	z.boolean()
 );
 const optionalTimestamp = z.coerce.number().int().positive().nullable().optional();
-const optionalImage = z.instanceof(File).optional().nullable();
+const imageFileSchema = z
+	.instanceof(File)
+	.refine((file) => file.size > 0, 'Image is empty.')
+	.refine((file) => file.size <= MAX_IMAGE_BYTES, 'Image must be 5MB or less.')
+	.refine((file) => ALLOWED_IMAGE_TYPES.has(file.type), 'Unsupported image type.');
+const optionalImage = z.preprocess(
+	(value) => (value instanceof File && value.size === 0 ? undefined : value),
+	imageFileSchema.optional().nullable()
+);
 const pathSchema = z
 	.string()
 	.trim()

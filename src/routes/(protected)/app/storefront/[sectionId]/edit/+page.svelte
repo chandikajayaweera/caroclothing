@@ -252,7 +252,11 @@
 								onchange={(event) => previewFile(event, 'desktop')}
 								class="mt-2 min-h-11 w-full border border-ash/30 bg-void p-2 text-sm text-bone"
 							/></label
-						><AdminInput
+						>
+						{#if $errors.desktopImage?.[0]}
+							<p class="text-xs text-red-400">{$errors.desktopImage[0]}</p>
+						{/if}
+						<AdminInput
 							label="Desktop alt text"
 							name="desktopAltText"
 							bind:value={$form.desktopAltText}
@@ -279,7 +283,11 @@
 								onchange={(event) => previewFile(event, 'mobile')}
 								class="mt-2 min-h-11 w-full border border-ash/30 bg-void p-2 text-sm text-bone"
 							/></label
-						><AdminInput
+						>
+						{#if $errors.mobileImage?.[0]}
+							<p class="text-xs text-red-400">{$errors.mobileImage[0]}</p>
+						{/if}
+						<AdminInput
 							label="Mobile alt text"
 							name="mobileAltText"
 							bind:value={$form.mobileAltText}
