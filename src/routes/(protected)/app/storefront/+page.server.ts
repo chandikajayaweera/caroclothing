@@ -1,6 +1,6 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { superValidate } from 'sveltekit-superforms/server';
+import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
@@ -56,7 +56,10 @@ export const actions: Actions = {
 		if (!form.valid) return fail(400, { form });
 		try {
 			await setStorefrontSectionEnabled(context(event), form.data);
-			return { form, success: true };
+			return message(
+				form,
+				form.data.enabled ? 'Storefront section enabled.' : 'Storefront section disabled.'
+			);
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
@@ -68,7 +71,7 @@ export const actions: Actions = {
 		if (!form.valid) return fail(400, { form });
 		try {
 			await reorderStorefrontSections(context(event), form.data);
-			return { form, success: true };
+			return message(form, 'Storefront section order updated.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
@@ -80,7 +83,7 @@ export const actions: Actions = {
 		if (!form.valid) return fail(400, { form });
 		try {
 			await deleteStorefrontSection(context(event), form.data);
-			return { form, success: true };
+			return message(form, 'Storefront section deleted.');
 		} catch (error) {
 			return formFailFromAppError(form, error);
 		}
