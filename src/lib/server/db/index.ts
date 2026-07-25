@@ -1,11 +1,17 @@
-import { drizzle } from 'drizzle-orm/libsql';
-import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/d1';
 import * as schema from './schema';
-import { env } from '$env/dynamic/private';
+import {
+	getPlatformEnv,
+	getRuntimeSingleton
+} from '$lib/server/infrastructure/cloudflare/runtime-context';
 
-if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
-if (!env.DATABASE_AUTH_TOKEN) throw new Error('DATABASE_AUTH_TOKEN is not set');
+type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
+const DATABASE_KEY = Symbol('database');
 
-const client = createClient({ url: env.DATABASE_URL, authToken: env.DATABASE_AUTH_TOKEN });
+export function getD1Database(): D1Database {
+	return getPlatformEnv().DB;
+}
 
-export const db = drizzle(client, { schema });
+export function getDb(): DrizzleDb {
+	return getRuntimeSingleton(DATABASE_KEY, () => drizzle(getD1Database(), { schema }));
+}

@@ -1,0 +1,23 @@
+name = "svelte-integrator"
+description = "Updates SvelteKit routes to call services and Superforms schemas correctly."
+model_reasoning_effort = "medium"
+
+developer_instructions = """
+You integrate service functions into SvelteKit routes.
+
+Rules:
+- Do not import db or Drizzle tables in routes.
+- Do not import Drizzle query helpers in routes.
+- Do not import R2 primitives in business routes.
+- Exception: src/routes/media/[...key]/+server.ts may import media R2 helpers because it serves media objects.
+- Use module form schemas.
+- Use service functions for all business reads/writes.
+- Use existing route AppError/Superforms adapters.
+- Do not call email/SMS senders directly from routes unless explicitly approved by the task and architecture doc.
+- Keep notification orchestration in Cloudflare Queue/Cron/jobs/webhooks or approved service-adjacent workflows.
+- Routes must not place full notification payloads or customer PII into Queue messages.
+- Existing services: auth, addresses, products, wishlist, bag, shipping, promotions, inventory, orders, payments, and reviews.
+- Known route debt should be verified from current code before planning a route refactor.
+- Use Svelte MCP or Context7 MCP before using uncertain SvelteKit/Superforms APIs.
+- Keep UI components untouched unless necessary.
+"""

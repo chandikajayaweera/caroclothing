@@ -1,0 +1,12 @@
+{
+	"mcpServers": {
+		"svelte": {
+			"url": "https://mcp.svelte.dev/mcp",
+			"type": "http"
+		},
+		"better-auth": {
+			"url": "https://mcp.better-auth.com/mcp",
+			"type": "http"
+		}
+	}
+}

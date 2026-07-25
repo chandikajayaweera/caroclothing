@@ -1,0 +1,54 @@
+# Caro Clothing Development Context
+
+This file defines the foundational mandates and technical context for Caro Clothing. Adhere strictly to these guidelines.
+
+## 🛠 Core Stack & Tools
+
+- **Framework**: Svelte 5 (Runes) + SvelteKit.
+- **Styling**: Tailwind CSS 4.
+- **Database**: Cloudflare D1 managed through the native Worker `DB` binding and Drizzle ORM's D1 adapter.
+- **Authentication**: Better Auth (Phone OTP, Google One Tap, Anonymous sessions).
+- **Media**: Cloudflare R2 (keys stored in DB, resolved via `media/utils.ts`).
+- **Deployment**: Cloudflare Workers.
+
+## 📐 Architecture Principles
+
+- **Modular Schemas**: Database schemas live in `src/lib/server/modules/[module]/[module].drizzle.ts` and are aggregated in `src/lib/server/db/schema.ts`.
+- **Zod First**: Use `drizzle-zod` for validation. All schemas have insert, select, and update variants.
+- **ID Strategy**: Use `nanoid` for all primary keys.
+- **Media Handling**: Never store full URLs in the DB. Store R2 keys and resolve via `mediaUrl(key)` from `$lib/server/infrastructure/media`.
+- **Svelte 5 Runes**: Strictly use `$state`, `$derived`, `$effect`, and `$props`. Never use legacy Svelte 4 syntax.
+- **Product Catalog Model**: Products use one catalog model. Do not reintroduce catalog segmentation, event-release, waitlist, or launch mechanics without explicit approval.
+- **Centralized Errors**: ALWAYS use the structured custom errors defined in `src/lib/server/infrastructure/errors/index.ts` instead of throwing generic JavaScript `Error` objects. If a specific domain error class or `ErrorCode` does not exist for your use case, add it there first.
+- **Client Reactive State & Performance**: Strictly follow `docs/dev-notes.md` before editing Svelte 5 stores, `$effect` sync logic, debounced mutations, or UI transitions.
+
+## 🧠 Intelligence Guidelines
+
+### Documentation & Research
+
+- **Svelte MCP**: ALWAYS use `svelte_list-sections` and `svelte_get-documentation` for any Svelte 5 or SvelteKit questions. Run `svelte_svelte-autofixer` before submitting Svelte code.
+- **Context7**: ALWAYS use `mcp_context7_resolve-library-id` and `mcp_context7_get-library-docs` for:
+  - Better Auth configuration and plugins.
+  - Drizzle ORM syntax and migrations.
+  - Tailwind CSS 4 features.
+  - Cloudflare Workers / R2 APIs.
+  - Zod v4 validation schemas.
+
+## 🎨 Visual Identity
+
+Full brand system in `.gemini/skills/caro-ux-strategy/references/brand.md`. Quick reference:
+
+- **Colors**: Void `#0A0A0A` · Bone `#F8F5F0` · Charcoal `#1C1C1C` · Ash `#B4AFA8` · Volt `#C8FF00`
+- **Typography**: Bebas Neue (display) · Space Mono (mono/metadata) · DM Sans (body/UI)
+- **Volt is sacred** — reserve for: primary CTAs, low-stock signals, new-release announcements, active states. Nothing else.
+
+## 🚀 Workflows
+
+- **Local Dev**: `pnpm run dev`
+- **Database**:
+  - `pnpm run db:generate --name <change_name>` — Create a reviewed D1 migration after schema changes.
+  - `pnpm run db:migrate` — Apply pending D1 migrations locally.
+  - `pnpm run db:migrate:staging` — Apply pending migrations to the staging D1 database.
+  - `pnpm run db:migrate:production` — Apply pending migrations to the production D1 database after staging validation.
+- **Auth**: `pnpm run auth:schema` — Regenerate auth-specific Drizzle schema. BetterAuth-managed — never edit `auth.drizzle.ts` manually.
+- **Types**: `pnpm run cf-typegen` — Regenerate Cloudflare Worker binding types.

@@ -6,5 +6,9 @@ bun.lock
 bun.lockb
 
 # Miscellaneous
+.agent/
+.agents/
+.codex/skills/
 /static/
-/drizzle/
+/drizzle-d1/
+/src/worker-configuration.d.ts

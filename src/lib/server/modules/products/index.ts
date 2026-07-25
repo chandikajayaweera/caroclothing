@@ -1,0 +1,40 @@
+export * from './products.drizzle';
+export * from './products.forms';
+export * from './products.types';
+
+export {
+	addProductImage,
+	addProductTag,
+	createCategory,
+	createProduct,
+	createProductVariant,
+	createProductVariantColor,
+	createColor,
+	createTag,
+	deleteCategory,
+	deleteProduct,
+	deleteProductImage,
+	deleteProductVariant,
+	deleteProductVariantColor,
+	deleteColor,
+	deleteTag,
+	getCategory,
+	getProduct,
+	getProductStats,
+	getTag,
+	listCategories,
+	listColors,
+	listProducts,
+	listProductVariants,
+	listTags,
+	removeProductTag,
+	reorderProductImages,
+	setProductTags,
+	setPrimaryProductImage,
+	updateCategory,
+	updateProduct,
+	updateProductFull,
+	updateProductVariant,
+	updateProductVariantColor,
+	updateTag
+} from './products.service';
