@@ -19,7 +19,7 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 	if (!parsed.success) {
 		const error = parsed.error.issues.map((i) => i.message).join(', ');
 		console.error('[sms] Invalid input:', { error, to: maskSmsRecipient(input.to) });
-		return { ok: false, error: `INVALID_INPUT: ${error}` };
+		return { ok: false, error: `INVALID_INPUT: ${error}`, retryable: false };
 	}
 
 	try {
@@ -54,7 +54,11 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 					status: response.status,
 					to: maskSmsRecipient(parsed.data.to)
 				});
-				return { ok: false, error };
+				return {
+					ok: false,
+					error,
+					retryable: response.status === 429
+				};
 			}
 		} finally {
 			clearTimeout(timeoutId);
@@ -65,7 +69,7 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 				error: json.message,
 				to: maskSmsRecipient(parsed.data.to)
 			});
-			return { ok: false, error: json.message };
+			return { ok: false, error: json.message, retryable: false };
 		}
 
 		// text.lk wraps the created message object in `data`; extract an ID if present
@@ -78,8 +82,15 @@ export async function sendSms(input: SmsSendInput): Promise<SmsResult> {
 		return { ok: true, messageId };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'UNKNOWN_SEND_ERROR';
-		console.error('[sms] Unexpected error:', { err, to: maskSmsRecipient(input.to) });
-		return { ok: false, error: message };
+		console.error('[sms] Unexpected error:', {
+			error: message,
+			to: maskSmsRecipient(input.to)
+		});
+		return {
+			ok: false,
+			error: `DELIVERY_UNKNOWN:${message}`,
+			retryable: false
+		};
 	}
 }
 

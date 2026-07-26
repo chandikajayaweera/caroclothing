@@ -22,6 +22,7 @@ import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
+import { isAppError } from '$lib/server/infrastructure/errors';
 
 function getAdminContext(
 	locals: App.Locals,
@@ -59,9 +60,9 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const listOptions = parsed.success ? parsed.data : { limit: 50, offset: 0 };
 
 	try {
-		const [summary, inventoryResult, initializeForm, restockForm, adjustForm] = await Promise.all([
-			getInventorySummary(ctx),
-			listInventory(ctx, listOptions),
+		const summary = await getInventorySummary(ctx);
+		const inventoryResult = await listInventory(ctx, listOptions);
+		const [initializeForm, restockForm, adjustForm] = await Promise.all([
 			superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
 			superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
 			superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
@@ -71,8 +72,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 		if (openId) {
 			try {
 				activeDetail = await getInventory(ctx, { variantId: openId });
-			} catch {
-				// Ignore if the variant ID is invalid or doesn't exist
+			} catch (error) {
+				if (!isAppError(error) || error.statusCode >= 500) throw error;
 			}
 		}
 

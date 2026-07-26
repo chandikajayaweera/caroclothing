@@ -74,20 +74,34 @@ type NotificationDispatchRegistry = {
 const notificationDispatchers = {
 	'auth_welcome:email': async (notification) => {
 		return toEmailDispatchResult(
-			await sendWelcomeEmail(notification.payload.email, notification.payload.name)
+			await sendWelcomeEmail(notification.payload.email, notification.payload.name, {
+				idempotencyKey: notification.idempotencyKey
+			})
 		);
 	},
 	'auth_google_linked:email': async (notification) => {
-		return toEmailDispatchResult(await sendGoogleLinkedEmail(notification.payload.email));
+		return toEmailDispatchResult(
+			await sendGoogleLinkedEmail(notification.payload.email, {
+				idempotencyKey: notification.idempotencyKey
+			})
+		);
 	},
 	'order_confirmation:email': async (notification) => {
-		return toEmailDispatchResult(await sendOrderConfirmationEmail(notification.payload));
+		return toEmailDispatchResult(
+			await sendOrderConfirmationEmail(notification.payload, {
+				idempotencyKey: notification.idempotencyKey
+			})
+		);
 	},
 	'order_confirmation:sms': async (notification) => {
 		return toSmsDispatchResult(await sendOrderConfirmationSms(notification.payload));
 	},
 	'shipping_update:email': async (notification) => {
-		return toEmailDispatchResult(await sendShippingUpdateEmail(notification.payload));
+		return toEmailDispatchResult(
+			await sendShippingUpdateEmail(notification.payload, {
+				idempotencyKey: notification.idempotencyKey
+			})
+		);
 	},
 	'shipping_update:sms': async (notification) => {
 		return toSmsDispatchResult(await sendShippingUpdateSms(notification.payload));

@@ -121,11 +121,6 @@ export type CheckoutOrderBagDTO = Omit<CheckoutBagDTO, 'items'> & {
 	promoCodeId: string | null;
 };
 
-export type OrderBagDeleteResult = {
-	bagId: string;
-	itemCount: number;
-};
-
 export type AdminBagDTO = BagDTO & {
 	sessionToken: string | null;
 	promotionId: string | null;

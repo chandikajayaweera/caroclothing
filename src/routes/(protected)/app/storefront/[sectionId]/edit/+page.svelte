@@ -17,9 +17,36 @@
 	function initialValue<T>(getValue: () => T): T {
 		return getValue();
 	}
+	const SAVE_TIMEOUT_MS = 60_000;
+	let saveTimeoutId: ReturnType<typeof setTimeout> | undefined;
+	let saveTimeoutMessage = $state<string | null>(null);
+	function clearSaveTimeout() {
+		if (saveTimeoutId !== undefined) {
+			clearTimeout(saveTimeoutId);
+			saveTimeoutId = undefined;
+		}
+	}
 	const sf = superForm(
 		initialValue(() => data.updateForm),
-		{ resetForm: false }
+		{
+			resetForm: false,
+			onSubmit({ controller }) {
+				clearSaveTimeout();
+				saveTimeoutMessage = null;
+				saveTimeoutId = setTimeout(() => {
+					saveTimeoutMessage =
+						'Saving took too long. The request was stopped; refresh once before trying again.';
+					controller.abort();
+				}, SAVE_TIMEOUT_MS);
+			},
+			onResult() {
+				clearSaveTimeout();
+			},
+			onError() {
+				clearSaveTimeout();
+				saveTimeoutMessage ??= 'Unable to finish saving. Check your connection and try again.';
+			}
+		}
 	);
 	const { form, errors, enhance, message, submitting } = sf;
 	let desktopPreview = $state(
@@ -56,6 +83,7 @@
 		if (value?.startsWith('blob:')) URL.revokeObjectURL(value);
 	}
 	onDestroy(() => {
+		clearSaveTimeout();
 		revokePreview(desktopPreview);
 		revokePreview(mobilePreview);
 	});
@@ -71,7 +99,7 @@
 		kicker="Storefront"
 		title={`Edit ${data.section.adminName}`}
 		description="Update bounded content without changing its order here."
-		actionMessage={$message ?? actionData?.form?.message}
+		actionMessage={saveTimeoutMessage ?? $message ?? actionData?.form?.message}
 		isSubmitting={$submitting}
 		submitLabel="Save section"
 		oncancel={() => goto(resolve('/app/storefront'))}

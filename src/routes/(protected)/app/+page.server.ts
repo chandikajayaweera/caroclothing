@@ -17,14 +17,11 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const [ordersResult, analytics, productStats, inventorySummary, lowStockInventory] =
-			await Promise.all([
-				listOrders(ctx, { limit: 5 }),
-				getOrderAnalytics(ctx),
-				getProductStats(ctx),
-				getInventorySummary(ctx),
-				listInventory(ctx, { stockStatus: 'low', limit: 5 })
-			]);
+		const ordersResult = await listOrders(ctx, { limit: 5 });
+		const analytics = await getOrderAnalytics(ctx);
+		const productStats = await getProductStats(ctx);
+		const inventorySummary = await getInventorySummary(ctx);
+		const lowStockInventory = await listInventory(ctx, { stockStatus: 'low', limit: 5 });
 
 		return {
 			recentOrders: ordersResult.items,

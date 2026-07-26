@@ -3,13 +3,14 @@ import { ErrorCode } from '$lib/server/infrastructure/errors';
 import { createTestDatabase, type TestDatabaseHarness } from '../../../../tests/db';
 import { makeAdminCtx, makeAnonymousCtx } from '../../../../tests/context';
 import { seedProduct } from '../../../../tests/factories/products';
-import { createFakeR2Bucket, makeMediaAdminCtx } from '../../../../tests/fakes/media';
+import { createFakeR2Bucket, makeImage, makeMediaAdminCtx } from '../../../../tests/fakes/media';
 import {
 	createStorefrontSection,
 	getHomePage,
 	listStorefrontSections,
 	reorderStorefrontSections,
-	setStorefrontSectionEnabled
+	setStorefrontSectionEnabled,
+	updateStorefrontSection
 } from './storefront.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
@@ -32,6 +33,7 @@ describe('storefront service integration', () => {
 
 	beforeEach(async () => {
 		await harness.reset();
+		dbState.db = harness.db;
 	});
 
 	afterAll(() => {
@@ -132,4 +134,91 @@ describe('storefront service integration', () => {
 		});
 		expect(bucket.putCalls).toHaveLength(0);
 	});
+
+	it('reconciles an uploaded image when every D1 response is an ambiguous reset', async () => {
+		const bucket = createFakeR2Bucket();
+		const originalDb = harness.db;
+		let batchCalls = 0;
+		dbState.db = new Proxy(originalDb, {
+			get(target, property, receiver) {
+				if (property === 'batch') {
+					return async (statements: Parameters<typeof target.batch>[0]) => {
+						batchCalls += 1;
+						await target.batch(statements);
+						throw storageResetError();
+					};
+				}
+				const value = Reflect.get(target, property, receiver);
+				return typeof value === 'function' ? value.bind(target) : value;
+			}
+		});
+
+		try {
+			const hero = (await listStorefrontSections(makeAdminCtx({ now }))).find(
+				(section) => section.id === 'home-hero'
+			)!;
+			const updated = await updateStorefrontSection(makeMediaAdminCtx(bucket, { now }), {
+				sectionId: hero.id,
+				data: {
+					title: 'Recovered hero',
+					desktopImage: makeImage('hero-desktop.png')
+				}
+			});
+			const desktop = updated.media.find((item) => item.role === 'desktop');
+
+			expect(batchCalls).toBe(1);
+			expect(updated.title).toBe('Recovered hero');
+			expect(desktop).toBeDefined();
+			expect(bucket.objects.has(desktop!.r2Key)).toBe(true);
+			expect(bucket.deleteCalls).not.toContain(desktop!.r2Key);
+		} finally {
+			dbState.db = originalDb;
+		}
+	});
+
+	it('removes an upload when D1 resets before the batch can commit', async () => {
+		const bucket = createFakeR2Bucket();
+		const originalDb = harness.db;
+		let batchCalls = 0;
+		dbState.db = new Proxy(originalDb, {
+			get(target, property, receiver) {
+				if (property === 'batch') {
+					return async () => {
+						batchCalls += 1;
+						throw storageResetError();
+					};
+				}
+				const value = Reflect.get(target, property, receiver);
+				return typeof value === 'function' ? value.bind(target) : value;
+			}
+		});
+
+		try {
+			await expect(
+				updateStorefrontSection(makeMediaAdminCtx(bucket, { now }), {
+					sectionId: 'home-hero',
+					data: { desktopImage: makeImage('hero-desktop.png') }
+				})
+			).rejects.toMatchObject({
+				code: ErrorCode.DATABASE_UNAVAILABLE,
+				statusCode: 503,
+				message: 'The database is temporarily unavailable. Please try again.'
+			});
+
+			expect(batchCalls).toBe(3);
+			expect(bucket.putCalls).toHaveLength(1);
+			expect(bucket.deleteCalls).toEqual(bucket.putCalls);
+			expect(bucket.objects.size).toBe(0);
+		} finally {
+			dbState.db = originalDb;
+		}
+	});
 });
+
+function storageResetError() {
+	const error = new Error('Failed query: D1 batch');
+	error.cause = new Error(
+		'D1_ERROR: D1 DB storage operation exceeded timeout which caused object to be reset.'
+	);
+	return error;
+}

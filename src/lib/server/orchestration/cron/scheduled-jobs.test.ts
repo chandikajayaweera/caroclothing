@@ -146,7 +146,7 @@ describe('runScheduledJobs', () => {
 		expect(jobMocks.processDueNotificationOutbox).not.toHaveBeenCalled();
 	});
 
-	it('waits for sibling jobs and fails the scheduled invocation when any job fails', async () => {
+	it('continues sequential sibling jobs and fails the invocation when any job fails', async () => {
 		jobMocks.processDueNotificationOutbox.mockRejectedValueOnce(new Error('outbox job failed'));
 
 		await expect(

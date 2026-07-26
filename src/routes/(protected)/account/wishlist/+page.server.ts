@@ -1,9 +1,8 @@
 import type { PageServerLoad, Actions } from './$types';
 import { clearWishlist, listWishlist, removeFromWishlist } from '$lib/server/modules/wishlist';
-import { listProductVariants, type ProductVariantDTO } from '$lib/server/modules/products';
+import { listProductsByIds, type ProductVariantDTO } from '$lib/server/modules/products';
 import { getInventoryAvailabilityByVariantIds } from '$lib/server/modules/inventory';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-import { isAppError } from '$lib/server/infrastructure/errors';
 import { requireAccountContext } from '../_account.server';
 
 export const load: PageServerLoad = async (event) => {
@@ -15,19 +14,10 @@ export const load: PageServerLoad = async (event) => {
 		// Fetch variants for all products in wishlist
 		const uniqueProductIds = [...new Set(wishlist.items.map((item) => item.productId))];
 		const productVariantsMap = new Map<string, ProductVariantDTO[]>();
-
-		await Promise.all(
-			uniqueProductIds.map(async (productId) => {
-				try {
-					const variants = await listProductVariants(ctx, productId, { includeInactive: false });
-					productVariantsMap.set(productId, variants);
-				} catch (err) {
-					if (!isAppError(err) || err.statusCode >= 500) {
-						console.error(`[wishlist] Failed to load variants for product ${productId}:`, err);
-					}
-				}
-			})
-		);
+		const products = await listProductsByIds(ctx, { productIds: uniqueProductIds });
+		for (const product of products) {
+			productVariantsMap.set(product.id, product.variants);
+		}
 
 		// Collect all variant IDs we need inventory for
 		const variantIdsToQuery: string[] = [];

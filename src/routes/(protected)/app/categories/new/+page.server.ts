@@ -13,15 +13,10 @@ import { generateSlug } from '$lib/shared/slug';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import {
+	failFromAppError,
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
-import {
-	isAppError,
-	toErrorResponseBody,
-	ProductError,
-	ErrorCode
-} from '$lib/server/infrastructure/errors';
 
 function getAdminContext(
 	locals: App.Locals,
@@ -152,13 +147,7 @@ export const actions: Actions = {
 				});
 			}
 		} catch (error) {
-			const appError = isAppError(error)
-				? error
-				: new ProductError(
-						error instanceof Error ? error.message : 'An unexpected error occurred.',
-						ErrorCode.INTERNAL_ERROR
-					);
-			return withFiles(formFailFromAppError(form, appError));
+			return withFiles(formFailFromAppError(form, error));
 		}
 
 		throw redirect(303, '/app/categories');
@@ -191,22 +180,7 @@ export const actions: Actions = {
 
 			return { success: true, category: updated };
 		} catch (error) {
-			const appError = isAppError(error)
-				? error
-				: new ProductError(
-						error instanceof Error ? error.message : 'Failed to update category',
-						ErrorCode.INTERNAL_ERROR
-					);
-			const responseBody = toErrorResponseBody(appError, {
-				includeDetails: appError.statusCode < 500
-			});
-			return fail(
-				appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400,
-				{
-					success: false,
-					message: responseBody.message
-				}
-			);
+			return failFromAppError(error);
 		}
 	}
 };

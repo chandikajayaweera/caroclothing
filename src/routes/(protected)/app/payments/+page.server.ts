@@ -45,15 +45,11 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const options = getListOptions(url);
 
 	try {
-		const [payments, stats, recordPaymentForm, recordRefundForm] = await Promise.all([
-			listPayments(ctx, options),
-			getPaymentDashboardSummary(ctx),
-			superValidate(zod4(recordPaymentFormSchema), {
-				id: 'recordPayment'
-			}),
-			superValidate(zod4(recordRefundFormSchema), {
-				id: 'recordRefund'
-			})
+		const payments = await listPayments(ctx, options);
+		const stats = await getPaymentDashboardSummary(ctx);
+		const [recordPaymentForm, recordRefundForm] = await Promise.all([
+			superValidate(zod4(recordPaymentFormSchema), { id: 'recordPayment' }),
+			superValidate(zod4(recordRefundFormSchema), { id: 'recordRefund' })
 		]);
 
 		const query = url.searchParams.get('query') || url.searchParams.get('orderId') || '';

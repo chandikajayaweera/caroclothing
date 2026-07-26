@@ -7,6 +7,7 @@ import type {
 	NotificationQueueBatchResult,
 	NotificationQueueMessage
 } from '$lib/server/modules/notifications/outbox/outbox.types';
+import { getErrorMessage } from '$lib/server/infrastructure/errors';
 import type { QueueBatchResult } from './queue.types';
 
 const NOTIFICATION_QUEUE_NAMES = new Set([
@@ -65,12 +66,12 @@ async function processCloudflareNotificationQueueBatch(
 			console.error('[notification-outbox] Unexpected queue message failure:', {
 				queue: batch.queue,
 				messageId: message.id,
-				error
+				error: getErrorMessage(error)
 			});
 			results.push({
 				id: message.id,
 				outcome: 'failed',
-				message: error instanceof Error ? error.message : 'UNKNOWN_QUEUE_PROCESSING_ERROR'
+				message: 'Notification processing failed.'
 			});
 			message.retry({ delaySeconds: 60 });
 		}

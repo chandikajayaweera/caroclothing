@@ -34,6 +34,11 @@ export type CategoryDTO = {
 	updatedAt: Date;
 };
 
+export type PublicCategoryDTO = Omit<
+	CategoryDTO,
+	'imageMimeType' | 'imageByteSize' | 'imageOriginalFilename'
+>;
+
 export type CategoryLookup =
 	| { id: string; slug?: never; name?: never }
 	| { id?: never; slug: string; name?: never }
@@ -128,6 +133,11 @@ export type ProductImageDTO = {
 
 export type ProductImageReadDTO = ProductImageDTO;
 
+export type PublicProductImageDTO = Omit<
+	ProductImageReadDTO,
+	'mimeType' | 'byteSize' | 'originalFilename'
+>;
+
 export type ProductDTO = {
 	id: string;
 	name: string;
@@ -156,6 +166,11 @@ export type ProductDTO = {
 	primaryImageUrl: string | null;
 };
 
+export type PublicProductDTO = Omit<ProductDTO, 'category' | 'images'> & {
+	category: PublicCategoryDTO | null;
+	images: PublicProductImageDTO[];
+};
+
 export type ProductListResult = {
 	items: ProductDTO[];
 	total: number;
@@ -176,6 +191,10 @@ export type ListProductsOptions = {
 	limit?: number;
 	offset?: number;
 	query?: string;
+};
+
+export type ListProductsByIdsInput = {
+	productIds: string[];
 };
 
 export type CreateProductDraftVariantInput = {

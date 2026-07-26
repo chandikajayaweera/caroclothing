@@ -1,8 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { addToWishlist, removeFromWishlist, listWishlist } from '$lib/server/modules/wishlist';
-import { getProduct } from '$lib/server/modules/products';
+import { listProductsByIds } from '$lib/server/modules/products';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
-import { isAppError } from '$lib/server/infrastructure/errors';
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const actor = locals.user
@@ -19,46 +18,36 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 		// 2. If guest, read ids from query parameter (comma-separated list of product IDs)
 		const idsParam = url.searchParams.get('ids') || '';
-		const ids = idsParam
-			.split(',')
-			.map((id) => id.trim())
-			.filter(Boolean);
+		const ids = [
+			...new Set(
+				idsParam
+					.split(',')
+					.map((id) => id.trim())
+					.filter(Boolean)
+			)
+		].slice(0, 100);
 
 		if (ids.length === 0) {
 			return json({ items: [] });
 		}
 
-		// Fetch details for each product using getProduct service helper
-		const products = await Promise.all(
-			ids.map(async (id) => {
-				try {
-					const prod = await getProduct(ctx, { id });
-					return {
-						id,
-						productId: id,
-						variantId: null,
-						product: {
-							id: prod.id,
-							name: prod.name,
-							slug: prod.slug,
-							basePrice: prod.basePrice,
-							compareAtPrice: prod.compareAtPrice,
-							imageUrl: prod.primaryImageUrl || prod.images?.[0]?.imageUrl || null
-						},
-						imageUrl: prod.primaryImageUrl || prod.images?.[0]?.imageUrl || null,
-						effectivePrice: prod.basePrice,
-						isAvailable: prod.isActive
-					};
-				} catch (err) {
-					if (!isAppError(err) || err.statusCode >= 500) {
-						console.error(`[wishlist] Failed to load product ${id} for guest wishlist:`, err);
-					}
-					return null;
-				}
-			})
-		);
-
-		const items = products.filter((p) => p !== null);
+		const products = await listProductsByIds(ctx, { productIds: ids });
+		const items = products.map((product) => ({
+			id: product.id,
+			productId: product.id,
+			variantId: null,
+			product: {
+				id: product.id,
+				name: product.name,
+				slug: product.slug,
+				basePrice: product.basePrice,
+				compareAtPrice: product.compareAtPrice,
+				imageUrl: product.primaryImageUrl || product.images[0]?.imageUrl || null
+			},
+			imageUrl: product.primaryImageUrl || product.images[0]?.imageUrl || null,
+			effectivePrice: product.basePrice,
+			isAvailable: product.isActive
+		}));
 		return json({ items });
 	} catch (error) {
 		throwHttpFromAppError(error);

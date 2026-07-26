@@ -2,9 +2,9 @@
 	import { onMount } from 'svelte';
 	import Button from '../ui/Button.svelte';
 	import { heroImageAttrs, heroMobileImageAttrs } from '$lib/shared/media';
-	import type { StorefrontSectionBaseDTO } from '$lib/server/modules/storefront/storefront.types';
+	import type { PublicStorefrontSectionBaseDTO } from '$lib/server/modules/storefront/storefront.types';
 
-	let { section }: { section: StorefrontSectionBaseDTO } = $props();
+	let { section }: { section: PublicStorefrontSectionBaseDTO } = $props();
 	let scrollY = $state(0);
 	const desktop = $derived(section.media.find((item) => item.role === 'desktop') ?? null);
 	const mobile = $derived(section.media.find((item) => item.role === 'mobile') ?? desktop);

@@ -2,6 +2,7 @@ import type { Handle } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { getAuth } from '$lib/server/modules/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
+import { resolveAuthSession } from './session-lookup';
 
 const SESSIONLESS_ROUTE_IDS = new Set(['/api/products/availability']);
 
@@ -13,7 +14,7 @@ export const AuthHook: Handle = async ({ event, resolve }) => {
 	const auth = getAuth();
 	const session = SESSIONLESS_ROUTE_IDS.has(event.route.id ?? '')
 		? null
-		: await auth.api.getSession({ headers: event.request.headers });
+		: await resolveAuthSession(() => auth.api.getSession({ headers: event.request.headers }));
 
 	if (session) {
 		event.locals.session = session.session;
@@ -30,8 +31,8 @@ export const AuthHook: Handle = async ({ event, resolve }) => {
 				const url = new URL(location, event.url.origin);
 				url.searchParams.delete('error_description');
 				response.headers.set('location', url.pathname + url.search);
-			} catch (e) {
-				console.error('[auth] Failed to parse redirect location:', e);
+			} catch {
+				console.error('[auth] Failed to parse Better Auth redirect location.');
 			}
 		}
 	}
@@ -40,11 +41,24 @@ export const AuthHook: Handle = async ({ event, resolve }) => {
 	if (response.status === 403 || response.status === 400) {
 		try {
 			const clone = response.clone();
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const json = (await clone.json()) as any;
-			const errCode = json?.error?.code || json?.code;
+			const json = (await clone.json()) as {
+				error?: { code?: unknown; message?: unknown };
+				code?: unknown;
+				message?: unknown;
+			};
+			const errCode =
+				typeof json.error?.code === 'string'
+					? json.error.code
+					: typeof json.code === 'string'
+						? json.code
+						: null;
 			if (errCode === 'ACCOUNT_SUSPENDED') {
-				const rawMsg = json?.error?.message || json?.message || '';
+				const rawMsg =
+					typeof json.error?.message === 'string'
+						? json.error.message
+						: typeof json.message === 'string'
+							? json.message
+							: '';
 				const dateMatch = rawMsg.match(/suspended until (.*?)\./);
 				const banExpires = dateMatch ? Date.parse(dateMatch[1]) : null;
 

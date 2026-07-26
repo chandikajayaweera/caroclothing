@@ -1,6 +1,12 @@
 import { and, asc, count, desc, eq, isNotNull, isNull, like, sql, type SQL } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import {
 	AddressError,
@@ -66,18 +72,30 @@ export async function createAddress(
 		const db = getDb();
 		const existingCount = await countAddressesForUser(db, actor.id);
 		const shouldBeDefault = data.isDefault === true || existingCount === 0;
-		const insertQuery = db
-			.insert(address)
-			.values({ ...data, userId: actor.id, isDefault: shouldBeDefault })
-			.returning();
-		const createdRows = shouldBeDefault
-			? (await db.batch([clearDefaultAddress(db, actor.id), insertQuery]))[1]
-			: await insertQuery;
-		const [created] = createdRows;
-
-		if (!created) {
-			throw new AddressError('Address was not created.', ErrorCode.INTERNAL_ERROR);
-		}
+		const addressId = nanoid();
+		const values = {
+			id: addressId,
+			...data,
+			userId: actor.id,
+			isDefault: shouldBeDefault
+		};
+		const insertQuery = db.insert(address).values(values).returning();
+		const created = await withTransientD1WriteReconciliation<Address>(
+			async () => {
+				const createdRows = shouldBeDefault
+					? (await db.batch([clearDefaultAddress(db, actor.id), insertQuery]))[1]
+					: await insertQuery;
+				const [row] = createdRows;
+				if (!row) {
+					throw new AddressError('Address was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db.select().from(address).where(eq(address.id, addressId)).limit(1);
+				return row ? { committed: true, value: row } : { committed: false };
+			}
+		);
 
 		return toAddressDTO(created);
 	} catch (error) {
@@ -95,25 +113,31 @@ export async function listMyAddresses(
 	const where = eq(address.userId, actor.id);
 	const db = getDb();
 
-	const [totalRow] = await db.select({ total: count() }).from(address).where(where);
-	const rows = await db
-		.select()
-		.from(address)
-		.where(where)
-		.orderBy(desc(address.isDefault), desc(address.updatedAt), asc(address.label))
-		.limit(limit)
-		.offset(offset);
+	const [totalRow] = await withTransientD1ReadRetry(() =>
+		db.select({ total: count() }).from(address).where(where)
+	);
+	const rows = await withTransientD1ReadRetry(() =>
+		db
+			.select()
+			.from(address)
+			.where(where)
+			.orderBy(desc(address.isDefault), desc(address.updatedAt), asc(address.label))
+			.limit(limit)
+			.offset(offset)
+	);
 
 	return toAddressListResult(rows, totalRow?.total ?? 0, limit, offset);
 }
 
 export async function getMyDefaultAddress(ctx: ServiceContext): Promise<AddressDTO | null> {
 	const actor = requireActor(ctx.actor);
-	const [row] = await getDb()
-		.select()
-		.from(address)
-		.where(and(eq(address.userId, actor.id), eq(address.isDefault, true)))
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(address)
+			.where(and(eq(address.userId, actor.id), eq(address.isDefault, true)))
+			.limit(1)
+	);
 
 	return row ? toAddressDTO(row) : null;
 }
@@ -154,23 +178,62 @@ export async function updateAddress(
 
 	try {
 		const db = getDb();
+		const updatedAt = new Date();
+		const stableUpdateValues = { ...updateValues, updatedAt };
 		const updateQuery = db
 			.update(address)
-			.set(updateValues)
-			.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+			.set(stableUpdateValues)
+			.where(
+				and(
+					eq(address.id, addressId),
+					eq(address.userId, actor.id),
+					eq(address.updatedAt, existing.updatedAt)
+				)
+			)
 			.returning();
-		const updatedRows =
-			data.isDefault === true
-				? (await db.batch([clearDefaultAddress(db, actor.id), updateQuery]))[1]
-				: await updateQuery;
-		const [updated] = updatedRows;
-
-		if (!updated) {
-			throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
-		}
+		const updated = await withTransientD1WriteReconciliation<Address>(
+			async () => {
+				const updatedRows =
+					data.isDefault === true
+						? (
+								await db.batch([
+									clearDefaultAddress(db, actor.id),
+									updateQuery,
+									...guardPreviousBatchChanges(db)
+								])
+							)[1]
+						: await updateQuery;
+				const [row] = updatedRows;
+				if (!row) {
+					throw new AddressError(
+						'Address changed while it was being updated.',
+						ErrorCode.CONFLICT,
+						{ addressId }
+					);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(address)
+					.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+					.limit(1);
+				return row && recordMatchesPatch(row, stableUpdateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
 		return toAddressDTO(updated);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new AddressError(
+				'Address changed while the default address was being updated.',
+				ErrorCode.CONFLICT,
+				{ addressId }
+			);
+		}
 		throw mapAddressPersistenceError(error);
 	}
 }
@@ -189,32 +252,40 @@ export async function deleteAddress(
 		.returning({ id: address.id });
 	const guard = guardPreviousBatchChanges(db);
 
-	let deletedRows: { id: string }[];
 	try {
-		if (existing.isDefault) {
-			const setNextDefault = db
-				.update(address)
-				.set({ isDefault: true })
-				.where(
-					eq(
-						address.id,
-						sql`(SELECT ${address.id} FROM ${address} WHERE ${address.userId} = ${actor.id} ORDER BY ${address.updatedAt} DESC, ${address.createdAt} ASC LIMIT 1)`
-					)
-				);
-			[deletedRows] = await db.batch([deleteQuery, ...guard, setNextDefault]);
-		} else {
-			[deletedRows] = await db.batch([deleteQuery, ...guard]);
-		}
+		const statements = existing.isDefault
+			? ([
+					deleteQuery,
+					...guard,
+					db
+						.update(address)
+						.set({ isDefault: true })
+						.where(
+							eq(
+								address.id,
+								sql`(SELECT ${address.id} FROM ${address} WHERE ${address.userId} = ${actor.id} ORDER BY ${address.updatedAt} DESC, ${address.createdAt} ASC LIMIT 1)`
+							)
+						)
+				] as Parameters<Db['batch']>[0])
+			: ([deleteQuery, ...guard] as Parameters<Db['batch']>[0]);
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: address.id })
+					.from(address)
+					.where(eq(address.id, addressId))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
 		}
-		throw error;
-	}
-	const [deleted] = deletedRows;
-
-	if (!deleted) {
-		throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
+		throw mapAddressPersistenceError(error);
 	}
 }
 
@@ -227,22 +298,46 @@ export async function setDefaultAddress(
 
 	try {
 		const db = getDb();
-		await loadOwnedAddress(db, actor.id, addressId);
+		const existing = await loadOwnedAddress(db, actor.id, addressId);
+		if (existing.isDefault) return toAddressDTO(existing);
+		const updatedAt = new Date();
 		const updateQuery = db
 			.update(address)
-			.set({ isDefault: true })
-			.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+			.set({ isDefault: true, updatedAt })
+			.where(
+				and(
+					eq(address.id, addressId),
+					eq(address.userId, actor.id),
+					eq(address.updatedAt, existing.updatedAt)
+				)
+			)
 			.returning();
-		const [, updatedRows] = await db.batch([
-			clearDefaultAddress(db, actor.id),
-			updateQuery,
-			...guardPreviousBatchChanges(db)
-		]);
-		const [updated] = updatedRows;
-
-		if (!updated) {
-			throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
-		}
+		const updated = await withTransientD1WriteReconciliation<Address>(
+			async () => {
+				const [, updatedRows] = await db.batch([
+					clearDefaultAddress(db, actor.id),
+					updateQuery,
+					...guardPreviousBatchChanges(db)
+				]);
+				const [row] = updatedRows;
+				if (!row) {
+					throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, {
+						addressId
+					});
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(address)
+					.where(and(eq(address.id, addressId), eq(address.userId, actor.id)))
+					.limit(1);
+				return row?.isDefault && row.updatedAt.getTime() === updatedAt.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
 		return toAddressDTO(updated);
 	} catch (error) {
@@ -268,10 +363,10 @@ export async function listAddresses(
 		.orderBy(desc(address.updatedAt), asc(address.city))
 		.limit(limit)
 		.offset(offset);
-	const [totalRows, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
+	const totalRows = await withTransientD1ReadRetry(() =>
+		where ? countQuery.where(where) : countQuery
+	);
+	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
 
 	return toAddressListResult(rows, totalRows[0]?.total ?? 0, limit, offset);
 }
@@ -316,7 +411,9 @@ export function formatAddressSnapshot(input: AddressSnapshot): string {
 
 async function loadAddressById(db: Db, addressId: string): Promise<Address> {
 	const normalizedId = normalizeId(addressId, 'addressId');
-	const [row] = await db.select().from(address).where(eq(address.id, normalizedId)).limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		db.select().from(address).where(eq(address.id, normalizedId)).limit(1)
+	);
 
 	if (!row) {
 		throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, {
@@ -328,11 +425,13 @@ async function loadAddressById(db: Db, addressId: string): Promise<Address> {
 }
 
 async function loadOwnedAddress(db: Db, userId: string, addressId: string): Promise<Address> {
-	const [row] = await db
-		.select()
-		.from(address)
-		.where(and(eq(address.id, addressId), eq(address.userId, userId)))
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		db
+			.select()
+			.from(address)
+			.where(and(eq(address.id, addressId), eq(address.userId, userId)))
+			.limit(1)
+	);
 
 	if (!row) {
 		throw new AddressError('Address not found.', ErrorCode.ADDRESS_NOT_FOUND, { addressId });
@@ -342,7 +441,9 @@ async function loadOwnedAddress(db: Db, userId: string, addressId: string): Prom
 }
 
 async function countAddressesForUser(db: Db, userId: string): Promise<number> {
-	const [row] = await db.select({ total: count() }).from(address).where(eq(address.userId, userId));
+	const [row] = await withTransientD1ReadRetry(() =>
+		db.select({ total: count() }).from(address).where(eq(address.userId, userId))
+	);
 
 	return row?.total ?? 0;
 }
@@ -497,8 +598,20 @@ function sanitizeLikeTerm(value: string): string {
 	return value.replace(/[%_]/g, '');
 }
 
+function recordMatchesPatch(row: object, patch: Record<string, unknown>): boolean {
+	const record = row as Record<string, unknown>;
+	return Object.entries(patch).every(([key, expected]) => {
+		const actual = record[key];
+		if (actual instanceof Date && expected instanceof Date) {
+			return actual.getTime() === expected.getTime();
+		}
+		return actual === expected;
+	});
+}
+
 function mapAddressPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 

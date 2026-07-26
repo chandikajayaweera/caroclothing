@@ -1,13 +1,20 @@
 import { eq } from 'drizzle-orm';
 import { getD1Database, getDb } from '$lib/server/db';
-import { prepareAnonymousBagMergeStatements } from '$lib/server/modules/bag/bag.service';
+import { rethrowTransientD1Error, withTransientD1WriteReconciliation } from '$lib/server/db/retry';
+import {
+	hasUserBagDataForMigrationTx,
+	prepareAnonymousBagMergeStatements
+} from '$lib/server/modules/bag/bag.service';
 import {
 	AuthError,
 	ErrorCode,
 	getErrorMessage,
 	isAppError
 } from '$lib/server/infrastructure/errors';
-import { prepareAnonymousWishlistMergeStatements } from '$lib/server/modules/wishlist/wishlist.service';
+import {
+	hasUserWishlistDataForMigrationTx,
+	prepareAnonymousWishlistMergeStatements
+} from '$lib/server/modules/wishlist/wishlist.service';
 import { user as userTable } from './auth.drizzle';
 
 type Db = ReturnType<typeof getDb>;
@@ -30,7 +37,7 @@ export async function migrateAnonymousUserData(anonymousUserId: string, targetUs
 			targetUserId: destinationUserId
 		});
 		const d1 = getD1Database();
-		await d1.batch([
+		const statements = [
 			...prepareAnonymousBagMergeStatements(d1, {
 				sourceUserId,
 				targetUserId: destinationUserId
@@ -39,9 +46,19 @@ export async function migrateAnonymousUserData(anonymousUserId: string, targetUs
 				sourceUserId,
 				targetUserId: destinationUserId
 			})
-		]);
+		];
+		await withTransientD1WriteReconciliation(
+			() => d1.batch(statements).then(() => undefined),
+			async () => {
+				const sourceHasBagData = await hasUserBagDataForMigrationTx(db, sourceUserId);
+				if (sourceHasBagData) return { committed: false };
+				const sourceHasWishlistData = await hasUserWishlistDataForMigrationTx(db, sourceUserId);
+				return sourceHasWishlistData ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		if (isAppError(error)) throw error;
+		rethrowTransientD1Error(error);
 
 		throw new AuthError(
 			'Unable to migrate anonymous user data.',

@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-07-20
+- **Status:** current as of 2026-07-26
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 The repository-wide `src/lib` dependency and folder rules live in `docs/library-architecture.md`.
@@ -39,7 +39,11 @@ Database runtime and atomicity:
 - Drizzle uses `drizzle-orm/d1`, and the Cloudflare `DB` binding is the only database connection contract. No remote database URL/token transport or callback transaction client exists.
 - D1 `batch()` is the atomic boundary for multi-table writes. Cross-module workflows return prepared statements that the owning service composes into one non-empty batch.
 - `_d1_batch_guard` CHECK failures turn optimistic conditions such as ownership, checkout freshness, stock sufficiency, and previous-statement row counts into full batch rollbacks.
+- `withTransientD1ReadRetry()` adds one bounded application retry only at deliberate read/hydration boundaries; it is not applied mechanically to every query because D1 already retries eligible reads internally.
+- Writes are never blindly retried unless their desired-state predicate makes them idempotent. Other writes use `withTransientD1WriteReconciliation()` with a stable identity and a read-back proof before any retry.
+- Exhausted transient D1 failures normalize to the shared `DATABASE_UNAVAILABLE`/HTTP 503 boundary instead of leaking provider text as a generic 500.
 - Better Auth uses its Drizzle adapter over the request-scoped D1-backed database with interactive adapter transactions disabled. Request, Queue, and Cron handlers establish runtime context through `src/lib/server/infrastructure/cloudflare/runtime-context.ts` before database or environment access.
+- The auth request hook treats Better Auth's explicit `401 FAILED_TO_GET_SESSION` as an invalidated session and retries the same code once only when Better Auth emits it as a wrapped 5xx; unrelated and exhausted errors remain observable.
 
 Bag and checkout inventory lifecycle:
 
@@ -63,9 +67,11 @@ Customer account lifecycle:
 - Existing phone-derived display names are treated as incomplete and redirected to account profile completion.
 - A customer must always retain at least one sign-in method: verified phone or Google.
 - Self-service account deletion requires a fresh Better Auth session.
-- Before account deletion, the auth workflow deletes every user-owned bag (including legacy duplicates), cancels unsent notification outbox rows, and anonymizes customer PII from retained orders in one guarded D1 batch.
+- Account deletion is blocked while an order is still pending, confirmed, processing, or shipped.
+- Before account deletion, the auth workflow deletes every user-owned bag (including legacy duplicates), cancels and redacts unsent notification outbox rows, scrubs retained notification/payment-attempt payloads, and anonymizes customer PII from retained orders in one guarded D1 batch.
 - User deletion cascades profile-owned data while anonymized order/payment history remains with a null user reference.
-- Review media keys are collected before deletion and removed from R2 after the database deletion succeeds.
+- Review media keys are collected before deletion; a batch guard aborts if a new key appears before commit, and idempotent R2 deletion is retried after the database deletion succeeds.
+- The Better Auth admin role intentionally omits its direct user-delete permission so deletion cannot bypass the guarded Caro service workflow.
 
 Implemented foundations:
 
@@ -312,6 +318,9 @@ Queue:
 - Duplicate Queue delivery must not duplicate notification sends when the outbox row is already terminal or locked.
 - Queue processing marks records sent only after `EmailResult.ok` or `SmsResult.ok`.
 - Provider failures mark outbox state failed/retryable without marking sent.
+- Resend sends use the durable outbox idempotency key. Text.lk does not document a caller-supplied idempotency key, so network/timeout outcomes are quarantined as non-retryable for manual review rather than risking duplicate SMS delivery.
+- A stale email processing lock is retryable through the same Resend idempotency key. A stale SMS processing lock has an unknown delivery outcome and is exhausted for manual review instead of being sent twice.
+- Notification Queue consumers are deliberately backpressured in Wrangler (`max_batch_size: 2`, `max_concurrency: 1`) because the provider and the single-threaded D1 database are shared upstream limits.
 
 Cron:
 

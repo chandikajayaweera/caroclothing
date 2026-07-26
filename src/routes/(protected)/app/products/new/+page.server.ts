@@ -18,15 +18,10 @@ import {
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import {
+	failFromAppError,
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
-import {
-	isAppError,
-	toErrorResponseBody,
-	ProductError,
-	ErrorCode
-} from '$lib/server/infrastructure/errors';
 
 function getAdminContext(
 	locals: App.Locals,
@@ -89,15 +84,17 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const [categories, tags, colors, createProductForm] = await Promise.all([
-			listCategories(ctx, { includeInactive: true, limit: 100 }),
-			listTags({ limit: 100 }),
-			listColors(ctx),
-			superValidate(createProductDefaults, zod4(createProductFormSchema), {
+		const categories = await listCategories(ctx, { includeInactive: true, limit: 100 });
+		const tags = await listTags({ limit: 100 });
+		const colors = await listColors(ctx);
+		const createProductForm = await superValidate(
+			createProductDefaults,
+			zod4(createProductFormSchema),
+			{
 				id: 'createProduct',
 				errors: false
-			})
-		]);
+			}
+		);
 
 		return {
 			categories,
@@ -151,22 +148,7 @@ export const actions: Actions = {
 			const newColor = await createColor(ctx, { name, hex });
 			return { success: true, color: newColor };
 		} catch (error) {
-			const appError = isAppError(error)
-				? error
-				: new ProductError(
-						error instanceof Error ? error.message : 'Failed to create color',
-						ErrorCode.INTERNAL_ERROR
-					);
-			const responseBody = toErrorResponseBody(appError, {
-				includeDetails: appError.statusCode < 500
-			});
-			return fail(
-				appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400,
-				{
-					success: false,
-					message: responseBody.message
-				}
-			);
+			return failFromAppError(error);
 		}
 	},
 	deleteColor: async (event) => {
@@ -177,22 +159,7 @@ export const actions: Actions = {
 			await deleteColor(ctx, colorId);
 			return { success: true };
 		} catch (error) {
-			const appError = isAppError(error)
-				? error
-				: new ProductError(
-						error instanceof Error ? error.message : 'Failed to delete color',
-						ErrorCode.INTERNAL_ERROR
-					);
-			const responseBody = toErrorResponseBody(appError, {
-				includeDetails: appError.statusCode < 500
-			});
-			return fail(
-				appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400,
-				{
-					success: false,
-					message: responseBody.message
-				}
-			);
+			return failFromAppError(error);
 		}
 	}
 };

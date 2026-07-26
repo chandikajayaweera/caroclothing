@@ -1,5 +1,7 @@
 // Core primitives
-export type SmsResult = { ok: true; messageId: string } | { ok: false; error: string };
+export type SmsResult =
+	| { ok: true; messageId: string }
+	| { ok: false; error: string; retryable: boolean };
 export type SmsSenderPurpose = 'otp' | 'transactional' | 'promotional';
 
 // Send SMS

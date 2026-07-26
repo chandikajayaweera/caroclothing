@@ -64,9 +64,9 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const orderOptions = getListOptions(url);
 
 	try {
+		const orders = await listOrders(ctx, orderOptions);
+		const analytics = await getOrderAnalytics(ctx);
 		const [
-			orders,
-			analytics,
 			transitionStatusForm,
 			cancelOrderForm,
 			updateFulfillmentForm,
@@ -75,8 +75,6 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			cancelExpiredForm,
 			bulkTransitionForm
 		] = await Promise.all([
-			listOrders(ctx, orderOptions),
-			getOrderAnalytics(ctx),
 			superValidate(zod4(transitionOrderStatusFormSchema), {
 				id: 'transitionOrderStatus'
 			}),

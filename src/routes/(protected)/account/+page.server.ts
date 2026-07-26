@@ -13,17 +13,15 @@ import { requireAccountContext } from './_account.server';
 export const load: PageServerLoad = async (event) => {
 	const ctx = requireAccountContext(event);
 	const { account } = await event.parent();
-	const [orders, addresses, wishlist, reviews, nameForm] = await Promise.all([
-		listMyOrders(ctx, { limit: 1 }),
-		listMyAddresses(ctx, { limit: 1 }),
-		listWishlist(ctx, { limit: 1, includeUnavailable: true }),
-		listMyReviews(ctx, { limit: 1 }),
-		superValidate(
-			{ name: account.needsNameCompletion ? '' : account.name },
-			zod4(updateMyDisplayNameFormSchema),
-			{ id: 'updateDisplayName', errors: false }
-		)
-	]);
+	const orders = await listMyOrders(ctx, { limit: 1 });
+	const addresses = await listMyAddresses(ctx, { limit: 1 });
+	const wishlist = await listWishlist(ctx, { limit: 1, includeUnavailable: true });
+	const reviews = await listMyReviews(ctx, { limit: 1 });
+	const nameForm = await superValidate(
+		{ name: account.needsNameCompletion ? '' : account.name },
+		zod4(updateMyDisplayNameFormSchema),
+		{ id: 'updateDisplayName', errors: false }
+	);
 
 	return {
 		nameForm,

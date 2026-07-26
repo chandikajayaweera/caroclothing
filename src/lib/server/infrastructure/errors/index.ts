@@ -1,4 +1,6 @@
 import { APIError } from 'better-auth/api';
+import { isTransientD1Error } from '../../db/errors';
+import { collectErrorMessages, removeUndefinedValues } from '../../foundation/utils';
 
 /**
  * Centralized application error handling for CaroClothing.
@@ -20,6 +22,7 @@ export const ErrorCode = {
 	UNAUTHORIZED: 'UNAUTHORIZED',
 	FORBIDDEN: 'FORBIDDEN',
 	CONFLICT: 'CONFLICT',
+	DATABASE_UNAVAILABLE: 'DATABASE_UNAVAILABLE',
 
 	// Addresses
 	ADDRESS_NOT_FOUND: 'ADDRESS_NOT_FOUND',
@@ -141,6 +144,7 @@ const defaultStatusByCode = {
 	UNAUTHORIZED: 401,
 	FORBIDDEN: 403,
 	CONFLICT: 409,
+	DATABASE_UNAVAILABLE: 503,
 
 	ADDRESS_NOT_FOUND: 404,
 	ADDRESS_ALREADY_EXISTS: 409,
@@ -239,7 +243,8 @@ const betterAuthStatusByHttpStatus: Partial<Record<number, BetterAuthStatus>> = 
 	409: 'CONFLICT',
 	410: 'GONE',
 	429: 'TOO_MANY_REQUESTS',
-	500: 'INTERNAL_SERVER_ERROR'
+	500: 'INTERNAL_SERVER_ERROR',
+	503: 'SERVICE_UNAVAILABLE'
 };
 
 // ---------------------------------------------------------------------------
@@ -268,6 +273,17 @@ export class AppError extends Error {
 			statusCode: this.statusCode,
 			details: this.details
 		});
+	}
+}
+
+export class DatabaseUnavailableError extends AppError {
+	constructor(cause?: unknown) {
+		super(
+			'The database is temporarily unavailable. Please try again.',
+			ErrorCode.DATABASE_UNAVAILABLE,
+			503
+		);
+		this.cause = cause;
 	}
 }
 
@@ -459,27 +475,25 @@ export function isAppError(error: unknown): error is AppError {
 	return error instanceof AppError;
 }
 
+export function normalizeServerError(error: unknown): unknown {
+	if (isAppError(error)) return error;
+	return isTransientD1Error(error) ? new DatabaseUnavailableError(error) : error;
+}
+
 export function getErrorMessage(error: unknown): string {
-	if (error instanceof Error) {
-		let msg = error.message;
-		if (error.cause instanceof Error) {
-			msg += ' | ' + error.cause.message;
-		} else if (error.cause) {
-			msg += ' | ' + String(error.cause);
-		}
-		return msg;
-	}
-	if (typeof error === 'string') return error;
-	return 'An unknown error occurred';
+	const messages = collectErrorMessages(error);
+	return messages.length > 0 ? messages.join(' | ') : 'An unknown error occurred';
 }
 
 export function getErrorCode(error: unknown): ErrorCode {
-	if (isAppError(error)) return error.code;
+	const normalizedError = normalizeServerError(error);
+	if (isAppError(normalizedError)) return normalizedError.code;
 	return ErrorCode.INTERNAL_ERROR;
 }
 
 export function getErrorStatusCode(error: unknown): number {
-	if (isAppError(error)) return error.statusCode;
+	const normalizedError = normalizeServerError(error);
+	if (isAppError(normalizedError)) return normalizedError.statusCode;
 	return 500;
 }
 
@@ -491,14 +505,15 @@ export function toErrorResponseBody(
 	error: unknown,
 	options: { includeDetails?: boolean } = {}
 ): ErrorResponseBody {
-	if (isAppError(error)) {
+	const normalizedError = normalizeServerError(error);
+	if (isAppError(normalizedError)) {
 		return removeUndefinedValues({
-			code: error.code,
+			code: normalizedError.code,
 			message:
-				error.statusCode >= 500
+				normalizedError.statusCode >= 500
 					? 'Something went wrong on our end. Please try again later.'
-					: error.message,
-			details: options.includeDetails ? error.details : undefined
+					: normalizedError.message,
+			details: options.includeDetails ? normalizedError.details : undefined
 		});
 	}
 
@@ -514,10 +529,4 @@ export function toBetterAuthApiError(error: unknown): APIError {
 	const status = betterAuthStatusByHttpStatus[statusCode] ?? 'INTERNAL_SERVER_ERROR';
 
 	return new APIError(status, body);
-}
-
-function removeUndefinedValues<T extends Record<string, unknown>>(value: T): T {
-	return Object.fromEntries(
-		Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
-	) as T;
 }

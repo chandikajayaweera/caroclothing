@@ -15,26 +15,34 @@ function getAdminContext(locals: App.Locals, platform?: App.Platform): ServiceCo
 export const load: PageServerLoad = async ({ url, locals, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 	const orderIdsString = url.searchParams.get('orderIds') || '';
-	const orderIds = orderIdsString
-		.split(',')
-		.map((id) => id.trim())
-		.filter(Boolean);
+	const orderIds = [
+		...new Set(
+			orderIdsString
+				.split(',')
+				.map((id) => id.trim())
+				.filter(Boolean)
+		)
+	];
 
 	if (orderIds.length === 0) {
 		throw error(400, 'No orderIds provided for printing.');
 	}
+	if (orderIds.length > 50) {
+		throw error(400, 'A maximum of 50 orders can be printed at once.');
+	}
 
 	try {
-		const orders = await Promise.all(
-			orderIds.map((id) =>
-				getOrder(ctx, {
+		const orders = [];
+		for (const id of orderIds) {
+			orders.push(
+				await getOrder(ctx, {
 					lookup: { id },
 					includeItems: true,
 					includePayments: false,
 					includeStatusHistory: false
 				})
-			)
-		);
+			);
+		}
 
 		return {
 			orders

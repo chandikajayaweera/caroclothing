@@ -6,6 +6,11 @@ import {
 	guardPreviousBatchChanges,
 	isD1BatchGuardError
 } from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
@@ -195,30 +200,38 @@ export function prepareInventorySaleRestoreBatch(
 export async function getInventorySummary(ctx: ServiceContext): Promise<InventorySummaryDTO> {
 	requireAdmin(ctx.actor);
 
-	const [variantTotalRow, inventoryRows] = await Promise.all([
-		getDb().select({ total: count() }).from(productVariant),
-		getDb().select().from(inventory)
-	]);
-	const totalVariants = Number(variantTotalRow[0]?.total ?? 0);
-	const inventoryRowsCount = inventoryRows.length;
+	const db = getDb();
+	const [summary] = await withTransientD1ReadRetry(() =>
+		db
+			.select({
+				totalVariants: sql<number>`(select count(*) from ${productVariant})`,
+				inventoryRows: count(),
+				trackedCount: sql<number>`coalesce(sum(case when ${inventory.trackInventory} = 1 then 1 else 0 end), 0)`,
+				untrackedCount: sql<number>`coalesce(sum(case when ${inventory.trackInventory} = 0 then 1 else 0 end), 0)`,
+				lowStockCount: sql<number>`coalesce(sum(case when ${inventory.trackInventory} = 1 and max(0, ${inventory.quantity} - ${inventory.reservedQuantity}) <= ${inventory.lowStockThreshold} then 1 else 0 end), 0)`,
+				outOfStockCount: sql<number>`coalesce(sum(case when ${inventory.trackInventory} = 1 and ${inventory.quantity} - ${inventory.reservedQuantity} <= 0 then 1 else 0 end), 0)`,
+				backorderEnabledCount: sql<number>`coalesce(sum(case when ${inventory.allowBackorder} = 1 then 1 else 0 end), 0)`,
+				totalQuantity: sql<number>`coalesce(sum(${inventory.quantity}), 0)`,
+				totalReservedQuantity: sql<number>`coalesce(sum(${inventory.reservedQuantity}), 0)`,
+				totalAvailableQuantity: sql<number>`coalesce(sum(case when ${inventory.trackInventory} = 1 then max(0, ${inventory.quantity} - ${inventory.reservedQuantity}) else 0 end), 0)`
+			})
+			.from(inventory)
+	);
+	const totalVariants = Number(summary?.totalVariants ?? 0);
+	const inventoryRowsCount = Number(summary?.inventoryRows ?? 0);
 
 	return {
 		totalVariants,
 		inventoryRows: inventoryRowsCount,
 		missingInventoryCount: Math.max(0, totalVariants - inventoryRowsCount),
-		trackedCount: inventoryRows.filter((row) => row.trackInventory).length,
-		untrackedCount: inventoryRows.filter((row) => !row.trackInventory).length,
-		lowStockCount: inventoryRows.filter((row) => row.trackInventory && isLowStock(row)).length,
-		outOfStockCount: inventoryRows.filter(
-			(row) => row.trackInventory && availableQuantity(row) <= 0
-		).length,
-		backorderEnabledCount: inventoryRows.filter((row) => row.allowBackorder).length,
-		totalQuantity: inventoryRows.reduce((sum, row) => sum + row.quantity, 0),
-		totalReservedQuantity: inventoryRows.reduce((sum, row) => sum + row.reservedQuantity, 0),
-		totalAvailableQuantity: inventoryRows.reduce((sum, row) => {
-			if (!row.trackInventory) return sum;
-			return sum + availableQuantity(row);
-		}, 0)
+		trackedCount: Number(summary?.trackedCount ?? 0),
+		untrackedCount: Number(summary?.untrackedCount ?? 0),
+		lowStockCount: Number(summary?.lowStockCount ?? 0),
+		outOfStockCount: Number(summary?.outOfStockCount ?? 0),
+		backorderEnabledCount: Number(summary?.backorderEnabledCount ?? 0),
+		totalQuantity: Number(summary?.totalQuantity ?? 0),
+		totalReservedQuantity: Number(summary?.totalReservedQuantity ?? 0),
+		totalAvailableQuantity: Number(summary?.totalAvailableQuantity ?? 0)
 	};
 }
 
@@ -231,7 +244,8 @@ export async function listInventory(
 	const limit = normalizeLimit(options.limit, 50, 100);
 	const offset = normalizeOffset(options.offset);
 	const where = buildInventoryListWhere(options);
-	const baseQuery = getDb()
+	const db = getDb();
+	const baseQuery = db
 		.select({
 			variant: productVariant,
 			color: productVariantColor,
@@ -245,16 +259,16 @@ export async function listInventory(
 		.orderBy(asc(product.name), asc(productVariant.sortOrder), asc(productVariant.size))
 		.limit(limit)
 		.offset(offset);
-	const countQuery = getDb()
+	const countQuery = db
 		.select({ total: count() })
 		.from(productVariant)
 		.innerJoin(product, eq(productVariant.productId, product.id))
 		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id));
-	const [rows, totalRows] = await Promise.all([
-		where ? baseQuery.where(where) : baseQuery,
+	const rows = await withTransientD1ReadRetry(() => (where ? baseQuery.where(where) : baseQuery));
+	const totalRows = await withTransientD1ReadRetry(() =>
 		where ? countQuery.where(where) : countQuery
-	]);
+	);
 
 	return {
 		items: rows.map(toInventoryListItemDTO),
@@ -271,19 +285,21 @@ export async function getInventory(
 	requireAdmin(ctx.actor);
 
 	const variantId = normalizeId(input.variantId, 'variantId');
-	const [row] = await getDb()
-		.select({
-			variant: productVariant,
-			color: productVariantColor,
-			product,
-			inventory
-		})
-		.from(productVariant)
-		.innerJoin(product, eq(productVariant.productId, product.id))
-		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
-		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
-		.where(eq(productVariant.id, variantId))
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({
+				variant: productVariant,
+				color: productVariantColor,
+				product,
+				inventory
+			})
+			.from(productVariant)
+			.innerJoin(product, eq(productVariant.productId, product.id))
+			.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+			.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
+			.where(eq(productVariant.id, variantId))
+			.limit(1)
+	);
 
 	if (!row) {
 		throw new InventoryError('Product variant not found.', ErrorCode.VARIANT_NOT_FOUND, {
@@ -307,17 +323,18 @@ export async function listInventoryMovements(
 	const limit = normalizeLimit(options.limit, 50, 100);
 	const offset = normalizeOffset(options.offset);
 	const where = buildInventoryMovementWhere(options);
-	const baseQuery = getDb()
+	const db = getDb();
+	const baseQuery = db
 		.select()
 		.from(inventoryMovement)
 		.orderBy(desc(inventoryMovement.createdAt))
 		.limit(limit)
 		.offset(offset);
-	const countQuery = getDb().select({ total: count() }).from(inventoryMovement);
-	const [rows, totalRows] = await Promise.all([
-		where ? baseQuery.where(where) : baseQuery,
+	const countQuery = db.select({ total: count() }).from(inventoryMovement);
+	const rows = await withTransientD1ReadRetry(() => (where ? baseQuery.where(where) : baseQuery));
+	const totalRows = await withTransientD1ReadRetry(() =>
 		where ? countQuery.where(where) : countQuery
-	]);
+	);
 
 	return {
 		items: rows.map(toInventoryMovementDTO),
@@ -349,32 +366,51 @@ export async function initializeInventory(
 				variantId: data.variantId
 			});
 		}
+		const inventoryId = nanoid();
+		const movementId = data.quantity > 0 ? nanoid() : null;
 		const insertInventory = db
 			.insert(inventory)
-			.values({ ...data, updatedAt: now })
+			.values({ id: inventoryId, ...data, updatedAt: now })
 			.returning();
-		const createdRows =
-			data.quantity > 0
-				? (
-						await db.batch([
-							insertInventory,
-							db.insert(inventoryMovement).values({
-								variantId: data.variantId,
-								type: 'restock',
-								quantityDelta: data.quantity,
-								quantityAfter: data.quantity,
-								reservedQuantityDelta: 0,
-								reservedQuantityAfter: 0,
-								referenceId: null,
-								note: note ?? 'Initial inventory'
-							})
-						])
-					)[0]
-				: await insertInventory;
-		const [created] = createdRows;
-		if (!created) {
-			throw new InventoryError('Inventory was not initialized.', ErrorCode.INTERNAL_ERROR);
-		}
+		const movementInsert = movementId
+			? db.insert(inventoryMovement).values({
+					id: movementId,
+					variantId: data.variantId,
+					type: 'restock',
+					quantityDelta: data.quantity,
+					quantityAfter: data.quantity,
+					reservedQuantityDelta: 0,
+					reservedQuantityAfter: 0,
+					referenceId: null,
+					note: note ?? 'Initial inventory',
+					createdAt: now
+				})
+			: null;
+		const created = await withTransientD1WriteReconciliation<Inventory>(
+			async () => {
+				const createdRows = movementInsert
+					? (await db.batch([insertInventory, movementInsert]))[0]
+					: await insertInventory;
+				const [row] = createdRows;
+				if (!row) {
+					throw new InventoryError('Inventory was not initialized.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const row = await loadInventoryByVariantId(db, data.variantId);
+				if (!row || row.id !== inventoryId) return { committed: false };
+				if (movementId) {
+					const [movement] = await db
+						.select({ id: inventoryMovement.id })
+						.from(inventoryMovement)
+						.where(eq(inventoryMovement.id, movementId))
+						.limit(1);
+					if (!movement) return { committed: false };
+				}
+				return { committed: true, value: row };
+			}
+		);
 		return toInventoryDTO(created);
 	} catch (error) {
 		throw mapInventoryPersistenceError(error);
@@ -421,19 +457,32 @@ export async function updateInventorySettings(
 			);
 		}
 		const conditions = [eq(inventory.id, existing.id)];
+		conditions.push(eq(inventory.updatedAt, existing.updatedAt));
 		if (data.trackInventory === false) conditions.push(eq(inventory.reservedQuantity, 0));
-		const [updated] = await db
-			.update(inventory)
-			.set({ ...data, updatedAt: now })
-			.where(and(...conditions))
-			.returning();
-		if (!updated) {
-			throw new InventoryError(
-				'Inventory changed while settings were being saved.',
-				ErrorCode.CONFLICT,
-				{ variantId }
-			);
-		}
+		const updateValues = { ...data, updatedAt: now };
+		const updated = await withTransientD1WriteReconciliation<Inventory>(
+			async () => {
+				const [row] = await db
+					.update(inventory)
+					.set(updateValues)
+					.where(and(...conditions))
+					.returning();
+				if (!row) {
+					throw new InventoryError(
+						'Inventory changed while settings were being saved.',
+						ErrorCode.CONFLICT,
+						{ variantId }
+					);
+				}
+				return row;
+			},
+			async () => {
+				const row = await loadInventoryByVariantId(db, variantId);
+				return row?.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return toInventoryDTO(updated);
 	} catch (error) {
 		throw mapInventoryPersistenceError(error);
@@ -452,15 +501,17 @@ export async function restockInventory(
 
 	try {
 		const db = getDb();
+		const movementId = nanoid();
 		const updateQuery = db
 			.update(inventory)
 			.set({ quantity: sql`${inventory.quantity} + ${quantity}`, updatedAt: now })
 			.where(eq(inventory.variantId, variantId))
 			.returning();
-		const [updatedRows] = await db.batch([
+		const statements: [InventoryBatchItem, ...InventoryBatchItem[]] = [
 			updateQuery,
 			...guardPreviousBatchChanges(db),
 			db.insert(inventoryMovement).values({
+				id: movementId,
 				variantId,
 				type: 'restock',
 				quantityDelta: quantity,
@@ -468,15 +519,23 @@ export async function restockInventory(
 				reservedQuantityDelta: 0,
 				reservedQuantityAfter: sql`(SELECT ${inventory.reservedQuantity} FROM ${inventory} WHERE ${inventory.variantId} = ${variantId})`,
 				referenceId: null,
-				note: input.note ?? null
+				note: input.note ?? null,
+				createdAt: now
 			})
-		]);
-		const [updated] = updatedRows;
-		if (!updated) {
-			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
-				variantId
-			});
-		}
+		];
+		const updated = await withTransientD1WriteReconciliation<Inventory>(
+			async () => {
+				const [updatedRows] = await db.batch(statements);
+				const [row] = updatedRows;
+				if (!row) {
+					throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
+						variantId
+					});
+				}
+				return row;
+			},
+			async () => reconcileInventoryMovementCommit(db, variantId, movementId)
+		);
 		return toInventoryDTO(updated);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
@@ -500,6 +559,7 @@ export async function adjustInventory(
 
 	try {
 		const db = getDb();
+		const movementId = nanoid();
 		const row = await loadInventoryByVariantId(db, variantId);
 		if (!row) {
 			throw new InventoryError('Inventory not found.', ErrorCode.INVENTORY_NOT_FOUND, {
@@ -536,10 +596,11 @@ export async function adjustInventory(
 				)
 			)
 			.returning();
-		const [updatedRows] = await db.batch([
+		const statements: [InventoryBatchItem, ...InventoryBatchItem[]] = [
 			updateQuery,
 			...guardPreviousBatchChanges(db),
 			db.insert(inventoryMovement).values({
+				id: movementId,
 				variantId,
 				type: 'adjustment',
 				quantityDelta,
@@ -547,11 +608,19 @@ export async function adjustInventory(
 				reservedQuantityDelta: 0,
 				reservedQuantityAfter: sql`(SELECT ${inventory.reservedQuantity} FROM ${inventory} WHERE ${inventory.variantId} = ${variantId})`,
 				referenceId: null,
-				note: input.note ?? null
+				note: input.note ?? null,
+				createdAt: now
 			})
-		]);
-		const [updated] = updatedRows;
-		if (!updated) throw new InventoryError('Inventory update failed.', ErrorCode.CONFLICT);
+		];
+		const updated = await withTransientD1WriteReconciliation<Inventory>(
+			async () => {
+				const [updatedRows] = await db.batch(statements);
+				const [row] = updatedRows;
+				if (!row) throw new InventoryError('Inventory update failed.', ErrorCode.CONFLICT);
+				return row;
+			},
+			async () => reconcileInventoryMovementCommit(db, variantId, movementId)
+		);
 		return toInventoryDTO(updated);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
@@ -780,13 +849,24 @@ async function loadInventoryByVariantId(
 	return row ?? null;
 }
 
+async function reconcileInventoryMovementCommit(
+	db: QueryExecutor,
+	variantId: string,
+	movementId: string
+) {
+	const [movement] = await db
+		.select({ id: inventoryMovement.id })
+		.from(inventoryMovement)
+		.where(eq(inventoryMovement.id, movementId))
+		.limit(1);
+	if (!movement) return { committed: false } as const;
+	const row = await loadInventoryByVariantId(db, variantId);
+	return row ? ({ committed: true, value: row } as const) : ({ committed: false } as const);
+}
+
 function availableQuantity(row: Inventory): number {
 	if (!row.trackInventory) return UNTRACKED_AVAILABLE_QUANTITY;
 	return Math.max(0, row.quantity - row.reservedQuantity);
-}
-
-function isLowStock(row: Inventory): boolean {
-	return row.trackInventory && availableQuantity(row) <= row.lowStockThreshold;
 }
 
 function parseInsertInventory(input: InsertInventory): InsertInventory {
@@ -833,6 +913,7 @@ function uniqueStrings(values: string[]): string[] {
 
 function mapInventoryPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -855,5 +936,5 @@ export async function getInventoryAvailabilityByVariantIds(
 	ctx: ServiceContext,
 	input: { variantIds: string[] }
 ): Promise<InventoryAvailabilityDTO[]> {
-	return getInventoryAvailabilityByVariantIdsTx(getDb(), input);
+	return withTransientD1ReadRetry(() => getInventoryAvailabilityByVariantIdsTx(getDb(), input));
 }

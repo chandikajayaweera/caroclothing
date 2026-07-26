@@ -1,7 +1,7 @@
 import type { LayoutServerLoad } from './$types';
 import { getBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
 import { listWishlist } from '$lib/server/modules/wishlist';
-import { isAppError } from '$lib/server/infrastructure/errors';
+import { getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
 
 export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -24,14 +24,14 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				cookies.delete('bag_session_token', { path: '/' });
 			} catch (err) {
 				if (!isAppError(err) || err.statusCode >= 500) {
-					console.error('[bag] Failed to merge guest bag into user bag:', err);
+					console.error('[bag] Failed to merge guest bag into user bag:', {
+						error: getErrorMessage(err)
+					});
 				}
 			}
 		}
-		const [bag, wishlistProductIds] = await Promise.all([
-			loadGlobalBag(ctx),
-			!actor.isAnonymous ? loadGlobalWishlistProductIds(ctx) : Promise.resolve([])
-		]);
+		const bag = await loadGlobalBag(ctx);
+		const wishlistProductIds = !actor.isAnonymous ? await loadGlobalWishlistProductIds(ctx) : [];
 
 		return {
 			user: locals.user,

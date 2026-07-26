@@ -88,12 +88,15 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				id: 'updateProductFlags'
 			})
 		]);
+		const products = await listProducts(ctx, productOptions);
+		const stats = await getProductStats(ctx);
+		const categories = await listCategories(ctx, { includeInactive: true, limit: 100 });
 
 		return {
 			streamed: {
-				products: listProducts(ctx, productOptions),
-				stats: getProductStats(ctx),
-				categories: listCategories(ctx, { includeInactive: true, limit: 100 })
+				products: Promise.resolve(products),
+				stats: Promise.resolve(stats),
+				categories: Promise.resolve(categories)
 			},
 			genderOptions: GENDER_TIERS.map(toOption),
 			filters: {

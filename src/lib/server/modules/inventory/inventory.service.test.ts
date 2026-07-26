@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '$lib/server/infrastructure/errors';
 import { inventory } from '$lib/server/modules/inventory/inventory.drizzle';
@@ -51,7 +52,7 @@ async function seedVariantForInventory(
 		isActive?: boolean;
 	} = {}
 ) {
-	const id = crypto.randomUUID().slice(0, 8);
+	const id = nanoid(8);
 	const { product, variantColor, variant } = await seedProductWithVariant(db(), {
 		product: {
 			name: overrides.productName ?? `Inventory Product ${id}`,

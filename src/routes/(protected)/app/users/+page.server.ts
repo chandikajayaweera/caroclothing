@@ -22,7 +22,7 @@ import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
-import { isAppError } from '$lib/server/infrastructure/errors';
+import { getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import type { UserRole } from '$lib/shared/auth/access-control';
 
@@ -82,15 +82,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		if (selectedUserId) {
 			try {
-				const [profile, sessions] = await Promise.all([
-					getUserAdminProfile(ctx, { userId: selectedUserId }),
-					listUserSessions(ctx, { userId: selectedUserId })
-				]);
+				const profile = await getUserAdminProfile(ctx, { userId: selectedUserId });
+				const sessions = await listUserSessions(ctx, { userId: selectedUserId });
 				selectedUser = profile;
 				selectedUserSessions = sessions.items;
 			} catch (error) {
 				if (!isAppError(error) || error.statusCode >= 500) {
-					console.error(`[admin:users] Failed to load selected user ${selectedUserId}:`, error);
+					console.error(`[admin:users] Failed to load selected user ${selectedUserId}:`, {
+						error: getErrorMessage(error)
+					});
 				}
 			}
 		}

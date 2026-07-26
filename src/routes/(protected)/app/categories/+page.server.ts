@@ -74,33 +74,31 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			})
 		]);
 
-		const categoriesPromise = listCategories(ctx, {
-			includeInactive: categoryOptions.includeInactive,
-			parentId: categoryOptions.parentId,
-			limit: 250
-		}).then((fetchedCategories) => {
-			let categories = fetchedCategories;
-			if (query) {
-				const lowerQuery = query.toLowerCase();
-				categories = categories.filter(
-					(c) =>
-						c.name.toLowerCase().includes(lowerQuery) || c.slug.toLowerCase().includes(lowerQuery)
-				);
-			}
-			const limit = categoryOptions.limit ?? 20;
-			const offset = categoryOptions.offset ?? 0;
-			return {
-				items: categories.slice(offset, offset + limit),
-				total: categories.length
-			};
-		});
-
-		const allCategoriesPromise = listCategories(ctx, { includeInactive: true, limit: 250 });
+		const allCategories = await listCategories(ctx, { includeInactive: true, limit: 250 });
+		let categories = allCategories.filter(
+			(category) =>
+				(categoryOptions.includeInactive !== false || category.isActive) &&
+				(categoryOptions.parentId === undefined || category.parentId === categoryOptions.parentId)
+		);
+		if (query) {
+			const lowerQuery = query.toLowerCase();
+			categories = categories.filter(
+				(category) =>
+					category.name.toLowerCase().includes(lowerQuery) ||
+					category.slug.toLowerCase().includes(lowerQuery)
+			);
+		}
+		const limit = categoryOptions.limit ?? 20;
+		const offset = categoryOptions.offset ?? 0;
+		const categoriesResult = {
+			items: categories.slice(offset, offset + limit),
+			total: categories.length
+		};
 
 		return {
 			streamed: {
-				categories: categoriesPromise,
-				allCategories: allCategoriesPromise
+				categories: Promise.resolve(categoriesResult),
+				allCategories: Promise.resolve(allCategories)
 			},
 			limit: categoryOptions.limit ?? 20,
 			offset: categoryOptions.offset ?? 0,

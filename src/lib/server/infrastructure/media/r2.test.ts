@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { buildMediaKey, uploadImage } from './r2';
+import { describe, expect, it, vi } from 'vitest';
+import { buildMediaKey, deleteObjectSafe, uploadImage } from './r2';
 import { createFakeR2Bucket, makeImage, type FakeR2Bucket } from '../../../../tests/fakes/media';
 
 type StoredR2Options = {
@@ -32,10 +32,10 @@ describe('R2 image uploads', () => {
 		expect(result).toEqual({
 			key,
 			mimeType: 'image/png',
-			byteSize: 4,
+			byteSize: 8,
 			originalFilename: 'shirt.png'
 		});
-		expect(Array.from(new Uint8Array(stored.body))).toEqual([137, 80, 78, 71]);
+		expect(Array.from(new Uint8Array(stored.body))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
 		expect(stored.options?.httpMetadata).toMatchObject({
 			contentType: 'image/png',
 			cacheControl: 'public, max-age=31536000, immutable'
@@ -43,7 +43,7 @@ describe('R2 image uploads', () => {
 		expect(stored.options?.customMetadata).toMatchObject({
 			originalName: 'shirt.png',
 			mimeType: 'image/png',
-			byteSize: '4'
+			byteSize: '8'
 		});
 	});
 
@@ -65,6 +65,18 @@ describe('R2 image uploads', () => {
 		);
 	});
 
+	it('rejects files whose bytes do not match the declared image type', async () => {
+		const bucket = createFakeR2Bucket();
+		const file = new File([new TextEncoder().encode('<script>alert(1)</script>')], 'fake.png', {
+			type: 'image/png'
+		});
+
+		await expect(uploadImage(bucket, 'reviews/review-id/media-test.png', file)).rejects.toThrow(
+			'File contents do not match declared image type "image/png".'
+		);
+		expect(bucket.putCalls).toHaveLength(0);
+	});
+
 	it('builds unique safe keys with image extensions', () => {
 		const keyA = buildMediaKey({
 			scope: 'products',
@@ -79,8 +91,36 @@ describe('R2 image uploads', () => {
 			contentType: 'image/webp'
 		});
 
-		expect(keyA).toMatch(/^products\/product-id\/main-[a-f0-9]{32}\.webp$/);
-		expect(keyB).toMatch(/^products\/product-id\/main-[a-f0-9]{32}\.webp$/);
+		expect(keyA).toMatch(/^products\/product-id\/main-[A-Za-z0-9_-]{21}\.webp$/);
+		expect(keyB).toMatch(/^products\/product-id\/main-[A-Za-z0-9_-]{21}\.webp$/);
 		expect(keyA).not.toBe(keyB);
+	});
+
+	it('keeps cleanup best-effort when a persisted key is invalid', async () => {
+		const bucket = createFakeR2Bucket();
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+		await expect(deleteObjectSafe(bucket, '../unsafe.png')).resolves.toBeUndefined();
+
+		expect(bucket.deleteCalls).toHaveLength(0);
+		expect(consoleError).toHaveBeenCalledOnce();
+		consoleError.mockRestore();
+	});
+
+	it('retries idempotent R2 deletion after transient failures', async () => {
+		const bucket = createFakeR2Bucket();
+		let attempts = 0;
+		bucket.delete = vi.fn(async (key: string) => {
+			attempts += 1;
+			if (attempts < 3) throw new Error('Transient R2 failure');
+			bucket.deleteCalls.push(key);
+			bucket.objects.delete(key);
+		});
+
+		await expect(
+			deleteObjectSafe(bucket, 'products/product-id/image.png')
+		).resolves.toBeUndefined();
+		expect(attempts).toBe(3);
+		expect(bucket.deleteCalls).toEqual(['products/product-id/image.png']);
 	});
 });

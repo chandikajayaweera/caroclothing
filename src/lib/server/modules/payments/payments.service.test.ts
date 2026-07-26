@@ -7,7 +7,7 @@ import { addItemToBag, startCheckout } from '../bag/bag.service';
 import { inventory } from '../inventory/inventory.drizzle';
 import { order, orderItem } from '../orders/orders.drizzle';
 import { shippingMethod } from '../shipping/shipping.drizzle';
-import { payment, paymentAttempt } from './payments.drizzle';
+import { payment, paymentAttempt, paymentWebhookLog } from './payments.drizzle';
 import { generatePayHereWebhookSignature } from './payments.logic';
 import {
 	capturePayPalPayment,
@@ -78,7 +78,7 @@ describe('payments service integration', () => {
 		});
 	});
 
-	it('creates no order or stock reservation until verified PayPal capture succeeds', async () => {
+	it('resumes idempotent PayPal setup and creates no order until verified capture succeeds', async () => {
 		const buyer = await seedUser(db(), {
 			id: 'attempt-paypal-buyer',
 			name: 'Attempt Buyer',
@@ -113,6 +113,10 @@ describe('payments service integration', () => {
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ access_token: 'access-token' }), { status: 200 })
 			)
+			.mockRejectedValueOnce(new Error('provider connection reset'))
+			.mockResolvedValueOnce(
+				new Response(JSON.stringify({ access_token: 'recovery-token' }), { status: 200 })
+			)
 			.mockResolvedValueOnce(
 				new Response(JSON.stringify({ id: 'PAYPAL-ATTEMPT-ORDER' }), { status: 201 })
 			)
@@ -142,7 +146,7 @@ describe('payments service integration', () => {
 			);
 		vi.stubGlobal('fetch', fetchMock);
 
-		const session = await createCheckoutPaymentSession(ctx, {
+		const checkoutInput = {
 			shippingAddress: {
 				recipientName: 'Attempt Buyer',
 				phone: '+94770000002',
@@ -154,27 +158,41 @@ describe('payments service integration', () => {
 			},
 			shippingMethodId: 'attempt-shipping',
 			paymentMethod: 'paypal'
-		});
+		} as const;
+		await expect(createCheckoutPaymentSession(ctx, checkoutInput)).rejects.toThrow(
+			'provider connection reset'
+		);
+		await expect(db().select().from(paymentAttempt)).resolves.toMatchObject([
+			{ status: 'pending', providerOrderId: null }
+		]);
+
+		const session = await createCheckoutPaymentSession(ctx, checkoutInput);
 		expect(session).toMatchObject({
 			method: 'paypal',
 			paypalOrderId: 'PAYPAL-ATTEMPT-ORDER'
 		});
-		await expect(
-			createCheckoutPaymentSession(ctx, {
-				shippingAddress: {
-					recipientName: 'Attempt Buyer',
-					phone: '+94770000002',
-					addressLine1: '3 Main Street',
-					addressLine2: null,
-					city: 'Colombo',
-					district: 'Colombo',
-					postalCode: '00100'
-				},
-				shippingMethodId: 'attempt-shipping',
-				paymentMethod: 'paypal'
-			})
-		).resolves.toEqual(session);
-		expect(fetchMock).toHaveBeenCalledTimes(3);
+		const persistedAttempt = await db()
+			.select()
+			.from(paymentAttempt)
+			.where(eq(paymentAttempt.id, session.attemptId))
+			.get();
+		const paypalRequestIds = (
+			persistedAttempt?.providerResponse as {
+				metadata?: { paypalRequestIds?: { create: string; capture: string } };
+			} | null
+		)?.metadata?.paypalRequestIds;
+		expect(session.attemptId).toMatch(/^[A-Za-z0-9_-]{21}$/);
+		expect(paypalRequestIds).toMatchObject({
+			create: expect.stringMatching(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+			),
+			capture: expect.stringMatching(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+			)
+		});
+		expect(paypalRequestIds?.create).not.toBe(paypalRequestIds?.capture);
+		await expect(createCheckoutPaymentSession(ctx, checkoutInput)).resolves.toEqual(session);
+		expect(fetchMock).toHaveBeenCalledTimes(5);
 		expect(await db().select().from(paymentAttempt)).toHaveLength(1);
 		expect(await db().select().from(order)).toHaveLength(0);
 		expect(await db().select().from(payment)).toHaveLength(0);
@@ -258,6 +276,9 @@ describe('payments service integration', () => {
 			payhere_amount: '5000.00',
 			payhere_currency: 'LKR',
 			status_code: '2',
+			status_message: 'Completed',
+			email: 'private-buyer@example.com',
+			phone: '+94770000009',
 			md5sig: generatePayHereWebhookSignature({
 				merchantId: envState.PAYHERE_MERCHANT_ID,
 				orderId: orderRow.id,
@@ -283,7 +304,27 @@ describe('payments service integration', () => {
 		).resolves.toMatchObject({ status: 'confirmed' });
 		await expect(
 			db().select().from(payment).where(eq(payment.id, 'payhere-payment')).get()
-		).resolves.toMatchObject({ status: 'captured', transactionId: 'provider-payment-1' });
+		).resolves.toMatchObject({
+			status: 'captured',
+			transactionId: 'provider-payment-1',
+			gatewayResponse: {
+				provider: {
+					order_id: orderRow.id,
+					payment_id: 'provider-payment-1',
+					status_code: '2',
+					status_message: 'Completed'
+				}
+			}
+		});
+		const webhookAudit = await db().select().from(paymentWebhookLog).get();
+		expect(webhookAudit?.payload).toMatchObject({
+			order_id: orderRow.id,
+			payment_id: 'provider-payment-1',
+			status_code: '2'
+		});
+		expect(JSON.stringify(webhookAudit?.payload)).not.toContain('private-buyer@example.com');
+		expect(JSON.stringify(webhookAudit?.payload)).not.toContain('+94770000009');
+		expect(webhookAudit?.payload).not.toHaveProperty('md5sig');
 
 		const notifications = await db().select().from(notificationOutbox);
 		expect(notifications.map((row) => `${row.type}:${row.channel}`).sort()).toEqual([

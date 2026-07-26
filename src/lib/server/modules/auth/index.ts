@@ -8,15 +8,18 @@ import * as databaseSchema from '$lib/server/db/schema';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
+import { withTransientD1ReadRetry } from '$lib/server/db/retry';
 import { getRuntimeSingleton } from '$lib/server/infrastructure/cloudflare/runtime-context';
 import { databaseHooks, tempBanPlugin } from './database-hook';
-import { sendOtpSms } from '$lib/server/infrastructure/sms';
+import { normalizeSmsRecipient, sendOtpSms } from '$lib/server/infrastructure/sms';
 import { reserveOtpCooldown } from './otp-cooldown';
 import { migrateAnonymousUserData } from './anonymous-migration';
 import {
 	AuthError,
 	ErrorCode,
+	getErrorMessage,
 	isAppError,
+	normalizeServerError,
 	toBetterAuthApiError
 } from '$lib/server/infrastructure/errors';
 
@@ -49,18 +52,27 @@ export {
 } from './auth.service';
 
 function getPhoneTempEmail(phoneNumber: string) {
-	const digits = phoneNumber.replace(/\D/g, '');
+	const digits = normalizeSmsRecipient(phoneNumber).replace(/\D/g, '');
 	return `phone-${digits}@phone.caroclothing.lk`;
 }
 
 function maskPhoneNumber(phoneNumber: string) {
-	const digits = phoneNumber.replace(/\D/g, '');
+	const digits = normalizeSmsRecipient(phoneNumber).replace(/\D/g, '');
 	return digits.length > 4 ? `***${digits.slice(-4)}` : '***';
 }
 
 function throwForBetterAuth(error: unknown): never {
-	if (isAppError(error)) throw toBetterAuthApiError(error);
-	throw error;
+	const normalizedError = normalizeServerError(error);
+	if (isAppError(normalizedError)) throw toBetterAuthApiError(normalizedError);
+	throw normalizedError;
+}
+
+async function readForBetterAuth<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await withTransientD1ReadRetry(operation);
+	} catch (error) {
+		throwForBetterAuth(error);
+	}
 }
 
 function createAuth() {
@@ -82,7 +94,10 @@ function createAuth() {
 				if (isAppError(error)) {
 					console.error(`[auth] API error [${error.code}]: ${error.message}`);
 				} else {
-					console.error('[auth] Unexpected Better Auth API error:', error);
+					console.error('[auth] Unexpected Better Auth API error:', {
+						name: error instanceof Error ? error.name : typeof error,
+						message: getErrorMessage(error)
+					});
 				}
 			},
 			errorURL: '/auth/error'
@@ -94,18 +109,20 @@ function createAuth() {
 				const phoneNumber = ctx.body?.phoneNumber;
 				if (typeof phoneNumber !== 'string' || !phoneNumber.trim()) return;
 
-				const trimmedPhone = phoneNumber.trim();
+				const trimmedPhone = normalizeSmsRecipient(phoneNumber);
 
-				const [existing] = await db
-					.select({
-						id: userTable.id,
-						banned: userTable.banned,
-						banExpires: userTable.banExpires,
-						banReason: userTable.banReason
-					})
-					.from(userTable)
-					.where(eq(userTable.phoneNumber, trimmedPhone))
-					.limit(1);
+				const [existing] = await readForBetterAuth(() =>
+					db
+						.select({
+							id: userTable.id,
+							banned: userTable.banned,
+							banExpires: userTable.banExpires,
+							banReason: userTable.banReason
+						})
+						.from(userTable)
+						.where(eq(userTable.phoneNumber, trimmedPhone))
+						.limit(1)
+				);
 
 				const session = await getSessionFromCtx(ctx);
 				const userId = session?.user?.id;
@@ -118,16 +135,18 @@ function createAuth() {
 						});
 					}
 
-					const [currentUser] = await db
-						.select({
-							id: userTable.id,
-							banned: userTable.banned,
-							banExpires: userTable.banExpires,
-							banReason: userTable.banReason
-						})
-						.from(userTable)
-						.where(eq(userTable.id, userId))
-						.limit(1);
+					const [currentUser] = await readForBetterAuth(() =>
+						db
+							.select({
+								id: userTable.id,
+								banned: userTable.banned,
+								banExpires: userTable.banExpires,
+								banReason: userTable.banReason
+							})
+							.from(userTable)
+							.where(eq(userTable.id, userId))
+							.limit(1)
+					);
 
 					if (currentUser) {
 						const now = new Date();
@@ -181,7 +200,15 @@ function createAuth() {
 			deleteUser: {
 				enabled: true,
 				beforeDelete: async (user, request) => {
-					const preparation = await prepareAccountDeletion({ userId: user.id });
+					let preparation: Awaited<ReturnType<typeof prepareAccountDeletion>>;
+					try {
+						// This guarded D1 batch also deletes the user. Better Auth's
+						// subsequent session/account/user deletes are intentional no-ops,
+						// keeping all database-side account cleanup atomic on D1.
+						preparation = await prepareAccountDeletion({ userId: user.id });
+					} catch (error) {
+						throwForBetterAuth(error);
+					}
 					if (request) {
 						pendingReviewMediaCleanup.set(request, preparation.reviewMediaKeys);
 					} else {
@@ -201,7 +228,7 @@ function createAuth() {
 					} catch (error) {
 						console.error('[auth] Failed to clean review media for deleted account:', {
 							userId: user.id,
-							error
+							error: getErrorMessage(error)
 						});
 					}
 				}
@@ -290,10 +317,9 @@ function createAuth() {
 						try {
 							await cooldown.kv.delete(cooldown.key);
 						} catch (rollbackError) {
-							console.error(
-								`[auth] Failed to rollback OTP cooldown for ${maskedPhoneNumber}:`,
-								rollbackError
-							);
+							console.error(`[auth] Failed to rollback OTP cooldown for ${maskedPhoneNumber}:`, {
+								error: getErrorMessage(rollbackError)
+							});
 						}
 
 						if (error instanceof APIError) {
@@ -304,7 +330,9 @@ function createAuth() {
 							throw toBetterAuthApiError(error);
 						}
 
-						console.error(`[auth] Unexpected OTP send error for ${maskedPhoneNumber}:`, error);
+						console.error(`[auth] Unexpected OTP send error for ${maskedPhoneNumber}:`, {
+							error: getErrorMessage(error)
+						});
 
 						throw toBetterAuthApiError(
 							new AuthError('Unable to send OTP code. Please try again.', ErrorCode.OTP_SEND_FAILED)

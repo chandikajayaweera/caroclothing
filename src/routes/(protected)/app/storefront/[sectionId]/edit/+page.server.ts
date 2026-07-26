@@ -1,6 +1,6 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { superValidate, withFiles } from 'sveltekit-superforms/server';
+import { message, superValidate, withFiles } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
@@ -66,10 +66,10 @@ function formData(section: Awaited<ReturnType<typeof getStorefrontSection>>) {
 
 export const load: PageServerLoad = async (event) => {
 	try {
-		const [section, options] = await Promise.all([
-			getStorefrontSection(context(event), { sectionId: event.params.sectionId }),
-			getStorefrontEditorOptions(context(event))
-		]);
+		const section = await getStorefrontSection(context(event), {
+			sectionId: event.params.sectionId
+		});
+		const options = await getStorefrontEditorOptions(context(event));
 		return {
 			section,
 			options,
@@ -97,7 +97,7 @@ export const actions: Actions = {
 		try {
 			const { sectionId, ...data } = form.data;
 			await updateStorefrontSection(context(event), { sectionId, data });
-			return withFiles({ form, success: true });
+			return withFiles(message(form, 'Storefront section saved.'));
 		} catch (error) {
 			return withFiles(formFailFromAppError(form, error));
 		}

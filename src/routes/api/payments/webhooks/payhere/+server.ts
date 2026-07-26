@@ -1,7 +1,7 @@
 import { text } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { processPayHereWebhook } from '$lib/server/modules/payments';
-import { getErrorStatusCode } from '$lib/server/infrastructure/errors';
+import { getErrorMessage, getErrorStatusCode } from '$lib/server/infrastructure/errors';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -25,7 +25,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		);
 		return text('OK');
 	} catch (error) {
-		console.error('[payments] PayHere webhook failed:', { error });
+		console.error('[payments] PayHere webhook failed:', {
+			error: getErrorMessage(error)
+		});
 		return text('ERROR', {
 			status: getErrorStatusCode(error)
 		});

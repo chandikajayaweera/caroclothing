@@ -6,6 +6,11 @@ import {
 	guardPreviousBatchChanges,
 	isD1BatchGuardError
 } from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import { generateSlug } from '$lib/shared/slug';
 import {
@@ -20,6 +25,7 @@ import {
 	deleteObjectSafe,
 	getMediaBucket,
 	getMediaBucketOptional,
+	isInvalidImageUploadMessage,
 	uploadImage,
 	type StoredImageMetadata
 } from '$lib/server/infrastructure/media/r2';
@@ -72,7 +78,9 @@ import {
 	type InsertProductVariant,
 	type InsertProductVariantColor,
 	type InsertTag,
+	type NewTag,
 	type NewCategory,
+	type NewColor,
 	type NewProduct,
 	type NewProductImage,
 	type NewProductVariant,
@@ -101,6 +109,7 @@ import type {
 	GetCategoryOptions,
 	GetProductOptions,
 	ListCategoriesOptions,
+	ListProductsByIdsInput,
 	ListProductsOptions,
 	ListProductVariantsOptions,
 	ListTagsOptions,
@@ -109,6 +118,8 @@ import type {
 	ProductListResult,
 	ProductLookup,
 	ProductVariantDTO,
+	PublicCategoryDTO,
+	PublicProductDTO,
 	TagDTO,
 	TagLookup,
 	UpdateCategoryInput,
@@ -183,33 +194,43 @@ export async function createCategory(
 	const data = parseInsertCategory(rawData);
 	const id = nanoid();
 	const uploadedImage = image ? await uploadCategoryImage(ctx, id, image) : null;
+	const db = getDb();
+	const values: NewCategory = {
+		id,
+		...data,
+		imageR2Key: uploadedImage?.key ?? null,
+		imageMimeType: uploadedImage?.mimeType ?? null,
+		imageByteSize: uploadedImage?.byteSize ?? null,
+		imageOriginalFilename: uploadedImage?.originalFilename ?? null,
+		imageWidth: null,
+		imageHeight: null
+	};
 
 	try {
 		if (data.parentId) {
 			await assertCategoryExists(data.parentId, 'Parent category not found.');
 		}
 
-		const values: NewCategory = {
-			id,
-			...data,
-			imageR2Key: uploadedImage?.key ?? null,
-			imageMimeType: uploadedImage?.mimeType ?? null,
-			imageByteSize: uploadedImage?.byteSize ?? null,
-			imageOriginalFilename: uploadedImage?.originalFilename ?? null,
-			imageWidth: null,
-			imageHeight: null
-		};
-
-		const [created] = await getDb().insert(category).values(values).returning();
-
-		if (!created) {
-			throw new ProductError('Category was not created.', ErrorCode.INTERNAL_ERROR);
-		}
+		const created = await withTransientD1WriteReconciliation<Category>(
+			async () => {
+				const [row] = await db.insert(category).values(values).returning();
+				if (!row) {
+					throw new ProductError('Category was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db.select().from(category).where(eq(category.id, id)).limit(1);
+				return row && row.imageR2Key === values.imageR2Key
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
 		return toCategoryDTO(created);
 	} catch (error) {
 		if (uploadedImage) {
-			await deleteObjectSafe(uploadedImage.bucket, uploadedImage.key);
+			await cleanupUnreferencedCategoryImage(uploadedImage);
 		}
 
 		throw mapCategoryPersistenceError(error);
@@ -259,7 +280,7 @@ export async function listCategories(
 		.orderBy(asc(category.sortOrder), asc(category.name))
 		.limit(limit)
 		.offset(offset);
-	const rows = where ? await query.where(where) : await query;
+	const rows = await withTransientD1ReadRetry(() => (where ? query.where(where) : query));
 
 	return rows.map(toCategoryDTO);
 }
@@ -314,15 +335,32 @@ export async function updateCategory(
 	}
 
 	try {
-		const [updated] = await getDb()
-			.update(category)
-			.set(updateValues)
-			.where(eq(category.id, existing.id))
-			.returning();
-
-		if (!updated) {
-			throw new ProductError('Category not found.', ErrorCode.CATEGORY_NOT_FOUND, { lookup });
-		}
+		const db = getDb();
+		const now = resolveNow(ctx);
+		const stableUpdateValues: Partial<NewCategory> = { ...updateValues, updatedAt: now };
+		const updated = await withTransientD1WriteReconciliation<Category>(
+			async () => {
+				const [row] = await db
+					.update(category)
+					.set(stableUpdateValues)
+					.where(and(eq(category.id, existing.id), eq(category.updatedAt, existing.updatedAt)))
+					.returning();
+				if (!row) {
+					throw new ProductError(
+						'Category changed before it could be updated.',
+						ErrorCode.CONFLICT,
+						{ lookup }
+					);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db.select().from(category).where(eq(category.id, existing.id)).limit(1);
+				return row && recordMatchesPatch(row, stableUpdateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
 		if ((uploadedImage || removeImage) && existing.imageR2Key) {
 			const bucket = uploadedImage?.bucket ?? removeImageBucket;
@@ -335,7 +373,7 @@ export async function updateCategory(
 		return toCategoryDTO(updated);
 	} catch (error) {
 		if (uploadedImage) {
-			await deleteObjectSafe(uploadedImage.bucket, uploadedImage.key);
+			await cleanupUnreferencedCategoryImage(uploadedImage);
 		}
 
 		throw mapCategoryPersistenceError(error);
@@ -354,14 +392,26 @@ export async function deleteCategory(ctx: ServiceContext, lookup: CategoryLookup
 	const bucket = existing.imageR2Key ? requireMediaBucket(ctx) : null;
 
 	try {
-		const [deleted] = await getDb()
-			.delete(category)
-			.where(eq(category.id, existing.id))
-			.returning({ id: category.id });
-
-		if (!deleted) {
-			throw new ProductError('Category not found.', ErrorCode.CATEGORY_NOT_FOUND, { lookup });
-		}
+		const db = getDb();
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(category)
+					.where(eq(category.id, existing.id))
+					.returning({ id: category.id });
+				if (!deleted) {
+					throw new ProductError('Category not found.', ErrorCode.CATEGORY_NOT_FOUND, { lookup });
+				}
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: category.id })
+					.from(category)
+					.where(eq(category.id, existing.id))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapCategoryPersistenceError(error);
 	}
@@ -409,17 +459,32 @@ export async function createProduct(
 		if (data.categoryId) {
 			await assertCategoryExistsTx(db, data.categoryId, 'Product category not found.');
 		}
-		const resolvedTagIds = await resolveProductTagIdsTx(
-			db,
-			normalizedTagIds,
-			normalizedNewTagNames
+		const resolvedTags = await resolveProductTagsTx(db, normalizedTagIds, normalizedNewTagNames);
+		const imageValues = uploadedImages.map(
+			(image): NewProductImage => ({
+				id: nanoid(),
+				productId,
+				variantId: image.variantId,
+				r2Key: image.key,
+				mimeType: image.mimeType,
+				byteSize: image.byteSize,
+				originalFilename: image.originalFilename,
+				width: null,
+				height: null,
+				altText: image.altText,
+				position: image.position,
+				isPrimary: image.isPrimary
+			})
 		);
 		const statements: [BatchItem, ...BatchItem[]] = [
 			db.insert(product).values({ id: productId, ...data } as NewProduct)
 		];
-		if (resolvedTagIds.length > 0) {
+		if (resolvedTags.newTags.length > 0) {
+			statements.push(db.insert(tag).values(resolvedTags.newTags));
+		}
+		if (resolvedTags.ids.length > 0) {
 			statements.push(
-				db.insert(productTag).values(resolvedTagIds.map((tagId) => ({ productId, tagId })))
+				db.insert(productTag).values(resolvedTags.ids.map((tagId) => ({ productId, tagId })))
 			);
 		}
 		if (prepared.colors.length > 0) {
@@ -456,31 +521,36 @@ export async function createProduct(
 				)
 			);
 		}
-		if (uploadedImages.length > 0) {
-			statements.push(
-				db.insert(productImage).values(
-					uploadedImages.map(
-						(image): NewProductImage => ({
-							productId,
-							variantId: image.variantId,
-							r2Key: image.key,
-							mimeType: image.mimeType,
-							byteSize: image.byteSize,
-							originalFilename: image.originalFilename,
-							width: null,
-							height: null,
-							altText: image.altText,
-							position: image.position,
-							isPrimary: image.isPrimary
-						})
-					)
-				)
-			);
+		if (imageValues.length > 0) {
+			statements.push(db.insert(productImage).values(imageValues));
 		}
-		await db.batch(statements);
-		created = (await findProductByLookup({ id: productId }, { includeInactive: true }))!;
+		created = await withTransientD1WriteReconciliation<Product>(
+			async () => {
+				await db.batch(statements);
+				const row = await findProductByLookup({ id: productId }, { includeInactive: true });
+				if (!row) {
+					throw new ProductError('Product was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const row = await findProductByLookup({ id: productId }, { includeInactive: true });
+				if (!row) return { committed: false };
+				if (imageValues.length > 0) {
+					const storedImages = await db
+						.select({ r2Key: productImage.r2Key })
+						.from(productImage)
+						.where(eq(productImage.productId, productId));
+					const storedKeys = new Set(storedImages.map((image) => image.r2Key));
+					if (!imageValues.every((image) => storedKeys.has(image.r2Key))) {
+						return { committed: false };
+					}
+				}
+				return { committed: true, value: row };
+			}
+		);
 	} catch (error) {
-		await cleanupUploadedImages(uploadedImages);
+		await cleanupUnreferencedProductImages(uploadedImages);
 		throw mapProductPersistenceError(error);
 	}
 
@@ -521,10 +591,10 @@ export async function listProducts(
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(product);
 
-	const [rows, totalRows] = await db.batch([
-		where ? listQuery.where(where) : listQuery,
+	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
+	const totalRows = await withTransientD1ReadRetry(() =>
 		where ? countQuery.where(where) : countQuery
-	]);
+	);
 
 	return {
 		items: await hydrateProducts(rows, { includeInactiveRelations: includeInactive }),
@@ -532,6 +602,35 @@ export async function listProducts(
 		limit,
 		offset
 	};
+}
+
+export async function listProductsByIds(
+	ctx: ServiceContext | null,
+	input: ListProductsByIdsInput,
+	options: GetProductOptions = {}
+): Promise<ProductDTO[]> {
+	const productIds = uniqueStrings(
+		input.productIds.map((id) => id.trim()).filter((id) => id.length > 0)
+	);
+	if (productIds.length > 100) {
+		throw new ProductError(
+			'A maximum of 100 products can be loaded at once.',
+			ErrorCode.VALIDATION_ERROR
+		);
+	}
+	if (productIds.length === 0) return [];
+
+	const includeInactive = resolveIncludeInactive(ctx, options.includeInactive);
+	const where = includeInactive
+		? inArray(product.id, productIds)
+		: and(inArray(product.id, productIds), eq(product.isActive, true));
+	const rows = await withTransientD1ReadRetry(() => getDb().select().from(product).where(where));
+	const hydrated = await hydrateProducts(rows, { includeInactiveRelations: includeInactive });
+	const productById = new Map(hydrated.map((item) => [item.id, item]));
+
+	return productIds
+		.map((productId) => productById.get(productId))
+		.filter((item): item is ProductDTO => item !== undefined);
 }
 
 export async function updateProduct(
@@ -564,39 +663,62 @@ export async function updateProduct(
 			await assertCategoryExistsTx(db, data.categoryId, 'Product category not found.');
 		}
 		const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
-		const resolvedTagIds = shouldUpdateTags
-			? await resolveProductTagIdsTx(db, normalizedTagIds, normalizedNewTagNames)
-			: [];
-		let statements: [BatchItem, ...BatchItem[]];
-
-		if (Object.keys(updateValues).length > 0) {
-			statements = [
-				db.update(product).set(updateValues).where(eq(product.id, existing.id)),
-				...guardPreviousBatchChanges(db)
-			];
-		} else {
-			statements = [
-				...guardBatchCondition(
-					db,
-					sql`EXISTS (SELECT 1 FROM ${product} WHERE ${product.id} = ${existing.id})`
-				)
-			];
-		}
+		const resolvedTags = shouldUpdateTags
+			? await resolveProductTagsTx(db, normalizedTagIds, normalizedNewTagNames)
+			: { ids: [], newTags: [] };
+		const now = resolveNow(ctx);
+		const stableUpdateValues = { ...updateValues, updatedAt: now };
+		const statements: [BatchItem, ...BatchItem[]] = [
+			db
+				.update(product)
+				.set(stableUpdateValues)
+				.where(and(eq(product.id, existing.id), eq(product.updatedAt, existing.updatedAt))),
+			...guardPreviousBatchChanges(db)
+		];
 		if (shouldUpdateTags) {
+			if (resolvedTags.newTags.length > 0) {
+				statements.push(db.insert(tag).values(resolvedTags.newTags));
+			}
 			statements.push(db.delete(productTag).where(eq(productTag.productId, existing.id)));
-			if (resolvedTagIds.length > 0) {
+			if (resolvedTags.ids.length > 0) {
 				statements.push(
 					db
 						.insert(productTag)
-						.values(resolvedTagIds.map((tagId) => ({ productId: existing.id, tagId })))
+						.values(resolvedTags.ids.map((tagId) => ({ productId: existing.id, tagId })))
 				);
 			}
 		}
-		await db.batch(statements);
-		const updated = await findProductByLookup({ id: existing.id }, { includeInactive: true });
-		if (!updated) {
-			throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
-		}
+		const updated = await withTransientD1WriteReconciliation<Product>(
+			async () => {
+				await db.batch(statements);
+				const row = await findProductByLookup({ id: existing.id }, { includeInactive: true });
+				if (!row) {
+					throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
+				}
+				return row;
+			},
+			async () => {
+				const row = await findProductByLookup({ id: existing.id }, { includeInactive: true });
+				if (!row || row.updatedAt.getTime() !== now.getTime()) {
+					return { committed: false };
+				}
+				if (shouldUpdateTags) {
+					const storedTags = await db
+						.select({ tagId: productTag.tagId })
+						.from(productTag)
+						.where(eq(productTag.productId, existing.id));
+					const storedIds = storedTags.map((item) => item.tagId).sort();
+					const expectedIds = [...resolvedTags.ids].sort();
+					if (
+						storedIds.length !== expectedIds.length ||
+						storedIds.some((id, index) => id !== expectedIds[index])
+					) {
+						return { committed: false };
+					}
+				}
+				return { committed: true, value: row };
+			}
+		);
 
 		return hydrateProduct(updated, { includeInactiveRelations: true });
 	} catch (error) {
@@ -710,6 +832,7 @@ export async function updateProductFull(
 	}
 
 	const deletedImageKeys: string[] = [];
+	const now = resolveNow(ctx);
 
 	let updated: Product;
 	try {
@@ -718,15 +841,18 @@ export async function updateProductFull(
 			await assertCategoryExistsTx(db, data.categoryId, 'Product category not found.');
 		}
 		const shouldUpdateTags = tagIds !== undefined || newTagNames !== undefined;
-		const resolvedTagIds = shouldUpdateTags
-			? await resolveProductTagIdsTx(db, normalizedTagIds, normalizedNewTagNames)
-			: [];
-		const [currentSizes, currentImages] = await db.batch([
-			db.select().from(productVariant).where(eq(productVariant.productId, existing.id)),
-			db.select().from(productImage).where(eq(productImage.productId, existing.id))
-		]);
+		const resolvedTags = shouldUpdateTags
+			? await resolveProductTagsTx(db, normalizedTagIds, normalizedNewTagNames)
+			: { ids: [], newTags: [] };
+		const currentSizes = await db
+			.select()
+			.from(productVariant)
+			.where(eq(productVariant.productId, existing.id));
+		const currentImages = await db
+			.select()
+			.from(productImage)
+			.where(eq(productImage.productId, existing.id));
 		const currentImagesById = new Map(currentImages.map((row) => [row.id, row]));
-		const now = resolveNow(ctx);
 		const statements: [BatchItem, ...BatchItem[]] = [
 			db
 				.update(product)
@@ -736,12 +862,15 @@ export async function updateProductFull(
 		];
 
 		if (shouldUpdateTags) {
+			if (resolvedTags.newTags.length > 0) {
+				statements.push(db.insert(tag).values(resolvedTags.newTags));
+			}
 			statements.push(db.delete(productTag).where(eq(productTag.productId, existing.id)));
-			if (resolvedTagIds.length > 0) {
+			if (resolvedTags.ids.length > 0) {
 				statements.push(
 					db
 						.insert(productTag)
-						.values(resolvedTagIds.map((tagId) => ({ productId: existing.id, tagId })))
+						.values(resolvedTags.ids.map((tagId) => ({ productId: existing.id, tagId })))
 				);
 			}
 		}
@@ -900,10 +1029,39 @@ export async function updateProductFull(
 			);
 		}
 
-		await db.batch(statements);
-		updated = (await findProductByLookup({ id: existing.id }, { includeInactive: true }))!;
+		updated = await withTransientD1WriteReconciliation<Product>(
+			async () => {
+				await db.batch(statements);
+				const row = await findProductByLookup({ id: existing.id }, { includeInactive: true });
+				if (!row) {
+					throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
+				}
+				return row;
+			},
+			async () => {
+				const row = await findProductByLookup({ id: existing.id }, { includeInactive: true });
+				if (!row) return { committed: false };
+				const mediaKeys = [...uploadedR2Images.map((image) => image.key), ...deletedImageKeys];
+				if (mediaKeys.length > 0) {
+					const storedImages = await db
+						.select({ r2Key: productImage.r2Key })
+						.from(productImage)
+						.where(eq(productImage.productId, existing.id));
+					const storedKeys = new Set(storedImages.map((image) => image.r2Key));
+					const uploadedReferenced = uploadedR2Images.every((image) => storedKeys.has(image.key));
+					const deletedUnreferenced = deletedImageKeys.every((key) => !storedKeys.has(key));
+					if (uploadedReferenced && deletedUnreferenced) {
+						return { committed: true, value: row };
+					}
+					return { committed: false };
+				}
+				return row.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 	} catch (error) {
-		await cleanupUploadedImages(uploadedR2Images);
+		await cleanupUnreferencedProductImages(uploadedR2Images);
 		throw mapProductPersistenceError(error);
 	}
 
@@ -924,43 +1082,47 @@ export async function deleteProduct(ctx: ServiceContext, lookup: ProductLookup):
 	}
 
 	let bucket: R2Bucket | null = null;
+	let imageKeys: string[] = [];
 
 	try {
 		const db = getDb();
-		const [variantRows, imageRows] = await db.batch([
-			db
-				.select({ id: productVariant.id })
-				.from(productVariant)
-				.where(eq(productVariant.productId, existing.id)),
-			db
-				.select({ r2Key: productImage.r2Key })
-				.from(productImage)
-				.where(eq(productImage.productId, existing.id))
-		]);
+		const variantRows = await db
+			.select({ id: productVariant.id })
+			.from(productVariant)
+			.where(eq(productVariant.productId, existing.id));
+		const imageRows = await db
+			.select({ r2Key: productImage.r2Key })
+			.from(productImage)
+			.where(eq(productImage.productId, existing.id));
 		await assertProductDeletionHasNoHistoryTx(
 			db,
 			existing.id,
 			variantRows.map((row) => row.id)
 		);
-		const imageKeys = imageRows.map((row) => row.r2Key);
+		imageKeys = imageRows.map((row) => row.r2Key);
 		if (imageKeys.length > 0 && ctx.event) {
 			bucket = getMediaBucketOptional(ctx.event);
 		}
-		const [, deletedRows] = await db.batch([
+		const deleteStatements: [BatchItem, ...BatchItem[]] = [
 			db.delete(productImage).where(eq(productImage.productId, existing.id)),
-			db.delete(product).where(eq(product.id, existing.id)).returning({ id: product.id }),
+			db.delete(product).where(eq(product.id, existing.id)),
 			...guardPreviousBatchChanges(db)
-		]);
-		if (!deletedRows[0]) {
-			throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { lookup });
-		}
-
-		if (bucket) {
-			const mediaBucket = bucket;
-			await Promise.all(imageKeys.map((key) => deleteObjectSafe(mediaBucket, key)));
-		}
+		];
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(deleteStatements);
+			},
+			async () => {
+				const row = await findProductByLookup({ id: existing.id }, { includeInactive: true });
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapProductPersistenceError(error);
+	}
+
+	if (bucket) {
+		await Promise.all(imageKeys.map((key) => deleteObjectSafe(bucket, key)));
 	}
 }
 
@@ -1003,12 +1165,31 @@ export async function createProductVariant(
 	}
 
 	try {
-		const [created] = await getDb().insert(productVariant).values(data).returning();
-
-		if (!created) {
-			throw new ProductError('Product variant was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
+		const db = getDb();
+		const now = resolveNow(ctx);
+		const values: NewProductVariant = {
+			id: nanoid(),
+			...data,
+			createdAt: now,
+			updatedAt: now
+		};
+		const created = await withTransientD1WriteReconciliation<ProductVariant>(
+			async () => {
+				const [row] = await db.insert(productVariant).values(values).returning();
+				if (!row) {
+					throw new ProductError('Product variant was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(productVariant)
+					.where(eq(productVariant.id, values.id!))
+					.limit(1);
+				return row ? { committed: true, value: row } : { committed: false };
+			}
+		);
 		return toProductVariantDTO(created, colorRow);
 	} catch (error) {
 		throw mapProductVariantPersistenceError(error);
@@ -1038,18 +1219,41 @@ export async function updateProductVariant(
 	}
 
 	try {
-		const [updated] = await getDb()
-			.update(productVariant)
-			.set(updateValues)
-			.where(eq(productVariant.id, existing.id))
-			.returning();
-
-		if (!updated) {
-			throw new ProductError('Product variant not found.', ErrorCode.VARIANT_NOT_FOUND, {
-				variantId
-			});
-		}
-
+		const db = getDb();
+		const now = resolveNow(ctx);
+		const stableUpdateValues: Partial<NewProductVariant> = { ...updateValues, updatedAt: now };
+		const updated = await withTransientD1WriteReconciliation<ProductVariant>(
+			async () => {
+				const [row] = await db
+					.update(productVariant)
+					.set(stableUpdateValues)
+					.where(
+						and(
+							eq(productVariant.id, existing.id),
+							eq(productVariant.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning();
+				if (!row) {
+					throw new ProductError(
+						'Product variant changed before it could be updated.',
+						ErrorCode.CONFLICT,
+						{ variantId }
+					);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(productVariant)
+					.where(eq(productVariant.id, existing.id))
+					.limit(1);
+				return row && recordMatchesPatch(row, stableUpdateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return hydrateProductVariant(updated);
 	} catch (error) {
 		throw mapProductVariantPersistenceError(error);
@@ -1075,16 +1279,35 @@ export async function deleteProductVariant(ctx: ServiceContext, variantId: strin
 				{ variantId: existing.id }
 			);
 		}
-		const [deleted] = await getDb()
-			.delete(productVariant)
-			.where(eq(productVariant.id, existing.id))
-			.returning({ id: productVariant.id });
-
-		if (!deleted) {
-			throw new ProductError('Product variant not found.', ErrorCode.VARIANT_NOT_FOUND, {
-				variantId
-			});
-		}
+		const db = getDb();
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(productVariant)
+					.where(
+						and(
+							eq(productVariant.id, existing.id),
+							eq(productVariant.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning({ id: productVariant.id });
+				if (!deleted) {
+					throw new ProductError(
+						'Product variant changed before it could be deleted.',
+						ErrorCode.CONFLICT,
+						{ variantId }
+					);
+				}
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: productVariant.id })
+					.from(productVariant)
+					.where(eq(productVariant.id, existing.id))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapProductVariantPersistenceError(error);
 	}
@@ -1099,26 +1322,43 @@ export async function createProductVariantColor(
 
 	const parsed = parseInsertProductVariantColor(productId, input);
 	const db = getDb();
+	const now = resolveNow(ctx);
+	const values: NewProductVariantColor = {
+		id: nanoid(),
+		productId,
+		colorId: parsed.colorId ?? null,
+		color: parsed.color,
+		colorHex: parsed.colorHex,
+		basePrice: parsed.basePrice,
+		compareAtPrice: parsed.compareAtPrice,
+		sortOrder: parsed.sortOrder ?? 0,
+		createdAt: now,
+		updatedAt: now
+	};
 
 	try {
-		const [created] = await db
-			.insert(productVariantColor)
-			.values({
-				id: nanoid(),
-				productId,
-				colorId: parsed.colorId ?? null,
-				color: parsed.color,
-				colorHex: parsed.colorHex,
-				basePrice: parsed.basePrice,
-				compareAtPrice: parsed.compareAtPrice,
-				sortOrder: parsed.sortOrder ?? 0
-			})
-			.returning();
-
-		if (!created) {
-			throw new ProductError('Product variant color was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
+		await assertProductExistsTx(db, productId, 'Product not found.');
+		validateResolvedProductPricing(values);
+		const created = await withTransientD1WriteReconciliation<ProductVariantColor>(
+			async () => {
+				const [row] = await db.insert(productVariantColor).values(values).returning();
+				if (!row) {
+					throw new ProductError(
+						'Product variant color was not created.',
+						ErrorCode.INTERNAL_ERROR
+					);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(productVariantColor)
+					.where(eq(productVariantColor.id, values.id!))
+					.limit(1);
+				return row ? { committed: true, value: row } : { committed: false };
+			}
+		);
 		return created;
 	} catch (error) {
 		throw mapProductPersistenceError(error);
@@ -1133,7 +1373,7 @@ export async function updateProductVariantColor(
 	requireAdmin(ctx.actor);
 
 	const db = getDb();
-	const result = updateProductVariantColorSchema.safeParse(input);
+	const result = updateProductVariantColorSchema.omit({ productId: true }).safeParse(input);
 
 	if (!result.success) {
 		throw new ProductError('Invalid product variant color data.', ErrorCode.VALIDATION_ERROR, {
@@ -1144,18 +1384,55 @@ export async function updateProductVariantColor(
 	const updateValues = removeUndefinedValues(result.data);
 
 	try {
-		const [updated] = await db
-			.update(productVariantColor)
-			.set(updateValues)
+		const [existing] = await db
+			.select()
+			.from(productVariantColor)
 			.where(eq(productVariantColor.id, colorId))
-			.returning();
-
-		if (!updated) {
+			.limit(1);
+		if (!existing) {
 			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
 				colorId
 			});
 		}
-
+		if (Object.keys(updateValues).length === 0) return existing;
+		validateResolvedProductPricing({ ...existing, ...updateValues });
+		const now = resolveNow(ctx);
+		const stableUpdateValues: Partial<NewProductVariantColor> = {
+			...updateValues,
+			updatedAt: now
+		};
+		const updated = await withTransientD1WriteReconciliation<ProductVariantColor>(
+			async () => {
+				const [row] = await db
+					.update(productVariantColor)
+					.set(stableUpdateValues)
+					.where(
+						and(
+							eq(productVariantColor.id, existing.id),
+							eq(productVariantColor.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning();
+				if (!row) {
+					throw new ProductError(
+						'Product variant color changed before it could be updated.',
+						ErrorCode.CONFLICT,
+						{ colorId }
+					);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(productVariantColor)
+					.where(eq(productVariantColor.id, existing.id))
+					.limit(1);
+				return row && recordMatchesPatch(row, stableUpdateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return updated;
 	} catch (error) {
 		throw mapProductPersistenceError(error);
@@ -1171,6 +1448,16 @@ export async function deleteProductVariantColor(
 	const db = getDb();
 
 	try {
+		const [existing] = await db
+			.select()
+			.from(productVariantColor)
+			.where(eq(productVariantColor.id, colorId))
+			.limit(1);
+		if (!existing) {
+			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
+				colorId
+			});
+		}
 		const variants = await db
 			.select({ id: productVariant.id })
 			.from(productVariant)
@@ -1187,16 +1474,34 @@ export async function deleteProductVariantColor(
 				{ colorId }
 			);
 		}
-		const [deleted] = await db
-			.delete(productVariantColor)
-			.where(eq(productVariantColor.id, colorId))
-			.returning({ id: productVariantColor.id });
-
-		if (!deleted) {
-			throw new ProductError('Product variant color not found.', ErrorCode.VARIANT_NOT_FOUND, {
-				colorId
-			});
-		}
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(productVariantColor)
+					.where(
+						and(
+							eq(productVariantColor.id, existing.id),
+							eq(productVariantColor.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning({ id: productVariantColor.id });
+				if (!deleted) {
+					throw new ProductError(
+						'Product variant color changed before it could be deleted.',
+						ErrorCode.CONFLICT,
+						{ colorId }
+					);
+				}
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: productVariantColor.id })
+					.from(productVariantColor)
+					.where(eq(productVariantColor.id, existing.id))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapProductPersistenceError(error);
 	}
@@ -1222,21 +1527,23 @@ export async function listProductVariants(
 		conditions.push(eq(productVariant.isActive, true));
 	}
 
-	const rows = await getDb()
-		.select({
-			variant: productVariant,
-			color: productVariantColor
-		})
-		.from(productVariant)
-		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
-		.where(and(...conditions))
-		.orderBy(
-			asc(productVariant.sortOrder),
-			asc(productVariant.size),
-			asc(productVariantColor.color)
-		)
-		.limit(limit)
-		.offset(offset);
+	const rows = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({
+				variant: productVariant,
+				color: productVariantColor
+			})
+			.from(productVariant)
+			.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+			.where(and(...conditions))
+			.orderBy(
+				asc(productVariant.sortOrder),
+				asc(productVariant.size),
+				asc(productVariantColor.color)
+			)
+			.limit(limit)
+			.offset(offset)
+	);
 
 	return rows.map(({ variant, color }) => toProductVariantDTO(variant, color));
 }
@@ -1258,36 +1565,51 @@ export async function addProductImage(
 		data.variantId ?? null,
 		image
 	);
+	const values: NewProductImage = {
+		id: nanoid(),
+		...data,
+		r2Key: uploadedImage.key,
+		mimeType: uploadedImage.mimeType,
+		byteSize: uploadedImage.byteSize,
+		originalFilename: uploadedImage.originalFilename,
+		width: null,
+		height: null
+	};
 
 	try {
-		const values: NewProductImage = {
-			...data,
-			r2Key: uploadedImage.key,
-			mimeType: uploadedImage.mimeType,
-			byteSize: uploadedImage.byteSize,
-			originalFilename: uploadedImage.originalFilename,
-			width: null,
-			height: null
-		};
 		const db = getDb();
 		const insertQuery = db.insert(productImage).values(values).returning();
-		const createdRows = values.isPrimary
-			? (
-					await db.batch([
-						clearPrimaryProductImagesTx(db, values.productId, values.variantId ?? null),
-						insertQuery
-					])
-				)[1]
-			: await insertQuery;
-		const [created] = createdRows;
-
-		if (!created) {
-			throw new ProductError('Product image was not created.', ErrorCode.INTERNAL_ERROR);
-		}
+		const created = await withTransientD1WriteReconciliation<ProductImage>(
+			async () => {
+				const createdRows = values.isPrimary
+					? (
+							await db.batch([
+								clearPrimaryProductImagesTx(db, values.productId, values.variantId ?? null),
+								insertQuery
+							])
+						)[1]
+					: await insertQuery;
+				const [row] = createdRows;
+				if (!row) {
+					throw new ProductError('Product image was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(productImage)
+					.where(eq(productImage.id, values.id!))
+					.limit(1);
+				return row?.r2Key === uploadedImage.key
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
 		return toProductImageDTO(created);
 	} catch (error) {
-		await deleteObjectSafe(uploadedImage.bucket, uploadedImage.key);
+		await cleanupUnreferencedProductImages([uploadedImage]);
 		throw mapProductImagePersistenceError(error);
 	}
 }
@@ -1306,20 +1628,37 @@ export async function setPrimaryProductImage(
 			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
 		}
 
-		const [, updatedRows] = await db.batch([
-			clearPrimaryProductImagesTx(db, existing.productId, existing.variantId),
-			db
-				.update(productImage)
-				.set({ isPrimary: true })
-				.where(eq(productImage.id, existing.id))
-				.returning()
-		]);
-		const [updated] = updatedRows;
-
-		if (!updated) {
-			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
-		}
-
+		if (existing.isPrimary) return toProductImageDTO(existing);
+		const updated = await withTransientD1WriteReconciliation<ProductImage>(
+			async () => {
+				const [, updatedRows] = await db.batch([
+					clearPrimaryProductImagesTx(db, existing.productId, existing.variantId),
+					db
+						.update(productImage)
+						.set({ isPrimary: true })
+						.where(eq(productImage.id, existing.id))
+						.returning()
+				]);
+				const [row] = updatedRows;
+				if (!row) {
+					throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, {
+						imageId
+					});
+				}
+				return row;
+			},
+			async () => {
+				const rows = await db
+					.select()
+					.from(productImage)
+					.where(productImagePrimaryScopePredicate(existing.productId, existing.variantId));
+				const primaryRows = rows.filter((row) => row.isPrimary);
+				const row = rows.find((item) => item.id === existing.id);
+				return row?.isPrimary && primaryRows.length === 1
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return toProductImageDTO(updated);
 	} catch (error) {
 		throw mapProductImagePersistenceError(error);
@@ -1351,7 +1690,35 @@ export async function reorderProductImages(
 		);
 		const [firstUpdate, ...remainingUpdates] = updates;
 		if (firstUpdate) {
-			await db.batch([firstUpdate, ...remainingUpdates]);
+			const idsSql = sql.join(
+				imageIdsInOrder.map((id) => sql`${id}`),
+				sql`, `
+			);
+			const setGuard = guardBatchCondition(
+				db,
+				sql`(SELECT count(*) FROM ${productImage} WHERE ${productImage.productId} = ${productId}) = ${imageIdsInOrder.length}
+					AND NOT EXISTS (
+						SELECT 1 FROM ${productImage}
+						WHERE ${productImage.productId} = ${productId}
+							AND ${productImage.id} NOT IN (${idsSql})
+					)`
+			);
+			await withTransientD1WriteReconciliation(
+				async () => {
+					await db.batch([...setGuard, firstUpdate, ...remainingUpdates]);
+				},
+				async () => {
+					const stored = await db
+						.select({ id: productImage.id, position: productImage.position })
+						.from(productImage)
+						.where(eq(productImage.productId, productId));
+					const positionById = new Map(stored.map((row) => [row.id, row.position]));
+					const committed =
+						stored.length === imageIdsInOrder.length &&
+						imageIdsInOrder.every((id, position) => positionById.get(id) === position);
+					return committed ? { committed: true, value: undefined } : { committed: false };
+				}
+			);
 		}
 		const rows = await db
 			.select()
@@ -1361,6 +1728,13 @@ export async function reorderProductImages(
 
 		return rows.map(toProductImageDTO);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new ProductError(
+				'Product images changed before they could be reordered.',
+				ErrorCode.CONFLICT,
+				{ productId }
+			);
+		}
 		throw mapProductImagePersistenceError(error);
 	}
 }
@@ -1375,13 +1749,23 @@ export async function deleteProductImage(ctx: ServiceContext, imageId: string): 
 			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
 		}
 		const bucket = requireMediaBucket(ctx);
-		const [deleted] = await db
-			.delete(productImage)
-			.where(eq(productImage.id, existing.id))
-			.returning({ id: productImage.id });
-		if (!deleted) {
-			throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, { imageId });
-		}
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(productImage)
+					.where(eq(productImage.id, existing.id))
+					.returning({ id: productImage.id });
+				if (!deleted) {
+					throw new ProductError('Product image not found.', ErrorCode.MEDIA_NOT_FOUND, {
+						imageId
+					});
+				}
+			},
+			async () => {
+				const row = await findProductImageByIdTx(db, existing.id);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 		await deleteObjectSafe(bucket, existing.r2Key);
 	} catch (error) {
 		throw mapProductImagePersistenceError(error);
@@ -1392,14 +1776,23 @@ export async function createTag(ctx: ServiceContext, input: CreateTagInput): Pro
 	requireAdmin(ctx.actor);
 
 	const data = parseInsertTag(input);
+	const values: NewTag = { id: nanoid(), ...data };
 
 	try {
-		const [created] = await getDb().insert(tag).values(data).returning();
-
-		if (!created) {
-			throw new ProductError('Tag was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
+		const db = getDb();
+		const created = await withTransientD1WriteReconciliation<Tag>(
+			async () => {
+				const [row] = await db.insert(tag).values(values).returning();
+				if (!row) {
+					throw new ProductError('Tag was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db.select().from(tag).where(eq(tag.id, values.id!)).limit(1);
+				return row ? { committed: true, value: row } : { committed: false };
+			}
+		);
 		return toTagDTO(created);
 	} catch (error) {
 		throw mapTagPersistenceError(error);
@@ -1417,19 +1810,21 @@ export async function getTag(lookup: TagLookup): Promise<TagDTO> {
 }
 
 export async function listTags(options: ListTagsOptions = {}): Promise<TagDTO[]> {
-	const rows = await getDb()
-		.select()
-		.from(tag)
-		.orderBy(asc(tag.name), asc(tag.slug))
-		.limit(normalizeLimit(options.limit))
-		.offset(normalizeOffset(options.offset));
+	const rows = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(tag)
+			.orderBy(asc(tag.name), asc(tag.slug))
+			.limit(normalizeLimit(options.limit))
+			.offset(normalizeOffset(options.offset))
+	);
 
 	return rows.map(toTagDTO);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function listColors(_ctx: ServiceContext): Promise<Color[]> {
-	return getDb().select().from(color).orderBy(asc(color.name));
+	return withTransientD1ReadRetry(() => getDb().select().from(color).orderBy(asc(color.name)));
 }
 
 function formatColorName(val: string): string {
@@ -1457,6 +1852,14 @@ export async function createColor(ctx: ServiceContext, input: InsertColor): Prom
 
 	const formattedName = formatColorName(parsed.name);
 	const hexValue = parsed.hex.toUpperCase();
+	const now = resolveNow(ctx);
+	const values: NewColor = {
+		id: nanoid(),
+		name: formattedName,
+		hex: hexValue,
+		createdAt: now,
+		updatedAt: now
+	};
 
 	// Check if name or hex already exists case-insensitively / normalized
 	const existing = await db
@@ -1483,18 +1886,19 @@ export async function createColor(ctx: ServiceContext, input: InsertColor): Prom
 	}
 
 	try {
-		const [created] = await db
-			.insert(color)
-			.values({
-				id: nanoid(),
-				name: formattedName,
-				hex: hexValue
-			})
-			.returning();
-
-		if (!created) {
-			throw new ProductError('Color was not created.', ErrorCode.INTERNAL_ERROR);
-		}
+		const created = await withTransientD1WriteReconciliation<Color>(
+			async () => {
+				const [row] = await db.insert(color).values(values).returning();
+				if (!row) {
+					throw new ProductError('Color was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db.select().from(color).where(eq(color.id, values.id!)).limit(1);
+				return row ? { committed: true, value: row } : { committed: false };
+			}
+		);
 		return created;
 	} catch (error) {
 		throw mapColorPersistenceError(error);
@@ -1521,14 +1925,25 @@ export async function deleteColor(ctx: ServiceContext, colorId: string): Promise
 	}
 
 	try {
-		const [deleted] = await db
-			.delete(color)
-			.where(eq(color.id, colorId))
-			.returning({ id: color.id });
-
-		if (!deleted) {
-			throw new ProductError('Color not found.', ErrorCode.NOT_FOUND);
-		}
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(color)
+					.where(eq(color.id, colorId))
+					.returning({ id: color.id });
+				if (!deleted) {
+					throw new ProductError('Color not found.', ErrorCode.NOT_FOUND);
+				}
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: color.id })
+					.from(color)
+					.where(eq(color.id, colorId))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapColorPersistenceError(error);
 	}
@@ -1536,6 +1951,7 @@ export async function deleteColor(ctx: ServiceContext, colorId: string): Promise
 
 function mapColorPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -1567,16 +1983,30 @@ export async function updateTag(
 	}
 
 	try {
-		const [updated] = await getDb()
-			.update(tag)
-			.set(updateValues)
-			.where(eq(tag.id, existing.id))
-			.returning();
-
-		if (!updated) {
-			throw new ProductError('Tag not found.', ErrorCode.TAG_NOT_FOUND, { lookup });
-		}
-
+		const db = getDb();
+		const updated = await withTransientD1WriteReconciliation<Tag>(
+			async () => {
+				const [row] = await db
+					.update(tag)
+					.set(updateValues)
+					.where(
+						and(eq(tag.id, existing.id), eq(tag.name, existing.name), eq(tag.slug, existing.slug))
+					)
+					.returning();
+				if (!row) {
+					throw new ProductError('Tag changed before it could be updated.', ErrorCode.CONFLICT, {
+						lookup
+					});
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db.select().from(tag).where(eq(tag.id, existing.id)).limit(1);
+				return row && recordMatchesPatch(row, updateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return toTagDTO(updated);
 	} catch (error) {
 		throw mapTagPersistenceError(error);
@@ -1593,14 +2023,30 @@ export async function deleteTag(ctx: ServiceContext, lookup: TagLookup): Promise
 	}
 
 	try {
-		const [deleted] = await getDb()
-			.delete(tag)
-			.where(eq(tag.id, existing.id))
-			.returning({ id: tag.id });
-
-		if (!deleted) {
-			throw new ProductError('Tag not found.', ErrorCode.TAG_NOT_FOUND, { lookup });
-		}
+		const db = getDb();
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(tag)
+					.where(
+						and(eq(tag.id, existing.id), eq(tag.name, existing.name), eq(tag.slug, existing.slug))
+					)
+					.returning({ id: tag.id });
+				if (!deleted) {
+					throw new ProductError('Tag changed before it could be deleted.', ErrorCode.CONFLICT, {
+						lookup
+					});
+				}
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: tag.id })
+					.from(tag)
+					.where(eq(tag.id, existing.id))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapTagPersistenceError(error);
 	}
@@ -1620,14 +2066,30 @@ export async function setProductTags(
 		await assertProductExistsTx(db, productId, 'Product not found.');
 		await assertTagsExistTx(db, normalizedTagIds);
 		const deleteQuery = db.delete(productTag).where(eq(productTag.productId, productId));
-		if (normalizedTagIds.length > 0) {
-			await db.batch([
-				deleteQuery,
-				db.insert(productTag).values(normalizedTagIds.map((tagId) => ({ productId, tagId })))
-			]);
-		} else {
-			await deleteQuery;
-		}
+		await withTransientD1WriteReconciliation(
+			async () => {
+				if (normalizedTagIds.length > 0) {
+					await db.batch([
+						deleteQuery,
+						db.insert(productTag).values(normalizedTagIds.map((tagId) => ({ productId, tagId })))
+					]);
+				} else {
+					await deleteQuery;
+				}
+			},
+			async () => {
+				const rows = await db
+					.select({ tagId: productTag.tagId })
+					.from(productTag)
+					.where(eq(productTag.productId, productId));
+				const storedIds = rows.map((row) => row.tagId).sort();
+				const expectedIds = [...normalizedTagIds].sort();
+				const committed =
+					storedIds.length === expectedIds.length &&
+					storedIds.every((id, index) => id === expectedIds[index]);
+				return committed ? { committed: true, value: undefined } : { committed: false };
+			}
+		);
 	} catch (error) {
 		throw mapProductTagPersistenceError(error);
 	}
@@ -1646,7 +2108,22 @@ export async function addProductTag(
 		const db = getDb();
 		await assertProductExistsTx(db, productId, 'Product not found.');
 		await assertTagsExistTx(db, [normalizedTagId]);
-		await db.insert(productTag).values({ productId, tagId: normalizedTagId }).onConflictDoNothing();
+		await withTransientD1WriteReconciliation(
+			() =>
+				db
+					.insert(productTag)
+					.values({ productId, tagId: normalizedTagId })
+					.onConflictDoNothing()
+					.then(() => undefined),
+			async () => {
+				const [row] = await db
+					.select({ tagId: productTag.tagId })
+					.from(productTag)
+					.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)))
+					.limit(1);
+				return row ? { committed: true, value: undefined } : { committed: false };
+			}
+		);
 	} catch (error) {
 		if (isUniqueConstraintError(getErrorMessage(error))) return;
 
@@ -1666,9 +2143,21 @@ export async function removeProductTag(
 	try {
 		const db = getDb();
 		await assertProductExistsTx(db, productId, 'Product not found.');
-		await db
-			.delete(productTag)
-			.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)));
+		await withTransientD1WriteReconciliation(
+			() =>
+				db
+					.delete(productTag)
+					.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)))
+					.then(() => undefined),
+			async () => {
+				const [row] = await db
+					.select({ tagId: productTag.tagId })
+					.from(productTag)
+					.where(and(eq(productTag.productId, productId), eq(productTag.tagId, normalizedTagId)))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapProductTagPersistenceError(error);
 	}
@@ -1693,6 +2182,14 @@ function toCategoryDTO(row: Category): CategoryDTO {
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt
 	};
+}
+
+export function toPublicCategoryDTO(row: CategoryDTO): PublicCategoryDTO {
+	const { imageMimeType, imageByteSize, imageOriginalFilename, ...publicCategory } = row;
+	void imageMimeType;
+	void imageByteSize;
+	void imageOriginalFilename;
+	return publicCategory;
 }
 
 function toTagDTO(row: Tag): TagDTO {
@@ -1784,6 +2281,21 @@ function toProductDTO(
 		tags: input.tags.map(toTagDTO),
 		primaryImageR2Key: primaryImage?.r2Key ?? null,
 		primaryImageUrl: primaryImage?.imageUrl ?? null
+	};
+}
+
+export function toPublicProductDTO(row: ProductDTO): PublicProductDTO {
+	const images = row.images.map(({ mimeType, byteSize, originalFilename, ...image }) => {
+		void mimeType;
+		void byteSize;
+		void originalFilename;
+		return image;
+	});
+
+	return {
+		...row,
+		category: row.category ? toPublicCategoryDTO(row.category) : null,
+		images
 	};
 }
 
@@ -2523,25 +3035,18 @@ function normalizeNewTagNames(names: string[] | undefined): string[] {
 	return normalizedNames;
 }
 
-async function resolveProductTagIdsTx(
+async function resolveProductTagsTx(
 	tx: Db | Tx,
 	tagIds: string[],
 	newTagNames: string[]
-): Promise<string[]> {
+): Promise<{ ids: string[]; newTags: NewTag[] }> {
 	await assertTagsExistTx(tx, tagIds);
 
-	if (newTagNames.length === 0) return tagIds;
+	if (newTagNames.length === 0) return { ids: tagIds, newTags: [] };
 
-	const createdOrExistingTagIds = await findOrCreateTagsByNamesTx(tx, newTagNames);
-	return uniqueStrings([...tagIds, ...createdOrExistingTagIds]);
-}
-
-async function findOrCreateTagsByNamesTx(tx: Db | Tx, names: string[]): Promise<string[]> {
-	const tagIds: string[] = [];
-
-	for (const name of names) {
+	const candidates = new Map<string, { name: string; slug: string }>();
+	for (const name of newTagNames) {
 		const slug = generateSlug(name);
-
 		if (!slug) {
 			throw new ProductError(
 				'Tag name must contain at least one letter or number.',
@@ -2551,38 +3056,24 @@ async function findOrCreateTagsByNamesTx(tx: Db | Tx, names: string[]): Promise<
 				}
 			);
 		}
-
-		const existing = await findTagByLookupTx(tx, { slug });
-
+		if (!candidates.has(slug)) candidates.set(slug, { name, slug });
+	}
+	const slugs = [...candidates.keys()];
+	const existingRows = await tx.select().from(tag).where(inArray(tag.slug, slugs));
+	const existingBySlug = new Map(existingRows.map((row) => [row.slug, row]));
+	const newTags: NewTag[] = [];
+	const resolvedIds = [...tagIds];
+	for (const candidate of candidates.values()) {
+		const existing = existingBySlug.get(candidate.slug);
 		if (existing) {
-			tagIds.push(existing.id);
+			resolvedIds.push(existing.id);
 			continue;
 		}
-
-		try {
-			const [created] = await tx.insert(tag).values({ name, slug }).returning();
-
-			if (!created) {
-				throw new ProductError('Tag was not created.', ErrorCode.INTERNAL_ERROR);
-			}
-
-			tagIds.push(created.id);
-		} catch (error) {
-			if (!isUniqueConstraintError(getErrorMessage(error))) throw error;
-
-			const concurrent = await findTagByLookupTx(tx, { slug });
-
-			if (!concurrent) throw error;
-			tagIds.push(concurrent.id);
-		}
+		const values: NewTag = { id: nanoid(), name: candidate.name, slug: candidate.slug };
+		newTags.push(values);
+		resolvedIds.push(values.id!);
 	}
-
-	return tagIds;
-}
-
-async function findTagByLookupTx(tx: Db | Tx, lookup: TagLookup): Promise<Tag | null> {
-	const [row] = await tx.select().from(tag).where(tagLookupPredicate(lookup)).limit(1);
-	return row ?? null;
+	return { ids: uniqueStrings(resolvedIds), newTags };
 }
 
 function parseInsertTag(input: CreateTagInput): InsertTag {
@@ -2615,11 +3106,13 @@ async function findCategoryByLookup(
 ): Promise<Category | null> {
 	const predicate = categoryLookupPredicate(lookup);
 	const where = options.includeInactive ? predicate : and(predicate, eq(category.isActive, true));
-	const [row] = await getDb()
-		.select()
-		.from(category)
-		.where(where ?? predicate)
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(category)
+			.where(where ?? predicate)
+			.limit(1)
+	);
 
 	return row ?? null;
 }
@@ -2630,17 +3123,21 @@ async function findProductByLookup(
 ): Promise<Product | null> {
 	const predicate = productLookupPredicate(lookup);
 	const where = options.includeInactive ? predicate : and(predicate, eq(product.isActive, true));
-	const [row] = await getDb()
-		.select()
-		.from(product)
-		.where(where ?? predicate)
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(product)
+			.where(where ?? predicate)
+			.limit(1)
+	);
 
 	return row ?? null;
 }
 
 async function findTagByLookup(lookup: TagLookup): Promise<Tag | null> {
-	const [row] = await getDb().select().from(tag).where(tagLookupPredicate(lookup)).limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb().select().from(tag).where(tagLookupPredicate(lookup)).limit(1)
+	);
 
 	return row ?? null;
 }
@@ -2653,11 +3150,13 @@ async function findProductVariantById(
 	const where = options.includeInactive
 		? predicate
 		: and(predicate, eq(productVariant.isActive, true));
-	const [row] = await getDb()
-		.select()
-		.from(productVariant)
-		.where(where ?? predicate)
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(productVariant)
+			.where(where ?? predicate)
+			.limit(1)
+	);
 
 	return row ?? null;
 }
@@ -2812,14 +3311,15 @@ async function assertProductDeletionHasNoHistoryTx(
 	productId: string,
 	variantIds: string[]
 ): Promise<void> {
-	const [reviewRows, hasInventoryHistory] = await Promise.all([
-		tx
-			.select({ id: reviewTable.id })
-			.from(reviewTable)
-			.where(eq(reviewTable.productId, productId))
-			.limit(1),
-		hasInventoryHistoryForVariantIdsTx(tx as InventoryTx, variantIds)
-	]);
+	const reviewRows = await tx
+		.select({ id: reviewTable.id })
+		.from(reviewTable)
+		.where(eq(reviewTable.productId, productId))
+		.limit(1);
+	const hasInventoryHistory = await hasInventoryHistoryForVariantIdsTx(
+		tx as InventoryTx,
+		variantIds
+	);
 
 	if (reviewRows[0] || hasInventoryHistory) {
 		throw new ProductError(
@@ -3042,13 +3542,11 @@ async function hydrateProducts(
 		.where(inArray(productTag.productId, productIds))
 		.orderBy(asc(tag.name));
 
-	const [categories, variants, variantColors, images, tagRows] = await db.batch([
-		categoryQuery,
-		variantsQuery,
-		variantColorsQuery,
-		imagesQuery,
-		tagsQuery
-	]);
+	const categories = await withTransientD1ReadRetry(() => categoryQuery);
+	const variants = await withTransientD1ReadRetry(() => variantsQuery);
+	const variantColors = await withTransientD1ReadRetry(() => variantColorsQuery);
+	const images = await withTransientD1ReadRetry(() => imagesQuery);
+	const tagRows = await withTransientD1ReadRetry(() => tagsQuery);
 	const categoryById = new Map(categories.map((row) => [row.id, row]));
 	const variantColorById = new Map(variantColors.map((row) => [row.id, row]));
 
@@ -3235,10 +3733,58 @@ async function cleanupUploadedImages(images: UploadedImage[]): Promise<void> {
 	await Promise.all(images.map((image) => deleteObjectSafe(image.bucket, image.key)));
 }
 
+async function cleanupUnreferencedCategoryImage(image: UploadedImage): Promise<void> {
+	try {
+		const [referenced] = await withTransientD1ReadRetry(() =>
+			getDb()
+				.select({ id: category.id })
+				.from(category)
+				.where(eq(category.imageR2Key, image.key))
+				.limit(1)
+		);
+		if (!referenced) await deleteObjectSafe(image.bucket, image.key);
+	} catch {
+		// Preserve the object when database commit state cannot be proven.
+	}
+}
+
+async function cleanupUnreferencedProductImages(images: UploadedImage[]): Promise<void> {
+	if (images.length === 0) return;
+
+	try {
+		const keys = uniqueStrings(images.map((image) => image.key));
+		const referencedRows = await withTransientD1ReadRetry(() =>
+			getDb()
+				.select({ r2Key: productImage.r2Key })
+				.from(productImage)
+				.where(inArray(productImage.r2Key, keys))
+		);
+		const referencedKeys = new Set(referencedRows.map((row) => row.r2Key));
+		await Promise.all(
+			images
+				.filter((image) => !referencedKeys.has(image.key))
+				.map((image) => deleteObjectSafe(image.bucket, image.key))
+		);
+	} catch {
+		// Preserve objects when database commit state cannot be proven.
+	}
+}
+
 function resolveMediaUploadCode(message: string): ErrorCode {
-	return message.includes('Unsupported') || message.includes('empty') || message.includes('large')
+	return isInvalidImageUploadMessage(message)
 		? ErrorCode.INVALID_MEDIA_TYPE
 		: ErrorCode.MEDIA_UPLOAD_FAILED;
+}
+
+function recordMatchesPatch(row: object, patch: Record<string, unknown>): boolean {
+	const record = row as Record<string, unknown>;
+	return Object.entries(patch).every(([key, expected]) => {
+		const actual = record[key];
+		if (actual instanceof Date && expected instanceof Date) {
+			return actual.getTime() === expected.getTime();
+		}
+		return actual === expected;
+	});
 }
 
 function requireMediaBucket(ctx: ServiceContext): R2Bucket {
@@ -3262,6 +3808,7 @@ function requireMediaBucket(ctx: ServiceContext): R2Bucket {
 
 function mapCategoryPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -3284,6 +3831,7 @@ function mapProductPersistenceError(error: unknown): never {
 			ErrorCode.CONFLICT
 		);
 	}
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -3293,6 +3841,9 @@ function mapProductPersistenceError(error: unknown): never {
 
 	if (message.includes('product_image')) {
 		mapProductImagePersistenceError(error);
+	}
+	if (message.includes('tag.')) {
+		mapTagPersistenceError(error);
 	}
 
 	if (isUniqueConstraintError(message)) {
@@ -3308,6 +3859,7 @@ function mapProductPersistenceError(error: unknown): never {
 
 function mapTagPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -3328,6 +3880,7 @@ function mapTagPersistenceError(error: unknown): never {
 
 function mapProductTagPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -3344,6 +3897,7 @@ function mapProductTagPersistenceError(error: unknown): never {
 
 function mapProductVariantPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -3376,6 +3930,7 @@ function mapProductVariantPersistenceError(error: unknown): never {
 
 function mapProductImagePersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -3435,13 +3990,20 @@ export async function getProductStats(ctx: ServiceContext): Promise<ProductStats
 	requireAdmin(ctx.actor);
 	const db = getDb();
 
-	const [totalRows, activeRows] = await Promise.all([
-		db.select({ count: count() }).from(product),
-		db.select({ count: count() }).from(product).where(eq(product.isActive, true))
-	]);
+	const [stats] = await withTransientD1ReadRetry(() =>
+		db
+			.select({
+				total: count(),
+				active:
+					sql<number>`coalesce(sum(CASE WHEN ${product.isActive} = 1 THEN 1 ELSE 0 END), 0)`.mapWith(
+						Number
+					)
+			})
+			.from(product)
+	);
 
-	const total = Number(totalRows[0]?.count ?? 0);
-	const active = Number(activeRows[0]?.count ?? 0);
+	const total = Number(stats?.total ?? 0);
+	const active = Number(stats?.active ?? 0);
 	const inactive = Math.max(0, total - active);
 
 	return {

@@ -72,19 +72,17 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const reviewOptions = getReviewOptions(url);
 
 	try {
+		const reviews = await listReviews(ctx, reviewOptions);
+		const summary = await getReviewModerationSummary(ctx, {
+			productId: reviewOptions.productId
+		});
 		const [
-			reviews,
-			summary,
 			moderateReviewForm,
 			deleteReviewForm,
 			addReviewMediaForm,
 			deleteReviewMediaForm,
 			reorderReviewMediaForm
 		] = await Promise.all([
-			listReviews(ctx, reviewOptions),
-			getReviewModerationSummary(ctx, {
-				productId: reviewOptions.productId
-			}),
 			superValidate(zod4(moderateReviewFormSchema), {
 				id: 'moderateReview'
 			}),

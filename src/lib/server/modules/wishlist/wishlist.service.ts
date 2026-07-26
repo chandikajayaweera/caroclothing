@@ -1,5 +1,11 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
-import { getD1Database, getDb } from '$lib/server/db';
+import { nanoid } from 'nanoid';
+import { getDb } from '$lib/server/db';
+import {
+	rethrowTransientD1Error,
+	withTransientD1WriteReconciliation,
+	withTransientD1WriteRetry
+} from '$lib/server/db/retry';
 import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -39,10 +45,8 @@ import { inventory, type Inventory } from '../inventory/inventory.drizzle';
 import type {
 	ListWishlistOptions,
 	ListWishlistSignalsOptions,
-	MergeWishlistIntoUserInput,
 	WishlistItemDTO,
 	WishlistListResult,
-	WishlistMergeResult,
 	WishlistProductSummaryDTO,
 	WishlistSignalDTO,
 	WishlistSignalAlertStatus,
@@ -53,7 +57,6 @@ import type {
 } from './wishlist.types';
 
 type Db = ReturnType<typeof getDb>;
-export type WishlistTx = Db;
 type QueryExecutor = Db;
 
 type NormalizedWishlistTarget = {
@@ -91,25 +94,29 @@ export async function addToWishlist(
 	if (existing) return getWishlistItemDTOById(existing.id);
 
 	const values: NewWishlistItem = {
+		id: nanoid(),
 		userId: actor.id,
 		productId: target.productId,
 		variantId: target.variantId
 	};
 
 	try {
-		const [created] = await getDb().insert(wishlistItem).values(values).returning();
-
-		if (!created) {
-			throw new WishlistError('Wishlist item was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
+		const db = getDb();
+		const created = await withTransientD1WriteReconciliation<WishlistItem>(
+			async () => {
+				const [row] = await db.insert(wishlistItem).values(values).returning();
+				if (!row) {
+					throw new WishlistError('Wishlist item was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const row = await findWishlistItemByTarget(db, actor.id, target);
+				return row ? { committed: true, value: row } : { committed: false };
+			}
+		);
 		return getWishlistItemDTOById(created.id);
 	} catch (error) {
-		const racedExisting = await findWishlistItemByTarget(getDb(), actor.id, target);
-		if (racedExisting && isUniqueConstraintError(getErrorMessage(error))) {
-			return getWishlistItemDTOById(racedExisting.id);
-		}
-
 		throw mapWishlistPersistenceError(error);
 	}
 }
@@ -121,9 +128,16 @@ export async function removeFromWishlist(
 	const actor = requireActor(ctx.actor);
 	const target = normalizeWishlistTarget(input);
 
-	await getDb()
-		.delete(wishlistItem)
-		.where(wishlistTargetPredicate(actor.id, target.productId, target.variantId));
+	try {
+		await withTransientD1WriteRetry(() =>
+			getDb()
+				.delete(wishlistItem)
+				.where(wishlistTargetPredicate(actor.id, target.productId, target.variantId))
+				.then(() => undefined)
+		);
+	} catch (error) {
+		throw mapWishlistPersistenceError(error);
+	}
 }
 
 export async function listWishlist(
@@ -147,41 +161,13 @@ export async function listUserWishlist(
 export async function clearWishlist(ctx: ServiceContext): Promise<void> {
 	const actor = requireActor(ctx.actor);
 
-	await getDb().delete(wishlistItem).where(eq(wishlistItem.userId, actor.id));
-}
-
-export async function mergeWishlistIntoUser(
-	ctx: ServiceContext,
-	input: MergeWishlistIntoUserInput
-): Promise<WishlistMergeResult> {
-	const actor = requireActor(ctx.actor);
-	const sourceUserId = normalizeId(input.sourceUserId, 'sourceUserId');
-
-	if (sourceUserId === actor.id) {
-		return { sourceUserId, targetUserId: actor.id, movedCount: 0, duplicateCount: 0 };
-	}
-
 	try {
-		const d1 = getD1Database();
-		const [insertResult, deleteResult] = await d1.batch([
-			d1
-				.prepare(
-					`INSERT OR IGNORE INTO wishlist_item (id, user_id, product_id, variant_id, added_at)
-					 SELECT lower(hex(randomblob(16))), ?, product_id, variant_id, added_at
-					 FROM wishlist_item WHERE user_id = ?`
-				)
-				.bind(actor.id, sourceUserId),
-			d1.prepare('DELETE FROM wishlist_item WHERE user_id = ?').bind(sourceUserId)
-		]);
-		const movedCount = insertResult.meta.changes;
-		const deletedCount = deleteResult.meta.changes;
-
-		return {
-			sourceUserId,
-			targetUserId: actor.id,
-			movedCount,
-			duplicateCount: Math.max(deletedCount - movedCount, 0)
-		};
+		await withTransientD1WriteRetry(() =>
+			getDb()
+				.delete(wishlistItem)
+				.where(eq(wishlistItem.userId, actor.id))
+				.then(() => undefined)
+		);
 	} catch (error) {
 		throw mapWishlistPersistenceError(error);
 	}
@@ -205,50 +191,13 @@ export function prepareAnonymousWishlistMergeStatements(
 	];
 }
 
-export async function mergeWishlistIntoUserTx(
-	tx: WishlistTx,
-	ctx: ServiceContext,
-	input: MergeWishlistIntoUserInput
-): Promise<WishlistMergeResult> {
-	const actor = requireActor(ctx.actor);
-	const sourceUserId = normalizeId(input.sourceUserId, 'sourceUserId');
-
-	if (sourceUserId === actor.id) {
-		return {
-			sourceUserId,
-			targetUserId: actor.id,
-			movedCount: 0,
-			duplicateCount: 0
-		};
-	}
-
-	const rows = await tx.select().from(wishlistItem).where(eq(wishlistItem.userId, sourceUserId));
-	let movedCount = 0;
-	let duplicateCount = 0;
-
-	for (const row of rows) {
-		const target = {
-			productId: row.productId,
-			variantId: row.variantId ?? null
-		};
-		const existing = await findWishlistItemByTarget(tx, actor.id, target);
-
-		if (existing) {
-			await tx.delete(wishlistItem).where(eq(wishlistItem.id, row.id));
-			duplicateCount += 1;
-			continue;
-		}
-
-		await tx.update(wishlistItem).set({ userId: actor.id }).where(eq(wishlistItem.id, row.id));
-		movedCount += 1;
-	}
-
-	return {
-		sourceUserId,
-		targetUserId: actor.id,
-		movedCount,
-		duplicateCount
-	};
+export async function hasUserWishlistDataForMigrationTx(db: Db, userId: string): Promise<boolean> {
+	const [row] = await db
+		.select({ id: wishlistItem.id })
+		.from(wishlistItem)
+		.where(eq(wishlistItem.userId, normalizeId(userId, 'userId')))
+		.limit(1);
+	return Boolean(row);
 }
 
 export async function isWishlisted(
@@ -353,26 +302,24 @@ export async function listWishlistSignals(
 			)
 		: count();
 
-	const [[summary], pageRows] = await Promise.all([
-		db
-			.select({
-				total: filteredTotal,
-				totalSignals: count(),
-				totalSaves: sql<number>`coalesce(sum(${signals.saveCount}), 0)`.mapWith(Number),
-				highRiskVariants:
-					sql<number>`coalesce(sum(CASE WHEN ${signals.alertStatus} = 'high' THEN 1 ELSE 0 END), 0)`.mapWith(
-						Number
-					)
-			})
-			.from(signals),
-		db
-			.select()
-			.from(signals)
-			.where(alertFilter)
-			.orderBy(desc(signals.saveCount), desc(signals.lastSavedAtMs))
-			.limit(limit)
-			.offset(offset)
-	]);
+	const [summary] = await db
+		.select({
+			total: filteredTotal,
+			totalSignals: count(),
+			totalSaves: sql<number>`coalesce(sum(${signals.saveCount}), 0)`.mapWith(Number),
+			highRiskVariants:
+				sql<number>`coalesce(sum(CASE WHEN ${signals.alertStatus} = 'high' THEN 1 ELSE 0 END), 0)`.mapWith(
+					Number
+				)
+		})
+		.from(signals);
+	const pageRows = await db
+		.select()
+		.from(signals)
+		.where(alertFilter)
+		.orderBy(desc(signals.saveCount), desc(signals.lastSavedAtMs))
+		.limit(limit)
+		.offset(offset);
 
 	const items = await hydrateWishlistSignals(pageRows);
 
@@ -400,14 +347,14 @@ async function listWishlistForUser(
 	const where = and(...conditions);
 	const db = getDb();
 
-	const [totalRow] = await db
+	const countQuery = db
 		.select({ total: count() })
 		.from(wishlistItem)
 		.innerJoin(product, eq(wishlistItem.productId, product.id))
 		.leftJoin(productVariant, eq(wishlistItem.variantId, productVariant.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
 		.where(where);
-	const rows = await db
+	const listQuery = db
 		.select({
 			item: wishlistItem,
 			product,
@@ -424,6 +371,8 @@ async function listWishlistForUser(
 		.orderBy(desc(wishlistItem.addedAt))
 		.limit(limit)
 		.offset(offset);
+	const [totalRow] = await countQuery;
+	const rows = await listQuery;
 	const items = await hydrateWishlistJoinedRows(rows);
 
 	return {
@@ -840,6 +789,7 @@ function wishlistTargetKey(productId: string, variantId: string | null): string 
 
 function mapWishlistPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
