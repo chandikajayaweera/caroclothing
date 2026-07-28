@@ -54,6 +54,10 @@ export type ListWishlistOptions = {
 	offset?: number;
 };
 
+export type ListWishlistProductIdsOptions = {
+	limit?: number;
+};
+
 export type MergeWishlistIntoUserInput = {
 	sourceUserId: string;
 };

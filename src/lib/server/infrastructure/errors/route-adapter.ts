@@ -2,7 +2,7 @@ import { error as kitError, fail, isRedirect, json } from '@sveltejs/kit';
 import * as Sentry from '@sentry/sveltekit';
 import { message } from 'sveltekit-superforms/server';
 import type { SuperValidated } from 'sveltekit-superforms/server';
-import { getErrorStatusCode, isAppError, toErrorResponseBody } from './index';
+import { getErrorStatusCode, isAppError, normalizeServerError, toErrorResponseBody } from './index';
 
 type ErrorStatus = 400 | 401 | 402 | 403 | 404 | 409 | 410 | 429 | 500 | 503;
 
@@ -24,51 +24,61 @@ function recordDomainValidationBreadcrumb(error: unknown) {
 
 export function failFromAppError(error: unknown) {
 	if (isRedirect(error)) throw error;
+	const normalizedError = normalizeServerError(error);
 
-	if (!isAppError(error)) {
-		Sentry.captureException(error);
-		throw error;
+	if (!isAppError(normalizedError)) {
+		Sentry.captureException(normalizedError);
+		throw normalizedError;
 	}
 
-	if (error.statusCode >= 500) {
-		Sentry.captureException(error);
+	if (normalizedError.statusCode >= 500) {
+		Sentry.captureException(normalizedError);
 	} else {
-		recordDomainValidationBreadcrumb(error);
+		recordDomainValidationBreadcrumb(normalizedError);
 	}
+	const body = toErrorResponseBody(normalizedError, {
+		includeDetails: normalizedError.statusCode < 500
+	});
 
-	return fail(error.statusCode, {
-		error: toErrorResponseBody(error, { includeDetails: error.statusCode < 500 })
+	return fail(normalizedError.statusCode, {
+		success: false,
+		message: body.message,
+		error: body
 	});
 }
 
 export function throwHttpFromAppError(error: unknown): never {
 	if (isRedirect(error)) throw error;
+	const normalizedError = normalizeServerError(error);
 
-	if (!isAppError(error)) {
-		Sentry.captureException(error);
-		throw error;
+	if (!isAppError(normalizedError)) {
+		Sentry.captureException(normalizedError);
+		throw normalizedError;
 	}
 
-	const body = toErrorResponseBody(error, { includeDetails: error.statusCode < 500 });
-	if (error.statusCode >= 500) {
-		Sentry.captureException(error);
+	const body = toErrorResponseBody(normalizedError, {
+		includeDetails: normalizedError.statusCode < 500
+	});
+	if (normalizedError.statusCode >= 500) {
+		Sentry.captureException(normalizedError);
 	} else {
-		recordDomainValidationBreadcrumb(error);
+		recordDomainValidationBreadcrumb(normalizedError);
 	}
-	throw kitError(error.statusCode, body.message);
+	throw kitError(normalizedError.statusCode, body.message);
 }
 
 export function jsonFromRouteError(error: unknown): Response {
 	if (isRedirect(error)) throw error;
+	const normalizedError = normalizeServerError(error);
 
-	const statusCode = getErrorStatusCode(error);
-	const body = toErrorResponseBody(error, { includeDetails: statusCode < 500 });
+	const statusCode = getErrorStatusCode(normalizedError);
+	const body = toErrorResponseBody(normalizedError, { includeDetails: statusCode < 500 });
 	const status = toErrorStatus(statusCode);
 
-	if (status >= 500 || !isAppError(error)) {
-		Sentry.captureException(error);
+	if (status >= 500 || !isAppError(normalizedError)) {
+		Sentry.captureException(normalizedError);
 	} else {
-		recordDomainValidationBreadcrumb(error);
+		recordDomainValidationBreadcrumb(normalizedError);
 	}
 
 	return json(
@@ -86,19 +96,22 @@ export function formFailFromAppError<
 	In extends Record<string, unknown> = T
 >(form: SuperValidated<T, M, In>, error: unknown) {
 	if (isRedirect(error)) throw error;
+	const normalizedError = normalizeServerError(error);
 
-	if (!isAppError(error)) {
-		Sentry.captureException(error);
-		throw error;
+	if (!isAppError(normalizedError)) {
+		Sentry.captureException(normalizedError);
+		throw normalizedError;
 	}
 
-	const body = toErrorResponseBody(error, { includeDetails: error.statusCode < 500 });
-	const status = toErrorStatus(error.statusCode);
+	const body = toErrorResponseBody(normalizedError, {
+		includeDetails: normalizedError.statusCode < 500
+	});
+	const status = toErrorStatus(normalizedError.statusCode);
 
 	if (status >= 500) {
-		Sentry.captureException(error);
+		Sentry.captureException(normalizedError);
 	} else {
-		recordDomainValidationBreadcrumb(error);
+		recordDomainValidationBreadcrumb(normalizedError);
 	}
 
 	return message(form, body.message as M, { status });

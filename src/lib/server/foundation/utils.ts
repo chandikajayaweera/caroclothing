@@ -34,6 +34,42 @@ export function isString(value: string | null | undefined): value is string {
 	return typeof value === 'string';
 }
 
+/**
+ * Collects useful messages from Error/cause chains without trusting their shape.
+ * Drizzle and Cloudflare frequently wrap the actionable D1 message in one or
+ * more plain-object causes.
+ */
+export function collectErrorMessages(error: unknown, maxDepth = 8): string[] {
+	const messages: string[] = [];
+	const seen = new Set<unknown>();
+	let current = error;
+
+	for (
+		let depth = 0;
+		current != null && depth < Math.max(1, maxDepth) && !seen.has(current);
+		depth += 1
+	) {
+		seen.add(current);
+
+		if (typeof current === 'string') {
+			messages.push(current);
+			break;
+		}
+
+		if (typeof current !== 'object') {
+			messages.push(String(current));
+			break;
+		}
+
+		const message = 'message' in current ? current.message : undefined;
+		if (typeof message === 'string' && message.length > 0) messages.push(message);
+
+		current = 'cause' in current ? current.cause : null;
+	}
+
+	return messages;
+}
+
 export function isUniqueConstraintError(message: string): boolean {
 	const normalized = message.toLowerCase();
 	return (

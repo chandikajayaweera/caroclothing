@@ -9,17 +9,24 @@ import {
 	isNull,
 	like,
 	lte,
+	notExists,
 	or,
 	sql,
 	type SQL
 } from 'drizzle-orm';
-import { customAlphabet } from 'nanoid';
+import { customAlphabet, nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import {
 	guardBatchCondition,
 	guardPreviousBatchChanges,
 	isD1BatchGuardError
 } from '$lib/server/db/batch';
+import {
+	isTransientD1Error,
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { getEnv } from '$lib/server/infrastructure/env';
 import {
@@ -27,17 +34,20 @@ import {
 	OrderError,
 	PaymentError,
 	getErrorMessage,
-	isAppError
+	isAppError,
+	toErrorResponseBody
 } from '$lib/server/infrastructure/errors';
 import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import {
+	isCheckConstraintError,
 	isForeignKeyConstraintError,
 	isUniqueConstraintError,
 	normalizeLimit,
 	normalizeOffset,
 	removeUndefinedValues,
-	resolveNow
+	resolveNow,
+	uniqueStrings
 } from '$lib/server/foundation/utils';
 import { address as addressTable, type Address } from '../addresses/addresses.drizzle';
 import { createAddressSnapshot, validateCheckoutAddress } from '../addresses/addresses.service';
@@ -50,14 +60,11 @@ import {
 	prepareInventorySaleRestoreBatch
 } from '../inventory/inventory.service';
 import {
-	enqueueOrderConfirmationEmailTx,
-	enqueueOrderConfirmationSmsTx,
-	enqueuePaymentUpdateSmsTx,
 	publishNotificationWakeups,
+	publishPreparedNotificationWakeups,
 	prepareNotificationOutboxInsert,
 	loadPreparedNotificationOutboxRows,
-	type PreparedNotificationOutboxInsert,
-	type NotificationOutboxTx
+	type PreparedNotificationOutboxInsert
 } from '../notifications/outbox/outbox.service';
 import type { NotificationOutboxDTO } from '../notifications/outbox/outbox.types';
 import { getManualReviewReason } from '../payments/payments.logic';
@@ -94,11 +101,7 @@ import {
 	type Payment,
 	type PaymentStatus
 } from './orders.drizzle';
-import {
-	buildOrderNumber,
-	shouldSendOrderStatusSms,
-	shouldSendPaymentStatusSms
-} from './orders.logic';
+import { buildOrderNumber, shouldSendOrderStatusSms } from './orders.logic';
 import type {
 	CancelExpiredPendingOrdersInput,
 	CancelExpiredPendingOrdersResult,
@@ -108,6 +111,8 @@ import type {
 	ListMyOrdersOptions,
 	ListOrdersOptions,
 	OrderDTO,
+	OrderAnalyticsDTO,
+	OrderDashboardDTO,
 	OrderItemDTO,
 	OrderListResult,
 	OrderLookup,
@@ -161,29 +166,63 @@ const ALLOWED_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 	refunded: []
 };
 
-export async function anonymizeOrdersForAccountDeletionTx(
-	tx: OrdersTx,
-	input: { userId: string; now?: Date }
-): Promise<number> {
-	const userId = normalizeId(input.userId, 'userId');
-	const now = resolveNow(null, input.now);
-	const anonymized = await tx
-		.update(order)
-		.set({
-			userId: null,
-			shippingAddressId: null,
-			shippingAddressSnapshot: null,
-			trackingNumber: null,
-			trackingCarrier: null,
-			trackingUrl: null,
-			customerNote: null,
-			adminNote: null,
-			updatedAt: now
-		})
-		.where(eq(order.userId, userId))
-		.returning({ id: order.id });
+const ACCOUNT_DELETION_BLOCKING_ORDER_STATUSES = [
+	'pending',
+	'confirmed',
+	'processing',
+	'shipped'
+] as const satisfies readonly OrderStatus[];
 
-	return anonymized.length;
+export async function findAccountDeletionBlockingOrderTx(
+	db: OrdersTx,
+	userId: string
+): Promise<Pick<Order, 'id' | 'orderNumber' | 'status'> | null> {
+	const [blockingOrder] = await db
+		.select({
+			id: order.id,
+			orderNumber: order.orderNumber,
+			status: order.status
+		})
+		.from(order)
+		.where(
+			and(
+				eq(order.userId, normalizeId(userId, 'userId')),
+				inArray(order.status, ACCOUNT_DELETION_BLOCKING_ORDER_STATUSES)
+			)
+		)
+		.orderBy(asc(order.createdAt))
+		.limit(1);
+
+	return blockingOrder ?? null;
+}
+
+export function prepareAccountDeletionOrderGuard(
+	db: OrdersTx,
+	userId: string
+): ReturnType<typeof guardBatchCondition> {
+	const normalizedUserId = normalizeId(userId, 'userId');
+	const blockingOrderExists = db
+		.select({ id: order.id })
+		.from(order)
+		.where(
+			and(
+				eq(order.userId, normalizedUserId),
+				inArray(order.status, ACCOUNT_DELETION_BLOCKING_ORDER_STATUSES)
+			)
+		);
+
+	return guardBatchCondition(db, notExists(blockingOrderExists));
+}
+
+export async function listAccountOrderIdsForDeletionTx(
+	db: OrdersTx,
+	userId: string
+): Promise<string[]> {
+	const rows = await db
+		.select({ id: order.id })
+		.from(order)
+		.where(eq(order.userId, normalizeId(userId, 'userId')));
+	return rows.map((row) => row.id);
 }
 
 export function prepareAccountOrderAnonymization(
@@ -238,17 +277,16 @@ export async function placeOrderFromBag(
 
 		const db = getDb();
 		const prepared = await prepareConfirmedOrderFromBag(db, ctx, input, { status: 'pending' });
-		await db.batch(prepared.statements);
-		const notificationsToPublish = await loadPreparedNotificationOutboxRows(
-			db,
-			prepared.notifications
-		);
-		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return hydrateOrderTx(db, await loadOrderByIdTx(db, prepared.orderId), {
-			includeItems: true,
-			includePayments: true,
-			includeStatusHistory: true
+		await commitOrderBatchWithReconciliation(db, prepared.statements, async () => {
+			const [committedPayment] = await db
+				.select({ id: payment.id })
+				.from(payment)
+				.where(and(eq(payment.id, prepared.paymentId), eq(payment.orderId, prepared.orderId)))
+				.limit(1);
+			return Boolean(committedPayment);
 		});
+		await publishPreparedNotificationWakeups(ctx, db, prepared.notifications);
+		return hydrateCommittedOrderOrFallback(db, prepared.orderId, prepared.order);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new OrderError(
@@ -278,7 +316,7 @@ export async function prepareConfirmedOrderFromBag(
 
 	assertCheckoutReady(preview);
 
-	const orderId = crypto.randomUUID();
+	const orderId = nanoid();
 	const orderNumber = await generateUniqueOrderNumberTx(db, now);
 	const orderValues: NewOrder = {
 		...parseNewOrder({
@@ -307,7 +345,7 @@ export async function prepareConfirmedOrderFromBag(
 
 	const createdItems: OrderItem[] = [];
 	for (const previewItem of preview.items) {
-		const orderItemId = crypto.randomUUID();
+		const orderItemId = nanoid();
 		const parsedItem = parseNewOrderItem({
 			id: orderItemId,
 			orderId,
@@ -337,7 +375,7 @@ export async function prepareConfirmedOrderFromBag(
 		createdItems.push(itemValues);
 	}
 
-	const paymentId = crypto.randomUUID();
+	const paymentId = nanoid();
 	const parsedPayment = parseNewPayment({
 		id: paymentId,
 		orderId,
@@ -364,7 +402,7 @@ export async function prepareConfirmedOrderFromBag(
 		createdAt: now,
 		updatedAt: now
 	};
-	const historyId = crypto.randomUUID();
+	const historyId = nanoid();
 	const parsedHistory = parseNewOrderStatusHistory({
 		orderId,
 		fromStatus: null,
@@ -484,6 +522,46 @@ export async function listOrders(
 	return listOrdersTx(getDb(), where, limit, offset);
 }
 
+export async function getOrderDashboard(
+	ctx: ServiceContext,
+	options: ListOrdersOptions = {}
+): Promise<OrderDashboardDTO> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
+	const offset = normalizeOffset(options.offset);
+	const where = buildOrderListWhere(options, ctx);
+	const countQuery = db.select({ total: count() }).from(order);
+	const listQuery = db
+		.select()
+		.from(order)
+		.orderBy(desc(order.createdAt), desc(order.id))
+		.limit(limit)
+		.offset(offset);
+	const [totalRows, rows, analyticsRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			where ? countQuery.where(where) : countQuery,
+			where ? listQuery.where(where) : listQuery,
+			orderAnalyticsQuery(db)
+		])
+	);
+	const itemsByOrderId = await loadOrderItemsByOrderId(
+		db,
+		rows.map((row) => row.id)
+	);
+
+	return {
+		orders: {
+			items: rows.map((row) => toOrderSummaryDTO(row, itemsByOrderId.get(row.id) ?? [])),
+			total: Number(totalRows[0]?.total ?? 0),
+			limit,
+			offset
+		},
+		analytics: toOrderAnalyticsDTO(analyticsRows[0])
+	};
+}
+
 export async function transitionOrderStatus(
 	ctx: ServiceContext,
 	input: TransitionOrderStatusInput
@@ -493,17 +571,16 @@ export async function transitionOrderStatus(
 	try {
 		const db = getDb();
 		const prepared = await prepareOrderStatusTransition(db, ctx, input);
-		await db.batch(prepared.statements);
-		const notificationsToPublish = await loadPreparedNotificationOutboxRows(
-			db,
-			prepared.notifications
-		);
-		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return hydrateOrderTx(db, await loadOrderByIdTx(db, prepared.order.id), {
-			includeItems: true,
-			includePayments: true,
-			includeStatusHistory: true
+		await commitOrderBatchWithReconciliation(db, prepared.statements, async () => {
+			const [committedHistory] = await db
+				.select({ id: orderStatusHistory.id })
+				.from(orderStatusHistory)
+				.where(eq(orderStatusHistory.id, prepared.historyId))
+				.limit(1);
+			return Boolean(committedHistory);
 		});
+		await publishPreparedNotificationWakeups(ctx, db, prepared.notifications);
+		return hydrateCommittedOrderOrFallback(db, prepared.order.id, prepared.order);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new OrderError(
@@ -523,6 +600,7 @@ export async function prepareOrderStatusTransition(
 	options: { includeNotifications?: boolean } = {}
 ): Promise<{
 	order: OrderDTO;
+	historyId: string;
 	statements: [OrdersBatchItem, ...OrdersBatchItem[]];
 	notifications: PreparedNotificationOutboxInsert[];
 }> {
@@ -541,7 +619,7 @@ export async function prepareOrderStatusTransition(
 		.set(updateValues)
 		.where(and(eq(order.id, orderId), eq(order.status, existing.status)));
 	const historyValues: NewOrderStatusHistory = {
-		id: crypto.randomUUID(),
+		id: nanoid(),
 		...parseNewOrderStatusHistory({
 			orderId,
 			fromStatus: existing.status,
@@ -558,10 +636,8 @@ export async function prepareOrderStatusTransition(
 		updatedAt: now
 	};
 	const items = await loadOrderItemsTx(db, orderId);
-	const [payments, statusHistory] = await Promise.all([
-		loadPaymentsForOrderTx(db, orderId),
-		loadOrderStatusHistoryForOrderTx(db, orderId)
-	]);
+	const payments = await loadPaymentsForOrderTx(db, orderId);
+	const statusHistory = await loadOrderStatusHistoryForOrderTx(db, orderId);
 	const orderDto = toOrderDTO(updated, {
 		items,
 		payments,
@@ -624,7 +700,7 @@ export async function prepareOrderStatusTransition(
 		db.insert(orderStatusHistory).values(historyValues),
 		...notifications.map((item) => item.statement)
 	);
-	return { order: orderDto, statements, notifications };
+	return { order: orderDto, historyId: historyValues.id!, statements, notifications };
 }
 
 export async function cancelOrder(ctx: ServiceContext, input: CancelOrderInput): Promise<OrderDTO> {
@@ -692,21 +768,24 @@ export async function updateOrderFulfillment(
 					eq(order.updatedAt, existing.updatedAt)
 				)
 			);
-		await db.batch([
+		const statements: [OrdersBatchItem, ...OrdersBatchItem[]] = [
 			updateStatement,
 			...guardPreviousBatchChanges(db),
 			...preparedNotifications.map((item) => item.statement)
-		]);
-		const notificationsToPublish = await loadPreparedNotificationOutboxRows(
-			db,
-			preparedNotifications
-		);
-		await publishNotificationWakeups(ctx, notificationsToPublish);
-		return hydrateOrderTx(db, await loadOrderByIdTx(db, orderId), {
-			includeItems: true,
-			includePayments: true,
-			includeStatusHistory: true
+		];
+		await commitOrderBatchWithReconciliation(db, statements, async () => {
+			const current = await loadOrderByIdTx(db, orderId);
+			return (
+				current.updatedAt.getTime() === now.getTime() &&
+				current.status === updated.status &&
+				current.trackingNumber === updated.trackingNumber &&
+				current.trackingCarrier === updated.trackingCarrier &&
+				current.trackingUrl === updated.trackingUrl &&
+				current.adminNote === updated.adminNote
+			);
 		});
+		await publishPreparedNotificationWakeups(ctx, db, preparedNotifications);
+		return hydrateCommittedOrderOrFallback(db, orderId, orderDto);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new OrderError(
@@ -751,27 +830,43 @@ export async function cancelExpiredPendingOrders(
 					note: 'Payment window expired.',
 					now
 				});
-				await db.batch(prepared.statements);
-				const committed = await hydrateOrderTx(db, await loadOrderByIdTx(db, row.id), {
-					includeItems: true,
-					includePayments: true,
-					includeStatusHistory: true
+				await commitOrderBatchWithReconciliation(db, prepared.statements, async () => {
+					const [committedHistory] = await db
+						.select({ id: orderStatusHistory.id })
+						.from(orderStatusHistory)
+						.where(eq(orderStatusHistory.id, prepared.historyId))
+						.limit(1);
+					return Boolean(committedHistory);
 				});
+				const committed = await hydrateCommittedOrderOrFallback(db, row.id, prepared.order);
 				orders.push(committed);
 				orderIds.push(row.id);
-				notificationsToPublish.push(
-					...(await loadPreparedNotificationOutboxRows(db, prepared.notifications))
-				);
+				try {
+					notificationsToPublish.push(
+						...(await withTransientD1ReadRetry(() =>
+							loadPreparedNotificationOutboxRows(db, prepared.notifications)
+						))
+					);
+				} catch (notificationError) {
+					console.error('[orders] Failed to load committed expiry notification wakeups:', {
+						orderId: row.id,
+						error: getErrorMessage(notificationError)
+					});
+				}
 			} catch (err) {
 				if (isD1BatchGuardError(err) || (isAppError(err) && err.code === ErrorCode.CONFLICT)) {
 					skippedCount += 1;
-					console.warn(`Skipped stale expired order ${row.id}:`, err);
+					console.warn(`Skipped stale expired order ${row.id}:`, {
+						error: getErrorMessage(err)
+					});
 					continue;
 				}
 
 				failedCount += 1;
 				failedOrderIds.push(row.id);
-				console.error(`[orders] Failed to cancel expired order ${row.id}:`, err);
+				console.error(`[orders] Failed to cancel expired order ${row.id}:`, {
+					error: getErrorMessage(err)
+				});
 			}
 		}
 
@@ -788,20 +883,6 @@ export async function cancelExpiredPendingOrders(
 	} catch (error) {
 		throw mapOrderPersistenceError(error);
 	}
-}
-
-export async function insertOrderStatusHistoryTx(
-	tx: OrdersTx,
-	input: InsertOrderStatusHistory
-): Promise<OrderStatusHistory> {
-	const values = parseNewOrderStatusHistory(input);
-	const [created] = await tx.insert(orderStatusHistory).values(values).returning();
-
-	if (!created) {
-		throw new OrderError('Order status history was not created.', ErrorCode.INTERNAL_ERROR);
-	}
-
-	return created;
 }
 
 async function buildOrderPreviewTx(
@@ -919,10 +1000,12 @@ async function listOrdersTx(
 		.orderBy(desc(order.createdAt), desc(order.id))
 		.limit(limit)
 		.offset(offset);
-	const [totalRows, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
+	const [totalRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			where ? countQuery.where(where) : countQuery,
+			where ? listQuery.where(where) : listQuery
+		])
+	);
 	const itemsByOrderId = await loadOrderItemsByOrderId(
 		db,
 		rows.map((row) => row.id)
@@ -963,67 +1046,41 @@ async function hydrateOrderTx(
 	});
 }
 
-export async function enqueueOrderConfirmationNotificationsTx(
-	tx: OrdersTx,
-	orderDto: OrderDTO
-): Promise<NotificationOutboxDTO[]> {
-	if (!orderDto.shippingAddressSnapshot) {
-		return [];
-	}
-
-	const notifications: NotificationOutboxDTO[] = [];
-
-	if (orderDto.userId && orderDto.items?.length) {
-		const recipient = await loadOrderEmailRecipientTx(
-			tx,
-			orderDto.userId,
-			orderDto.shippingAddressSnapshot.recipientName
-		);
-
-		if (recipient) {
-			notifications.push(
-				await enqueueOrderConfirmationEmailTx(tx as NotificationOutboxTx, {
-					orderId: orderDto.id,
-					recipientUserId: recipient.userId,
-					payload: {
-						email: recipient.email,
-						customerName: recipient.customerName,
-						orderId: orderDto.id,
-						orderNumber: orderDto.orderNumber,
-						orderDate: formatEmailDate(orderDto.createdAt),
-						items: orderDto.items.map(toOrderEmailItem),
-						subtotal: formatCurrency(orderDto.subtotal),
-						shipping: formatCurrency(orderDto.shippingAmount),
-						total: formatCurrency(orderDto.totalAmount),
-						shippingAddress: formatAddressSnapshot(orderDto.shippingAddressSnapshot),
-						estimatedDelivery: orderDto.shippingMethodSnapshot?.etaText,
-						orderUrl: buildOrderUrl(orderDto)
-					},
-					metadata: { orderNumber: orderDto.orderNumber },
-					now: orderDto.updatedAt
-				})
-			);
-		}
-	}
-
-	notifications.push(
-		await enqueueOrderConfirmationSmsTx(tx as NotificationOutboxTx, {
-			orderId: orderDto.id,
-			recipientUserId: orderDto.userId,
-			payload: {
-				to: orderDto.shippingAddressSnapshot.phone,
-				customerName: orderDto.shippingAddressSnapshot.recipientName,
-				orderId: orderDto.id,
-				orderNumber: orderDto.orderNumber,
-				total: formatCurrency(orderDto.totalAmount),
-				orderUrl: buildOrderUrl(orderDto)
-			},
-			metadata: { orderNumber: orderDto.orderNumber },
-			now: orderDto.updatedAt
-		})
+async function commitOrderBatchWithReconciliation(
+	db: Db,
+	statements: Parameters<Db['batch']>[0],
+	isCommitted: () => Promise<boolean>
+): Promise<void> {
+	await withTransientD1WriteReconciliation(
+		async () => {
+			await db.batch(statements);
+		},
+		async () =>
+			(await isCommitted()) ? { committed: true, value: undefined } : { committed: false }
 	);
+}
 
-	return notifications;
+async function hydrateCommittedOrderOrFallback(
+	db: QueryExecutor,
+	orderId: string,
+	fallback: OrderDTO
+): Promise<OrderDTO> {
+	try {
+		return await withTransientD1ReadRetry(async () =>
+			hydrateOrderTx(db, await loadOrderByIdTx(db, orderId), {
+				includeItems: true,
+				includePayments: true,
+				includeStatusHistory: true
+			})
+		);
+	} catch (error) {
+		if (!isTransientD1Error(error)) throw error;
+		console.error('[orders] Returning committed order snapshot after D1 hydration failure:', {
+			orderId,
+			error: getErrorMessage(error)
+		});
+		return fallback;
+	}
 }
 
 export async function prepareOrderConfirmationNotificationInserts(
@@ -1095,19 +1152,6 @@ export async function prepareOrderConfirmationNotificationInserts(
 	return prepared;
 }
 
-export async function enqueueOrderConfirmationNotificationsForOrderTx(
-	tx: OrdersTx,
-	orderId: string
-): Promise<NotificationOutboxDTO[]> {
-	const orderRow = await loadOrderByIdTx(tx, orderId);
-	const orderDto = await hydrateOrderTx(tx, orderRow, {
-		includeItems: true,
-		includePayments: true,
-		includeStatusHistory: false
-	});
-	return enqueueOrderConfirmationNotificationsTx(tx, orderDto);
-}
-
 async function prepareOrderStatusTransitionNotificationInserts(
 	db: Db,
 	orderDto: OrderDTO
@@ -1172,41 +1216,6 @@ async function prepareOrderStatusTransitionNotificationInserts(
 	];
 }
 
-export async function enqueuePaymentUpdateNotificationTx(
-	tx: OrdersTx,
-	paymentDto: PaymentDTO
-): Promise<NotificationOutboxDTO | null> {
-	const orderRow = await loadOrderByIdTx(tx, paymentDto.orderId);
-	const orderDto = await hydrateOrderTx(tx, orderRow, {
-		includeItems: false,
-		includePayments: false,
-		includeStatusHistory: false
-	});
-
-	if (!orderDto.shippingAddressSnapshot || !shouldSendPaymentStatusSms(paymentDto.status)) {
-		return null;
-	}
-
-	return enqueuePaymentUpdateSmsTx(tx as NotificationOutboxTx, {
-		orderId: orderDto.id,
-		paymentId: paymentDto.id,
-		recipientUserId: orderDto.userId,
-		payload: {
-			to: orderDto.shippingAddressSnapshot.phone,
-			orderId: orderDto.id,
-			orderNumber: orderDto.orderNumber,
-			status: paymentDto.status,
-			statusLabel: paymentDto.requiresManualReview
-				? `${formatPaymentStatus(paymentDto.status)}; support review required`
-				: formatPaymentStatus(paymentDto.status),
-			amount: formatCurrency(paymentDto.amount),
-			paymentUrl: buildOrderUrl(orderDto)
-		},
-		metadata: { orderNumber: orderDto.orderNumber, paymentId: paymentDto.id },
-		now: paymentDto.updatedAt
-	});
-}
-
 async function loadOrderEmailRecipientTx(
 	tx: QueryExecutor,
 	userId: string,
@@ -1266,12 +1275,6 @@ function formatAddressSnapshot(snapshot: AddressSnapshot): string {
 
 function formatCurrency(value: number): string {
 	return `LKR ${value.toLocaleString('en-LK')}`;
-}
-
-function formatPaymentStatus(status: PaymentStatus): string {
-	if (status === 'captured') return 'paid';
-	if (status === 'partially_refunded') return 'partially refunded';
-	return status.replace(/_/g, ' ');
 }
 
 function formatOrderStatus(status: OrderStatus): string {
@@ -1406,7 +1409,6 @@ function toPaymentDTO(row: Payment): PaymentDTO {
 		method: row.method,
 		status: row.status,
 		transactionId: row.transactionId,
-		gatewayResponse: row.gatewayResponse,
 		refundAmount: row.refundAmount,
 		refundedAt: row.refundedAt,
 		paidAt: row.paidAt,
@@ -1803,9 +1805,9 @@ function sanitizeLikeTerm(value: string): string {
 
 function mapOrderPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
-	const normalized = message.toLowerCase();
 
 	if (isUniqueConstraintError(message)) {
 		throw new OrderError('Order already exists.', ErrorCode.CONFLICT);
@@ -1815,7 +1817,7 @@ function mapOrderPersistenceError(error: unknown): never {
 		throw new OrderError('Related order record not found.', ErrorCode.NOT_FOUND);
 	}
 
-	if (normalized.includes('check constraint failed')) {
+	if (isCheckConstraintError(message)) {
 		throw new OrderError('Invalid order data.', ErrorCode.VALIDATION_ERROR);
 	}
 
@@ -1824,49 +1826,39 @@ function mapOrderPersistenceError(error: unknown): never {
 
 const checkoutPaymentMethodSet = new Set<string>(CHECKOUT_PAYMENT_METHODS);
 
-export async function getOrderAnalytics(ctx: ServiceContext): Promise<{
-	totalSales: number;
-	pendingFulfillmentCount: number;
-	openOrdersCount: number;
-	unpaidHoldsCount: number;
-}> {
+export async function getOrderAnalytics(ctx: ServiceContext): Promise<OrderAnalyticsDTO> {
 	requireAdmin(ctx.actor);
 
-	const db = getDb();
+	const [summary] = await withTransientD1ReadRetry(() => orderAnalyticsQuery(getDb()));
+	return toOrderAnalyticsDTO(summary);
+}
 
-	const [salesResult] = await db
+function orderAnalyticsQuery(db: QueryExecutor) {
+	return db
 		.select({
-			total: sql<number>`COALESCE(SUM(${order.totalAmount}), 0)`
+			totalSales: sql<number>`coalesce(sum(case when ${order.status} <> 'cancelled' then ${order.totalAmount} else 0 end), 0)`,
+			pendingFulfillmentCount: sql<number>`coalesce(sum(case when ${order.status} in ('confirmed', 'processing') then 1 else 0 end), 0)`,
+			openOrdersCount: sql<number>`coalesce(sum(case when ${order.status} in ('pending', 'confirmed', 'processing', 'shipped') then 1 else 0 end), 0)`,
+			unpaidHoldsCount: sql<number>`coalesce(sum(case when ${order.status} = 'pending' then 1 else 0 end), 0)`
 		})
-		.from(order)
-		.where(sql`${order.status} <> 'cancelled'`);
+		.from(order);
+}
 
-	const [pendingFulfillmentResult] = await db
-		.select({
-			count: count()
-		})
-		.from(order)
-		.where(inArray(order.status, ['confirmed', 'processing']));
-
-	const [openOrdersResult] = await db
-		.select({
-			count: count()
-		})
-		.from(order)
-		.where(inArray(order.status, ['pending', 'confirmed', 'processing', 'shipped']));
-
-	const [unpaidHoldsResult] = await db
-		.select({
-			count: count()
-		})
-		.from(order)
-		.where(eq(order.status, 'pending'));
-
+function toOrderAnalyticsDTO(
+	summary:
+		| {
+				totalSales: number;
+				pendingFulfillmentCount: number;
+				openOrdersCount: number;
+				unpaidHoldsCount: number;
+		  }
+		| undefined
+): OrderAnalyticsDTO {
 	return {
-		totalSales: Number(salesResult?.total ?? 0),
-		pendingFulfillmentCount: Number(pendingFulfillmentResult?.count ?? 0),
-		openOrdersCount: Number(openOrdersResult?.count ?? 0),
-		unpaidHoldsCount: Number(unpaidHoldsResult?.count ?? 0)
+		totalSales: Number(summary?.totalSales ?? 0),
+		pendingFulfillmentCount: Number(summary?.pendingFulfillmentCount ?? 0),
+		openOrdersCount: Number(summary?.openOrdersCount ?? 0),
+		unpaidHoldsCount: Number(summary?.unpaidHoldsCount ?? 0)
 	};
 }
 
@@ -1879,6 +1871,22 @@ export async function bulkTransitionOrderStatus(
 	results: Array<{ orderId: string; orderNumber?: string; success: boolean; error?: string }>;
 }> {
 	requireAdmin(ctx.actor);
+	const orderIds = uniqueStrings(input.orderIds.map((orderId) => normalizeId(orderId, 'orderId')));
+	if (orderIds.length === 0) {
+		throw new OrderError('Select at least one order.', ErrorCode.VALIDATION_ERROR);
+	}
+	if (orderIds.length > 50) {
+		throw new OrderError(
+			'Bulk status updates are limited to 50 orders at a time.',
+			ErrorCode.VALIDATION_ERROR,
+			{ selectedCount: orderIds.length }
+		);
+	}
+	const orderNumberRows = await getDb()
+		.select({ id: order.id, orderNumber: order.orderNumber })
+		.from(order)
+		.where(inArray(order.id, orderIds));
+	const orderNumberById = new Map(orderNumberRows.map((row) => [row.id, row.orderNumber]));
 
 	const results: Array<{
 		orderId: string;
@@ -1889,14 +1897,8 @@ export async function bulkTransitionOrderStatus(
 	let successCount = 0;
 	let failureCount = 0;
 
-	for (const orderId of input.orderIds) {
+	for (const orderId of orderIds) {
 		try {
-			const existing = await getDb()
-				.select({ orderNumber: order.orderNumber })
-				.from(order)
-				.where(eq(order.id, orderId))
-				.then((rows) => rows[0]);
-
 			await transitionOrderStatus(ctx, {
 				orderId,
 				toStatus: input.toStatus,
@@ -1905,16 +1907,15 @@ export async function bulkTransitionOrderStatus(
 
 			results.push({
 				orderId,
-				orderNumber: existing?.orderNumber,
+				orderNumber: orderNumberById.get(orderId),
 				success: true
 			});
 			successCount++;
 		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Unknown error';
 			results.push({
 				orderId,
 				success: false,
-				error: message
+				error: toErrorResponseBody(error).message
 			});
 			failureCount++;
 		}

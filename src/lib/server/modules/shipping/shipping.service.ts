@@ -1,5 +1,12 @@
 import { and, asc, count, desc, eq, inArray, like, type SQL } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation,
+	withTransientD1WriteRetry
+} from '$lib/server/db/retry';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -14,7 +21,8 @@ import {
 	isUniqueConstraintError,
 	normalizeLimit,
 	normalizeOffset,
-	removeUndefinedValues
+	removeUndefinedValues,
+	resolveNow
 } from '$lib/server/foundation/utils';
 import { SRI_LANKA_DISTRICTS, type SriLankaDistrict } from '../addresses/addresses.drizzle';
 import {
@@ -33,6 +41,8 @@ import {
 	type UpdateCarrier,
 	type InsertShippingMethod,
 	type InsertShippingZone,
+	type NewCarrier,
+	type NewShippingMethod,
 	type UpdateShippingMethod
 } from './shipping.drizzle';
 import type {
@@ -79,7 +89,9 @@ export function listShippingDistrictOptions(): ShippingDistrictOption[] {
 
 export async function listCarriers(ctx: ServiceContext): Promise<CarrierDTO[]> {
 	requireAdmin(ctx.actor);
-	const rows = await getDb().select().from(carrier).orderBy(asc(carrier.name));
+	const rows = await withTransientD1ReadRetry(() =>
+		getDb().select().from(carrier).orderBy(asc(carrier.name))
+	);
 	return rows.map(toCarrierDTO);
 }
 
@@ -89,12 +101,28 @@ export async function createCarrier(
 ): Promise<CarrierDTO> {
 	requireAdmin(ctx.actor);
 	const data = parseInsertCarrier(input);
+	const now = resolveNow(ctx);
+	const values: NewCarrier = { id: nanoid(), ...data, createdAt: now, updatedAt: now };
 
 	try {
-		const [row] = await getDb().insert(carrier).values(data).returning();
-		if (!row) {
-			throw new ShippingError('Carrier was not created.', ErrorCode.INTERNAL_ERROR);
-		}
+		const db = getDb();
+		const row = await withTransientD1WriteReconciliation<Carrier>(
+			async () => {
+				const [created] = await db.insert(carrier).values(values).returning();
+				if (!created) {
+					throw new ShippingError('Carrier was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return created;
+			},
+			async () => {
+				const [created] = await db
+					.select()
+					.from(carrier)
+					.where(eq(carrier.id, values.id!))
+					.limit(1);
+				return created ? { committed: true, value: created } : { committed: false };
+			}
+		);
 		return toCarrierDTO(row);
 	} catch (error) {
 		throw mapShippingPersistenceError(error);
@@ -118,15 +146,32 @@ export async function updateCarrier(
 	}
 
 	try {
-		const [row] = await getDb()
-			.update(carrier)
-			.set(updateValues)
-			.where(eq(carrier.id, carrierId))
-			.returning();
-
-		if (!row) {
-			throw new ShippingError('Carrier not found.', ErrorCode.NOT_FOUND, { carrierId });
-		}
+		const db = getDb();
+		const now = resolveNow(ctx);
+		const stableUpdateValues: Partial<NewCarrier> = { ...updateValues, updatedAt: now };
+		const row = await withTransientD1WriteReconciliation<Carrier>(
+			async () => {
+				const [updated] = await db
+					.update(carrier)
+					.set(stableUpdateValues)
+					.where(and(eq(carrier.id, carrierId), eq(carrier.updatedAt, existing.updatedAt)))
+					.returning();
+				if (!updated) {
+					throw new ShippingError(
+						'Carrier changed before it could be updated.',
+						ErrorCode.CONFLICT,
+						{ carrierId }
+					);
+				}
+				return updated;
+			},
+			async () => {
+				const [updated] = await db.select().from(carrier).where(eq(carrier.id, carrierId)).limit(1);
+				return updated && recordMatchesPatch(updated, stableUpdateValues)
+					? { committed: true, value: updated }
+					: { committed: false };
+			}
+		);
 		return toCarrierDTO(row);
 	} catch (error) {
 		throw mapShippingPersistenceError(error);
@@ -140,6 +185,7 @@ export async function deleteCarrier(
 	requireAdmin(ctx.actor);
 	const carrierId = normalizeId(input.carrierId, 'carrierId');
 	const db = getDb();
+	await loadCarrierByIdTx(db, carrierId);
 
 	// Pre-delete safety check:
 	// Verify if any active shipping methods or zones override point directly to this carrier.
@@ -169,10 +215,19 @@ export async function deleteCarrier(
 		);
 	}
 
-	const [deleted] = await db.delete(carrier).where(eq(carrier.id, carrierId)).returning();
-
-	if (!deleted) {
-		throw new ShippingError('Carrier not found.', ErrorCode.NOT_FOUND, { carrierId });
+	try {
+		await withTransientD1WriteRetry(async () => {
+			await db.delete(carrier).where(eq(carrier.id, carrierId));
+		});
+	} catch (error) {
+		if (isForeignKeyConstraintError(getErrorMessage(error))) {
+			throw new ShippingError(
+				'Cannot delete carrier because it became referenced by shipping configuration.',
+				ErrorCode.CONFLICT,
+				{ carrierId }
+			);
+		}
+		throw mapShippingPersistenceError(error);
 	}
 }
 
@@ -188,15 +243,17 @@ export async function listShippingQuotes(
 	const db = getDb();
 
 	// Select active shipping methods and their default carrier details
-	const methodsWithCarrier = await db
-		.select({
-			method: shippingMethod,
-			methodCarrier: carrier
-		})
-		.from(shippingMethod)
-		.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
-		.where(eq(shippingMethod.isActive, true))
-		.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name));
+	const methodsWithCarrier = await withTransientD1ReadRetry(() =>
+		db
+			.select({
+				method: shippingMethod,
+				methodCarrier: carrier
+			})
+			.from(shippingMethod)
+			.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
+			.where(eq(shippingMethod.isActive, true))
+			.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name))
+	);
 
 	if (methodsWithCarrier.length === 0) return [];
 
@@ -204,19 +261,21 @@ export async function listShippingQuotes(
 
 	// Load zones with overrides for the target district
 	const zonesWithCarrier = district
-		? await db
-				.select({
-					zone: shippingZone,
-					zoneCarrier: carrier
-				})
-				.from(shippingZone)
-				.leftJoin(carrier, eq(shippingZone.carrierIdOverride, carrier.id))
-				.where(
-					and(
-						inArray(shippingZone.shippingMethodId, methodIds),
-						eq(shippingZone.district, district)
+		? await withTransientD1ReadRetry(() =>
+				db
+					.select({
+						zone: shippingZone,
+						zoneCarrier: carrier
+					})
+					.from(shippingZone)
+					.leftJoin(carrier, eq(shippingZone.carrierIdOverride, carrier.id))
+					.where(
+						and(
+							inArray(shippingZone.shippingMethodId, methodIds),
+							eq(shippingZone.district, district)
+						)
 					)
-				)
+			)
 		: [];
 
 	const zonesMap = new Map<string, { zone: ShippingZone; zoneCarrier: Carrier | null }>();
@@ -264,7 +323,7 @@ export async function listShippingQuotes(
 export async function calculateShippingQuote(
 	input: CalculateShippingQuoteInput
 ): Promise<ShippingQuoteDTO> {
-	return calculateShippingQuoteTx(getDb(), input);
+	return withTransientD1ReadRetry(() => calculateShippingQuoteTx(getDb(), input));
 }
 
 export async function calculateShippingQuoteTx(
@@ -357,17 +416,37 @@ export async function createShippingMethod(
 ): Promise<ShippingMethodDTO> {
 	requireAdmin(ctx.actor);
 	const data = parseInsertShippingMethod(input);
+	const now = resolveNow(ctx);
+	const values: NewShippingMethod = {
+		id: nanoid(),
+		...data,
+		createdAt: now,
+		updatedAt: now
+	};
 
 	try {
-		const [row] = await getDb().insert(shippingMethod).values(data).returning();
-
-		if (!row) {
-			throw new ShippingError('Shipping method was not created.', ErrorCode.INTERNAL_ERROR);
-		}
+		const db = getDb();
+		const row = await withTransientD1WriteReconciliation<ShippingMethod>(
+			async () => {
+				const [created] = await db.insert(shippingMethod).values(values).returning();
+				if (!created) {
+					throw new ShippingError('Shipping method was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return created;
+			},
+			async () => {
+				const [created] = await db
+					.select()
+					.from(shippingMethod)
+					.where(eq(shippingMethod.id, values.id!))
+					.limit(1);
+				return created ? { committed: true, value: created } : { committed: false };
+			}
+		);
 
 		let carrierName: string | null = null;
 		if (row.carrierId) {
-			const [res] = await getDb()
+			const [res] = await db
 				.select({ name: carrier.name })
 				.from(carrier)
 				.where(eq(carrier.id, row.carrierId))
@@ -407,21 +486,48 @@ export async function updateShippingMethod(
 	}
 
 	try {
-		const [row] = await getDb()
-			.update(shippingMethod)
-			.set(updateValues)
-			.where(eq(shippingMethod.id, shippingMethodId))
-			.returning();
-
-		if (!row) {
-			throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
-				shippingMethodId
-			});
-		}
+		const db = getDb();
+		const now = resolveNow(ctx);
+		const stableUpdateValues: Partial<NewShippingMethod> = {
+			...updateValues,
+			updatedAt: now
+		};
+		const row = await withTransientD1WriteReconciliation<ShippingMethod>(
+			async () => {
+				const [updated] = await db
+					.update(shippingMethod)
+					.set(stableUpdateValues)
+					.where(
+						and(
+							eq(shippingMethod.id, shippingMethodId),
+							eq(shippingMethod.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning();
+				if (!updated) {
+					throw new ShippingError(
+						'Shipping method changed before it could be updated.',
+						ErrorCode.CONFLICT,
+						{ shippingMethodId }
+					);
+				}
+				return updated;
+			},
+			async () => {
+				const [updated] = await db
+					.select()
+					.from(shippingMethod)
+					.where(eq(shippingMethod.id, shippingMethodId))
+					.limit(1);
+				return updated && recordMatchesPatch(updated, stableUpdateValues)
+					? { committed: true, value: updated }
+					: { committed: false };
+			}
+		);
 
 		let carrierName: string | null = null;
 		if (row.carrierId) {
-			const [res] = await getDb()
+			const [res] = await db
 				.select({ name: carrier.name })
 				.from(carrier)
 				.where(eq(carrier.id, row.carrierId))
@@ -443,15 +549,17 @@ export async function getShippingMethod(
 	const shippingMethodId = normalizeId(input.shippingMethodId, 'shippingMethodId');
 	const db = getDb();
 
-	const [res] = await db
-		.select({
-			method: shippingMethod,
-			carrierName: carrier.name
-		})
-		.from(shippingMethod)
-		.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
-		.where(eq(shippingMethod.id, shippingMethodId))
-		.limit(1);
+	const [res] = await withTransientD1ReadRetry(() =>
+		db
+			.select({
+				method: shippingMethod,
+				carrierName: carrier.name
+			})
+			.from(shippingMethod)
+			.leftJoin(carrier, eq(shippingMethod.carrierId, carrier.id))
+			.where(eq(shippingMethod.id, shippingMethodId))
+			.limit(1)
+	);
 
 	if (!res) {
 		throw new ShippingError('Shipping method not found.', ErrorCode.SHIPPING_METHOD_NOT_FOUND, {
@@ -463,7 +571,7 @@ export async function getShippingMethod(
 		return toShippingMethodDTO(res.method, res.carrierName);
 	}
 
-	const zones = await loadZonesForMethodTx(db, res.method.id);
+	const zones = await withTransientD1ReadRetry(() => loadZonesForMethodTx(db, res.method.id));
 	return toShippingMethodDTO(res.method, res.carrierName, zones.map(toShippingZoneDTO));
 }
 
@@ -495,15 +603,15 @@ export async function listShippingMethods(
 		.limit(limit)
 		.offset(offset);
 
-	const [totalRows, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
+	const totalRows = await withTransientD1ReadRetry(() =>
+		where ? countQuery.where(where) : countQuery
+	);
+	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
 
 	const methodIds = rows.map((r) => r.method.id);
 	const zonesByMethodId =
 		options.includeZones && methodIds.length > 0
-			? await loadZonesByMethodIdsTx(db, methodIds)
+			? await withTransientD1ReadRetry(() => loadZonesByMethodIdsTx(db, methodIds))
 			: new Map<string, ShippingZoneDTO[]>();
 
 	return {
@@ -533,23 +641,27 @@ export async function removeShippingZone(
 ): Promise<void> {
 	requireAdmin(ctx.actor);
 	const shippingMethodId = normalizeId(input.shippingMethodId, 'shippingMethodId');
+	const db = getDb();
+	const predicate = and(
+		eq(shippingZone.shippingMethodId, shippingMethodId),
+		eq(shippingZone.district, input.district)
+	);
+	const [existing] = await db
+		.select({ id: shippingZone.id })
+		.from(shippingZone)
+		.where(predicate)
+		.limit(1);
 
-	const [deleted] = await getDb()
-		.delete(shippingZone)
-		.where(
-			and(
-				eq(shippingZone.shippingMethodId, shippingMethodId),
-				eq(shippingZone.district, input.district)
-			)
-		)
-		.returning({ id: shippingZone.id });
-
-	if (!deleted) {
+	if (!existing) {
 		throw new ShippingError('Shipping zone not found.', ErrorCode.SHIPPING_ZONE_NOT_FOUND, {
 			shippingMethodId,
 			district: input.district
 		});
 	}
+
+	await withTransientD1WriteRetry(async () => {
+		await db.delete(shippingZone).where(predicate);
+	});
 }
 
 export async function listShippingZones(
@@ -569,10 +681,10 @@ export async function listShippingZones(
 		.orderBy(asc(shippingZone.district))
 		.limit(limit)
 		.offset(offset);
-	const [totalRows, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
+	const totalRows = await withTransientD1ReadRetry(() =>
+		where ? countQuery.where(where) : countQuery
+	);
+	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
 
 	return {
 		items: rows.map(toShippingZoneDTO),
@@ -596,24 +708,40 @@ async function saveShippingZone(
 	try {
 		const db = getDb();
 		await loadShippingMethodByIdTx(db, data.shippingMethodId);
-		const [row] = await db
-			.insert(shippingZone)
-			.values(data)
-			.onConflictDoUpdate({
-				target: [shippingZone.district, shippingZone.shippingMethodId],
-				set: {
-					priceOverride: data.priceOverride,
-					estimatedDaysMin: data.estimatedDaysMin,
-					estimatedDaysMax: data.estimatedDaysMax,
-					isAvailable: data.isAvailable,
-					carrierIdOverride: data.carrierIdOverride
+		const desired = {
+			priceOverride: data.priceOverride,
+			estimatedDaysMin: data.estimatedDaysMin,
+			estimatedDaysMax: data.estimatedDaysMax,
+			isAvailable: data.isAvailable,
+			carrierIdOverride: data.carrierIdOverride
+		};
+		const values: InsertShippingZone & { id: string } = { id: nanoid(), ...data };
+		const row = await withTransientD1WriteReconciliation<ShippingZone>(
+			async () => {
+				const [saved] = await db
+					.insert(shippingZone)
+					.values(values)
+					.onConflictDoUpdate({
+						target: [shippingZone.district, shippingZone.shippingMethodId],
+						set: desired
+					})
+					.returning();
+				if (!saved) {
+					throw new ShippingError('Shipping zone was not saved.', ErrorCode.INTERNAL_ERROR);
 				}
-			})
-			.returning();
-
-		if (!row) {
-			throw new ShippingError('Shipping zone was not saved.', ErrorCode.INTERNAL_ERROR);
-		}
+				return saved;
+			},
+			async () => {
+				const saved = await loadShippingZoneByMethodDistrictTx(
+					db,
+					data.shippingMethodId,
+					data.district
+				);
+				return saved && recordMatchesPatch(saved, desired)
+					? { committed: true, value: saved }
+					: { committed: false };
+			}
+		);
 
 		return toShippingZoneDTO(row);
 	} catch (error) {
@@ -939,6 +1067,17 @@ function normalizeId(value: string, field: string): string {
 	return normalized;
 }
 
+function recordMatchesPatch(row: object, patch: Record<string, unknown>): boolean {
+	const record = row as Record<string, unknown>;
+	return Object.entries(patch).every(([key, expected]) => {
+		const actual = record[key];
+		if (actual instanceof Date && expected instanceof Date) {
+			return actual.getTime() === expected.getTime();
+		}
+		return actual === expected;
+	});
+}
+
 // Moneys are standard LKR
 function normalizeMoney(value: number, field: string): number {
 	if (!Number.isInteger(value) || value < 0) {
@@ -974,6 +1113,7 @@ function sanitizeLikeTerm(value: string): string {
 
 function mapShippingPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 

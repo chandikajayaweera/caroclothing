@@ -1,4 +1,18 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	like,
+	notExists,
+	notInArray,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import {
@@ -6,6 +20,11 @@ import {
 	guardPreviousBatchChanges,
 	isD1BatchGuardError
 } from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -20,12 +39,14 @@ import {
 	deleteObjectSafe,
 	getMediaBucket,
 	getMediaBucketOptional,
+	isInvalidImageUploadMessage,
 	uploadImage,
 	type StoredImageMetadata
 } from '$lib/server/infrastructure/media/r2';
 import { mediaPresetUrl } from '$lib/server/infrastructure/media';
 import type { ServiceActor, ServiceContext, SystemActor } from '$lib/server/foundation/context';
 import {
+	isCheckConstraintError,
 	isForeignKeyConstraintError,
 	isUniqueConstraintError,
 	normalizeLimit,
@@ -86,6 +107,7 @@ import {
 type Db = ReturnType<typeof getDb>;
 export type ReviewsTx = Db;
 type QueryExecutor = Db;
+type ReviewBatchItem = Parameters<Db['batch']>[0][number];
 type User = typeof user.$inferSelect;
 type AnyActor = ServiceActor | SystemActor;
 
@@ -115,7 +137,9 @@ export async function listProductReviews(
 	if (includeUnapproved) requireAdmin(ctx?.actor);
 
 	const productId = normalizeId(input.productId, 'productId');
-	await assertProductExistsTx(getDb(), productId, { activeOnly: !includeUnapproved });
+	await withTransientD1ReadRetry(() =>
+		assertProductExistsTx(getDb(), productId, { activeOnly: !includeUnapproved })
+	);
 
 	const limit = normalizeLimit(input.limit, DEFAULT_LIMIT, MAX_LIMIT);
 	const offset = normalizeOffset(input.offset);
@@ -135,12 +159,14 @@ export async function getProductReviewSummary(
 	if (includeUnapproved) requireAdmin(ctx?.actor);
 
 	const productId = normalizeId(input.productId, 'productId');
-	await assertProductExistsTx(getDb(), productId, { activeOnly: !includeUnapproved });
+	await withTransientD1ReadRetry(() =>
+		assertProductExistsTx(getDb(), productId, { activeOnly: !includeUnapproved })
+	);
 
 	const conditions: SQL[] = [eq(review.productId, productId)];
 	if (!includeUnapproved) conditions.push(eq(review.isApproved, true));
 
-	return buildReviewSummary(productId, and(...conditions) as SQL);
+	return withTransientD1ReadRetry(() => buildReviewSummary(productId, and(...conditions) as SQL));
 }
 
 export async function listRecentApprovedReviews(
@@ -168,7 +194,7 @@ export async function listRecentApprovedReviews(
 		.from(review)
 		.innerJoin(product, eq(review.productId, product.id))
 		.where(where);
-	const [rows, totalRows] = await db.batch([listQuery, countQuery]);
+	const [rows, totalRows] = await withTransientD1ReadRetry(() => db.batch([listQuery, countQuery]));
 	const dtos = await hydrateReviews(
 		db,
 		rows.map((row) => row.row)
@@ -231,31 +257,54 @@ export async function createReview(
 			)`
 		);
 		const insertReview = db.insert(review).values(data);
-		const mediaValues = uploadedMedia.map((item) =>
-			parseNewReviewMedia({
-				reviewId,
-				r2Key: item.key,
-				type: item.type,
-				mimeType: item.mimeType,
-				byteSize: item.byteSize,
-				originalFilename: item.originalFilename,
-				width: null,
-				height: null,
-				position: item.position
+		const mediaValues = uploadedMedia.map(
+			(item): NewReviewMedia => ({
+				id: nanoid(),
+				...parseNewReviewMedia({
+					reviewId,
+					r2Key: item.key,
+					type: item.type,
+					mimeType: item.mimeType,
+					byteSize: item.byteSize,
+					originalFilename: item.originalFilename,
+					width: null,
+					height: null,
+					position: item.position
+				})
 			})
 		);
 
-		if (mediaValues.length > 0) {
-			await db.batch([
-				...eligibilityGuard,
-				insertReview,
-				db.insert(reviewMedia).values(mediaValues)
-			]);
-		} else {
-			await db.batch([...eligibilityGuard, insertReview]);
-		}
+		const statements = (
+			mediaValues.length > 0
+				? [...eligibilityGuard, insertReview, db.insert(reviewMedia).values(mediaValues)]
+				: [...eligibilityGuard, insertReview]
+		) as [ReviewBatchItem, ...ReviewBatchItem[]];
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const [storedReview] = await db
+					.select({ id: review.id })
+					.from(review)
+					.where(eq(review.id, reviewId))
+					.limit(1);
+				if (!storedReview) return { committed: false };
+				if (uploadedMedia.length > 0) {
+					const storedMedia = await db
+						.select({ r2Key: reviewMedia.r2Key })
+						.from(reviewMedia)
+						.where(eq(reviewMedia.reviewId, reviewId));
+					const storedKeys = new Set(storedMedia.map((item) => item.r2Key));
+					if (!uploadedMedia.every((item) => storedKeys.has(item.key))) {
+						return { committed: false };
+					}
+				}
+				return { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
-		await cleanupUploadedMedia(uploadedMedia);
+		await cleanupUnreferencedReviewMedia(uploadedMedia);
 		if (isD1BatchGuardError(error)) {
 			throw new ReviewError(
 				'Review eligibility changed. Please refresh and try again.',
@@ -265,21 +314,22 @@ export async function createReview(
 		throw mapReviewPersistenceError(error);
 	}
 
-	return hydrateReviewById(getDb(), reviewId);
+	return withTransientD1ReadRetry(() => hydrateReviewById(getDb(), reviewId));
 }
 
 export async function getReview(
 	ctx: ServiceContext | null,
 	input: GetReviewInput
 ): Promise<ReviewDTO | PublicReviewDTO> {
-	const row = await loadReviewByIdTx(getDb(), input.reviewId);
+	const dto = await withTransientD1ReadRetry(() =>
+		hydrateReviewById(getDb(), normalizeId(input.reviewId, 'reviewId'))
+	);
 
-	if (!row.isApproved) {
-		requireOwnerOrAdmin(ctx?.actor, row.userId);
+	if (!dto.isApproved) {
+		requireOwnerOrAdmin(ctx?.actor, dto.userId);
 	}
 
-	const dto = await hydrateReviewById(getDb(), row.id);
-	return canReadPrivateReview(ctx?.actor, row) ? dto : toPublicReviewDTO(dto);
+	return canReadPrivateReview(ctx?.actor, dto) ? dto : toPublicReviewDTO(dto);
 }
 
 export async function listMyReviews(
@@ -303,14 +353,18 @@ export async function getReviewEligibility(
 ): Promise<ReviewEligibilityDTO> {
 	const actor = requireActor(ctx.actor);
 	const productId = normalizeId(input.productId, 'productId');
-	const productRow = await findProductByIdTx(getDb(), productId);
+	const productRow = await withTransientD1ReadRetry(() => findProductByIdTx(getDb(), productId));
 
 	if (!productRow) {
 		throw new ProductError('Product not found.', ErrorCode.PRODUCT_NOT_FOUND, { productId });
 	}
 
-	const existingReview = await findReviewByUserAndProductTx(getDb(), actor.id, productId);
-	const eligibleOrders = await listEligibleReviewOrdersTx(getDb(), actor.id, productId);
+	const existingReview = await withTransientD1ReadRetry(() =>
+		findReviewByUserAndProductTx(getDb(), actor.id, productId)
+	);
+	const eligibleOrders = await withTransientD1ReadRetry(() =>
+		listEligibleReviewOrdersTx(getDb(), actor.id, productId)
+	);
 	const hasPurchased = eligibleOrders.length > 0;
 	const requestedOrderId = input.orderId ? normalizeId(input.orderId, 'orderId') : null;
 	const orderIsEligible = requestedOrderId
@@ -362,16 +416,35 @@ export async function updateMyReview(
 			updatedAt: resolveNow(ctx, input.now)
 		});
 
-		const [updated] = await db
-			.update(review)
-			.set(updateValues)
-			.where(and(eq(review.id, existing.id), eq(review.userId, existing.userId)))
-			.returning();
-		if (!updated) {
-			throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
-		}
+		const updated = await withTransientD1WriteReconciliation<Review>(
+			async () => {
+				const [row] = await db
+					.update(review)
+					.set(updateValues)
+					.where(
+						and(
+							eq(review.id, existing.id),
+							eq(review.userId, existing.userId),
+							eq(review.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning();
+				if (!row) {
+					throw new ReviewError('Review changed before it could be updated.', ErrorCode.CONFLICT, {
+						reviewId
+					});
+				}
+				return row;
+			},
+			async () => {
+				const row = await findReviewByIdTx(db, existing.id);
+				return row && recordMatchesPatch(row, updateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
-		return hydrateReviewById(db, updated.id);
+		return withTransientD1ReadRetry(() => hydrateReviewById(db, updated.id));
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -399,9 +472,10 @@ export async function addReviewMedia(
 			sql`EXISTS (SELECT 1 FROM ${review} WHERE ${review.id} = ${existing.id} AND ${review.userId} = ${existing.userId})
 				AND (SELECT count(*) FROM ${reviewMedia} WHERE ${reviewMedia.reviewId} = ${existing.id}) = ${existingMedia.length}`
 		);
-		const insertMedia = db.insert(reviewMedia).values(
-			uploadedMedia.map((item) =>
-				parseNewReviewMedia({
+		const mediaValues = uploadedMedia.map(
+			(item): NewReviewMedia => ({
+				id: nanoid(),
+				...parseNewReviewMedia({
 					reviewId: existing.id,
 					r2Key: item.key,
 					type: item.type,
@@ -412,21 +486,38 @@ export async function addReviewMedia(
 					height: null,
 					position: item.position
 				})
-			)
+			})
 		);
-		if (isAdminActor(actor)) {
-			await db.batch([...mediaGuard, insertMedia]);
-		} else {
-			await db.batch([
-				...mediaGuard,
-				insertMedia,
-				resetReviewApproval(db, existing.id, resolveNow(ctx))
-			]);
-		}
+		const insertMedia = db.insert(reviewMedia).values(mediaValues);
+		const statements = (
+			isAdminActor(actor)
+				? [...mediaGuard, insertMedia]
+				: [...mediaGuard, insertMedia, resetReviewApproval(db, existing.id, resolveNow(ctx))]
+		) as [ReviewBatchItem, ...ReviewBatchItem[]];
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const rows = await db
+					.select({ id: reviewMedia.id, r2Key: reviewMedia.r2Key })
+					.from(reviewMedia)
+					.where(
+						inArray(
+							reviewMedia.id,
+							mediaValues.map((item) => item.id!)
+						)
+					);
+				const stored = new Map(rows.map((row) => [row.id, row.r2Key]));
+				return mediaValues.every((item) => stored.get(item.id!) === item.r2Key)
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
 
-		return hydrateReviewById(db, existing.id);
+		return await withTransientD1ReadRetry(() => hydrateReviewById(db, existing.id));
 	} catch (error) {
-		await cleanupUploadedMedia(uploadedMedia);
+		await cleanupUnreferencedReviewMedia(uploadedMedia);
 		if (isD1BatchGuardError(error)) {
 			throw new ReviewError('Review media changed. Please try again.', ErrorCode.VALIDATION_ERROR);
 		}
@@ -465,12 +556,23 @@ export async function deleteReviewMedia(
 			...guardPreviousBatchChanges(db),
 			...positionUpdates,
 			...(!isAdminActor(actor) ? [resetReviewApproval(db, reviewRow.id, resolveNow(ctx))] : [])
-		] as const;
-		await db.batch(statements);
-		const dto = await hydrateReviewById(db, reviewRow.id);
+		] as [ReviewBatchItem, ...ReviewBatchItem[]];
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: reviewMedia.id })
+					.from(reviewMedia)
+					.where(eq(reviewMedia.id, mediaId))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 
 		await deleteObjectSafe(bucket, mediaRow.r2Key);
-		return dto;
+		return await withTransientD1ReadRetry(() => hydrateReviewById(db, reviewRow.id));
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -508,13 +610,38 @@ export async function reorderReviewMedia(
 				.set({ position })
 				.where(and(eq(reviewMedia.id, mediaId), eq(reviewMedia.reviewId, reviewRow.id)))
 		);
-		await db.batch([
-			...setGuard,
-			...updates,
-			...(!isAdminActor(actor) ? [resetReviewApproval(db, reviewRow.id, resolveNow(ctx))] : [])
-		]);
+		const now = resolveNow(ctx);
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch([
+					...setGuard,
+					...updates,
+					...(!isAdminActor(actor) ? [resetReviewApproval(db, reviewRow.id, now)] : [])
+				]);
+			},
+			async () => {
+				const stored = await loadReviewMediaTx(db, reviewRow.id);
+				const positionById = new Map(stored.map((row) => [row.id, row.position]));
+				const positionsCommitted =
+					stored.length === mediaIdsInOrder.length &&
+					mediaIdsInOrder.every((id, position) => positionById.get(id) === position);
+				if (!positionsCommitted) return { committed: false };
+				if (!isAdminActor(actor)) {
+					const current = await findReviewByIdTx(db, reviewRow.id);
+					if (
+						!current ||
+						current.isApproved ||
+						current.adminNote !== null ||
+						current.updatedAt.getTime() !== now.getTime()
+					) {
+						return { committed: false };
+					}
+				}
+				return { committed: true, value: undefined };
+			}
+		);
 
-		return hydrateReviewById(db, reviewRow.id);
+		return withTransientD1ReadRetry(() => hydrateReviewById(db, reviewRow.id));
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new ReviewError(
@@ -562,12 +689,19 @@ export async function getReviewModerationSummary(
 	if (input.productId)
 		conditions.push(eq(review.productId, normalizeId(input.productId, 'productId')));
 	const where = conditions.length > 0 ? (and(...conditions) as SQL) : undefined;
-	const query = getDb().select().from(review);
-	const rows = where ? await query.where(where) : await query;
-	const totalCount = rows.length;
-	const approvedCount = rows.filter((row) => row.isApproved).length;
-	const verifiedCount = rows.filter((row) => row.isVerifiedPurchase).length;
-	const ratingTotal = rows.reduce((total, row) => total + row.rating, 0);
+	const query = getDb()
+		.select({
+			totalCount: count(),
+			approvedCount: sql<number>`coalesce(sum(case when ${review.isApproved} = 1 then 1 else 0 end), 0)`,
+			verifiedCount: sql<number>`coalesce(sum(case when ${review.isVerifiedPurchase} = 1 then 1 else 0 end), 0)`,
+			ratingTotal: sql<number>`coalesce(sum(${review.rating}), 0)`
+		})
+		.from(review);
+	const [summary] = await withTransientD1ReadRetry(() => (where ? query.where(where) : query));
+	const totalCount = Number(summary?.totalCount ?? 0);
+	const approvedCount = Number(summary?.approvedCount ?? 0);
+	const verifiedCount = Number(summary?.verifiedCount ?? 0);
+	const ratingTotal = Number(summary?.ratingTotal ?? 0);
 
 	return {
 		totalCount,
@@ -590,20 +724,37 @@ export async function moderateReview(
 	try {
 		const db = getDb();
 		const existing = await loadReviewByIdTx(db, reviewId);
-		const [updated] = await db
-			.update(review)
-			.set({
-				isApproved: input.isApproved,
-				adminNote,
-				updatedAt: resolveNow(ctx, input.now)
-			})
-			.where(eq(review.id, existing.id))
-			.returning();
-		if (!updated) {
-			throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
-		}
+		const now = resolveNow(ctx, input.now);
+		const updateValues = {
+			isApproved: input.isApproved,
+			adminNote,
+			updatedAt: now
+		};
+		const updated = await withTransientD1WriteReconciliation<Review>(
+			async () => {
+				const [row] = await db
+					.update(review)
+					.set(updateValues)
+					.where(and(eq(review.id, existing.id), eq(review.updatedAt, existing.updatedAt)))
+					.returning();
+				if (!row) {
+					throw new ReviewError(
+						'Review changed before it could be moderated.',
+						ErrorCode.CONFLICT,
+						{ reviewId }
+					);
+				}
+				return row;
+			},
+			async () => {
+				const row = await findReviewByIdTx(db, existing.id);
+				return row && recordMatchesPatch(row, updateValues)
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 
-		return hydrateReviewById(db, updated.id);
+		return withTransientD1ReadRetry(() => hydrateReviewById(db, updated.id));
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -619,15 +770,34 @@ export async function deleteReview(ctx: ServiceContext, input: DeleteReviewInput
 	const bucket = existingMedia.length > 0 ? requireMediaBucket(ctx) : null;
 
 	try {
-		const [deleted] = await getDb()
-			.delete(review)
-			.where(and(eq(review.id, existing.id), eq(review.userId, existing.userId)))
-			.returning({
-				id: review.id
-			});
-		if (!deleted) {
-			throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, { reviewId });
-		}
+		const db = getDb();
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [deleted] = await db
+					.delete(review)
+					.where(
+						and(
+							eq(review.id, existing.id),
+							eq(review.userId, existing.userId),
+							eq(review.updatedAt, existing.updatedAt)
+						)
+					)
+					.returning({ id: review.id });
+				if (!deleted) {
+					throw new ReviewError('Review changed before it could be deleted.', ErrorCode.CONFLICT, {
+						reviewId
+					});
+				}
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: review.id })
+					.from(review)
+					.where(eq(review.id, existing.id))
+					.limit(1);
+				return row ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
 	} catch (error) {
 		throw mapReviewPersistenceError(error);
 	}
@@ -648,6 +818,29 @@ export async function listReviewMediaKeysForAccountDeletionTx(
 		.where(eq(review.userId, normalizeId(userId, 'userId')));
 
 	return uniqueStrings(rows.map((row) => row.r2Key));
+}
+
+export function prepareAccountDeletionReviewMediaGuard(
+	tx: ReviewsTx,
+	input: { userId: string; r2Keys: string[] }
+) {
+	const userId = normalizeId(input.userId, 'userId');
+	const r2Keys = uniqueStrings(input.r2Keys);
+	const unexpectedMedia = tx
+		.select({ id: reviewMedia.id })
+		.from(reviewMedia)
+		.innerJoin(review, eq(reviewMedia.reviewId, review.id))
+		.where(
+			and(
+				eq(review.userId, userId),
+				r2Keys.length > 0 ? notInArray(reviewMedia.r2Key, r2Keys) : undefined
+			)
+		);
+
+	// The object-key snapshot is read before the deletion batch so it remains
+	// available even when D1 commits but loses the response. Guarding against
+	// newly referenced keys closes the read/delete race.
+	return guardBatchCondition(tx, notExists(unexpectedMedia));
 }
 
 export async function deleteReviewMediaObjectsForAccountDeletion(
@@ -696,10 +889,12 @@ async function listReviewsByWhere(
 		.limit(limit)
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(review);
-	const [rows, totalRows] = await Promise.all([
-		where ? listQuery.where(where) : listQuery,
-		where ? countQuery.where(where) : countQuery
-	]);
+	const [rows, totalRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			where ? listQuery.where(where) : listQuery,
+			where ? countQuery.where(where) : countQuery
+		])
+	);
 
 	return {
 		items: await hydrateReviews(db, rows),
@@ -710,33 +905,36 @@ async function listReviewsByWhere(
 }
 
 async function buildReviewSummary(productId: string, where: SQL): Promise<ReviewSummaryDTO> {
-	const rows = await getDb()
-		.select({
-			rating: review.rating,
-			isVerifiedPurchase: review.isVerifiedPurchase
-		})
-		.from(review)
-		.where(where);
+	const [summary] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({
+				reviewCount: count(),
+				ratingTotal: sql<number>`coalesce(sum(${review.rating}), 0)`,
+				verifiedCount: sql<number>`coalesce(sum(case when ${review.isVerifiedPurchase} = 1 then 1 else 0 end), 0)`,
+				rating1: sql<number>`coalesce(sum(case when ${review.rating} = 1 then 1 else 0 end), 0)`,
+				rating2: sql<number>`coalesce(sum(case when ${review.rating} = 2 then 1 else 0 end), 0)`,
+				rating3: sql<number>`coalesce(sum(case when ${review.rating} = 3 then 1 else 0 end), 0)`,
+				rating4: sql<number>`coalesce(sum(case when ${review.rating} = 4 then 1 else 0 end), 0)`,
+				rating5: sql<number>`coalesce(sum(case when ${review.rating} = 5 then 1 else 0 end), 0)`
+			})
+			.from(review)
+			.where(where)
+	);
 	const distribution = {
-		1: 0,
-		2: 0,
-		3: 0,
-		4: 0,
-		5: 0
+		1: Number(summary?.rating1 ?? 0),
+		2: Number(summary?.rating2 ?? 0),
+		3: Number(summary?.rating3 ?? 0),
+		4: Number(summary?.rating4 ?? 0),
+		5: Number(summary?.rating5 ?? 0)
 	};
-
-	for (const row of rows) {
-		distribution[row.rating as 1 | 2 | 3 | 4 | 5] += 1;
-	}
-
-	const reviewCount = rows.length;
-	const ratingTotal = rows.reduce((total, row) => total + row.rating, 0);
+	const reviewCount = Number(summary?.reviewCount ?? 0);
+	const ratingTotal = Number(summary?.ratingTotal ?? 0);
 
 	return {
 		productId,
 		averageRating: reviewCount > 0 ? roundRating(ratingTotal / reviewCount) : null,
 		reviewCount,
-		verifiedCount: rows.filter((row) => row.isVerifiedPurchase).length,
+		verifiedCount: Number(summary?.verifiedCount ?? 0),
 		distribution
 	};
 }
@@ -758,22 +956,22 @@ async function hydrateReviews(db: QueryExecutor, rows: Review[]): Promise<Review
 	const reviewIds = rows.map((row) => row.id);
 	const userIds = uniqueStrings(rows.map((row) => row.userId));
 	const productIds = uniqueStrings(rows.map((row) => row.productId));
-	const [userRows, productRows, mediaRows, imageRows] = await Promise.all([
-		userIds.length > 0 ? db.select().from(user).where(inArray(user.id, userIds)) : [],
-		productIds.length > 0 ? db.select().from(product).where(inArray(product.id, productIds)) : [],
-		db
-			.select()
-			.from(reviewMedia)
-			.where(inArray(reviewMedia.reviewId, reviewIds))
-			.orderBy(asc(reviewMedia.position), asc(reviewMedia.createdAt)),
-		productIds.length > 0
-			? db
-					.select()
-					.from(productImage)
-					.where(inArray(productImage.productId, productIds))
-					.orderBy(asc(productImage.position), asc(productImage.createdAt))
-			: []
-	]);
+	const [userRows, productRows, mediaRows, imageRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select().from(user).where(inArray(user.id, userIds)),
+			db.select().from(product).where(inArray(product.id, productIds)),
+			db
+				.select()
+				.from(reviewMedia)
+				.where(inArray(reviewMedia.reviewId, reviewIds))
+				.orderBy(asc(reviewMedia.position), asc(reviewMedia.createdAt)),
+			db
+				.select()
+				.from(productImage)
+				.where(inArray(productImage.productId, productIds))
+				.orderBy(asc(productImage.position), asc(productImage.createdAt))
+		])
+	);
 	const usersById = new Map(userRows.map((row) => [row.id, row]));
 	const productsById = new Map(productRows.map((row) => [row.id, row]));
 	const mediaByReviewId = groupByReviewId(mediaRows);
@@ -824,7 +1022,14 @@ function toPublicReviewDTO(dto: ReviewDTO): PublicReviewDTO {
 		reviewerImageUrl: dto.reviewerImageUrl,
 		createdAt: dto.createdAt,
 		updatedAt: dto.updatedAt,
-		media: dto.media
+		media: dto.media.map((item) => ({
+			id: item.id,
+			mediaUrl: item.mediaUrl,
+			type: item.type,
+			width: item.width,
+			height: item.height,
+			position: item.position
+		}))
 	};
 }
 
@@ -924,7 +1129,7 @@ function parseNewReviewMedia(input: InsertReviewMedia): NewReviewMedia {
 
 async function loadReviewByIdTx(db: QueryExecutor, reviewId: string): Promise<Review> {
 	const normalizedId = normalizeId(reviewId, 'reviewId');
-	const [row] = await db.select().from(review).where(eq(review.id, normalizedId)).limit(1);
+	const row = await findReviewByIdTx(db, normalizedId);
 
 	if (!row) {
 		throw new ReviewError('Review not found.', ErrorCode.REVIEW_NOT_FOUND, {
@@ -933,6 +1138,11 @@ async function loadReviewByIdTx(db: QueryExecutor, reviewId: string): Promise<Re
 	}
 
 	return row;
+}
+
+async function findReviewByIdTx(db: QueryExecutor, reviewId: string): Promise<Review | null> {
+	const [row] = await db.select().from(review).where(eq(review.id, reviewId)).limit(1);
+	return row ?? null;
 }
 
 async function loadReviewMediaTx(db: QueryExecutor, reviewId: string): Promise<ReviewMedia[]> {
@@ -1154,6 +1364,39 @@ async function cleanupUploadedMedia(items: UploadedReviewMedia[]): Promise<void>
 	await Promise.all(items.map((item) => deleteObjectSafe(item.bucket, item.key)));
 }
 
+async function cleanupUnreferencedReviewMedia(items: UploadedReviewMedia[]): Promise<void> {
+	if (items.length === 0) return;
+
+	try {
+		const keys = uniqueStrings(items.map((item) => item.key));
+		const rows = await withTransientD1ReadRetry(() =>
+			getDb()
+				.select({ r2Key: reviewMedia.r2Key })
+				.from(reviewMedia)
+				.where(inArray(reviewMedia.r2Key, keys))
+		);
+		const referencedKeys = new Set(rows.map((row) => row.r2Key));
+		await Promise.all(
+			items
+				.filter((item) => !referencedKeys.has(item.key))
+				.map((item) => deleteObjectSafe(item.bucket, item.key))
+		);
+	} catch {
+		// Preserve objects when database commit state cannot be proven.
+	}
+}
+
+function recordMatchesPatch(row: object, patch: Record<string, unknown>): boolean {
+	const record = row as Record<string, unknown>;
+	return Object.entries(patch).every(([key, expected]) => {
+		const actual = record[key];
+		if (actual instanceof Date && expected instanceof Date) {
+			return actual.getTime() === expected.getTime();
+		}
+		return actual === expected;
+	});
+}
+
 function requireMediaBucket(ctx: ServiceContext): R2Bucket {
 	if (!ctx.event) {
 		throw new MediaError(
@@ -1181,7 +1424,7 @@ function mapMediaUploadError(error: unknown, message: string): never {
 }
 
 function resolveMediaErrorCode(message: string): ErrorCode {
-	return message.includes('Unsupported') || message.includes('empty') || message.includes('large')
+	return isInvalidImageUploadMessage(message)
 		? ErrorCode.INVALID_MEDIA_TYPE
 		: ErrorCode.MEDIA_UPLOAD_FAILED;
 }
@@ -1328,19 +1571,19 @@ function groupByProductId<T extends { productId: string }>(rows: T[]): Map<strin
 
 function mapReviewPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
-	const normalized = message.toLowerCase();
 
-	if (isUniqueConstraintError(normalized)) {
+	if (isUniqueConstraintError(message)) {
 		throw new ReviewError('Review already exists.', ErrorCode.REVIEW_ALREADY_EXISTS);
 	}
 
-	if (isForeignKeyConstraintError(normalized)) {
+	if (isForeignKeyConstraintError(message)) {
 		throw new ReviewError('Related review record not found.', ErrorCode.NOT_FOUND);
 	}
 
-	if (normalized.includes('check constraint failed')) {
+	if (isCheckConstraintError(message)) {
 		throw new ReviewError('Invalid review data.', ErrorCode.VALIDATION_ERROR);
 	}
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
 	import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut } from 'lucide-svelte';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 	import {
 		mediaPresetUrl,
 		productDetailImageAttrs,
@@ -107,7 +108,7 @@
 		{#if images.length > 0}
 			{#key images[safeActiveIndex]?.url}
 				{@const attrs = detailAttrs(safeActiveIndex)}
-				<img
+				<ProgressiveImage
 					src={attrs?.src ?? images[safeActiveIndex]?.url}
 					srcset={attrs?.srcset || undefined}
 					sizes={attrs?.sizes}
@@ -117,7 +118,6 @@
 					fetchpriority={attrs?.fetchpriority}
 					alt={images[safeActiveIndex]?.alt}
 					class="absolute inset-0 h-full w-full object-cover"
-					transition:fade={{ duration: 160 }}
 				/>
 			{/key}
 		{/if}
@@ -148,7 +148,7 @@
 						onclick={() => openLightbox(index)}
 						aria-label="Open product image {index + 1}"
 					>
-						<img
+						<ProgressiveImage
 							src={attrs?.src ?? image.url}
 							sizes={attrs?.sizes}
 							width={attrs?.width}
@@ -171,7 +171,7 @@
 			{#if images.length > 0}
 				{#key images[safeActiveIndex]?.url}
 					{@const attrs = detailAttrs(safeActiveIndex)}
-					<img
+					<ProgressiveImage
 						src={attrs?.src ?? images[safeActiveIndex]?.url}
 						srcset={attrs?.srcset || undefined}
 						sizes={attrs?.sizes}
@@ -181,7 +181,6 @@
 						fetchpriority={attrs?.fetchpriority}
 						alt={images[safeActiveIndex]?.alt}
 						class="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
-						transition:fade={{ duration: 160 }}
 					/>
 				{/key}
 			{/if}
@@ -234,17 +233,17 @@
 			<button
 				type="button"
 				onclick={() => (isZoomed = !isZoomed)}
-				class="flex max-h-full max-w-full cursor-zoom-in items-center justify-center overflow-hidden p-0"
+				class="relative flex max-h-full max-w-full cursor-zoom-in items-center justify-center overflow-hidden bg-charcoal p-0"
 				aria-label={isZoomed ? 'Zoom out' : 'Zoom in'}
 			>
 				{#key images[safeLightboxIndex]?.url}
-					<img
+					<ProgressiveImage
 						src={lightboxSrc(safeLightboxIndex)}
 						alt={images[safeLightboxIndex]?.alt}
+						skeletonClass="absolute inset-0 h-full w-full"
 						class="max-h-[76vh] max-w-full object-contain transition-transform duration-200 {isZoomed
 							? 'scale-150'
 							: 'scale-100'}"
-						transition:fade={{ duration: 120 }}
 					/>
 				{/key}
 			</button>

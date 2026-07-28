@@ -14,7 +14,14 @@ export interface EmailPayload {
 	tags?: Array<{ name: string; value: string }>;
 }
 
-export type EmailResult = { ok: true; id: string } | { ok: false; error: string };
+export interface EmailSendOptions {
+	/** Stable provider deduplication key for retryable transactional delivery. */
+	idempotencyKey?: string;
+}
+
+export type EmailResult =
+	| { ok: true; id: string }
+	| { ok: false; error: string; retryable: boolean };
 
 // OTP
 

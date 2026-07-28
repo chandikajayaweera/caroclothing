@@ -121,7 +121,7 @@ describe('processCloudflareQueueBatch', () => {
 				{
 					id: 'message_1',
 					outcome: 'failed',
-					message: 'boom'
+					message: 'Notification processing failed.'
 				}
 			]);
 		}

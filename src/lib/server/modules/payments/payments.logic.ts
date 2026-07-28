@@ -5,6 +5,17 @@ import type { PaymentStatus } from './payments.drizzle';
 
 const TEMPORARY_EMAIL_DOMAINS = ['@phone.caroclothing.lk', '@anon.caroclothing.lk'];
 const emailSchema = z.email();
+const PAYHERE_AUDIT_FIELDS = [
+	'merchant_id',
+	'order_id',
+	'payment_id',
+	'payhere_amount',
+	'payhere_currency',
+	'status_code',
+	'status_message',
+	'method'
+] as const;
+const MAX_AUDIT_FIELD_LENGTH = 500;
 
 export type PayPalFxQuote = {
 	rate: number;
@@ -38,6 +49,20 @@ export function resolvePublicPaymentEmail(value: unknown): string | null {
 	if (!emailSchema.safeParse(email).success) return null;
 	if (TEMPORARY_EMAIL_DOMAINS.some((domain) => email.endsWith(domain))) return null;
 	return email;
+}
+
+export function sanitizePayHereWebhookPayload(
+	payload: Record<string, unknown>
+): Record<string, string> {
+	const sanitized: Record<string, string> = {};
+	for (const field of PAYHERE_AUDIT_FIELDS) {
+		const value = payload[field];
+		if (typeof value !== 'string') continue;
+		const normalized = value.trim();
+		if (!normalized) continue;
+		sanitized[field] = normalized.slice(0, MAX_AUDIT_FIELD_LENGTH);
+	}
+	return sanitized;
 }
 
 export function getGatewayMetadata(value: unknown): GatewayMetadata {

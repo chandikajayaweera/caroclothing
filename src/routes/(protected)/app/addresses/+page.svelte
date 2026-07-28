@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { MapPin, Calendar, Clock, ExternalLink } from 'lucide-svelte';
 	import type { PageData } from './$types';
@@ -11,16 +11,19 @@
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
-	import AdminSkeletonList from '$lib/components/admin/data-display/AdminSkeletonList.svelte';
 	import AdminCopyButton from '$lib/components/admin/data-display/AdminCopyButton.svelte';
-	import AdminErrorState from '$lib/components/admin/data-display/AdminErrorState.svelte';
 	import { formatAdminDateTime } from '$lib/shared/admin/format';
 	import AdminInput from '$lib/components/admin/controls/AdminInput.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 
 	let { data }: { data: PageData } = $props();
 
-	type AddressItem = Awaited<PageData['streamed']['addresses']>['items'][number];
+	type AddressItem = PageData['addresses']['items'][number];
+
+	let addresses = $derived(data.addresses.items);
+	let total = $derived(data.addresses.total);
+	let defaultCount = $derived(data.addresses.items.filter((address) => address.isDefault).length);
+	let guestCount = $derived(data.addresses.items.filter((address) => !address.userId).length);
 
 	const tableHeaders = [
 		{ label: 'Recipient' },
@@ -67,239 +70,209 @@
 	}
 </script>
 
-{#await data.streamed.addresses}
-	<AdminListLayout title="Addresses" kicker="Customers" loading={true} {tableHeaders} items={[]}>
-		{#snippet skeleton()}
-			<AdminSkeletonList rows={5} />
-		{/snippet}
-	</AdminListLayout>
-{:then addressesResult}
-	{@const addresses = addressesResult.items}
-	{@const total = addressesResult.total}
-	{@const defaultCount = addresses.filter((a) => a.isDefault).length}
-	{@const guestCount = addresses.filter((a) => !a.userId).length}
+<AdminListLayout
+	title="Addresses"
+	kicker="Customers"
+	loading={false}
+	metrics={[
+		{ label: 'Filtered Addresses', value: total },
+		{ label: 'Defaults on Page', value: defaultCount, tone: 'accent' },
+		{ label: 'Guest on Page', value: guestCount, tone: 'info' }
+	]}
+	query={data.filters.query}
+	bind:showFilters
+	{hasActiveFilters}
+	totalItems={total}
+	limit={data.filters.limit}
+	offset={data.filters.offset}
+	{tableHeaders}
+	items={addresses}
+	onclearfilters={clearFilters}
+	searchPlaceholder="Search recipient name..."
+>
+	{#snippet advancedFilters()}
+		<AdminFilterBar cols={4}>
+			<AdminSelect
+				label="District"
+				name="district"
+				value={data.filters.district}
+				onchange={(e) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+			>
+				<option value="">All districts</option>
+				{#each data.districtOptions as districtOption (districtOption.value)}
+					<option value={districtOption.value}>
+						{districtOption.label}
+					</option>
+				{/each}
+			</AdminSelect>
 
-	<AdminListLayout
-		title="Addresses"
-		kicker="Customers"
-		loading={false}
-		metrics={[
-			{ label: 'Filtered Addresses', value: total },
-			{ label: 'Defaults on Page', value: defaultCount, tone: 'accent' },
-			{ label: 'Guest on Page', value: guestCount, tone: 'info' }
-		]}
-		query={data.filters.query}
-		bind:showFilters
-		{hasActiveFilters}
-		totalItems={total}
-		limit={data.filters.limit}
-		offset={data.filters.offset}
-		{tableHeaders}
-		items={addresses}
-		onclearfilters={clearFilters}
-		searchPlaceholder="Search recipient name..."
-	>
-		{#snippet advancedFilters()}
-			<AdminFilterBar cols={4}>
-				<AdminSelect
-					label="District"
-					name="district"
-					value={data.filters.district}
-					onchange={(e) => {
-						const form = (e.currentTarget as HTMLElement).closest('form');
-						if (form) form.requestSubmit();
-					}}
-				>
-					<option value="">All districts</option>
-					{#each data.districtOptions as districtOption (districtOption.value)}
-						<option value={districtOption.value}>
-							{districtOption.label}
-						</option>
-					{/each}
-				</AdminSelect>
+			<AdminSelect
+				label="Address Type"
+				name="hasUser"
+				value={data.filters.hasUser}
+				onchange={(e) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+				options={[
+					{ value: '', label: 'All types' },
+					{ value: 'true', label: 'Registered User Only' },
+					{ value: 'false', label: 'Guest Checkout Only' }
+				]}
+			/>
 
-				<AdminSelect
-					label="Address Type"
-					name="hasUser"
-					value={data.filters.hasUser}
-					onchange={(e) => {
-						const form = (e.currentTarget as HTMLElement).closest('form');
-						if (form) form.requestSubmit();
-					}}
-					options={[
-						{ value: '', label: 'All types' },
-						{ value: 'true', label: 'Registered User Only' },
-						{ value: 'false', label: 'Guest Checkout Only' }
-					]}
-				/>
+			<AdminSelect
+				label="Default Status"
+				name="isDefault"
+				value={data.filters.isDefault}
+				onchange={(e) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+				options={[
+					{ value: '', label: 'Any default status' },
+					{ value: 'true', label: 'Default Only' },
+					{ value: 'false', label: 'Non-Default Only' }
+				]}
+			/>
 
-				<AdminSelect
-					label="Default Status"
-					name="isDefault"
-					value={data.filters.isDefault}
-					onchange={(e) => {
-						const form = (e.currentTarget as HTMLElement).closest('form');
-						if (form) form.requestSubmit();
-					}}
-					options={[
-						{ value: '', label: 'Any default status' },
-						{ value: 'true', label: 'Default Only' },
-						{ value: 'false', label: 'Non-Default Only' }
-					]}
-				/>
+			<AdminInput
+				label="User Search ID"
+				name="userId"
+				placeholder="User UUID..."
+				value={data.filters.userId}
+				onchange={(e: Event) => {
+					const form = (e.currentTarget as HTMLElement).closest('form');
+					if (form) form.requestSubmit();
+				}}
+			/>
+		</AdminFilterBar>
+	{/snippet}
 
-				<AdminInput
-					label="User Search ID"
-					name="userId"
-					placeholder="User UUID..."
-					value={data.filters.userId}
-					onchange={(e: Event) => {
-						const form = (e.currentTarget as HTMLElement).closest('form');
-						if (form) form.requestSubmit();
-					}}
-				/>
-			</AdminFilterBar>
-		{/snippet}
-
-		{#snippet card(addr: AddressItem)}
-			<AdminEntityCard>
-				{#snippet header()}
-					<div class="flex items-start justify-between gap-2">
-						<div class="min-w-0">
-							<p class="font-mono text-xs tracking-widest text-bone uppercase">
-								{addr.recipientName}
-							</p>
-							<p class="mt-1 font-mono text-[10px] text-ash">{addr.phone}</p>
-						</div>
-						<div class="flex shrink-0 flex-col items-end gap-1">
-							{#if addr.isDefault}
-								<AdminBadge variant="success" size="xs">Default</AdminBadge>
-							{/if}
-							{#if addr.userId}
-								<AdminButton
-									href={resolve(`/app/users?userId=${addr.userId}`)}
-									variant="outline"
-									size="sm"
-									class="px-2 font-mono text-[8px] tracking-widest uppercase"
-								>
-									User Profile <ExternalLink size={8} />
-								</AdminButton>
-							{:else}
-								<AdminBadge variant="warning" size="xs">Guest</AdminBadge>
-							{/if}
-						</div>
-					</div>
-				{/snippet}
-
-				{#snippet description()}
-					<div class="font-mono text-[10px] leading-relaxed text-ash">
-						<p>{addr.addressLine1}</p>
-						{#if addr.addressLine2}
-							<p>{addr.addressLine2}</p>
-						{/if}
-						<p class="text-bone">{addr.city}, {addr.district}</p>
-						{#if addr.label}
-							<p class="mt-1 text-volt">[{addr.label.toUpperCase()}]</p>
-						{/if}
-					</div>
-				{/snippet}
-
-				{#snippet actions()}
-					<div class="flex justify-end border-t border-charcoal pt-3">
-						<AdminButton
-							type="button"
-							variant="volt"
-							size="sm"
-							onclick={() => openDetails(addr)}
-							class="font-mono text-[9px] tracking-wider uppercase"
-						>
-							View Details
-						</AdminButton>
-					</div>
-				{/snippet}
-			</AdminEntityCard>
-		{/snippet}
-
-		{#snippet row(addr: AddressItem)}
-			<tr class="border-b border-charcoal/70 last:border-b-0">
-				<td class="px-5 py-4">
+	{#snippet card(addr: AddressItem)}
+		<AdminEntityCard>
+			{#snippet header()}
+				<div class="flex items-start justify-between gap-2">
 					<div class="min-w-0">
-						<span class="font-mono text-xs tracking-widest text-bone uppercase">
+						<p class="font-mono text-xs tracking-widest text-bone uppercase">
 							{addr.recipientName}
-						</span>
+						</p>
 						<p class="mt-1 font-mono text-[10px] text-ash">{addr.phone}</p>
 					</div>
-				</td>
-				<td class="px-5 py-4 font-mono text-[10px] text-ash">
-					<p class="min-w-50 truncate" title={addr.addressLine1}>{addr.addressLine1}</p>
-					{#if addr.addressLine2}
-						<p class="min-w-50 truncate text-ash/70" title={addr.addressLine2}>
-							{addr.addressLine2}
-						</p>
-					{/if}
-				</td>
-				<td class="px-5 py-4 font-mono text-[10px] text-bone">
-					{addr.city}, {addr.district}
-				</td>
-				<td class="px-5 py-4">
-					{#if addr.userId}
-						<AdminButton
-							href={resolve(`/app/users?userId=${addr.userId}`)}
-							variant="outline"
-							size="sm"
-							class="px-2.5 font-mono text-[8px] tracking-widest uppercase"
-						>
-							Registered <ExternalLink size={8} />
-						</AdminButton>
-					{:else}
-						<AdminBadge variant="warning" size="xs">Guest</AdminBadge>
-					{/if}
-				</td>
-				<td class="px-5 py-4">
-					{#if addr.isDefault}
-						<AdminBadge variant="success" size="xs">Default</AdminBadge>
-					{:else}
-						<span class="font-mono text-[10px] text-ash/40">—</span>
-					{/if}
-				</td>
-				<td class="px-5 py-4">
-					<div class="flex items-center justify-end">
-						<AdminButton
-							type="button"
-							variant="outline"
-							size="sm"
-							onclick={() => openDetails(addr)}
-							class="border-ash/20 font-mono text-[9px] tracking-wider uppercase hover:border-volt hover:text-volt"
-						>
-							Details
-						</AdminButton>
+					<div class="flex shrink-0 flex-col items-end gap-1">
+						{#if addr.isDefault}
+							<AdminBadge variant="success" size="xs">Default</AdminBadge>
+						{/if}
+						{#if addr.userId}
+							<AdminButton
+								href={resolve(`/app/users?userId=${addr.userId}`)}
+								variant="outline"
+								size="sm"
+								class="px-2 font-mono text-[8px] tracking-widest uppercase"
+							>
+								User Profile <ExternalLink size={8} />
+							</AdminButton>
+						{:else}
+							<AdminBadge variant="warning" size="xs">Guest</AdminBadge>
+						{/if}
 					</div>
-				</td>
-			</tr>
-		{/snippet}
+				</div>
+			{/snippet}
 
-		{#snippet emptyState()}
-			<AdminEmptyState title="No addresses found" description="Adjust search query or filters." />
-		{/snippet}
-	</AdminListLayout>
-{:catch}
-	<AdminListLayout
-		title="Addresses"
-		kicker="Customers"
-		loading={false}
-		showSearch={false}
-		{tableHeaders}
-		items={[]}
-	>
-		{#snippet emptyState()}
-			<AdminErrorState
-				title="Addresses unavailable"
-				description="Address records could not be loaded. Retry without losing the current admin session."
-				onretry={() => invalidateAll()}
-			/>
-		{/snippet}
-	</AdminListLayout>
-{/await}
+			{#snippet description()}
+				<div class="font-mono text-[10px] leading-relaxed text-ash">
+					<p>{addr.addressLine1}</p>
+					{#if addr.addressLine2}
+						<p>{addr.addressLine2}</p>
+					{/if}
+					<p class="text-bone">{addr.city}, {addr.district}</p>
+					{#if addr.label}
+						<p class="mt-1 text-volt">[{addr.label.toUpperCase()}]</p>
+					{/if}
+				</div>
+			{/snippet}
+
+			{#snippet actions()}
+				<div class="flex justify-end border-t border-charcoal pt-3">
+					<AdminButton
+						type="button"
+						variant="volt"
+						size="sm"
+						onclick={() => openDetails(addr)}
+						class="font-mono text-[9px] tracking-wider uppercase"
+					>
+						View Details
+					</AdminButton>
+				</div>
+			{/snippet}
+		</AdminEntityCard>
+	{/snippet}
+
+	{#snippet row(addr: AddressItem)}
+		<tr class="border-b border-charcoal/70 last:border-b-0">
+			<td class="px-5 py-4">
+				<div class="min-w-0">
+					<span class="font-mono text-xs tracking-widest text-bone uppercase">
+						{addr.recipientName}
+					</span>
+					<p class="mt-1 font-mono text-[10px] text-ash">{addr.phone}</p>
+				</div>
+			</td>
+			<td class="px-5 py-4 font-mono text-[10px] text-ash">
+				<p class="min-w-50 truncate" title={addr.addressLine1}>{addr.addressLine1}</p>
+				{#if addr.addressLine2}
+					<p class="min-w-50 truncate text-ash/70" title={addr.addressLine2}>
+						{addr.addressLine2}
+					</p>
+				{/if}
+			</td>
+			<td class="px-5 py-4 font-mono text-[10px] text-bone">
+				{addr.city}, {addr.district}
+			</td>
+			<td class="px-5 py-4">
+				{#if addr.userId}
+					<AdminButton
+						href={resolve(`/app/users?userId=${addr.userId}`)}
+						variant="outline"
+						size="sm"
+						class="px-2.5 font-mono text-[8px] tracking-widest uppercase"
+					>
+						Registered <ExternalLink size={8} />
+					</AdminButton>
+				{:else}
+					<AdminBadge variant="warning" size="xs">Guest</AdminBadge>
+				{/if}
+			</td>
+			<td class="px-5 py-4">
+				{#if addr.isDefault}
+					<AdminBadge variant="success" size="xs">Default</AdminBadge>
+				{:else}
+					<span class="font-mono text-[10px] text-ash/40">—</span>
+				{/if}
+			</td>
+			<td class="px-5 py-4">
+				<div class="flex items-center justify-end">
+					<AdminButton
+						type="button"
+						variant="outline"
+						size="sm"
+						onclick={() => openDetails(addr)}
+						class="border-ash/20 font-mono text-[9px] tracking-wider uppercase hover:border-volt hover:text-volt"
+					>
+						Details
+					</AdminButton>
+				</div>
+			</td>
+		</tr>
+	{/snippet}
+
+	{#snippet emptyState()}
+		<AdminEmptyState title="No addresses found" description="Adjust search query or filters." />
+	{/snippet}
+</AdminListLayout>
 
 <!-- ADDRESS DETAILS DRAWER -->
 {#if selectedAddress}

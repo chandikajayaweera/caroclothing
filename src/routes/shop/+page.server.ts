@@ -4,6 +4,8 @@ import {
 	listCategories,
 	listProducts,
 	listProductsFormSchema,
+	toPublicCategoryDTO,
+	toPublicProductDTO,
 	type GenderTier,
 	type ListProductsOptions
 } from '$lib/server/modules/products';
@@ -62,10 +64,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const productOptions = getListOptions(url);
 
 	try {
-		const [products, categories] = await Promise.all([
-			listProducts(ctx, productOptions),
-			listCategories(null, { limit: 100 })
-		]);
+		const productResult = await listProducts(ctx, productOptions);
+		const products = {
+			...productResult,
+			items: productResult.items.map(toPublicProductDTO)
+		};
+		const categories = (await listCategories(null, { limit: 100 })).map(toPublicCategoryDTO);
 
 		// Map stock status to products list
 		const variantIds = products.items.flatMap((p) => p.variants.map((v) => v.id));

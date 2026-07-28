@@ -7,6 +7,7 @@ import type {
 	SystemActor
 } from '$lib/server/foundation/context';
 import { processDueNotificationOutbox } from '$lib/server/orchestration/notifications';
+import { getErrorMessage } from '$lib/server/infrastructure/errors';
 import { CLOUDFLARE_CRON_TRIGGER, CRON_SCHEDULES, type CronSchedule } from './schedules';
 
 const NOTIFICATION_OUTBOX_LIMIT = 50;
@@ -112,19 +113,19 @@ function createCronServiceContext(
 async function runCronJobs(
 	jobs: Array<() => Promise<ScheduledJobResult>>
 ): Promise<ScheduledJobResult[]> {
-	const settled = await Promise.allSettled(jobs.map((job) => job()));
 	const results: ScheduledJobResult[] = [];
 	const failures: string[] = [];
 
-	for (const item of settled) {
-		if (item.status === 'fulfilled') {
-			results.push(item.value);
-			continue;
+	// All jobs share one D1 binding. D1 executes a database serially, so starting
+	// several maintenance jobs together only creates queueing and timeout pressure.
+	for (const job of jobs) {
+		try {
+			results.push(await job());
+		} catch (error) {
+			const message = getErrorMessage(error);
+			failures.push(message);
+			console.error('[cron] Scheduled job failed:', { error: message });
 		}
-
-		const message = item.reason instanceof Error ? item.reason.message : 'UNKNOWN_CRON_ERROR';
-		failures.push(message);
-		console.error('[cron] Scheduled job failed:', { error: item.reason });
 	}
 
 	if (failures.length > 0) {

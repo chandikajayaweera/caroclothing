@@ -12,6 +12,7 @@ import {
 	type ListBagsOptions
 } from '$lib/server/modules/bag';
 import {
+	failFromAppError,
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
@@ -127,9 +128,7 @@ export const actions: Actions = {
 				message: `Deleted bag successfully. Released ${result.releasedQuantity} reserved items.`
 			};
 		} catch (error) {
-			return fail(400, {
-				message: error instanceof Error ? error.message : 'Failed to delete bag.'
-			});
+			return failFromAppError(error);
 		}
 	}
 };

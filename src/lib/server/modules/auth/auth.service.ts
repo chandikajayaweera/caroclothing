@@ -18,6 +18,11 @@ import {
 
 import { getDb } from '$lib/server/db';
 import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
 import { getEnv } from '$lib/server/infrastructure/env';
 import type { ServiceContext } from '$lib/server/foundation/context';
@@ -37,8 +42,17 @@ import { repairTempUserEmailFromLinkedGoogleAccount } from './database-hook';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { prepareUserBagDeletion } from '../bag/bag.service';
 import { prepareAccountNotificationCancellation } from '../notifications/outbox/outbox.service';
-import { prepareAccountOrderAnonymization } from '../orders/orders.service';
-import { listReviewMediaKeysForAccountDeletionTx } from '../reviews/reviews.service';
+import {
+	findAccountDeletionBlockingOrderTx,
+	listAccountOrderIdsForDeletionTx,
+	prepareAccountDeletionOrderGuard,
+	prepareAccountOrderAnonymization
+} from '../orders/orders.service';
+import { prepareAccountPaymentAnonymization } from '../payments/payments.service';
+import {
+	listReviewMediaKeysForAccountDeletionTx,
+	prepareAccountDeletionReviewMediaGuard
+} from '../reviews/reviews.service';
 import type {
 	AccountDeletionPreparation,
 	AccountProfileDTO,
@@ -56,6 +70,7 @@ import type {
 	SessionRevokeResult,
 	SetUserRoleInput,
 	UserAdminDTO,
+	UserAdminDetailDTO,
 	UserListResult
 } from './auth.types';
 
@@ -168,18 +183,33 @@ export async function updateMyDisplayName(
 ): Promise<AccountProfileDTO> {
 	const actor = requireActor(ctx.actor);
 	const name = normalizeDisplayName(input.name);
+	const db = getDb();
+	const existing = await loadUserById(db, actor.id);
+	if (existing.name === name) return loadAccountProfile(db, actor.id, ctx);
+	const now = getNow(ctx);
+	await withTransientD1WriteReconciliation(
+		async () => {
+			const [updated] = await db
+				.update(userTable)
+				.set({ name, updatedAt: now })
+				.where(and(eq(userTable.id, actor.id), eq(userTable.updatedAt, existing.updatedAt)))
+				.returning({ id: userTable.id });
+			if (!updated) {
+				throw new AuthError(
+					'Account changed before the display name could be updated.',
+					ErrorCode.CONFLICT
+				);
+			}
+		},
+		async () => {
+			const current = await loadUserById(db, actor.id);
+			return current.name === name && current.updatedAt.getTime() === now.getTime()
+				? { committed: true, value: undefined }
+				: { committed: false };
+		}
+	);
 
-	const [updated] = await getDb()
-		.update(userTable)
-		.set({ name, updatedAt: getNow(ctx) })
-		.where(eq(userTable.id, actor.id))
-		.returning({ id: userTable.id });
-
-	if (!updated) {
-		throw new AuthError('User not found.', ErrorCode.NOT_FOUND);
-	}
-
-	return loadAccountProfile(getDb(), actor.id, ctx);
+	return loadAccountProfile(db, actor.id, ctx);
 }
 
 export async function prepareAccountDeletion(input: {
@@ -190,14 +220,70 @@ export async function prepareAccountDeletion(input: {
 	const now = input.now ?? new Date();
 
 	const db = getDb();
-	const reviewMediaKeys = await listReviewMediaKeysForAccountDeletionTx(db, userId);
-	const [, , anonymizedOrders] = await db.batch([
-		prepareUserBagDeletion(db, userId),
-		prepareAccountNotificationCancellation(db, { userId, now }),
-		prepareAccountOrderAnonymization(db, { userId, now })
-	]);
+	const existingUser = await loadUserById(db, userId);
+	const blockingOrder = await findAccountDeletionBlockingOrderTx(db, userId);
+	if (blockingOrder) {
+		throw new AuthError(
+			`Order ${blockingOrder.orderNumber} is still ${blockingOrder.status}. Complete or cancel active orders before deleting this account.`,
+			ErrorCode.CONFLICT,
+			undefined,
+			{
+				orderId: blockingOrder.id,
+				orderNumber: blockingOrder.orderNumber,
+				orderStatus: blockingOrder.status
+			}
+		);
+	}
 
-	return { reviewMediaKeys, anonymizedOrderCount: anonymizedOrders.length };
+	const reviewMediaKeys = await listReviewMediaKeysForAccountDeletionTx(db, userId);
+	const orderIds = await listAccountOrderIdsForDeletionTx(db, userId);
+	const result: AccountDeletionPreparation = {
+		reviewMediaKeys,
+		anonymizedOrderCount: orderIds.length
+	};
+
+	try {
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch([
+					...prepareAccountDeletionOrderGuard(db, userId),
+					...prepareAccountDeletionReviewMediaGuard(db, {
+						userId,
+						r2Keys: reviewMediaKeys
+					}),
+					prepareUserBagDeletion(db, userId),
+					prepareAccountNotificationCancellation(db, { userId, now }),
+					...prepareAccountPaymentAnonymization(db, { userId, now }),
+					prepareAccountOrderAnonymization(db, { userId, now }),
+					db
+						.delete(userTable)
+						.where(and(eq(userTable.id, userId), eq(userTable.updatedAt, existingUser.updatedAt))),
+					...guardPreviousBatchChanges(db)
+				]);
+			},
+			async () => {
+				const [currentUser] = await db
+					.select({ id: userTable.id })
+					.from(userTable)
+					.where(eq(userTable.id, userId))
+					.limit(1);
+				return currentUser ? { committed: false } : { committed: true, value: undefined };
+			}
+		);
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new AuthError(
+				'The account changed or received an active order before it could be deleted. Refresh and try again.',
+				ErrorCode.CONFLICT,
+				undefined,
+				{ userId }
+			);
+		}
+		rethrowTransientD1Error(error);
+		throw error;
+	}
+
+	return result;
 }
 
 export async function repairMyTempEmailFromLinkedGoogle(
@@ -233,13 +319,29 @@ export async function revokeMySession(
 ): Promise<SessionRevokeResult> {
 	const actor = requireActor(ctx.actor);
 	const sessionId = normalizeId(input.sessionId, 'sessionId');
-
-	const deleted = await getDb()
-		.delete(sessionTable)
+	const db = getDb();
+	const [existing] = await db
+		.select({ id: sessionTable.id })
+		.from(sessionTable)
 		.where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, actor.id)))
-		.returning({ id: sessionTable.id });
-
-	return { revokedCount: deleted.length };
+		.limit(1);
+	if (!existing) return { revokedCount: 0 };
+	return withTransientD1WriteReconciliation<SessionRevokeResult>(
+		async () => {
+			await db
+				.delete(sessionTable)
+				.where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, actor.id)));
+			return { revokedCount: 1 };
+		},
+		async () => {
+			const [current] = await db
+				.select({ id: sessionTable.id })
+				.from(sessionTable)
+				.where(and(eq(sessionTable.id, sessionId), eq(sessionTable.userId, actor.id)))
+				.limit(1);
+			return current ? { committed: false } : { committed: true, value: { revokedCount: 1 } };
+		}
+	);
 }
 
 export async function listUsers(
@@ -253,18 +355,22 @@ export async function listUsers(
 	const offset = normalizeOffset(options.offset);
 	const where = buildUserListWhere(options);
 
-	const [totalRow] = await db.select({ total: count() }).from(userTable).where(where);
-	const rows = await db
-		.select()
-		.from(userTable)
-		.where(where)
-		.orderBy(desc(userTable.createdAt))
-		.limit(limit)
-		.offset(offset);
+	const [totalRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select({ total: count() }).from(userTable).where(where),
+			db
+				.select()
+				.from(userTable)
+				.where(where)
+				.orderBy(desc(userTable.createdAt))
+				.limit(limit)
+				.offset(offset)
+		])
+	);
 
 	return {
 		items: await hydrateUserAdminDTOs(db, rows, ctx, { includeAuthMethods: true }),
-		total: totalRow?.total ?? 0,
+		total: totalRows[0]?.total ?? 0,
 		limit,
 		offset
 	};
@@ -279,6 +385,56 @@ export async function getUserAdminProfile(
 	return loadUserAdminDTO(getDb(), normalizeId(input.userId, 'userId'), ctx, {
 		includeAuthMethods: true
 	});
+}
+
+export async function getUserAdminDetail(
+	ctx: ServiceContext,
+	input: { userId: string } & ListSessionsOptions
+): Promise<UserAdminDetailDTO> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+	const userId = normalizeId(input.userId, 'userId');
+	const limit = normalizeLimit(input.limit);
+	const offset = normalizeOffset(input.offset);
+	const [users, accounts, totalRows, sessionRows, latestSessionRows] =
+		await withTransientD1ReadRetry(() =>
+			db.batch([
+				db.select().from(userTable).where(eq(userTable.id, userId)).limit(1),
+				db
+					.select({
+						id: accountTable.id,
+						userId: accountTable.userId,
+						providerId: accountTable.providerId,
+						createdAt: accountTable.createdAt
+					})
+					.from(accountTable)
+					.where(eq(accountTable.userId, userId))
+					.orderBy(asc(accountTable.createdAt)),
+				db.select({ total: count() }).from(sessionTable).where(eq(sessionTable.userId, userId)),
+				sessionListQuery(db, userId, limit, offset),
+				sessionListQuery(db, userId, 1, 0)
+			])
+		);
+	const user = users[0];
+
+	if (!user) {
+		throw new AuthError('User not found.', ErrorCode.NOT_FOUND);
+	}
+
+	const latestSession = latestSessionRows[0] ?? null;
+
+	return {
+		user: toUserAdminDTO(user, accounts, totalRows[0]?.total ?? 0, latestSession, ctx, {
+			includeAuthMethods: true
+		}),
+		sessions: {
+			items: sessionRows.map((row) => toSessionDTO(row, input.currentSessionId)),
+			total: totalRows[0]?.total ?? 0,
+			limit,
+			offset
+		}
+	};
 }
 
 export async function setUserRole(
@@ -304,13 +460,25 @@ export async function setUserRole(
 		conditions.push(activeAdminExistsCondition(db, userId, now));
 	}
 	try {
-		await db.batch([
+		const statements: Parameters<Db['batch']>[0] = [
 			db
 				.update(userTable)
 				.set({ role, updatedAt: now })
 				.where(and(...conditions)),
 			...guardPreviousBatchChanges(db)
-		]);
+		];
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const current = await loadUserById(db, userId);
+				return resolveUserRole(current.role) === role &&
+					current.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new AuthError(
@@ -318,6 +486,7 @@ export async function setUserRole(
 				ErrorCode.CONFLICT
 			);
 		}
+		rethrowTransientD1Error(error);
 		throw error;
 	}
 
@@ -340,7 +509,7 @@ export async function banUser(ctx: ServiceContext, input: BanUserInput): Promise
 	const conditions = [eq(userTable.id, userId), eq(userTable.updatedAt, target.updatedAt)];
 	if (isActiveAdmin(target, now)) conditions.push(activeAdminExistsCondition(db, userId, now));
 	try {
-		await db.batch([
+		const statements: Parameters<Db['batch']>[0] = [
 			db
 				.update(userTable)
 				.set({
@@ -354,7 +523,21 @@ export async function banUser(ctx: ServiceContext, input: BanUserInput): Promise
 			...((input.revokeSessions ?? true)
 				? [db.delete(sessionTable).where(eq(sessionTable.userId, userId))]
 				: [])
-		]);
+		];
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const current = await loadUserById(db, userId);
+				return current.banned === true &&
+					current.banReason === reason &&
+					current.banExpires?.getTime() === expiresAt?.getTime() &&
+					current.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new AuthError(
@@ -362,6 +545,7 @@ export async function banUser(ctx: ServiceContext, input: BanUserInput): Promise
 				ErrorCode.CONFLICT
 			);
 		}
+		rethrowTransientD1Error(error);
 		throw error;
 	}
 
@@ -374,23 +558,40 @@ export async function unbanUser(
 ): Promise<UserAdminDTO> {
 	requireAdmin(ctx.actor);
 	const userId = normalizeId(input.userId, 'userId');
-
-	const [updated] = await getDb()
-		.update(userTable)
-		.set({
-			banned: false,
-			banReason: null,
-			banExpires: null,
-			updatedAt: getNow(ctx)
-		})
-		.where(eq(userTable.id, userId))
-		.returning({ id: userTable.id });
-
-	if (!updated) {
-		throw new AuthError('User not found.', ErrorCode.NOT_FOUND);
+	const db = getDb();
+	const existing = await loadUserById(db, userId);
+	if (!existing.banned && existing.banReason === null && existing.banExpires === null) {
+		return loadUserAdminDTO(db, userId, ctx, { includeAuthMethods: true });
 	}
+	const now = getNow(ctx);
+	await withTransientD1WriteReconciliation(
+		async () => {
+			const [updated] = await db
+				.update(userTable)
+				.set({
+					banned: false,
+					banReason: null,
+					banExpires: null,
+					updatedAt: now
+				})
+				.where(and(eq(userTable.id, userId), eq(userTable.updatedAt, existing.updatedAt)))
+				.returning({ id: userTable.id });
+			if (!updated) {
+				throw new AuthError('User changed before the ban could be removed.', ErrorCode.CONFLICT);
+			}
+		},
+		async () => {
+			const current = await loadUserById(db, userId);
+			return !current.banned &&
+				current.banReason === null &&
+				current.banExpires === null &&
+				current.updatedAt.getTime() === now.getTime()
+				? { committed: true, value: undefined }
+				: { committed: false };
+		}
+	);
 
-	return loadUserAdminDTO(getDb(), userId, ctx, { includeAuthMethods: true });
+	return loadUserAdminDTO(db, userId, ctx, { includeAuthMethods: true });
 }
 
 export async function listUserSessions(
@@ -423,10 +624,26 @@ export async function revokeUserSessions(
 	const where = sessionIds
 		? and(eq(sessionTable.userId, userId), inArray(sessionTable.id, sessionIds))
 		: eq(sessionTable.userId, userId);
-	const deleted = await db.delete(sessionTable).where(where).returning({ id: sessionTable.id });
-	const revokedCount = deleted.length;
-
-	return { revokedCount };
+	const rows = await db.select({ id: sessionTable.id }).from(sessionTable).where(where);
+	const ids = rows.map((row) => row.id);
+	if (ids.length === 0) return { revokedCount: 0 };
+	return withTransientD1WriteReconciliation<SessionRevokeResult>(
+		async () => {
+			await db
+				.delete(sessionTable)
+				.where(and(eq(sessionTable.userId, userId), inArray(sessionTable.id, ids)));
+			return { revokedCount: ids.length };
+		},
+		async () => {
+			const remaining = await db
+				.select({ id: sessionTable.id })
+				.from(sessionTable)
+				.where(and(eq(sessionTable.userId, userId), inArray(sessionTable.id, ids)));
+			return remaining.length === 0
+				? { committed: true, value: { revokedCount: ids.length } }
+				: { committed: false };
+		}
+	);
 }
 
 export async function repairUserTempEmailFromLinkedGoogle(
@@ -446,10 +663,29 @@ async function loadAccountProfile(
 	userId: string,
 	ctx: ServiceContext
 ): Promise<AccountProfileDTO> {
-	const user = await loadUserById(db, userId);
-	const accountsByUserId = await loadSafeAccountsByUserIds(db, [user.id]);
+	const normalizedUserId = normalizeId(userId, 'userId');
+	const [users, accounts] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select().from(userTable).where(eq(userTable.id, normalizedUserId)).limit(1),
+			db
+				.select({
+					id: accountTable.id,
+					userId: accountTable.userId,
+					providerId: accountTable.providerId,
+					createdAt: accountTable.createdAt
+				})
+				.from(accountTable)
+				.where(eq(accountTable.userId, normalizedUserId))
+				.orderBy(asc(accountTable.createdAt))
+		])
+	);
+	const user = users[0];
 
-	return toAccountProfileDTO(user, accountsByUserId.get(user.id) ?? [], ctx);
+	if (!user) {
+		throw new AuthError('User not found.', ErrorCode.NOT_FOUND);
+	}
+
+	return toAccountProfileDTO(user, accounts, ctx);
 }
 
 async function loadUserAdminDTO(
@@ -477,43 +713,51 @@ async function hydrateUserAdminDTOs(
 	if (users.length === 0) return [];
 
 	const userIds = users.map((row) => row.id);
-	const [accountsByUserId, sessionCountByUserId, latestSessionByUserId] = await Promise.all([
-		loadSafeAccountsByUserIds(db, userIds),
-		countSessionsForUserIds(db, userIds),
-		loadLatestSessionsForUserIds(db, userIds)
-	]);
+	const [accountRows, sessionCountRows, sessionRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db
+				.select({
+					id: accountTable.id,
+					userId: accountTable.userId,
+					providerId: accountTable.providerId,
+					createdAt: accountTable.createdAt
+				})
+				.from(accountTable)
+				.where(inArray(accountTable.userId, userIds))
+				.orderBy(asc(accountTable.createdAt)),
+			db
+				.select({
+					userId: sessionTable.userId,
+					total: count()
+				})
+				.from(sessionTable)
+				.where(inArray(sessionTable.userId, userIds))
+				.groupBy(sessionTable.userId),
+			db
+				.select({
+					userId: sessionTable.userId,
+					updatedAt: sessionTable.updatedAt,
+					ipAddress: sessionTable.ipAddress,
+					userAgent: sessionTable.userAgent
+				})
+				.from(sessionTable)
+				.where(inArray(sessionTable.userId, userIds))
+		])
+	);
+	const accountsByUserId = groupAccountsByUserId(accountRows);
+	const sessionCountByUserId = new Map(sessionCountRows.map((row) => [row.userId, row.total]));
+	const latestSessionByUserId = latestSessionsByUserId(sessionRows);
 
-	return users.map((row) => {
-		const authMethods = buildAuthMethods(row, accountsByUserId.get(row.id) ?? []);
-		const latestSession = latestSessionByUserId.get(row.id);
-		const dto: UserAdminDTO = {
-			id: row.id,
-			name: row.name,
-			email: resolvePublicEmail(row.email),
-			hasInternalEmail: isInternalTempEmail(row.email),
-			phoneNumber: row.phoneNumber,
-			phoneNumberVerified: row.phoneNumberVerified === true,
-			image: row.image,
-			role: resolveUserRole(row.role),
-			isAnonymous: row.isAnonymous === true,
-			isBanned: isUserBanned(row, getNow(ctx)),
-			banReason: row.banReason,
-			banExpires: row.banExpires,
-			createdAt: row.createdAt,
-			updatedAt: row.updatedAt,
-			authMethodCount: authMethods.length,
-			sessionCount: sessionCountByUserId.get(row.id) ?? 0,
-			lastActiveAt: latestSession?.updatedAt ?? null,
-			lastActiveIp: latestSession?.ipAddress ?? null,
-			lastActiveUserAgent: latestSession?.userAgent ?? null
-		};
-
-		if (options.includeAuthMethods) {
-			dto.authMethods = authMethods;
-		}
-
-		return dto;
-	});
+	return users.map((row) =>
+		toUserAdminDTO(
+			row,
+			accountsByUserId.get(row.id) ?? [],
+			sessionCountByUserId.get(row.id) ?? 0,
+			latestSessionByUserId.get(row.id) ?? null,
+			ctx,
+			options
+		)
+	);
 }
 
 async function listSessionsForUser(
@@ -524,11 +768,26 @@ async function listSessionsForUser(
 	const normalizedUserId = normalizeId(userId, 'userId');
 	const limit = normalizeLimit(options.limit);
 	const offset = normalizeOffset(options.offset);
-	const [totalRow] = await db
-		.select({ total: count() })
-		.from(sessionTable)
-		.where(eq(sessionTable.userId, normalizedUserId));
-	const rows = await db
+	const [totalRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db
+				.select({ total: count() })
+				.from(sessionTable)
+				.where(eq(sessionTable.userId, normalizedUserId)),
+			sessionListQuery(db, normalizedUserId, limit, offset)
+		])
+	);
+
+	return {
+		items: rows.map((row) => toSessionDTO(row, options.currentSessionId)),
+		total: totalRows[0]?.total ?? 0,
+		limit,
+		offset
+	};
+}
+
+function sessionListQuery(db: QueryExecutor, userId: string, limit: number, offset: number) {
+	return db
 		.select({
 			id: sessionTable.id,
 			userId: sessionTable.userId,
@@ -540,17 +799,10 @@ async function listSessionsForUser(
 			impersonatedBy: sessionTable.impersonatedBy
 		})
 		.from(sessionTable)
-		.where(eq(sessionTable.userId, normalizedUserId))
+		.where(eq(sessionTable.userId, userId))
 		.orderBy(desc(sessionTable.updatedAt))
 		.limit(limit)
 		.offset(offset);
-
-	return {
-		items: rows.map((row) => toSessionDTO(row, options.currentSessionId)),
-		total: totalRow?.total ?? 0,
-		limit,
-		offset
-	};
 }
 
 async function loadUserById(db: QueryExecutor, userId: string): Promise<UserRow> {
@@ -588,51 +840,21 @@ async function loadSafeAccountsByUserIds(
 	return groupAccountsByUserId(rows);
 }
 
-async function countSessionsForUserIds(
-	db: QueryExecutor,
-	userIds: string[]
-): Promise<Map<string, number>> {
-	const ids = uniqueStrings(userIds);
-	if (ids.length === 0) return new Map();
-
-	const rows = await db
-		.select({
-			userId: sessionTable.userId,
-			total: count()
-		})
-		.from(sessionTable)
-		.where(inArray(sessionTable.userId, ids))
-		.groupBy(sessionTable.userId);
-
-	return new Map(rows.map((row) => [row.userId, row.total]));
-}
-
-async function loadLatestSessionsForUserIds(
-	db: QueryExecutor,
-	userIds: string[]
-): Promise<
-	Map<
-		string,
-		{
-			updatedAt: Date;
-			ipAddress: string | null;
-			userAgent: string | null;
-		}
-	>
+function latestSessionsByUserId(
+	rows: Array<{
+		userId: string;
+		updatedAt: Date;
+		ipAddress: string | null;
+		userAgent: string | null;
+	}>
+): Map<
+	string,
+	{
+		updatedAt: Date;
+		ipAddress: string | null;
+		userAgent: string | null;
+	}
 > {
-	const ids = uniqueStrings(userIds);
-	if (ids.length === 0) return new Map();
-
-	const rows = await db
-		.select({
-			userId: sessionTable.userId,
-			updatedAt: sessionTable.updatedAt,
-			ipAddress: sessionTable.ipAddress,
-			userAgent: sessionTable.userAgent
-		})
-		.from(sessionTable)
-		.where(inArray(sessionTable.userId, ids));
-
 	const latestMap = new Map<
 		string,
 		{
@@ -757,6 +979,48 @@ function toAccountProfileDTO(
 		updatedAt: user.updatedAt,
 		authMethods: buildAuthMethods(user, accounts)
 	};
+}
+
+function toUserAdminDTO(
+	user: UserRow,
+	accounts: SafeAccountRow[],
+	sessionCount: number,
+	latestSession: {
+		updatedAt: Date;
+		ipAddress: string | null;
+		userAgent: string | null;
+	} | null,
+	ctx: ServiceContext,
+	options: { includeAuthMethods: boolean }
+): UserAdminDTO {
+	const authMethods = buildAuthMethods(user, accounts);
+	const dto: UserAdminDTO = {
+		id: user.id,
+		name: user.name,
+		email: resolvePublicEmail(user.email),
+		hasInternalEmail: isInternalTempEmail(user.email),
+		phoneNumber: user.phoneNumber,
+		phoneNumberVerified: user.phoneNumberVerified === true,
+		image: user.image,
+		role: resolveUserRole(user.role),
+		isAnonymous: user.isAnonymous === true,
+		isBanned: isUserBanned(user, getNow(ctx)),
+		banReason: user.banReason,
+		banExpires: user.banExpires,
+		createdAt: user.createdAt,
+		updatedAt: user.updatedAt,
+		authMethodCount: authMethods.length,
+		sessionCount,
+		lastActiveAt: latestSession?.updatedAt ?? null,
+		lastActiveIp: latestSession?.ipAddress ?? null,
+		lastActiveUserAgent: latestSession?.userAgent ?? null
+	};
+
+	if (options.includeAuthMethods) {
+		dto.authMethods = authMethods;
+	}
+
+	return dto;
 }
 
 function buildAuthMethods(user: UserRow, accounts: SafeAccountRow[]): AuthMethodDTO[] {

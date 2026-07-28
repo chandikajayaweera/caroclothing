@@ -2,15 +2,19 @@ import { logger } from 'better-auth';
 import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { getRequestEvent } from '$app/server';
 import { getDb } from '$lib/server/db';
+import { withTransientD1ReadRetry, withTransientD1WriteReconciliation } from '$lib/server/db/retry';
 import { eq, and, ne } from 'drizzle-orm';
 import { account, user as userTable } from '$lib/server/db/schema';
 import {
 	AuthError,
 	ErrorCode,
+	getErrorMessage,
 	isAppError,
+	normalizeServerError,
 	toBetterAuthApiError
 } from '$lib/server/infrastructure/errors';
 import { createCloudflareNotificationWakeupPublisher } from '$lib/server/infrastructure/cloudflare';
+import { maskEmailRecipient } from '$lib/server/infrastructure/email';
 import {
 	enqueueAuthGoogleLinkedEmailTx,
 	enqueueAuthWelcomeEmailTx,
@@ -25,8 +29,9 @@ const ANONYMOUS_EMAIL_DOMAIN = '@anon.caroclothing.lk';
 const LAST_AUTH_METHOD_MESSAGE = 'At least one sign-in method must remain linked.';
 
 function throwForBetterAuth(error: unknown): never {
-	if (isAppError(error)) throw toBetterAuthApiError(error);
-	throw error;
+	const normalizedError = normalizeServerError(error);
+	if (isAppError(normalizedError)) throw toBetterAuthApiError(normalizedError);
+	throw normalizedError;
 }
 
 function isInternalTempEmail(email: string) {
@@ -82,9 +87,12 @@ async function enqueueAuthWelcomeEmailForUser(user: {
 		await publishNotificationWakeups({ notificationWakeups: getNotificationWakeups(), now }, [
 			notification
 		]);
-		logger.info(`[auth] Welcome email queued for ${email}`);
+		logger.info(`[auth] Welcome email queued for ${maskEmailRecipient(email)}`);
 	} catch (error) {
-		logger.error(`[auth] Failed to queue welcome email for ${email}`, error);
+		logger.error(
+			`[auth] Failed to queue welcome email for ${maskEmailRecipient(email)}`,
+			getErrorMessage(error)
+		);
 	}
 }
 
@@ -105,9 +113,12 @@ async function enqueueAuthGoogleLinkedEmailForAccount(input: {
 		await publishNotificationWakeups({ notificationWakeups: getNotificationWakeups(), now }, [
 			notification
 		]);
-		logger.info(`[auth] Google-linked email queued for ${input.email}`);
+		logger.info(`[auth] Google-linked email queued for ${maskEmailRecipient(input.email)}`);
 	} catch (error) {
-		logger.error(`[auth] Failed to queue Google-linked email for ${input.email}`, error);
+		logger.error(
+			`[auth] Failed to queue Google-linked email for ${maskEmailRecipient(input.email)}`,
+			getErrorMessage(error)
+		);
 	}
 }
 
@@ -131,7 +142,7 @@ function getVerifiedGoogleEmail(idToken: string | null | undefined) {
 		const email = payload.email.trim().toLowerCase();
 		return email.includes('@') ? email : null;
 	} catch (error) {
-		logger.warn('[auth] Failed to decode Google ID token email', error);
+		logger.warn('[auth] Failed to decode Google ID token email', getErrorMessage(error));
 		return null;
 	}
 }
@@ -153,21 +164,25 @@ function getSessionUserId(context: unknown): string | undefined {
 }
 
 async function userHasGoogleAccount(userId: string) {
-	const [googleAccount] = await getDb()
-		.select({ id: account.id })
-		.from(account)
-		.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
-		.limit(1);
+	const [googleAccount] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ id: account.id })
+			.from(account)
+			.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
+			.limit(1)
+	);
 
 	return Boolean(googleAccount);
 }
 
 async function assertPhoneNumberAvailable(phoneNumber: string, userId: string) {
-	const [existingUser] = await getDb()
-		.select({ id: userTable.id })
-		.from(userTable)
-		.where(and(eq(userTable.phoneNumber, phoneNumber), ne(userTable.id, userId)))
-		.limit(1);
+	const [existingUser] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ id: userTable.id })
+			.from(userTable)
+			.where(and(eq(userTable.phoneNumber, phoneNumber), ne(userTable.id, userId)))
+			.limit(1)
+	);
 
 	if (existingUser) {
 		throw new AuthError(
@@ -184,11 +199,13 @@ async function assertCanRemovePhoneNumber(userId: string) {
 }
 
 async function assertCanRemoveGoogleAccount(userId: string) {
-	const [user] = await getDb()
-		.select({ phoneNumber: userTable.phoneNumber })
-		.from(userTable)
-		.where(eq(userTable.id, userId))
-		.limit(1);
+	const [user] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ phoneNumber: userTable.phoneNumber })
+			.from(userTable)
+			.where(eq(userTable.id, userId))
+			.limit(1)
+	);
 
 	if (user?.phoneNumber) return;
 
@@ -196,11 +213,13 @@ async function assertCanRemoveGoogleAccount(userId: string) {
 }
 
 async function assertGoogleAccountAvailable(userId: string, googleAccountId: string) {
-	const [existingGoogleAccountForUser] = await getDb()
-		.select({ id: account.id })
-		.from(account)
-		.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
-		.limit(1);
+	const [existingGoogleAccountForUser] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ id: account.id })
+			.from(account)
+			.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
+			.limit(1)
+	);
 
 	if (existingGoogleAccountForUser) {
 		throw new AuthError(
@@ -209,11 +228,15 @@ async function assertGoogleAccountAvailable(userId: string, googleAccountId: str
 		);
 	}
 
-	const [existingGoogleAccount] = await getDb()
-		.select({ id: account.id })
-		.from(account)
-		.where(and(eq(account.providerId, GOOGLE_PROVIDER_ID), eq(account.accountId, googleAccountId)))
-		.limit(1);
+	const [existingGoogleAccount] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ id: account.id })
+			.from(account)
+			.where(
+				and(eq(account.providerId, GOOGLE_PROVIDER_ID), eq(account.accountId, googleAccountId))
+			)
+			.limit(1)
+	);
 
 	if (existingGoogleAccount) {
 		throw new AuthError(
@@ -230,19 +253,29 @@ async function promoteTempUserEmailFromGoogleAccount(
 	const googleEmail = getVerifiedGoogleEmail(idToken);
 	if (!googleEmail) return null;
 
-	const [user] = await getDb()
-		.select({ id: userTable.id, email: userTable.email })
-		.from(userTable)
-		.where(eq(userTable.id, userId))
-		.limit(1);
+	const db = getDb();
+	const [user] = await withTransientD1ReadRetry(() =>
+		db
+			.select({
+				id: userTable.id,
+				email: userTable.email,
+				emailVerified: userTable.emailVerified,
+				updatedAt: userTable.updatedAt
+			})
+			.from(userTable)
+			.where(eq(userTable.id, userId))
+			.limit(1)
+	);
 
 	if (!user?.email || !isInternalTempEmail(user.email)) return null;
 
-	const [existingUser] = await getDb()
-		.select({ id: userTable.id })
-		.from(userTable)
-		.where(and(eq(userTable.email, googleEmail), ne(userTable.id, userId)))
-		.limit(1);
+	const [existingUser] = await withTransientD1ReadRetry(() =>
+		db
+			.select({ id: userTable.id })
+			.from(userTable)
+			.where(and(eq(userTable.email, googleEmail), ne(userTable.id, userId)))
+			.limit(1)
+	);
 
 	if (existingUser) {
 		logger.warn(
@@ -251,21 +284,65 @@ async function promoteTempUserEmailFromGoogleAccount(
 		return null;
 	}
 
-	await getDb()
-		.update(userTable)
-		.set({ email: googleEmail, emailVerified: true })
-		.where(eq(userTable.id, userId));
+	const now = new Date();
+	await withTransientD1WriteReconciliation(
+		async () => {
+			const [updated] = await db
+				.update(userTable)
+				.set({ email: googleEmail, emailVerified: true, updatedAt: now })
+				.where(
+					and(
+						eq(userTable.id, userId),
+						eq(userTable.email, user.email),
+						eq(userTable.updatedAt, user.updatedAt)
+					)
+				)
+				.returning({ id: userTable.id });
+			if (!updated) {
+				const [current] = await withTransientD1ReadRetry(() =>
+					db
+						.select({ email: userTable.email, emailVerified: userTable.emailVerified })
+						.from(userTable)
+						.where(eq(userTable.id, userId))
+						.limit(1)
+				);
+				if (current?.email === googleEmail && current.emailVerified) return;
+				throw new AuthError(
+					'Account changed before the Google email could be linked.',
+					ErrorCode.CONFLICT
+				);
+			}
+		},
+		async () => {
+			const [current] = await db
+				.select({
+					email: userTable.email,
+					emailVerified: userTable.emailVerified,
+					updatedAt: userTable.updatedAt
+				})
+				.from(userTable)
+				.where(eq(userTable.id, userId))
+				.limit(1);
+			return current?.email === googleEmail &&
+				current.emailVerified &&
+				current.updatedAt.getTime() === now.getTime()
+				? { committed: true, value: undefined }
+				: { committed: false };
+		}
+	);
 
 	logger.info(`[auth] Promoted temp email to linked Google email for ${userId}`);
 	return googleEmail;
 }
 
 export async function repairTempUserEmailFromLinkedGoogleAccount(userId: string) {
-	const [googleAccount] = await getDb()
-		.select({ idToken: account.idToken })
-		.from(account)
-		.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
-		.limit(1);
+	const [googleAccount] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ idToken: account.idToken })
+			.from(account)
+			.where(and(eq(account.userId, userId), eq(account.providerId, GOOGLE_PROVIDER_ID)))
+			.limit(1)
+	);
 
 	if (!googleAccount) return null;
 
@@ -281,32 +358,95 @@ function getUserIdFromHookContext(context: unknown): string | undefined {
 }
 
 async function clearExpiredBan(userId: string) {
-	const [user] = await getDb()
-		.select({ banned: userTable.banned, banExpires: userTable.banExpires })
-		.from(userTable)
-		.where(eq(userTable.id, userId))
-		.limit(1);
+	const db = getDb();
+	const [user] = await withTransientD1ReadRetry(() =>
+		db
+			.select({
+				banned: userTable.banned,
+				banExpires: userTable.banExpires,
+				updatedAt: userTable.updatedAt
+			})
+			.from(userTable)
+			.where(eq(userTable.id, userId))
+			.limit(1)
+	);
 
 	if (user && user.banned === true && user.banExpires && user.banExpires <= new Date()) {
-		await getDb()
-			.update(userTable)
-			.set({ banned: false, banExpires: null, banReason: null })
-			.where(eq(userTable.id, userId));
+		const now = new Date();
+		await withTransientD1WriteReconciliation(
+			async () => {
+				const [updated] = await db
+					.update(userTable)
+					.set({
+						banned: false,
+						banExpires: null,
+						banReason: null,
+						updatedAt: now
+					})
+					.where(and(eq(userTable.id, userId), eq(userTable.updatedAt, user.updatedAt)))
+					.returning({ id: userTable.id });
+				if (!updated) {
+					const [current] = await withTransientD1ReadRetry(() =>
+						db
+							.select({
+								banned: userTable.banned,
+								banExpires: userTable.banExpires,
+								banReason: userTable.banReason
+							})
+							.from(userTable)
+							.where(eq(userTable.id, userId))
+							.limit(1)
+					);
+					if (
+						current &&
+						!current.banned &&
+						current.banExpires === null &&
+						current.banReason === null
+					) {
+						return;
+					}
+					throw new AuthError(
+						'Account changed while an expired ban was being cleared.',
+						ErrorCode.CONFLICT
+					);
+				}
+			},
+			async () => {
+				const [current] = await db
+					.select({
+						banned: userTable.banned,
+						banExpires: userTable.banExpires,
+						banReason: userTable.banReason,
+						updatedAt: userTable.updatedAt
+					})
+					.from(userTable)
+					.where(eq(userTable.id, userId))
+					.limit(1);
+				return current &&
+					!current.banned &&
+					current.banExpires === null &&
+					current.banReason === null &&
+					current.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
 		logger.info(`[auth] Dynamic unban executed for expired ban on user ${userId}`);
 	}
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function setBanCookieIfActive(userId: string, ctx?: any) {
-	const [user] = await getDb()
-		.select({
-			banned: userTable.banned,
-			banExpires: userTable.banExpires,
-			banReason: userTable.banReason
-		})
-		.from(userTable)
-		.where(eq(userTable.id, userId))
-		.limit(1);
+async function setBanCookieIfActive(userId: string, ctx?: unknown) {
+	const [user] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({
+				banned: userTable.banned,
+				banExpires: userTable.banExpires,
+				banReason: userTable.banReason
+			})
+			.from(userTable)
+			.where(eq(userTable.id, userId))
+			.limit(1)
+	);
 
 	if (user && user.banned === true && (!user.banExpires || user.banExpires > new Date())) {
 		const cookieData = JSON.stringify({
@@ -314,13 +454,29 @@ async function setBanCookieIfActive(userId: string, ctx?: any) {
 			banReason: user.banReason
 		});
 
-		if (ctx && typeof ctx.setCookie === 'function') {
+		const setCookie = (
+			ctx as {
+				setCookie?: (
+					name: string,
+					value: string,
+					options: { path: string; maxAge: number; httpOnly: boolean }
+				) => void;
+			} | null
+		)?.setCookie;
+		if (setCookie) {
 			try {
-				ctx.setCookie('caro_temp_ban_info', cookieData, { path: '/', maxAge: 10, httpOnly: true });
+				setCookie.call(ctx, 'caro_temp_ban_info', cookieData, {
+					path: '/',
+					maxAge: 10,
+					httpOnly: true
+				});
 				logger.info(`[auth] Set temp ban cookie via Better Auth context for user ${userId}`);
 				return;
 			} catch (error) {
-				logger.warn(`[auth] Failed to set temp ban cookie via Better Auth context:`, error);
+				logger.warn(
+					'[auth] Failed to set temp ban cookie via Better Auth context:',
+					getErrorMessage(error)
+				);
 			}
 		}
 
@@ -335,7 +491,10 @@ async function setBanCookieIfActive(userId: string, ctx?: any) {
 				logger.info(`[auth] Set temp ban cookie via SvelteKit cookies for user ${userId}`);
 			}
 		} catch (error) {
-			logger.warn(`[auth] Failed to set temp ban cookie via SvelteKit cookies:`, error);
+			logger.warn(
+				'[auth] Failed to set temp ban cookie via SvelteKit cookies:',
+				getErrorMessage(error)
+			);
 		}
 	}
 }
@@ -416,17 +575,21 @@ export const databaseHooks: BetterAuthOptions['databaseHooks'] = {
 
 				await promoteTempUserEmailFromGoogleAccount(acct.userId, acct.idToken);
 
-				const user = await getDb().query.user.findFirst({
-					where: (u, { eq }) => eq(u.id, acct.userId)
-				});
+				const user = await withTransientD1ReadRetry(() =>
+					getDb().query.user.findFirst({
+						where: (u, { eq }) => eq(u.id, acct.userId)
+					})
+				);
 
 				if (!user?.email) return;
 
 				if (isInternalTempEmail(user.email)) return;
 
-				const userAccounts = await getDb().query.account.findMany({
-					where: (a, { eq }) => eq(a.userId, acct.userId)
-				});
+				const userAccounts = await withTransientD1ReadRetry(() =>
+					getDb().query.account.findMany({
+						where: (a, { eq }) => eq(a.userId, acct.userId)
+					})
+				);
 
 				if (userAccounts.length <= 1) return;
 

@@ -7,6 +7,7 @@ import {
 	addPromotionCode,
 	createPromotion,
 	createPromoCode,
+	getPromotion,
 	getPromoCode,
 	grantPromotionToCustomer,
 	listPromotionCustomerGrants,
@@ -16,6 +17,7 @@ import {
 	reconcilePromoCodeUsageCounts,
 	recordPromoUsage,
 	resolvePromotionForBag,
+	resolveStoredPromotionBagStatesTx,
 	revokePromotionCustomerGrant,
 	setPromotionActive,
 	setPromoCodeActive,
@@ -117,6 +119,75 @@ describe('promotions service integration', () => {
 					data: { isActive: false, isDiscoverable: true }
 				})
 			).resolves.toMatchObject({ codeIsActive: false, isDiscoverable: true });
+
+			await updatePromotionCode(adminCtx(), {
+				promoCodeId: partnerCode.id,
+				data: { isActive: true }
+			});
+			await setPromotionActive(adminCtx(), { promotionId: created.id, isActive: true });
+			await setPromoCodeActive(adminCtx(), {
+				lookup: { id: created.codes[0]!.id },
+				isActive: false
+			});
+			await expect(
+				getPromoCode(adminCtx(), { lookup: { id: partnerCode.id } })
+			).resolves.toMatchObject({ codeIsActive: true, isActive: true });
+		});
+
+		it('stops applying a stored code and deactivates its parent when the last code is disabled', async () => {
+			const created = await createPromotion(adminCtx(), {
+				name: 'Stored code lifecycle',
+				discountType: 'percentage',
+				discountValue: 10,
+				applicationMode: 'code',
+				code: { code: 'STORED10' }
+			});
+			const code = created.codes[0]!;
+
+			await setPromotionActive(adminCtx(), {
+				promotionId: created.id,
+				isActive: true
+			});
+
+			const activeStates = await resolveStoredPromotionBagStatesTx(db(), {
+				items: [
+					{
+						key: 'bag-1',
+						promotionId: created.id,
+						promoCodeId: code.id,
+						subtotal: 10_000
+					}
+				],
+				now
+			});
+			expect(activeStates.get('bag-1')).toMatchObject({
+				presentation: { code: 'STORED10' },
+				result: { discountAmount: 1_000 }
+			});
+
+			await updatePromotionCode(adminCtx(), {
+				promoCodeId: code.id,
+				data: { isActive: false }
+			});
+
+			const inactiveStates = await resolveStoredPromotionBagStatesTx(db(), {
+				items: [
+					{
+						key: 'bag-1',
+						promotionId: created.id,
+						promoCodeId: code.id,
+						subtotal: 10_000
+					}
+				],
+				now
+			});
+			expect(inactiveStates.get('bag-1')).toMatchObject({
+				presentation: { code: 'STORED10' },
+				result: null
+			});
+			await expect(getPromotion(adminCtx(), { promotionId: created.id })).resolves.toMatchObject({
+				isActive: false
+			});
 		});
 
 		it('selects the highest-value eligible automatic promotion', async () => {

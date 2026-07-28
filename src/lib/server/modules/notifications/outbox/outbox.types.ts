@@ -29,6 +29,7 @@ export type NotificationPayloadByType = {
 };
 
 export type NotificationPayload = NotificationPayloadByType[NotificationOutboxType];
+export type RedactedNotificationPayload = { redacted: true };
 
 export type NotificationQueueMessage = NotificationWakeupMessage;
 
@@ -42,7 +43,7 @@ export type NotificationOutboxDTO = {
 	recipientUserId: string | null;
 	aggregateType: NotificationAggregateType;
 	aggregateId: string | null;
-	payload: NotificationPayload;
+	payload: NotificationPayload | RedactedNotificationPayload;
 	metadata: Record<string, unknown> | null;
 	attemptCount: number;
 	maxAttempts: number;
@@ -60,7 +61,11 @@ export type NotificationOutboxDTO = {
 	updatedAt: Date;
 };
 
-export type ClaimedNotificationDTO = NotificationOutboxDTO & {
+export type ClaimedNotificationDTO = Omit<
+	NotificationOutboxDTO,
+	'payload' | 'status' | 'lockToken'
+> & {
+	payload: NotificationPayload;
 	status: 'processing';
 	lockToken: string;
 };
@@ -203,7 +208,7 @@ export type NotificationOutboxSummaryDTO = {
 export type ClaimNotificationInput =
 	| {
 			outboxId: string;
-			idempotencyKey?: never;
+			idempotencyKey?: string;
 			workerId?: string;
 			now?: Date;
 	  }

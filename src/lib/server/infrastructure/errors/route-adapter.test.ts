@@ -65,4 +65,21 @@ describe('route AppError adapters', () => {
 		expect(() => throwHttpFromAppError(error)).toThrow(error);
 		expect(captureException).toHaveBeenCalledWith(error);
 	});
+
+	it('normalizes raw transient D1 failures to a captured 503 response', () => {
+		const result = failFromAppError(new Error('D1_ERROR: Network connection lost.'));
+
+		expect(result.status).toBe(503);
+		expect(result.data).toEqual({
+			success: false,
+			message: 'Something went wrong on our end. Please try again later.',
+			error: {
+				code: 'DATABASE_UNAVAILABLE',
+				message: 'Something went wrong on our end. Please try again later.'
+			}
+		});
+		expect(captureException).toHaveBeenCalledWith(
+			expect.objectContaining({ code: 'DATABASE_UNAVAILABLE', statusCode: 503 })
+		);
+	});
 });

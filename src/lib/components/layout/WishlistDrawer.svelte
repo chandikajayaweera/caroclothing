@@ -3,6 +3,8 @@
 	import { fly, fade } from 'svelte/transition';
 	import { uiStore, closeWishlistDrawer } from '$lib/client/stores/ui';
 	import { wishlist } from '$lib/client/stores/wishlist.svelte';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
+	import SkeletonBlock from '$lib/components/navigation/SkeletonBlock.svelte';
 	import Button from '../ui/Button.svelte';
 
 	type WishlistDrawerItem = {
@@ -84,10 +86,20 @@
 		</div>
 
 		<!-- Item list -->
-		<div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
+		<div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4" aria-busy={isLoading}>
 			{#if isLoading}
-				<div class="flex h-full flex-col items-center justify-center text-center">
-					<span class="font-mono text-xs text-ash uppercase">Loading items...</span>
+				<p class="sr-only" role="status">Loading wishlist items.</p>
+				<div class="flex flex-col gap-4" aria-hidden="true">
+					{#each [0, 1, 2, 3] as row (row)}
+						<div class="flex gap-4 border-b border-charcoal/50 pb-4">
+							<SkeletonBlock class="h-20 w-16 shrink-0" />
+							<div class="flex-1 py-1">
+								<SkeletonBlock class="h-4 w-4/5" />
+								<SkeletonBlock class="mt-3 h-3 w-28" />
+								<SkeletonBlock class="mt-5 h-3 w-16" />
+							</div>
+						</div>
+					{/each}
 				</div>
 			{:else if wishlistItems.length === 0}
 				<div class="flex h-full flex-col items-center justify-center text-center">
@@ -106,9 +118,9 @@
 							<a
 								href={resolve(`/shop/${item.product.slug}`)}
 								onclick={closeWishlistDrawer}
-								class="h-20 w-16 shrink-0 overflow-hidden bg-charcoal"
+								class="relative h-20 w-16 shrink-0 overflow-hidden bg-charcoal"
 							>
-								<img
+								<ProgressiveImage
 									src={item.imageUrl || '/images/placeholder.jpg'}
 									alt={item.product.name}
 									class="h-full w-full object-cover object-top"

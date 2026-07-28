@@ -17,6 +17,7 @@ import {
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
+import { rethrowTransientD1Error, withTransientD1WriteReconciliation } from '$lib/server/db/retry';
 import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	BagError,
@@ -37,8 +38,7 @@ import {
 } from '$lib/server/foundation/utils';
 import { shippingMethod } from '../shipping/shipping.drizzle';
 import {
-	getStoredPromotionBagPresentationTx,
-	resolveStoredPromotionForBagTx,
+	resolveStoredPromotionBagStatesTx,
 	validatePromoCodeForBagTx
 } from '../promotions/promotions.service';
 import {
@@ -82,7 +82,6 @@ import type {
 	ListBagsOptions,
 	MergeGuestBagIntoUserInput,
 	MergeUserBagIntoUserInput,
-	OrderBagDeleteResult,
 	RemoveBagItemInput,
 	StorefrontVariantAvailabilityDTO,
 	StorefrontVariantAvailabilityInput,
@@ -205,8 +204,20 @@ export async function updateBagItemQuantity(
 				...guardPreviousBatchChanges(db)
 			);
 		}
-		await db.batch(statements);
-		return hydrateBagTx(db, await reloadBagByIdTx(db, row.bag.id), now);
+		const committedBag = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				await db.batch(statements);
+				return reloadBagByIdTx(db, row.bag.id);
+			},
+			async () => {
+				const bag = await findBagByIdTx(db, row.bag.id);
+				const item = await findBagItemByIdTx(db, row.item.id);
+				return bag && item?.quantity === quantity && bag.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: bag }
+					: { committed: false };
+			}
+		);
+		return hydrateBagTx(db, committedBag, now);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new BagError('Bag changed while it was being updated.', ErrorCode.CONFLICT);
@@ -226,18 +237,30 @@ export async function removeBagItem(
 	try {
 		const db = getDb();
 		const row = await findOwnedBagItemTx(db, owner, bagItemId, now);
-		await db.batch([
-			db
-				.delete(bagItemTable)
-				.where(and(eq(bagItemTable.id, row.item.id), eq(bagItemTable.bagId, row.bag.id))),
-			...guardPreviousBatchChanges(db),
-			db
-				.update(bagTable)
-				.set({ checkoutStartedAt: null, checkoutExpiresAt: null, updatedAt: now })
-				.where(eq(bagTable.id, row.bag.id)),
-			...guardPreviousBatchChanges(db)
-		]);
-		return hydrateBagTx(db, await reloadBagByIdTx(db, row.bag.id), now);
+		const committedBag = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				await db.batch([
+					db
+						.delete(bagItemTable)
+						.where(and(eq(bagItemTable.id, row.item.id), eq(bagItemTable.bagId, row.bag.id))),
+					...guardPreviousBatchChanges(db),
+					db
+						.update(bagTable)
+						.set({ checkoutStartedAt: null, checkoutExpiresAt: null, updatedAt: now })
+						.where(and(eq(bagTable.id, row.bag.id), eq(bagTable.updatedAt, row.bag.updatedAt))),
+					...guardPreviousBatchChanges(db)
+				]);
+				return reloadBagByIdTx(db, row.bag.id);
+			},
+			async () => {
+				const bag = await findBagByIdTx(db, row.bag.id);
+				const item = await findBagItemByIdTx(db, row.item.id);
+				return bag && !item && bag.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: bag }
+					: { committed: false };
+			}
+		);
+		return hydrateBagTx(db, committedBag, now);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new BagError('Bag item changed before it could be removed.', ErrorCode.CONFLICT);
@@ -253,21 +276,42 @@ export async function clearBag(ctx: ServiceContext, input: BagAccessInput = {}):
 	try {
 		const db = getDb();
 		const row = await getOrCreateBagTx(db, owner, now);
-		await db.batch([
-			db.delete(bagItemTable).where(eq(bagItemTable.bagId, row.id)),
-			db
-				.update(bagTable)
-				.set({
-					promotionId: null,
-					promoCodeId: null,
-					checkoutStartedAt: null,
-					checkoutExpiresAt: null,
-					updatedAt: now
-				})
-				.where(and(eq(bagTable.id, row.id), eq(bagTable.updatedAt, row.updatedAt))),
-			...guardPreviousBatchChanges(db)
-		]);
-		return hydrateBagTx(db, await reloadBagByIdTx(db, row.id), now);
+		const committedBag = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				await db.batch([
+					db.delete(bagItemTable).where(eq(bagItemTable.bagId, row.id)),
+					db
+						.update(bagTable)
+						.set({
+							promotionId: null,
+							promoCodeId: null,
+							checkoutStartedAt: null,
+							checkoutExpiresAt: null,
+							updatedAt: now
+						})
+						.where(and(eq(bagTable.id, row.id), eq(bagTable.updatedAt, row.updatedAt))),
+					...guardPreviousBatchChanges(db)
+				]);
+				return reloadBagByIdTx(db, row.id);
+			},
+			async () => {
+				const bag = await findBagByIdTx(db, row.id);
+				if (!bag || bag.updatedAt.getTime() !== now.getTime()) return { committed: false };
+				const [item] = await db
+					.select({ id: bagItemTable.id })
+					.from(bagItemTable)
+					.where(eq(bagItemTable.bagId, row.id))
+					.limit(1);
+				return !item &&
+					bag.promotionId === null &&
+					bag.promoCodeId === null &&
+					bag.checkoutStartedAt === null &&
+					bag.checkoutExpiresAt === null
+					? { committed: true, value: bag }
+					: { committed: false };
+			}
+		);
+		return hydrateBagTx(db, committedBag, now);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new BagError('Bag changed before it could be cleared.', ErrorCode.CONFLICT);
@@ -299,10 +343,12 @@ export async function getStorefrontVariantAvailability(
 	if (variantIds.length === 0) return [];
 
 	const db = getDb();
-	const [inventoryRows, activeCheckoutHoldsByVariantId] = await Promise.all([
-		getInventoryAvailabilityByVariantIds(ctx, { variantIds }),
-		loadActiveCheckoutHoldsByVariantId(db, variantIds, now)
-	]);
+	const inventoryRows = await getInventoryAvailabilityByVariantIds(ctx, { variantIds });
+	const activeCheckoutHoldsByVariantId = await loadActiveCheckoutHoldsByVariantId(
+		db,
+		variantIds,
+		now
+	);
 
 	return inventoryRows.map((inventoryRow) => {
 		const holds = activeCheckoutHoldsByVariantId.get(inventoryRow.variantId) ?? [];
@@ -357,29 +403,42 @@ export async function startCheckout(
 		}
 
 		const checkoutExpiresAt = new Date(now.getTime() + CHECKOUT_WINDOW_MS);
-		const [claimed] = await db
-			.update(bagTable)
-			.set({
-				checkoutStartedAt: now,
-				checkoutExpiresAt,
-				updatedAt: now
-			})
-			.where(
-				and(
-					eq(bagTable.id, row.id),
-					eq(bagTable.updatedAt, row.updatedAt),
-					or(isNull(bagTable.checkoutExpiresAt), lte(bagTable.checkoutExpiresAt, now))
-				)
-			)
-			.returning();
+		const claimed = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				const [updated] = await db
+					.update(bagTable)
+					.set({
+						checkoutStartedAt: now,
+						checkoutExpiresAt,
+						updatedAt: now
+					})
+					.where(
+						and(
+							eq(bagTable.id, row.id),
+							eq(bagTable.updatedAt, row.updatedAt),
+							or(isNull(bagTable.checkoutExpiresAt), lte(bagTable.checkoutExpiresAt, now))
+						)
+					)
+					.returning();
+				if (updated) return updated;
 
-		if (!claimed) {
-			const raced = await reloadBagByIdTx(db, row.id);
-			if (isCheckoutActive(raced, now)) {
-				return toCheckoutBagDTO(await hydrateBagTx(db, raced, now), true);
+				const raced = await reloadBagByIdTx(db, row.id);
+				if (
+					raced.checkoutStartedAt?.getTime() === now.getTime() &&
+					raced.checkoutExpiresAt?.getTime() === checkoutExpiresAt.getTime()
+				) {
+					return raced;
+				}
+				throw new BagError('Checkout could not be started.', ErrorCode.CONFLICT);
+			},
+			async () => {
+				const current = await findBagByIdTx(db, row.id);
+				return current?.checkoutStartedAt?.getTime() === now.getTime() &&
+					current.checkoutExpiresAt?.getTime() === checkoutExpiresAt.getTime()
+					? { committed: true, value: current }
+					: { committed: false };
 			}
-			throw new BagError('Checkout could not be started.', ErrorCode.CONFLICT);
-		}
+		);
 
 		return toCheckoutBagDTO(await hydrateBagTx(db, claimed, now), true);
 	} catch (error) {
@@ -435,21 +494,6 @@ export async function getCheckoutBagForOrderTx(
 	}
 
 	return hydrateCheckoutOrderBagTx(tx, row, now);
-}
-
-export async function deleteBagAfterOrderPlacementTx(
-	tx: BagTx,
-	input: { bagId: string }
-): Promise<OrderBagDeleteResult> {
-	const bagId = normalizeId(input.bagId, 'bagId');
-	const items = await tx.select().from(bagItemTable).where(eq(bagItemTable.bagId, bagId));
-	await tx.delete(bagItemTable).where(eq(bagItemTable.bagId, bagId));
-	await tx.delete(bagTable).where(eq(bagTable.id, bagId));
-
-	return {
-		bagId,
-		itemCount: items.length
-	};
 }
 
 export async function mergeGuestBagIntoUserBag(
@@ -567,6 +611,15 @@ export function prepareAnonymousBagMergeStatements(
 	];
 }
 
+export async function hasUserBagDataForMigrationTx(db: BagTx, userId: string): Promise<boolean> {
+	const [row] = await db
+		.select({ id: bagTable.id })
+		.from(bagTable)
+		.where(eq(bagTable.userId, normalizeId(userId, 'userId')))
+		.limit(1);
+	return Boolean(row);
+}
+
 export async function mergeUserBagIntoUserBagTx(
 	tx: BagTx,
 	ctx: ServiceContext,
@@ -630,7 +683,7 @@ export async function listBags(
 		.limit(limit)
 		.offset(offset);
 	const totalQuery = db.select({ total: count() }).from(bagTable);
-	const [rows, totalRows] = await db.batch([
+	const [rows, totalRows] = await Promise.all([
 		where ? rowsQuery.where(where) : rowsQuery,
 		where ? totalQuery.where(where) : totalQuery
 	]);
@@ -714,7 +767,9 @@ export async function deleteExpiredGuestBags(
 			} catch (err) {
 				failedCount += 1;
 				failedBagIds.push(row.id);
-				console.error(`[bag] Failed to delete expired guest bag ${row.id}:`, err);
+				console.error(`[bag] Failed to delete expired guest bag ${row.id}:`, {
+					error: getErrorMessage(err)
+				});
 			}
 		}
 
@@ -774,7 +829,9 @@ export async function expireDueBagCheckouts(
 			} catch (err) {
 				failedCount += 1;
 				failedBagIds.push(row.id);
-				console.error(`[bag] Failed to expire checkout for bag ${row.id}:`, err);
+				console.error(`[bag] Failed to expire checkout for bag ${row.id}:`, {
+					error: getErrorMessage(err)
+				});
 			}
 		}
 
@@ -806,6 +863,8 @@ async function addItemToBagWithRetry(
 		const bagRow = await getOrCreateBagTx(db, owner, now);
 		const target = await loadPurchasableVariantTx(db, variantId);
 		const existing = await findBagItemByVariantTx(db, bagRow.id, variantId);
+		const bagItemId = existing?.id ?? nanoid();
+		const expectedQuantity = (existing?.quantity ?? 0) + quantity;
 		const statements: [BagBatchItem, ...BagBatchItem[]] = [
 			db
 				.update(bagTable)
@@ -815,7 +874,7 @@ async function addItemToBagWithRetry(
 		statements.push(...guardPreviousBatchChanges(db));
 
 		if (existing) {
-			const nextQuantity = existing.quantity + quantity;
+			const nextQuantity = expectedQuantity;
 			validateBagItemQuantity(nextQuantity, 'quantity');
 			await assertBagQuantityAvailableTx(db, variantId, nextQuantity);
 
@@ -830,7 +889,6 @@ async function addItemToBagWithRetry(
 			);
 		} else {
 			await assertBagQuantityAvailableTx(db, variantId, quantity);
-			const bagItemId = nanoid();
 			const values = parseNewBagItem({
 				id: bagItemId,
 				bagId: bagRow.id,
@@ -843,8 +901,24 @@ async function addItemToBagWithRetry(
 			statements.push(db.insert(bagItemTable).values(values));
 		}
 
-		await db.batch(statements);
-		return hydrateBagTx(db, await reloadBagByIdTx(db, bagRow.id), now);
+		const committedBag = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				await db.batch(statements);
+				return reloadBagByIdTx(db, bagRow.id);
+			},
+			async () => {
+				const bag = await findBagByIdTx(db, bagRow.id);
+				const item = await findBagItemByIdTx(db, bagItemId);
+				return bag &&
+					item?.bagId === bagRow.id &&
+					item.variantId === variantId &&
+					item.quantity === expectedQuantity &&
+					bag.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: bag }
+					: { committed: false };
+			}
+		);
+		return hydrateBagTx(db, committedBag, now);
 	} catch (error) {
 		if (
 			retryOnConflict &&
@@ -872,19 +946,30 @@ async function getOrCreateBagTx(tx: Tx, owner: BagOwner, now: Date): Promise<Bag
 	}
 
 	const values: NewBag = {
+		id: nanoid(),
 		userId: owner.type === 'user' ? owner.userId : null,
 		sessionToken: owner.type === 'guest' ? owner.sessionToken : null,
-		expiresAt: owner.type === 'guest' ? new Date(now.getTime() + GUEST_BAG_TTL_MS) : null
+		expiresAt: owner.type === 'guest' ? new Date(now.getTime() + GUEST_BAG_TTL_MS) : null,
+		createdAt: now,
+		updatedAt: now
 	};
 
 	try {
-		const [created] = await tx.insert(bagTable).values(values).returning();
-
-		if (!created) {
-			throw new BagError('Bag was not created.', ErrorCode.INTERNAL_ERROR);
-		}
-
-		return created;
+		return await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				const [created] = await tx.insert(bagTable).values(values).returning();
+				if (!created) {
+					throw new BagError('Bag was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return created;
+			},
+			async () => {
+				const [row] = await tx.select().from(bagTable).where(eq(bagTable.id, values.id!)).limit(1);
+				if (row) return { committed: true, value: row };
+				const racedBag = await findActiveBagByOwnerTx(tx, owner, now);
+				return racedBag ? { committed: true, value: racedBag } : { committed: false };
+			}
+		);
 	} catch (error) {
 		if (isUniqueConstraintError(getErrorMessage(error))) {
 			const racedBag = await findActiveBagByOwnerTx(tx, owner, now);
@@ -967,8 +1052,18 @@ async function findBagItemByVariantTx(
 	return row ?? null;
 }
 
-async function reloadBagByIdTx(tx: QueryExecutor, bagId: string): Promise<Bag> {
+async function findBagItemByIdTx(tx: QueryExecutor, bagItemId: string): Promise<BagItem | null> {
+	const [row] = await tx.select().from(bagItemTable).where(eq(bagItemTable.id, bagItemId)).limit(1);
+	return row ?? null;
+}
+
+async function findBagByIdTx(tx: QueryExecutor, bagId: string): Promise<Bag | null> {
 	const [row] = await tx.select().from(bagTable).where(eq(bagTable.id, bagId)).limit(1);
+	return row ?? null;
+}
+
+async function reloadBagByIdTx(tx: QueryExecutor, bagId: string): Promise<Bag> {
+	const row = await findBagByIdTx(tx, bagId);
 
 	if (!row) {
 		throw new BagError('Bag not found.', ErrorCode.BAG_NOT_FOUND, { bagId });
@@ -977,27 +1072,48 @@ async function reloadBagByIdTx(tx: QueryExecutor, bagId: string): Promise<Bag> {
 	return row;
 }
 
+function sameOptionalDate(left: Date | null, right: Date | null): boolean {
+	return left === null || right === null ? left === right : left.getTime() === right.getTime();
+}
+
 async function convertBagOwnerTx(tx: Tx, bagId: string, owner: BagOwner, now: Date): Promise<Bag> {
 	const existing = await reloadBagByIdTx(tx, bagId);
 
-	const [row] = await tx
-		.update(bagTable)
-		.set({
-			userId: owner.type === 'user' ? owner.userId : null,
-			sessionToken: owner.type === 'guest' ? owner.sessionToken : null,
-			expiresAt: owner.type === 'guest' ? new Date(now.getTime() + GUEST_BAG_TTL_MS) : null,
-			checkoutStartedAt: null,
-			checkoutExpiresAt: null,
-			updatedAt: now
-		})
-		.where(and(eq(bagTable.id, bagId), eq(bagTable.updatedAt, existing.updatedAt)))
-		.returning();
-
-	if (!row) {
-		throw new BagError('Bag not found.', ErrorCode.BAG_NOT_FOUND, { bagId });
-	}
-
-	return row;
+	const expected = {
+		userId: owner.type === 'user' ? owner.userId : null,
+		sessionToken: owner.type === 'guest' ? owner.sessionToken : null,
+		expiresAt: owner.type === 'guest' ? new Date(now.getTime() + GUEST_BAG_TTL_MS) : null
+	};
+	return withTransientD1WriteReconciliation<Bag>(
+		async () => {
+			const [row] = await tx
+				.update(bagTable)
+				.set({
+					...expected,
+					checkoutStartedAt: null,
+					checkoutExpiresAt: null,
+					updatedAt: now
+				})
+				.where(and(eq(bagTable.id, bagId), eq(bagTable.updatedAt, existing.updatedAt)))
+				.returning();
+			if (!row) {
+				throw new BagError('Bag changed before its owner could be updated.', ErrorCode.CONFLICT, {
+					bagId
+				});
+			}
+			return row;
+		},
+		async () => {
+			const row = await findBagByIdTx(tx, bagId);
+			return row &&
+				row.userId === expected.userId &&
+				row.sessionToken === expected.sessionToken &&
+				sameOptionalDate(row.expiresAt, expected.expiresAt) &&
+				row.updatedAt.getTime() === now.getTime()
+				? { committed: true, value: row }
+				: { committed: false };
+		}
+	);
 }
 
 async function releaseExpiredCheckoutIfNeededTx(tx: Tx, row: Bag, now: Date): Promise<Bag> {
@@ -1015,20 +1131,34 @@ async function cancelCheckoutWindowTx(
 	row: Bag,
 	now: Date
 ): Promise<{ bag: Bag; releasedQuantity: number }> {
-	const [bag] = await tx
-		.update(bagTable)
-		.set({ checkoutStartedAt: null, checkoutExpiresAt: null, updatedAt: now })
-		.where(and(eq(bagTable.id, row.id), eq(bagTable.updatedAt, row.updatedAt)))
-		.returning();
-
-	if (!bag) {
-		const current = await reloadBagByIdTx(tx, row.id);
-		if (current.checkoutStartedAt === null && current.checkoutExpiresAt === null) {
-			return { bag: current, releasedQuantity: 0 };
+	const bag = await withTransientD1WriteReconciliation<Bag>(
+		async () => {
+			const [updated] = await tx
+				.update(bagTable)
+				.set({ checkoutStartedAt: null, checkoutExpiresAt: null, updatedAt: now })
+				.where(and(eq(bagTable.id, row.id), eq(bagTable.updatedAt, row.updatedAt)))
+				.returning();
+			if (updated) return updated;
+			const current = await reloadBagByIdTx(tx, row.id);
+			if (
+				current.checkoutStartedAt === null &&
+				current.checkoutExpiresAt === null &&
+				current.updatedAt.getTime() === now.getTime()
+			) {
+				return current;
+			}
+			throw new BagError('Bag changed while checkout was being cancelled.', ErrorCode.CONFLICT);
+		},
+		async () => {
+			const current = await findBagByIdTx(tx, row.id);
+			return current &&
+				current.checkoutStartedAt === null &&
+				current.checkoutExpiresAt === null &&
+				current.updatedAt.getTime() === now.getTime()
+				? { committed: true, value: current }
+				: { committed: false };
 		}
-		throw new BagError('Bag changed while checkout was being cancelled.', ErrorCode.CONFLICT);
-	}
-
+	);
 	return { bag, releasedQuantity: 0 };
 }
 
@@ -1060,14 +1190,36 @@ async function expireDueBagCheckoutByIdTx(
 
 async function deleteBagByIdTx(tx: Tx, bagId: string, now: Date): Promise<BagDeleteResult> {
 	void now;
-	const [itemCountRows, deletedBags] = await tx.batch([
-		tx.select({ total: count() }).from(bagItemTable).where(eq(bagItemTable.bagId, bagId)),
-		tx.delete(bagTable).where(eq(bagTable.id, bagId)).returning({ id: bagTable.id })
-	]);
-	if (deletedBags.length === 0) {
+	const existing = await findBagByIdTx(tx, bagId);
+	if (!existing) {
 		throw new BagError('Bag not found.', ErrorCode.BAG_NOT_FOUND, { bagId });
 	}
-	return { itemCount: Number(itemCountRows[0]?.total ?? 0), releasedQuantity: 0 };
+	const [itemCountRow] = await tx
+		.select({ total: count() })
+		.from(bagItemTable)
+		.where(eq(bagItemTable.bagId, bagId));
+	const result = {
+		itemCount: Number(itemCountRow?.total ?? 0),
+		releasedQuantity: 0
+	};
+	return withTransientD1WriteReconciliation<BagDeleteResult>(
+		async () => {
+			const [deleted] = await tx
+				.delete(bagTable)
+				.where(and(eq(bagTable.id, bagId), eq(bagTable.updatedAt, existing.updatedAt)))
+				.returning({ id: bagTable.id });
+			if (!deleted) {
+				throw new BagError('Bag changed before it could be deleted.', ErrorCode.CONFLICT, {
+					bagId
+				});
+			}
+			return result;
+		},
+		async () => {
+			const row = await findBagByIdTx(tx, bagId);
+			return row ? { committed: false } : { committed: true, value: result };
+		}
+	);
 }
 
 async function deleteExpiredGuestBagByIdTx(
@@ -1092,26 +1244,35 @@ async function deleteExpiredGuestBagByIdTx(
 		return { skipped: true, itemCount: 0, releasedQuantity: 0 };
 	}
 
-	const [itemCountRows, deleted] = await tx.batch([
-		tx.select({ total: count() }).from(bagItemTable).where(eq(bagItemTable.bagId, row.id)),
-		tx
-			.delete(bagTable)
-			.where(
-				and(
-					eq(bagTable.id, row.id),
-					isNotNull(bagTable.sessionToken),
-					isNotNull(bagTable.expiresAt),
-					lte(bagTable.expiresAt, now)
-				)
-			)
-			.returning({ id: bagTable.id })
-	]);
-	if (deleted.length === 0) return { skipped: true, itemCount: 0, releasedQuantity: 0 };
-	return {
+	const [itemCountRow] = await tx
+		.select({ total: count() })
+		.from(bagItemTable)
+		.where(eq(bagItemTable.bagId, row.id));
+	const result: BagDeleteResult & { skipped: boolean } = {
 		skipped: false,
-		itemCount: Number(itemCountRows[0]?.total ?? 0),
+		itemCount: Number(itemCountRow?.total ?? 0),
 		releasedQuantity: 0
 	};
+	return withTransientD1WriteReconciliation<BagDeleteResult & { skipped: boolean }>(
+		async () => {
+			const [deleted] = await tx
+				.delete(bagTable)
+				.where(
+					and(
+						eq(bagTable.id, row.id),
+						isNotNull(bagTable.sessionToken),
+						isNotNull(bagTable.expiresAt),
+						lte(bagTable.expiresAt, now)
+					)
+				)
+				.returning({ id: bagTable.id });
+			return deleted ? result : { skipped: true, itemCount: 0, releasedQuantity: 0 };
+		},
+		async () => {
+			const current = await findBagByIdTx(tx, row.id);
+			return current ? { committed: false } : { committed: true, value: result };
+		}
+	);
 }
 
 export function prepareUserBagDeletion(db: BagTx, userId: string): BagBatchItem {
@@ -1121,14 +1282,15 @@ export function prepareUserBagDeletion(db: BagTx, userId: string): BagBatchItem 
 async function mergeBagRowsTx(tx: Tx, sourceBag: Bag, targetBag: Bag, now: Date): Promise<void> {
 	if (sourceBag.id === targetBag.id) return;
 
-	const [sourceItems, targetItems] = await tx.batch([
-		tx
-			.select()
-			.from(bagItemTable)
-			.where(eq(bagItemTable.bagId, sourceBag.id))
-			.orderBy(asc(bagItemTable.addedAt)),
-		tx.select().from(bagItemTable).where(eq(bagItemTable.bagId, targetBag.id))
-	]);
+	const sourceItems = await tx
+		.select()
+		.from(bagItemTable)
+		.where(eq(bagItemTable.bagId, sourceBag.id))
+		.orderBy(asc(bagItemTable.addedAt));
+	const targetItems = await tx
+		.select()
+		.from(bagItemTable)
+		.where(eq(bagItemTable.bagId, targetBag.id));
 	const targetByVariantId = new Map(targetItems.map((item) => [item.variantId, item]));
 	const statements: [BagBatchItem, ...BagBatchItem[]] = [
 		tx
@@ -1192,7 +1354,16 @@ async function mergeBagRowsTx(tx: Tx, sourceBag: Bag, targetBag: Bag, now: Date)
 			.where(and(eq(bagTable.id, sourceBag.id), eq(bagTable.updatedAt, sourceBag.updatedAt))),
 		...guardPreviousBatchChanges(tx)
 	);
-	await tx.batch(statements);
+	await withTransientD1WriteReconciliation(
+		async () => {
+			await tx.batch(statements);
+		},
+		async () => {
+			const source = await findBagByIdTx(tx, sourceBag.id);
+			const target = await findBagByIdTx(tx, targetBag.id);
+			return !source && target ? { committed: true, value: undefined } : { committed: false };
+		}
+	);
 }
 
 async function loadPurchasableVariantTx(
@@ -1235,15 +1406,7 @@ async function loadPurchasableVariantTx(
 
 	return {
 		product: row.product,
-		variant: {
-			...row.variant,
-			color: row.color.color,
-			colorHex: row.color.colorHex,
-			priceOverride: null,
-			basePrice: row.color.basePrice,
-			compareAtPrice: row.color.compareAtPrice
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		} as any,
+		variant: row.variant,
 		unitPrice: row.color.basePrice
 	};
 }
@@ -1271,25 +1434,27 @@ async function hydrateCheckoutOrderBagTx(
 		.orderBy(asc(bagItemTable.addedAt));
 	const productIds = uniqueStrings(itemRows.map((item) => item.productId));
 	const variantIds = uniqueStrings(itemRows.map((item) => item.variantId));
-	const [imageRows, variantRows] = await Promise.all([
+	const imageRows =
 		productIds.length > 0
-			? tx
+			? await tx
 					.select()
 					.from(productImageTable)
 					.where(inArray(productImageTable.productId, productIds))
 					.orderBy(asc(productImageTable.position), asc(productImageTable.createdAt))
-			: Promise.resolve([]),
+			: [];
+	const variantRows =
 		variantIds.length > 0
-			? tx.select().from(productVariantTable).where(inArray(productVariantTable.id, variantIds))
-			: Promise.resolve([])
-	]);
+			? await tx
+					.select()
+					.from(productVariantTable)
+					.where(inArray(productVariantTable.id, variantIds))
+			: [];
 	const imagesByProductId = groupByProductId(imageRows);
 	const variantsById = new Map(variantRows.map((v) => [v.id, v]));
 	const imageKeyByItemId = new Map(
 		itemRows.map((item) => {
 			const variant = variantsById.get(item.variantId);
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const variantColorId = variant ? (variant as any).variantColorId : null;
+			const variantColorId = variant?.variantColorId ?? null;
 			return [
 				item.id,
 				resolveBagImageR2Key(imagesByProductId.get(item.productId) ?? [], variantColorId)
@@ -1350,11 +1515,22 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		.orderBy(asc(bagItemTable.addedAt));
 	const productIds = uniqueStrings(itemRows.map((item) => item.productId));
 	const variantIds = uniqueStrings(itemRows.map((item) => item.variantId));
-	const [productRows, variantRows, imageRows, inventoryRows] = await loadBagHydrationRelationsTx(
-		tx,
-		productIds,
-		variantIds
-	);
+	const activeMethodsQuery = tx
+		.select({
+			freeShippingThreshold: shippingMethod.freeShippingThreshold
+		})
+		.from(shippingMethod)
+		.where(eq(shippingMethod.isActive, true))
+		.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name));
+	const [
+		[productRows, variantRows, imageRows, inventoryRows],
+		activeCheckoutHoldsByVariantId,
+		activeMethods
+	] = await Promise.all([
+		loadBagHydrationRelationsTx(tx, productIds, variantIds),
+		loadActiveCheckoutHoldsByVariantId(tx, variantIds, now),
+		activeMethodsQuery
+	]);
 	const productsById = new Map(productRows.map((productRow) => [productRow.id, productRow]));
 	const variantsById = new Map(variantRows.map((variantRow) => [variantRow.id, variantRow]));
 	const imagesByProductId = groupByProductId(imageRows);
@@ -1362,20 +1538,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		inventoryRows.map((inventoryRow) => [inventoryRow.variantId, inventoryRow])
 	);
 	const reservedByItemId = await loadReservedQuantitiesByItemId(tx, itemRows);
-	const activeCheckoutHoldsByVariantId = await loadActiveCheckoutHoldsByVariantId(
-		tx,
-		variantIds,
-		now
-	);
 	const itemsByBagId = groupByBagId(itemRows);
-
-	const activeMethods = await tx
-		.select({
-			freeShippingThreshold: shippingMethod.freeShippingThreshold
-		})
-		.from(shippingMethod)
-		.where(eq(shippingMethod.isActive, true))
-		.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name));
 
 	let freeShippingThreshold: number | null = null;
 	for (const m of activeMethods) {
@@ -1385,69 +1548,70 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		}
 	}
 
-	return Promise.all(
-		rows.map(async (row) => {
-			const items = (itemsByBagId.get(row.id) ?? []).map((item) =>
-				toBagItemDTO({
-					item,
-					product: productsById.get(item.productId) ?? null,
-					variant: variantsById.get(item.variantId) ?? null,
-					images: imagesByProductId.get(item.productId) ?? [],
-					inventory: inventoryByVariantId.get(item.variantId) ?? null,
-					reservedForItem: reservedByItemId.get(item.id) ?? 0,
-					activeCheckoutHolds: activeCheckoutHoldsByVariantId.get(item.variantId) ?? [],
-					now
-				})
-			);
-			const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
+	const hydratedRows = rows.map((row) => {
+		const items = (itemsByBagId.get(row.id) ?? []).map((item) =>
+			toBagItemDTO({
+				item,
+				product: productsById.get(item.productId) ?? null,
+				variant: variantsById.get(item.variantId) ?? null,
+				images: imagesByProductId.get(item.productId) ?? [],
+				inventory: inventoryByVariantId.get(item.variantId) ?? null,
+				reservedForItem: reservedByItemId.get(item.id) ?? 0,
+				activeCheckoutHolds: activeCheckoutHoldsByVariantId.get(item.variantId) ?? [],
+				now
+			})
+		);
+		const subtotal = items.reduce((total, item) => total + item.lineTotal, 0);
+		return { row, items, subtotal };
+	});
+	const promotionStates = await resolveStoredPromotionBagStatesTx(tx, {
+		items: hydratedRows.map(({ row, subtotal }) => ({
+			key: row.id,
+			promotionId: row.promotionId,
+			promoCodeId: row.promoCodeId,
+			userId: row.userId,
+			subtotal
+		})),
+		now
+	});
 
-			const storedPromotion = await getStoredPromotionBagPresentationTx(tx, {
-				promotionId: row.promotionId,
-				promoCodeId: row.promoCodeId
-			});
-			let promotionResult = null;
-			try {
-				promotionResult = await resolveStoredPromotionForBagTx(tx, {
-					promotionId: row.promotionId,
-					promoCodeId: row.promoCodeId,
-					userId: row.userId,
-					subtotal,
-					now
-				});
-			} catch (error) {
-				if (!isAppError(error)) throw error;
-			}
-			const discountAmount = promotionResult?.discountAmount ?? 0;
+	const bags: BagDTO[] = [];
+	for (const { row, items, subtotal } of hydratedRows) {
+		const { presentation: storedPromotion, result: promotionResult } = promotionStates.get(
+			row.id
+		) ?? { presentation: null, result: null };
+		const discountAmount = promotionResult?.discountAmount ?? 0;
 
-			return {
-				id: row.id,
-				ownerType: row.userId ? 'user' : 'guest',
-				userId: row.userId,
-				expiresAt: row.expiresAt,
-				checkoutStartedAt: row.checkoutStartedAt,
-				checkoutExpiresAt: row.checkoutExpiresAt,
-				checkoutStatus: checkoutStatus(row, now),
-				items,
-				itemCount: items.reduce((total, item) => total + item.quantity, 0),
-				subtotal,
-				discountAmount,
-				totalBeforeShipping: Math.max(0, subtotal - discountAmount),
-				hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
-				hasInsufficientItems: items.some((item) => item.availabilityStatus === 'insufficient'),
-				hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
-				promotionId: promotionResult?.promotionId ?? null,
-				promotionName: promotionResult?.promotionName ?? storedPromotion?.promotionName ?? null,
-				promotionApplicationMode:
-					promotionResult?.applicationMode ?? storedPromotion?.applicationMode ?? null,
-				promoCodeId: promotionResult?.promoCodeId ?? null,
-				promoCode: promotionResult?.code ?? storedPromotion?.code ?? null,
-				promoMinOrderAmount: storedPromotion?.minOrderAmount ?? null,
-				freeShippingThreshold,
-				createdAt: row.createdAt,
-				updatedAt: row.updatedAt
-			};
-		})
-	);
+		bags.push({
+			id: row.id,
+			ownerType: row.userId ? 'user' : 'guest',
+			userId: row.userId,
+			expiresAt: row.expiresAt,
+			checkoutStartedAt: row.checkoutStartedAt,
+			checkoutExpiresAt: row.checkoutExpiresAt,
+			checkoutStatus: checkoutStatus(row, now),
+			items,
+			itemCount: items.reduce((total, item) => total + item.quantity, 0),
+			subtotal,
+			discountAmount,
+			totalBeforeShipping: Math.max(0, subtotal - discountAmount),
+			hasUnavailableItems: items.some((item) => item.availabilityStatus === 'unavailable'),
+			hasInsufficientItems: items.some((item) => item.availabilityStatus === 'insufficient'),
+			hasReservedItems: items.some((item) => item.availabilityStatus === 'reserved'),
+			promotionId: promotionResult?.promotionId ?? null,
+			promotionName: promotionResult?.promotionName ?? storedPromotion?.promotionName ?? null,
+			promotionApplicationMode:
+				promotionResult?.applicationMode ?? storedPromotion?.applicationMode ?? null,
+			promoCodeId: promotionResult?.promoCodeId ?? null,
+			promoCode: promotionResult?.code ?? storedPromotion?.code ?? null,
+			promoMinOrderAmount: storedPromotion?.minOrderAmount ?? null,
+			freeShippingThreshold,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt
+		});
+	}
+
+	return bags;
 }
 
 type HydratedBagVariant = ProductVariant & {
@@ -1504,13 +1668,12 @@ async function loadBagHydrationRelationsTx(
 	productIds: string[],
 	variantIds: string[]
 ): Promise<[Product[], HydratedBagVariant[], ProductImage[], InventoryAvailabilityDTO[]]> {
-	const productRows =
+	const [productRows, variantRows, imageRows, inventoryRows] = await Promise.all([
 		productIds.length > 0
-			? await tx.select().from(productTable).where(inArray(productTable.id, productIds))
-			: [];
-	const variantRows =
+			? tx.select().from(productTable).where(inArray(productTable.id, productIds))
+			: Promise.resolve([]),
 		variantIds.length > 0
-			? await tx
+			? tx
 					.select({
 						variant: productVariantTable,
 						color: productVariantColorTable
@@ -1521,17 +1684,18 @@ async function loadBagHydrationRelationsTx(
 						eq(productVariantTable.variantColorId, productVariantColorTable.id)
 					)
 					.where(inArray(productVariantTable.id, variantIds))
-			: [];
-	const imageRows =
+			: Promise.resolve([]),
 		productIds.length > 0
-			? await tx
+			? tx
 					.select()
 					.from(productImageTable)
 					.where(inArray(productImageTable.productId, productIds))
 					.orderBy(asc(productImageTable.position), asc(productImageTable.createdAt))
-			: [];
-	const inventoryRows =
-		variantIds.length > 0 ? await getInventoryAvailabilityByVariantIdsTx(tx, { variantIds }) : [];
+			: Promise.resolve([]),
+		variantIds.length > 0
+			? getInventoryAvailabilityByVariantIdsTx(tx, { variantIds })
+			: Promise.resolve([])
+	]);
 
 	return [
 		productRows,
@@ -1567,11 +1731,9 @@ function toBagItemDTO(input: {
 	activeCheckoutHolds: ActiveCheckoutHold[];
 	now: Date;
 }): BagItemDTO {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const currentUnitPrice = input.variant ? (input.variant as any).basePrice : null;
+	const currentUnitPrice = input.variant?.basePrice ?? null;
 	const availability = resolveBagItemAvailability(input);
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const variantColorId = input.variant ? (input.variant as any).variantColorId : null;
+	const variantColorId = input.variant?.variantColorId ?? null;
 
 	return {
 		id: input.item.id,
@@ -1894,7 +2056,7 @@ function normalizeSessionToken(value: string): string {
 	return normalizeId(value, 'sessionToken');
 }
 
-function resolveBagImageUrl(images: ProductImage[], variantId: string): string | null {
+function resolveBagImageUrl(images: ProductImage[], variantId: string | null): string | null {
 	const variantPrimary = images.find((image) => image.variantId === variantId && image.isPrimary);
 	if (variantPrimary) return mediaPresetUrl(variantPrimary.r2Key, 'thumb160');
 
@@ -1911,7 +2073,7 @@ function resolveBagImageUrl(images: ProductImage[], variantId: string): string |
 	return firstImage ? mediaPresetUrl(firstImage.r2Key, 'thumb160') : null;
 }
 
-function resolveBagImageR2Key(images: ProductImage[], variantId: string): string | null {
+function resolveBagImageR2Key(images: ProductImage[], variantId: string | null): string | null {
 	const variantPrimary = images.find((image) => image.variantId === variantId && image.isPrimary);
 	if (variantPrimary) return variantPrimary.r2Key;
 
@@ -1962,6 +2124,7 @@ function mapBagMergeError(error: unknown): never {
 		throw mapBagPersistenceError(error);
 	} catch (mappedError) {
 		if (isAppError(mappedError)) {
+			if (mappedError.statusCode >= 500) throw mappedError;
 			throw new BagError('Bag migration failed.', ErrorCode.BAG_MIGRATION_FAILED, {
 				cause: mappedError.message
 			});
@@ -1973,6 +2136,7 @@ function mapBagMergeError(error: unknown): never {
 
 function mapBagPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 
@@ -2016,7 +2180,7 @@ export async function getBagSummary(
 	const nowMs = now.getTime();
 	const db = getDb();
 
-	const [[bagStats], [itemStats]] = await Promise.all([
+	const [bagStatsRows, itemStatsRows] = await Promise.all([
 		db
 			.select({
 				total: count(),
@@ -2052,6 +2216,8 @@ export async function getBagSummary(
 			.from(bagItemTable)
 			.innerJoin(bagTable, eq(bagItemTable.bagId, bagTable.id))
 	]);
+	const [bagStats] = bagStatsRows;
+	const [itemStats] = itemStatsRows;
 
 	const total = Number(bagStats?.total ?? 0);
 	const active = Number(bagStats?.active ?? 0);
@@ -2089,22 +2255,36 @@ export async function applyPromoCodeToBag(
 			now
 		});
 
-		const [updatedRows] = await db.batch([
-			db
-				.update(bagTable)
-				.set({
-					promotionId: validation.promotionId,
-					promoCodeId: validation.promoCodeId,
-					checkoutStartedAt: null,
-					checkoutExpiresAt: null,
-					updatedAt: now
-				})
-				.where(and(eq(bagTable.id, bagRow.id), eq(bagTable.updatedAt, bagRow.updatedAt)))
-				.returning(),
-			...guardPreviousBatchChanges(db)
-		]);
-		const [updatedBag] = updatedRows;
-		if (!updatedBag) throw new BagError('Bag changed.', ErrorCode.CONFLICT);
+		const updatedBag = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				const [updatedRows] = await db.batch([
+					db
+						.update(bagTable)
+						.set({
+							promotionId: validation.promotionId,
+							promoCodeId: validation.promoCodeId,
+							checkoutStartedAt: null,
+							checkoutExpiresAt: null,
+							updatedAt: now
+						})
+						.where(and(eq(bagTable.id, bagRow.id), eq(bagTable.updatedAt, bagRow.updatedAt)))
+						.returning(),
+					...guardPreviousBatchChanges(db)
+				]);
+				const [row] = updatedRows;
+				if (!row) throw new BagError('Bag changed.', ErrorCode.CONFLICT);
+				return row;
+			},
+			async () => {
+				const row = await findBagByIdTx(db, bagRow.id);
+				return row &&
+					row.promotionId === validation.promotionId &&
+					row.promoCodeId === validation.promoCodeId &&
+					row.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return hydrateBagTx(db, updatedBag, now);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) throw new BagError('Bag changed.', ErrorCode.CONFLICT);
@@ -2122,22 +2302,36 @@ export async function removePromoCodeFromBag(
 	try {
 		const db = getDb();
 		const bagRow = await getOrCreateBagTx(db, owner, now);
-		const [updatedRows] = await db.batch([
-			db
-				.update(bagTable)
-				.set({
-					promotionId: null,
-					promoCodeId: null,
-					checkoutStartedAt: null,
-					checkoutExpiresAt: null,
-					updatedAt: now
-				})
-				.where(and(eq(bagTable.id, bagRow.id), eq(bagTable.updatedAt, bagRow.updatedAt)))
-				.returning(),
-			...guardPreviousBatchChanges(db)
-		]);
-		const [updatedBag] = updatedRows;
-		if (!updatedBag) throw new BagError('Bag changed.', ErrorCode.CONFLICT);
+		const updatedBag = await withTransientD1WriteReconciliation<Bag>(
+			async () => {
+				const [updatedRows] = await db.batch([
+					db
+						.update(bagTable)
+						.set({
+							promotionId: null,
+							promoCodeId: null,
+							checkoutStartedAt: null,
+							checkoutExpiresAt: null,
+							updatedAt: now
+						})
+						.where(and(eq(bagTable.id, bagRow.id), eq(bagTable.updatedAt, bagRow.updatedAt)))
+						.returning(),
+					...guardPreviousBatchChanges(db)
+				]);
+				const [row] = updatedRows;
+				if (!row) throw new BagError('Bag changed.', ErrorCode.CONFLICT);
+				return row;
+			},
+			async () => {
+				const row = await findBagByIdTx(db, bagRow.id);
+				return row &&
+					row.promotionId === null &&
+					row.promoCodeId === null &&
+					row.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
 		return hydrateBagTx(db, updatedBag, now);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) throw new BagError('Bag changed.', ErrorCode.CONFLICT);

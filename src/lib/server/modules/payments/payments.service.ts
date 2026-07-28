@@ -1,9 +1,38 @@
-import { and, count, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	count,
+	desc,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNotNull,
+	isNull,
+	sql,
+	type SQL
+} from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
+import {
+	guardBatchCondition,
+	guardPreviousBatchChanges,
+	isD1BatchGuardError
+} from '$lib/server/db/batch';
+import {
+	isTransientD1Error,
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation,
+	withTransientD1WriteRetry
+} from '$lib/server/db/retry';
 import { requireActor, requireAdmin, requireOwnerOrAdmin } from '$lib/server/foundation/guards';
 import { getEnv } from '$lib/server/infrastructure/env';
-import { ErrorCode, PaymentError, getErrorMessage } from '$lib/server/infrastructure/errors';
+import {
+	ErrorCode,
+	PaymentError,
+	getErrorMessage,
+	isAppError
+} from '$lib/server/infrastructure/errors';
 import type { ServiceActor, ServiceContext } from '$lib/server/foundation/context';
 import {
 	resolveNow,
@@ -21,10 +50,13 @@ import {
 	CHECKOUT_PAYMENT_METHODS,
 	type Payment,
 	type PaymentAttempt,
+	type PaymentAttemptStatus,
+	type NewPaymentAttempt,
 	type PaymentMethod,
 	type NewPayment,
 	type PaymentStatus
 } from './payments.drizzle';
+import { bag as bagTable } from '../bag/bag.drizzle';
 import { user as userTable } from '../auth/auth.drizzle';
 import { order as orderTable, type Order, type OrderStatus } from '../orders/orders.drizzle';
 import {
@@ -34,9 +66,8 @@ import {
 	previewOrderFromBag
 } from '../orders/orders.service';
 import {
-	loadPreparedNotificationOutboxRows,
 	prepareNotificationOutboxInsert,
-	publishNotificationWakeups,
+	publishPreparedNotificationWakeups,
 	type PreparedNotificationOutboxInsert
 } from '../notifications/outbox/outbox.service';
 import {
@@ -48,6 +79,7 @@ import {
 	mapPayHereStatus,
 	mergeGatewayEnvelope,
 	resolvePublicPaymentEmail,
+	sanitizePayHereWebhookPayload,
 	verifyPayHereWebhookSignature,
 	type GatewayMetadata,
 	type PayPalFxQuote
@@ -62,6 +94,7 @@ import type {
 	CreatePaymentSessionInput,
 	CreatePaymentSessionResult,
 	PaymentDashboardSummaryDTO,
+	PaymentDashboardDTO,
 	PaymentGatewayResult,
 	PaymentAttemptCheckoutInput,
 	ProcessPayHereWebhookInput,
@@ -75,6 +108,7 @@ import type {
 
 type Db = ReturnType<typeof getDb>;
 export type PaymentsTx = Db;
+export type PaymentsBatchItem = Parameters<Db['batch']>[0][number];
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
@@ -85,6 +119,48 @@ const checkoutPaymentMethodSet = new Set<string>(CHECKOUT_PAYMENT_METHODS);
 // ---------------------------------------------------------------------------
 // CORE EXPORTS
 // ---------------------------------------------------------------------------
+
+export function prepareAccountPaymentAnonymization(
+	db: PaymentsTx,
+	input: { userId: string; now?: Date }
+): readonly [PaymentsBatchItem, PaymentsBatchItem] {
+	const userId = normalizeGatewayId(input.userId, 'userId');
+	const now = input.now ?? new Date();
+	const accountOrderIds = db
+		.select({ id: orderTable.id })
+		.from(orderTable)
+		.where(eq(orderTable.userId, userId));
+	const cancellable = eq(paymentAttemptTable.status, 'pending');
+
+	return [
+		db
+			.update(paymentAttemptTable)
+			.set({
+				userId: sql<string>`'[deleted-account]:' || ${paymentAttemptTable.id}`,
+				bagId: sql<string>`'[deleted-account]:' || ${paymentAttemptTable.id}`,
+				status: sql<PaymentAttemptStatus>`CASE
+					WHEN ${cancellable} THEN 'cancelled'
+					ELSE ${paymentAttemptTable.status}
+				END`,
+				checkoutInput: sql<Record<string, true>>`json('{"redacted":true}')`,
+				billingEmail: null,
+				providerResponse: null,
+				failureReason: sql<string | null>`CASE
+					WHEN ${cancellable} THEN 'Account deleted before payment completed.'
+					ELSE ${paymentAttemptTable.failureReason}
+				END`,
+				updatedAt: now
+			})
+			.where(eq(paymentAttemptTable.userId, userId)),
+		db
+			.update(paymentTable)
+			.set({
+				gatewayResponse: null,
+				updatedAt: now
+			})
+			.where(inArray(paymentTable.orderId, accountOrderIds))
+	];
+}
 
 export function listAvailableCheckoutPaymentMethods(
 	ctx: ServiceContext
@@ -140,11 +216,13 @@ export async function validateCheckoutPaymentSelection(
 		return { method, billingEmail: null };
 	}
 
-	const [customer] = await getDb()
-		.select({ email: userTable.email })
-		.from(userTable)
-		.where(eq(userTable.id, actor.id))
-		.limit(1);
+	const [customer] = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(eq(userTable.id, actor.id))
+			.limit(1)
+	);
 	const billingEmail =
 		resolvePublicPaymentEmail(input.billingEmail) ?? resolvePublicPaymentEmail(customer?.email);
 
@@ -193,11 +271,10 @@ export async function createCheckoutPaymentSession(
 		paymentMethod: method,
 		customerNote: input.customerNote
 	};
-	const attemptId = crypto.randomUUID();
+	const attemptId = nanoid();
 	const expiresAt =
 		preview.bag.checkoutExpiresAt ?? new Date(now.getTime() + PAYMENT_ATTEMPT_TTL_MS);
 	let billingEmail: string | null = null;
-	let providerMetadata: GatewayMetadata = {};
 
 	if (method === 'payhere') {
 		const [customer] = await getDb()
@@ -221,27 +298,49 @@ export async function createCheckoutPaymentSession(
 	const existingAttempt = await findPendingCheckoutPaymentAttempt(preview.bag.id);
 	if (existingAttempt) {
 		if (existingAttempt.expiresAt.getTime() <= now.getTime()) {
-			const [cancelledAttempt] = await getDb()
-				.update(paymentAttemptTable)
-				.set({
-					status: 'cancelled',
-					failureReason: 'Checkout expired before provider setup completed.',
-					updatedAt: now
-				})
-				.where(
-					and(
-						eq(paymentAttemptTable.id, existingAttempt.id),
-						eq(paymentAttemptTable.status, 'pending')
-					)
-				)
-				.returning({ id: paymentAttemptTable.id });
-			if (!cancelledAttempt) {
-				throw new PaymentError(
-					'The previous payment session changed while checkout was being prepared. Refresh checkout before trying again.',
-					ErrorCode.CONFLICT,
-					{ attemptId: existingAttempt.id }
-				);
-			}
+			const db = getDb();
+			const failureReason = 'Checkout expired before provider setup completed.';
+			await withTransientD1WriteReconciliation(
+				async () => {
+					const [cancelledAttempt] = await db
+						.update(paymentAttemptTable)
+						.set({
+							status: 'cancelled',
+							failureReason,
+							updatedAt: now
+						})
+						.where(
+							and(
+								eq(paymentAttemptTable.id, existingAttempt.id),
+								eq(paymentAttemptTable.status, 'pending')
+							)
+						)
+						.returning({ id: paymentAttemptTable.id });
+					if (!cancelledAttempt) {
+						throw new PaymentError(
+							'The previous payment session changed while checkout was being prepared. Refresh checkout before trying again.',
+							ErrorCode.CONFLICT,
+							{ attemptId: existingAttempt.id }
+						);
+					}
+				},
+				async () => {
+					const [current] = await db
+						.select({
+							status: paymentAttemptTable.status,
+							failureReason: paymentAttemptTable.failureReason,
+							updatedAt: paymentAttemptTable.updatedAt
+						})
+						.from(paymentAttemptTable)
+						.where(eq(paymentAttemptTable.id, existingAttempt.id))
+						.limit(1);
+					return current?.status === 'cancelled' &&
+						current.failureReason === failureReason &&
+						current.updatedAt.getTime() === now.getTime()
+						? { committed: true, value: undefined }
+						: { committed: false };
+				}
+			);
 		} else {
 			return resumePendingCheckoutPaymentSession({
 				env,
@@ -249,44 +348,79 @@ export async function createCheckoutPaymentSession(
 				checkoutInput,
 				shippingAddress: preview.shippingAddressSnapshot,
 				amount: preview.totalAmount,
-				billingEmail
+				billingEmail,
+				now
 			});
 		}
 	}
 
+	let providerMetadata: GatewayMetadata = {};
 	if (method === 'paypal') {
 		const quote = await createPayPalFxQuote(preview.totalAmount, now);
 		providerMetadata = {
 			paypalFxQuote: quote,
 			paypalRequestIds: {
-				create: `${attemptId}-create`,
-				capture: `${attemptId}-capture`
+				// PayPal recommends UUIDs and limits PayPal-Request-Id to 38 single-byte characters.
+				create: crypto.randomUUID(),
+				capture: crypto.randomUUID()
 			}
 		};
 	}
 
 	try {
-		await getDb()
-			.insert(paymentAttemptTable)
-			.values({
-				id: attemptId,
-				userId: preview.bag.userId,
-				bagId: preview.bag.id,
-				method,
-				status: 'pending',
-				amount: preview.totalAmount,
-				currency: 'LKR',
-				checkoutInput,
-				billingEmail,
-				providerResponse:
-					Object.keys(providerMetadata).length > 0
-						? mergeGatewayEnvelope(null, { metadata: providerMetadata })
-						: null,
-				expiresAt,
-				createdAt: now,
-				updatedAt: now
-			});
+		const db = getDb();
+		const attemptValues: NewPaymentAttempt = {
+			id: attemptId,
+			userId: preview.bag.userId,
+			bagId: preview.bag.id,
+			method,
+			status: 'pending',
+			amount: preview.totalAmount,
+			currency: 'LKR',
+			checkoutInput,
+			billingEmail,
+			providerResponse:
+				Object.keys(providerMetadata).length > 0
+					? mergeGatewayEnvelope(null, { metadata: providerMetadata })
+					: null,
+			expiresAt,
+			createdAt: now,
+			updatedAt: now
+		};
+		const checkoutBagStillValid = db
+			.select({ id: bagTable.id })
+			.from(bagTable)
+			.where(
+				and(
+					eq(bagTable.id, preview.bag.id),
+					eq(bagTable.userId, preview.bag.userId),
+					isNotNull(bagTable.checkoutStartedAt),
+					gt(bagTable.checkoutExpiresAt, now),
+					eq(bagTable.checkoutExpiresAt, expiresAt)
+				)
+			);
+		await withTransientD1WriteReconciliation(
+			() =>
+				db.batch([
+					db.insert(paymentAttemptTable).values(attemptValues),
+					...guardBatchCondition(db, exists(checkoutBagStillValid))
+				]),
+			async () => {
+				const [row] = await db
+					.select({ id: paymentAttemptTable.id })
+					.from(paymentAttemptTable)
+					.where(eq(paymentAttemptTable.id, attemptId))
+					.limit(1);
+				return row ? { committed: true, value: undefined } : { committed: false };
+			}
+		);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new PaymentError(
+				'Checkout changed before the payment session could be saved. Refresh checkout and try again.',
+				ErrorCode.CHECKOUT_SESSION_EXPIRED
+			);
+		}
 		if (isUniqueConstraintError(getErrorMessage(error))) {
 			const racedAttempt = await findPendingCheckoutPaymentAttempt(preview.bag.id);
 			if (racedAttempt && racedAttempt.expiresAt.getTime() > now.getTime()) {
@@ -296,7 +430,8 @@ export async function createCheckoutPaymentSession(
 					checkoutInput,
 					shippingAddress: preview.shippingAddressSnapshot,
 					amount: preview.totalAmount,
-					billingEmail
+					billingEmail,
+					now
 				});
 			}
 		}
@@ -343,33 +478,32 @@ export async function createCheckoutPaymentSession(
 			};
 		}
 
-		const quote = providerMetadata.paypalFxQuote!;
-		const requestIds = providerMetadata.paypalRequestIds!;
-		const { clientId, clientSecret } = getPayPalConfiguration(env);
-		const isSandbox = env.PAYPAL_IS_SANDBOX === 'true';
-		const token = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
-		const paypalOrderId = await createPayPalOrder(
-			token,
-			attemptId,
-			attemptId,
-			quote.usdAmount,
-			requestIds.create,
-			isSandbox,
-			env.PUBLIC_APP_URL,
-			env.PUBLIC_APP_NAME,
-			`/checkout/payment/${attemptId}`
+		const paypalOrderId = await ensurePayPalOrderForAttempt(
+			env,
+			{
+				id: attemptId,
+				userId: preview.bag.userId,
+				bagId: preview.bag.id,
+				method: 'paypal',
+				status: 'pending',
+				amount: preview.totalAmount,
+				currency: 'LKR',
+				checkoutInput,
+				billingEmail,
+				providerOrderId: null,
+				providerResponse: mergeGatewayEnvelope(null, { metadata: providerMetadata }),
+				orderId: null,
+				failureReason: null,
+				expiresAt,
+				createdAt: now,
+				updatedAt: now
+			},
+			now
 		);
-		await getDb()
-			.update(paymentAttemptTable)
-			.set({ providerOrderId: paypalOrderId, updatedAt: now })
-			.where(and(eq(paymentAttemptTable.id, attemptId), eq(paymentAttemptTable.status, 'pending')));
 
 		return { attemptId, method, paypalOrderId };
 	} catch (error) {
-		await getDb()
-			.update(paymentAttemptTable)
-			.set({ status: 'failed', failureReason: getErrorMessage(error), updatedAt: now })
-			.where(and(eq(paymentAttemptTable.id, attemptId), eq(paymentAttemptTable.status, 'pending')));
+		await recordPaymentAttemptSetupFailure(attemptId, method, error, now);
 		throw error;
 	}
 }
@@ -391,6 +525,7 @@ async function resumePendingCheckoutPaymentSession(input: {
 	shippingAddress: Parameters<typeof buildPayHereCustomerFields>[0];
 	amount: number;
 	billingEmail: string | null;
+	now: Date;
 }): Promise<CreateCheckoutPaymentSessionResult> {
 	const { attempt } = input;
 	const sameIntent = JSON.stringify(attempt.checkoutInput) === JSON.stringify(input.checkoutInput);
@@ -411,15 +546,8 @@ async function resumePendingCheckoutPaymentSession(input: {
 	}
 
 	if (attempt.method === 'paypal') {
-		if (!attempt.providerOrderId) {
-			throw new PaymentError(
-				'The existing PayPal session is still being prepared. Try again shortly.',
-				ErrorCode.CONFLICT,
-				{ attemptId: attempt.id }
-			);
-		}
-
-		return { attemptId: attempt.id, method: 'paypal', paypalOrderId: attempt.providerOrderId };
+		const paypalOrderId = await ensurePayPalOrderForAttempt(input.env, attempt, input.now);
+		return { attemptId: attempt.id, method: 'paypal', paypalOrderId };
 	}
 
 	if (!attempt.billingEmail) {
@@ -468,16 +596,106 @@ async function resumePendingCheckoutPaymentSession(input: {
 	};
 }
 
+async function ensurePayPalOrderForAttempt(
+	env: ReturnType<typeof getEnv>,
+	attempt: PaymentAttempt,
+	now: Date
+): Promise<string> {
+	if (attempt.providerOrderId) return attempt.providerOrderId;
+
+	const metadata = getGatewayMetadata(attempt.providerResponse);
+	const quote = metadata.paypalFxQuote;
+	const requestId = metadata.paypalRequestIds?.create;
+	if (!quote || !requestId) {
+		throw new PaymentError(
+			'The PayPal payment session is missing its locked exchange quote.',
+			ErrorCode.PAYMENT_FAILED,
+			{ attemptId: attempt.id }
+		);
+	}
+
+	const { clientId, clientSecret } = getPayPalConfiguration(env);
+	const isSandbox = env.PAYPAL_IS_SANDBOX === 'true';
+	const token = await getPayPalAccessToken(clientId, clientSecret, isSandbox);
+	const paypalOrderId = await createPayPalOrder(
+		token,
+		attempt.id,
+		attempt.id,
+		quote.usdAmount,
+		requestId,
+		isSandbox,
+		env.PUBLIC_APP_URL,
+		env.PUBLIC_APP_NAME,
+		`/checkout/payment/${attempt.id}`
+	);
+
+	try {
+		const [updated] = await withTransientD1WriteRetry(() =>
+			getDb()
+				.update(paymentAttemptTable)
+				.set({ providerOrderId: paypalOrderId, failureReason: null, updatedAt: now })
+				.where(
+					and(eq(paymentAttemptTable.id, attempt.id), eq(paymentAttemptTable.status, 'pending'))
+				)
+				.returning({ providerOrderId: paymentAttemptTable.providerOrderId })
+		);
+		if (updated?.providerOrderId === paypalOrderId) return paypalOrderId;
+	} catch (error) {
+		if (!isTransientD1Error(error)) throw error;
+	}
+
+	const persisted = await withTransientD1ReadRetry(() =>
+		findPendingCheckoutPaymentAttempt(attempt.bagId)
+	);
+	if (persisted?.id === attempt.id && persisted.providerOrderId === paypalOrderId) {
+		return paypalOrderId;
+	}
+
+	throw new PaymentError(
+		'The PayPal session changed while provider setup was being saved.',
+		ErrorCode.CONFLICT,
+		{ attemptId: attempt.id }
+	);
+}
+
+async function recordPaymentAttemptSetupFailure(
+	attemptId: string,
+	method: Extract<PaymentMethod, 'payhere' | 'paypal'>,
+	error: unknown,
+	now: Date
+): Promise<void> {
+	const failureReason = getErrorMessage(error).slice(0, 1000);
+	try {
+		await withTransientD1WriteRetry(() =>
+			getDb()
+				.update(paymentAttemptTable)
+				.set({
+					// A PayPal request carries a stable provider idempotency key. Keep the
+					// attempt resumable after a timeout instead of creating a second order.
+					status: method === 'paypal' ? 'pending' : 'failed',
+					failureReason,
+					updatedAt: now
+				})
+				.where(
+					and(eq(paymentAttemptTable.id, attemptId), eq(paymentAttemptTable.status, 'pending'))
+				)
+		);
+	} catch (persistenceError) {
+		console.error('[payments] Failed to persist payment-session setup failure:', {
+			attemptId,
+			error: getErrorMessage(persistenceError)
+		});
+	}
+}
+
 export async function getCheckoutPaymentAttempt(
 	ctx: ServiceContext,
 	attemptId: string
 ): Promise<CheckoutPaymentAttemptDTO> {
 	const id = normalizeGatewayId(attemptId, 'attemptId');
-	const [row] = await getDb()
-		.select()
-		.from(paymentAttemptTable)
-		.where(eq(paymentAttemptTable.id, id))
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb().select().from(paymentAttemptTable).where(eq(paymentAttemptTable.id, id)).limit(1)
+	);
 	if (!row) {
 		throw new PaymentError('Payment attempt not found.', ErrorCode.PAYMENT_NOT_FOUND, {
 			attemptId: id
@@ -506,6 +724,7 @@ export async function processPayHereWebhook(
 	const env = getEnv();
 	const { merchantId, merchantSecret } = getPayHereConfiguration(env);
 	const payload = input.payload;
+	const auditPayload = sanitizePayHereWebhookPayload(payload);
 	void input.headers;
 
 	try {
@@ -557,38 +776,59 @@ export async function processPayHereWebhook(
 			if (statusCode === '2') {
 				result = await finalizeCapturedPaymentAttempt(ctx, attemptRow, {
 					transactionId: providerPaymentId,
-					providerResponse: payload,
+					providerResponse: auditPayload,
 					now: resolveNow(ctx)
 				});
 			} else {
 				const attemptStatus =
 					statusCode === '-1' ? 'cancelled' : statusCode === '0' ? 'pending' : 'failed';
-				const [updatedAttempt] = await getDb()
-					.update(paymentAttemptTable)
-					.set({
-						status: attemptStatus,
-						providerOrderId: providerPaymentId,
-						providerResponse: payload,
-						failureReason:
-							attemptStatus === 'pending'
-								? null
-								: (readOptionalGatewayString(payload, 'status_message') ??
-									'Payment was not completed.'),
-						updatedAt: resolveNow(ctx)
-					})
-					.where(
-						and(
-							eq(paymentAttemptTable.id, attemptRow.id),
-							eq(paymentAttemptTable.status, 'pending')
-						)
-					)
-					.returning();
+				const now = resolveNow(ctx);
+				const failureReason =
+					attemptStatus === 'pending'
+						? null
+						: (readOptionalGatewayString(payload, 'status_message') ??
+							'Payment was not completed.');
+				const db = getDb();
+				const updatedAttempt = await withTransientD1WriteReconciliation<PaymentAttempt | null>(
+					async () => {
+						const [row] = await db
+							.update(paymentAttemptTable)
+							.set({
+								status: attemptStatus,
+								providerOrderId: providerPaymentId,
+								providerResponse: auditPayload,
+								failureReason,
+								updatedAt: now
+							})
+							.where(
+								and(
+									eq(paymentAttemptTable.id, attemptRow.id),
+									eq(paymentAttemptTable.status, 'pending')
+								)
+							)
+							.returning();
+						return row ?? null;
+					},
+					async () => {
+						const [current] = await db
+							.select()
+							.from(paymentAttemptTable)
+							.where(eq(paymentAttemptTable.id, attemptRow.id))
+							.limit(1);
+						return current?.status === attemptStatus &&
+							current.providerOrderId === providerPaymentId &&
+							current.failureReason === failureReason &&
+							current.updatedAt.getTime() === now.getTime()
+							? { committed: true, value: current }
+							: { committed: false };
+					}
+				);
 				result = updatedAttempt
 					? toPaymentAttemptGatewayResult(updatedAttempt)
 					: await loadPaymentAttemptGatewayResult(attemptRow.id);
 			}
 
-			await writeWebhookLog('payhere', payload, 'processed', null);
+			await writeWebhookLog('payhere', auditPayload, 'processed', null);
 			return result;
 		}
 
@@ -620,17 +860,17 @@ export async function processPayHereWebhook(
 			paymentId: paymentRow.id,
 			status: mapPayHereStatus(statusCode),
 			transactionId: providerPaymentId,
-			providerResponse: payload,
+			providerResponse: auditPayload,
 			note: 'PayHere payment captured.',
 			now: resolveNow(ctx)
 		});
-		await writeWebhookLog('payhere', payload, 'processed', null);
+		await writeWebhookLog('payhere', auditPayload, 'processed', null);
 		return result;
 	} catch (error) {
 		const message = getErrorMessage(error);
 		await writeWebhookLog(
 			'payhere',
-			payload,
+			auditPayload,
 			message.includes('signature') ? 'signature_mismatch' : 'failed',
 			message
 		);
@@ -680,17 +920,43 @@ export async function capturePayPalPayment(
 		}
 		const captureStartedAt = resolveNow(ctx);
 		if (attemptRow.expiresAt.getTime() <= captureStartedAt.getTime()) {
-			const [cancelledAttempt] = await getDb()
-				.update(paymentAttemptTable)
-				.set({
-					status: 'cancelled',
-					failureReason: 'Checkout expired before PayPal capture started.',
-					updatedAt: captureStartedAt
-				})
-				.where(
-					and(eq(paymentAttemptTable.id, attemptRow.id), eq(paymentAttemptTable.status, 'pending'))
-				)
-				.returning({ id: paymentAttemptTable.id });
+			const db = getDb();
+			const failureReason = 'Checkout expired before PayPal capture started.';
+			const cancelledAttempt = await withTransientD1WriteReconciliation<boolean>(
+				async () => {
+					const [row] = await db
+						.update(paymentAttemptTable)
+						.set({
+							status: 'cancelled',
+							failureReason,
+							updatedAt: captureStartedAt
+						})
+						.where(
+							and(
+								eq(paymentAttemptTable.id, attemptRow.id),
+								eq(paymentAttemptTable.status, 'pending')
+							)
+						)
+						.returning({ id: paymentAttemptTable.id });
+					return Boolean(row);
+				},
+				async () => {
+					const [current] = await db
+						.select({
+							status: paymentAttemptTable.status,
+							failureReason: paymentAttemptTable.failureReason,
+							updatedAt: paymentAttemptTable.updatedAt
+						})
+						.from(paymentAttemptTable)
+						.where(eq(paymentAttemptTable.id, attemptRow.id))
+						.limit(1);
+					return current?.status === 'cancelled' &&
+						current.failureReason === failureReason &&
+						current.updatedAt.getTime() === captureStartedAt.getTime()
+						? { committed: true, value: true }
+						: { committed: false };
+				}
+			);
 			if (!cancelledAttempt) {
 				return loadPaymentAttemptGatewayResult(attemptRow.id);
 			}
@@ -742,7 +1008,7 @@ export async function capturePayPalPayment(
 
 		return finalizeCapturedPaymentAttempt(ctx, attemptRow, {
 			transactionId: capturedPayment.id,
-			providerResponse: { capture },
+			providerResponse: createPayPalCaptureAudit(capture.status, capturedPayment),
 			now: resolveNow(ctx)
 		});
 	}
@@ -834,9 +1100,7 @@ export async function capturePayPalPayment(
 		paymentId: paymentRow.id,
 		status: 'captured',
 		transactionId: paypalOrderId,
-		providerResponse: {
-			capture
-		},
+		providerResponse: createPayPalCaptureAudit(capture.status, capturedPayment),
 		note: 'PayPal payment captured.',
 		now
 	});
@@ -953,9 +1217,8 @@ async function finalizeCapturedPaymentAttempt(
 			attemptUpdate,
 			...guardPreviousBatchChanges(db)
 		] as [(typeof prepared.statements)[number], ...(typeof prepared.statements)[number][]];
-		await db.batch(statements);
-		const notifications = await loadPreparedNotificationOutboxRows(db, prepared.notifications);
-		await publishNotificationWakeups(ctx, notifications);
+		await commitCapturedPaymentAttemptBatch(db, statements, currentAttempt.id, prepared.orderId);
+		await publishPreparedNotificationWakeups(ctx, db, prepared.notifications);
 		return {
 			success: true,
 			paymentId: prepared.paymentId,
@@ -966,21 +1229,64 @@ async function finalizeCapturedPaymentAttempt(
 		const reason = isD1BatchGuardError(error)
 			? 'Checkout changed or stock was no longer available during payment capture.'
 			: getErrorMessage(error);
-		await getDb()
-			.update(paymentAttemptTable)
-			.set({
-				status: 'review_required',
-				providerOrderId: attempt.providerOrderId ?? input.transactionId,
-				providerResponse: input.providerResponse,
-				failureReason: reason,
-				updatedAt: input.now
-			})
-			.where(
-				and(
-					eq(paymentAttemptTable.id, attempt.id),
-					inArray(paymentAttemptTable.status, ['pending', 'failed', 'cancelled'])
-				)
-			);
+		const db = getDb();
+		const providerOrderId = attempt.providerOrderId ?? input.transactionId;
+		const providerResponse = mergeGatewayEnvelope(attempt.providerResponse, {
+			provider: input.providerResponse,
+			metadata: getGatewayMetadata(attempt.providerResponse)
+		});
+		const durableAttempt = await withTransientD1WriteReconciliation<PaymentAttempt>(
+			async () => {
+				const [updated] = await db
+					.update(paymentAttemptTable)
+					.set({
+						status: 'review_required',
+						providerOrderId,
+						providerResponse,
+						failureReason: reason,
+						updatedAt: input.now
+					})
+					.where(
+						and(
+							eq(paymentAttemptTable.id, attempt.id),
+							inArray(paymentAttemptTable.status, ['pending', 'failed', 'cancelled'])
+						)
+					)
+					.returning();
+				if (updated) return updated;
+
+				const [current] = await db
+					.select()
+					.from(paymentAttemptTable)
+					.where(eq(paymentAttemptTable.id, attempt.id))
+					.limit(1);
+				if (current?.status === 'captured') return current;
+				throw new PaymentError(
+					'Payment attempt changed before manual-review state could be saved.',
+					ErrorCode.CONFLICT,
+					{ attemptId: attempt.id, status: current?.status }
+				);
+			},
+			async () => {
+				const [current] = await db
+					.select()
+					.from(paymentAttemptTable)
+					.where(eq(paymentAttemptTable.id, attempt.id))
+					.limit(1);
+				if (current?.status === 'captured') {
+					return { committed: true, value: current };
+				}
+				return current?.status === 'review_required' &&
+					current.providerOrderId === providerOrderId &&
+					current.failureReason === reason &&
+					current.updatedAt.getTime() === input.now.getTime()
+					? { committed: true, value: current }
+					: { committed: false };
+			}
+		);
+		if (durableAttempt.status === 'captured') {
+			return loadPaymentAttemptGatewayResult(durableAttempt.id);
+		}
 
 		return {
 			success: false,
@@ -989,6 +1295,40 @@ async function finalizeCapturedPaymentAttempt(
 			errorMessage: reason
 		};
 	}
+}
+
+async function commitCapturedPaymentAttemptBatch(
+	db: Db,
+	statements: Parameters<Db['batch']>[0],
+	attemptId: string,
+	orderId: string
+): Promise<void> {
+	await withTransientD1WriteReconciliation(
+		async () => {
+			await db.batch(statements);
+		},
+		async () => {
+			const [persisted] = await db
+				.select({
+					status: paymentAttemptTable.status,
+					orderId: paymentAttemptTable.orderId
+				})
+				.from(paymentAttemptTable)
+				.where(eq(paymentAttemptTable.id, attemptId))
+				.limit(1);
+			if (persisted?.status === 'captured' && persisted.orderId === orderId) {
+				return { committed: true, value: undefined };
+			}
+			if (persisted && persisted.status !== 'pending') {
+				throw new PaymentError(
+					'Payment attempt changed while the captured order was being committed.',
+					ErrorCode.CONFLICT,
+					{ attemptId, status: persisted.status, orderId: persisted.orderId }
+				);
+			}
+			return { committed: false };
+		}
+	);
 }
 
 function toPaymentAttemptGatewayResult(attempt: PaymentAttempt): PaymentGatewayResult {
@@ -1204,7 +1544,28 @@ async function applyGatewayPaymentResult(
 	}
 
 	try {
-		await db.batch(statements);
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const [current] = await db
+					.select({
+						status: paymentTable.status,
+						transactionId: paymentTable.transactionId,
+						updatedAt: paymentTable.updatedAt
+					})
+					.from(paymentTable)
+					.where(eq(paymentTable.id, paymentRow.id))
+					.limit(1);
+				return current &&
+					current.status === nextStatus &&
+					current.transactionId === nextTransactionId &&
+					current.updatedAt.getTime() === input.now.getTime()
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new PaymentError(
@@ -1215,8 +1576,7 @@ async function applyGatewayPaymentResult(
 		}
 		throw error;
 	}
-	const notifications = await loadPreparedNotificationOutboxRows(db, preparedNotifications);
-	await publishNotificationWakeups(ctx, notifications);
+	await publishPreparedNotificationWakeups(ctx, db, preparedNotifications);
 	return toGatewayResult(paymentDto);
 }
 
@@ -1272,26 +1632,67 @@ export async function listPayments(
 
 	const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-	const [totalCountRow] = await db.select({ count: count() }).from(paymentTable).where(whereClause);
-	const total = totalCountRow?.count ?? 0;
-
-	const rows = await db
-		.select({
-			payment: paymentTable,
-			orderStatus: orderTable.status
-		})
-		.from(paymentTable)
-		.leftJoin(orderTable, eq(orderTable.id, paymentTable.orderId))
-		.where(whereClause)
-		.orderBy(desc(paymentTable.createdAt))
-		.limit(limit)
-		.offset(offset);
+	const [totalCountRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select({ count: count() }).from(paymentTable).where(whereClause),
+			db
+				.select({
+					payment: paymentTable,
+					orderStatus: orderTable.status
+				})
+				.from(paymentTable)
+				.leftJoin(orderTable, eq(orderTable.id, paymentTable.orderId))
+				.where(whereClause)
+				.orderBy(desc(paymentTable.createdAt))
+				.limit(limit)
+				.offset(offset)
+		])
+	);
 
 	return {
 		items: rows.map((row) => toPaymentDTO(row.payment, row.orderStatus)),
-		total,
+		total: totalCountRows[0]?.count ?? 0,
 		limit,
 		offset
+	};
+}
+
+export async function getPaymentDashboard(
+	ctx: ServiceContext,
+	options: ListPaymentsOptions = {}
+): Promise<PaymentDashboardDTO> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
+	const offset = normalizeOffset(options.offset);
+	const whereClause = buildPaymentListWhere(options);
+	const [totalRows, rows, summaryRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select({ count: count() }).from(paymentTable).where(whereClause),
+			db
+				.select({
+					payment: paymentTable,
+					orderStatus: orderTable.status
+				})
+				.from(paymentTable)
+				.leftJoin(orderTable, eq(orderTable.id, paymentTable.orderId))
+				.where(whereClause)
+				.orderBy(desc(paymentTable.createdAt))
+				.limit(limit)
+				.offset(offset),
+			paymentDashboardSummaryQuery(db)
+		])
+	);
+
+	return {
+		payments: {
+			items: rows.map((row) => toPaymentDTO(row.payment, row.orderStatus)),
+			total: totalRows[0]?.count ?? 0,
+			limit,
+			offset
+		},
+		stats: toPaymentDashboardSummaryDTO(summaryRows[0])
 	};
 }
 
@@ -1299,37 +1700,62 @@ export async function getPaymentDashboardSummary(
 	ctx: ServiceContext
 ): Promise<PaymentDashboardSummaryDTO> {
 	requireAdmin(ctx.actor);
-	const db = getDb();
-	const [totals] = await db
+	const [totals] = await withTransientD1ReadRetry(() => paymentDashboardSummaryQuery(getDb()));
+	return toPaymentDashboardSummaryDTO(totals);
+}
+
+function paymentDashboardSummaryQuery(db: Db) {
+	return db
 		.select({
 			totalVolume: sql<number>`coalesce(sum(${paymentTable.amount}), 0)`,
 			totalCaptured: sql<number>`coalesce(sum(case when ${paymentTable.status} in ('captured', 'partially_refunded', 'refunded') then ${paymentTable.amount} else 0 end), 0)`,
 			totalPending: sql<number>`coalesce(sum(case when ${paymentTable.status} = 'pending' then ${paymentTable.amount} else 0 end), 0)`,
-			totalRefunded: sql<number>`coalesce(sum(${paymentTable.refundAmount}), 0)`
+			totalRefunded: sql<number>`coalesce(sum(${paymentTable.refundAmount}), 0)`,
+			manualReviewCount: sql<number>`coalesce(sum(case when json_extract(${paymentTable.gatewayResponse}, '$.metadata.manualReview.required') = 1 then 1 else 0 end), 0)`
 		})
 		.from(paymentTable);
-	const gatewayRows = await db
-		.select({ gatewayResponse: paymentTable.gatewayResponse })
-		.from(paymentTable);
+}
 
+function toPaymentDashboardSummaryDTO(
+	totals:
+		| {
+				totalVolume: number;
+				totalCaptured: number;
+				totalPending: number;
+				totalRefunded: number;
+				manualReviewCount: number;
+		  }
+		| undefined
+): PaymentDashboardSummaryDTO {
 	return {
 		totalVolume: Number(totals?.totalVolume ?? 0),
 		totalCaptured: Number(totals?.totalCaptured ?? 0),
 		totalPending: Number(totals?.totalPending ?? 0),
 		totalRefunded: Number(totals?.totalRefunded ?? 0),
-		manualReviewCount: gatewayRows.filter((row) => getManualReviewReason(row.gatewayResponse))
-			.length
+		manualReviewCount: Number(totals?.manualReviewCount ?? 0)
 	};
+}
+
+function buildPaymentListWhere(options: ListPaymentsOptions): SQL | undefined {
+	const conditions: SQL[] = [];
+	if (options.orderId) conditions.push(eq(paymentTable.orderId, options.orderId));
+	if (options.status) conditions.push(eq(paymentTable.status, options.status));
+	if (options.method) conditions.push(eq(paymentTable.method, options.method));
+	return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 export async function getPayment(ctx: ServiceContext, id: string): Promise<PaymentDTO> {
 	const db = getDb();
-	const [row] = await db.select().from(paymentTable).where(eq(paymentTable.id, id));
+	const [row] = await withTransientD1ReadRetry(() =>
+		db.select().from(paymentTable).where(eq(paymentTable.id, id))
+	);
 	if (!row) {
 		throw new PaymentError('Payment record not found.', ErrorCode.PAYMENT_NOT_FOUND, { id });
 	}
 
-	const [orderRow] = await db.select().from(orderTable).where(eq(orderTable.id, row.orderId));
+	const [orderRow] = await withTransientD1ReadRetry(() =>
+		db.select().from(orderTable).where(eq(orderTable.id, row.orderId))
+	);
 	if (orderRow) {
 		requireOwnerOrAdmin(ctx.actor, orderRow.userId);
 	} else {
@@ -1406,7 +1832,7 @@ export async function recordPayment(
 				);
 			guardPaymentUpdate = true;
 		} else {
-			const paymentId = crypto.randomUUID();
+			const paymentId = nanoid();
 			const created = parseNewPayment({
 				id: paymentId,
 				orderId: orderRow.id,
@@ -1464,19 +1890,33 @@ export async function recordPayment(
 		if (guardPaymentUpdate) statements.push(...guardPreviousBatchChanges(db));
 		if (preparedTransition) statements.push(...preparedTransition.statements);
 		statements.push(...preparedNotifications.map((item) => item.statement));
-		await db.batch(statements);
-
-		const notifications = await loadPreparedNotificationOutboxRows(db, preparedNotifications);
-		await publishNotificationWakeups(ctx, notifications);
-		const [committed] = await db
-			.select()
-			.from(paymentTable)
-			.where(eq(paymentTable.id, paymentRow.id))
-			.limit(1);
-		return toPaymentDTO(
-			committed ?? paymentRow,
-			preparedTransition?.order.status ?? orderRow.status
+		const committed = await withTransientD1WriteReconciliation<Payment>(
+			async () => {
+				await db.batch(statements);
+				const [row] = await db
+					.select()
+					.from(paymentTable)
+					.where(eq(paymentTable.id, paymentRow.id))
+					.limit(1);
+				if (!row) {
+					throw new PaymentError('Payment was not saved.', ErrorCode.INTERNAL_ERROR);
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(paymentTable)
+					.where(eq(paymentTable.id, paymentRow.id))
+					.limit(1);
+				return row && row.status === paymentRow.status && row.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
 		);
+
+		await publishPreparedNotificationWakeups(ctx, db, preparedNotifications);
+		return toPaymentDTO(committed, preparedTransition?.order.status ?? orderRow.status);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new PaymentError(
@@ -1585,10 +2025,37 @@ export async function recordRefund(
 		] = [paymentUpdate, guard[0], guard[1]];
 		if (preparedTransition) statements.push(...preparedTransition.statements);
 		statements.push(...preparedNotifications.map((item) => item.statement));
-		await db.batch(statements);
-		const notifications = await loadPreparedNotificationOutboxRows(db, preparedNotifications);
-		await publishNotificationWakeups(ctx, notifications);
-		return dto;
+		const committed = await withTransientD1WriteReconciliation<Payment>(
+			async () => {
+				await db.batch(statements);
+				const [row] = await db
+					.select()
+					.from(paymentTable)
+					.where(eq(paymentTable.id, existing.id))
+					.limit(1);
+				if (!row) {
+					throw new PaymentError('Payment record not found.', ErrorCode.PAYMENT_NOT_FOUND, {
+						paymentId: existing.id
+					});
+				}
+				return row;
+			},
+			async () => {
+				const [row] = await db
+					.select()
+					.from(paymentTable)
+					.where(eq(paymentTable.id, existing.id))
+					.limit(1);
+				return row &&
+					row.status === finalStatus &&
+					row.refundAmount === nextRefunded &&
+					row.updatedAt.getTime() === now.getTime()
+					? { committed: true, value: row }
+					: { committed: false };
+			}
+		);
+		await publishPreparedNotificationWakeups(ctx, db, preparedNotifications);
+		return toPaymentDTO(committed, preparedTransition?.order.status ?? orderRow.status);
 	} catch (error) {
 		if (isD1BatchGuardError(error)) {
 			throw new PaymentError(
@@ -1616,7 +2083,6 @@ function toPaymentDTO(row: Payment, orderStatus: OrderStatus | null = null): Pay
 		method: row.method,
 		status: row.status,
 		transactionId: row.transactionId,
-		gatewayResponse: row.gatewayResponse,
 		refundAmount: row.refundAmount,
 		refundedAt: row.refundedAt,
 		paidAt: row.paidAt,
@@ -1706,12 +2172,11 @@ function timestampMsToDate(ts: number | null | undefined): Date | null {
 }
 
 function mapPaymentPersistenceError(error: unknown): Error {
-	return error instanceof PaymentError
-		? error
-		: new PaymentError(
-				error instanceof Error ? error.message : 'Database error',
-				ErrorCode.INTERNAL_ERROR
-			);
+	if (isAppError(error)) return error;
+	rethrowTransientD1Error(error);
+	return new PaymentError('Database operation failed.', ErrorCode.INTERNAL_ERROR, {
+		cause: getErrorMessage(error)
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -2001,6 +2466,21 @@ function readPayPalCapture(capture: PayPalCaptureResponse): {
 	};
 }
 
+function createPayPalCaptureAudit(
+	orderStatus: string | undefined,
+	capture: ReturnType<typeof readPayPalCapture>
+): Record<string, unknown> {
+	return {
+		orderStatus: orderStatus ?? null,
+		capture: {
+			id: capture.id,
+			status: capture.status,
+			currency: capture.currency,
+			value: capture.value
+		}
+	};
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), PAYMENT_PROVIDER_TIMEOUT_MS);
@@ -2068,12 +2548,27 @@ async function writeWebhookLog(
 	errorMessage: string | null
 ): Promise<void> {
 	try {
-		await getDb().insert(paymentWebhookLogTable).values({
-			gateway,
-			payload,
-			status,
-			errorMessage
-		});
+		const db = getDb();
+		const id = nanoid();
+		const auditPayload = gateway === 'payhere' ? sanitizePayHereWebhookPayload(payload) : {};
+		await withTransientD1WriteReconciliation(
+			() =>
+				db.insert(paymentWebhookLogTable).values({
+					id,
+					gateway,
+					payload: auditPayload,
+					status,
+					errorMessage
+				}),
+			async () => {
+				const [row] = await db
+					.select({ id: paymentWebhookLogTable.id })
+					.from(paymentWebhookLogTable)
+					.where(eq(paymentWebhookLogTable.id, id))
+					.limit(1);
+				return row ? { committed: true, value: undefined } : { committed: false };
+			}
+		);
 	} catch (error) {
 		console.error('[payments] Failed to write webhook audit log:', {
 			gateway,

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { wishlist } from '$lib/client/stores/wishlist.svelte';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 	import { productCardImageAttrs } from '$lib/shared/media';
 
 	type ProductCardProduct = {
@@ -22,7 +23,10 @@
 		images?: { r2Key?: string | null; imageUrl?: string | null }[] | null;
 	};
 
-	let { product }: { product: ProductCardProduct } = $props();
+	let {
+		product,
+		showImageSkeleton = true
+	}: { product: ProductCardProduct; showImageSkeleton?: boolean } = $props();
 
 	const isSaved = $derived(wishlist.has(product.id));
 
@@ -74,7 +78,7 @@
 		<!-- Image container -->
 		<div class="relative aspect-3/4 overflow-hidden rounded-none bg-charcoal">
 			<!-- Primary Image -->
-			<img
+			<ProgressiveImage
 				src={primaryImageAttrs?.src ?? primaryImage}
 				srcset={primaryImageAttrs?.srcset || undefined}
 				sizes={primaryImageAttrs?.sizes}
@@ -83,12 +87,13 @@
 				loading={primaryImageAttrs?.loading}
 				decoding={primaryImageAttrs?.decoding}
 				alt={product.name}
+				showSkeleton={showImageSkeleton}
 				class="h-full w-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
 			/>
 
 			<!-- Hover Image -->
 			{#if hoverImage !== primaryImage}
-				<img
+				<ProgressiveImage
 					src={hoverImageAttrs?.src ?? hoverImage}
 					srcset={hoverImageAttrs?.srcset || undefined}
 					sizes={hoverImageAttrs?.sizes}
@@ -97,6 +102,8 @@
 					loading={hoverImageAttrs?.loading}
 					decoding={hoverImageAttrs?.decoding}
 					alt={product.name}
+					showSkeleton={showImageSkeleton}
+					skeletonClass="hidden"
 					class="absolute inset-0 h-full w-full object-cover object-top opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 				/>
 			{/if}

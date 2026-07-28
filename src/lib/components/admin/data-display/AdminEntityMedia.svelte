@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { ComponentType, SvelteComponent } from 'svelte';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 
 	type IconComponent = ComponentType<SvelteComponent>;
 
@@ -27,11 +28,11 @@
 
 <a
 	href={resolve(href as '/')}
-	class="grid {aspectClass} w-full place-items-center border border-charcoal bg-charcoal/30"
+	class="relative grid {aspectClass} w-full place-items-center overflow-hidden border border-charcoal bg-charcoal/30"
 	aria-label={ariaLabel}
 >
 	{#if src}
-		<img {src} {alt} class="h-full w-full object-cover" />
+		<ProgressiveImage {src} {alt} class="h-full w-full object-cover" />
 	{:else}
 		<FallbackIcon size={18} class="text-ash/50" aria-hidden="true" />
 	{/if}

@@ -3,7 +3,7 @@ import type { SmsResult } from '$lib/server/infrastructure/sms';
 
 export type ProviderDispatchResult =
 	| { ok: true; provider: string; providerMessageId: string }
-	| { ok: false; error: string };
+	| { ok: false; error: string; retryable?: boolean };
 
 export function toEmailDispatchResult(result: EmailResult): ProviderDispatchResult {
 	if (!result.ok) return result;
@@ -23,6 +23,8 @@ export function toSmsDispatchResult(result: SmsResult): ProviderDispatchResult {
 	};
 }
 
-export function isRetryableSendFailure(error: string): boolean {
-	return !error.startsWith('UNSUPPORTED_');
+export function isRetryableSendFailure(
+	result: Extract<ProviderDispatchResult, { ok: false }>
+): boolean {
+	return result.retryable ?? !result.error.startsWith('UNSUPPORTED_');
 }

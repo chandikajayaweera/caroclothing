@@ -49,7 +49,6 @@ export type PaymentDTO = {
 	method: PaymentMethod;
 	status: PaymentStatus;
 	transactionId: string | null;
-	gatewayResponse: unknown | null;
 	refundAmount: number | null;
 	refundedAt: Date | null;
 	paidAt: Date | null;
@@ -183,6 +182,18 @@ export type OrderListResult = {
 	total: number;
 	limit: number;
 	offset: number;
+};
+
+export type OrderAnalyticsDTO = {
+	totalSales: number;
+	pendingFulfillmentCount: number;
+	openOrdersCount: number;
+	unpaidHoldsCount: number;
+};
+
+export type OrderDashboardDTO = {
+	orders: OrderListResult;
+	analytics: OrderAnalyticsDTO;
 };
 
 export type TransitionOrderStatusInput = {

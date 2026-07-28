@@ -7,6 +7,8 @@
 
 import { error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
+import { nanoid } from 'nanoid';
+import { getErrorMessage } from '$lib/server/infrastructure/errors';
 
 export const ALLOWED_IMAGE_TYPES = new Set<string>([
 	'image/jpeg',
@@ -76,7 +78,7 @@ export function buildMediaKey(opts: {
 	const ext = extFromContentType(opts.contentType);
 	if (ext === 'bin') throw new Error(`Unsupported content type "${opts.contentType}".`);
 
-	const uid = crypto.randomUUID().replace(/-/g, '');
+	const uid = nanoid();
 	return `${opts.scope}/${opts.entityId}/${opts.variant}-${uid}.${ext}`;
 }
 
@@ -91,6 +93,17 @@ export function validateImageFile(file: File): void {
 	}
 }
 
+export function isInvalidImageUploadMessage(message: string): boolean {
+	const normalized = message.toLowerCase();
+	return (
+		normalized.includes('unsupported image type') ||
+		normalized.includes('unsupported content type') ||
+		normalized.includes('file is empty') ||
+		normalized.includes('image is too large') ||
+		normalized.includes('contents do not match declared image type')
+	);
+}
+
 function sanitizedOriginalName(fileName: string): string {
 	const sanitized = fileName
 		.replace(/[^\w.\- ]/g, '_')
@@ -100,6 +113,7 @@ function sanitizedOriginalName(fileName: string): string {
 }
 
 export async function putFile(bucket: R2Bucket, key: string, file: File): Promise<void> {
+	validateImageFile(file);
 	assertSafeR2Key(key);
 	await putOriginalImage(bucket, key, file);
 }
@@ -122,7 +136,9 @@ export async function uploadImage(
 }
 
 async function putOriginalImage(bucket: R2Bucket, key: string, file: File): Promise<void> {
-	await bucket.put(key, await file.arrayBuffer(), {
+	const bytes = await file.arrayBuffer();
+	assertImageSignature(bytes, file.type);
+	await bucket.put(key, bytes, {
 		httpMetadata: {
 			contentType: file.type,
 			cacheControl: 'public, max-age=31536000, immutable'
@@ -135,15 +151,63 @@ async function putOriginalImage(bucket: R2Bucket, key: string, file: File): Prom
 	});
 }
 
+function assertImageSignature(bytes: ArrayBuffer, contentType: string): void {
+	const data = new Uint8Array(bytes);
+	const matches =
+		contentType === 'image/jpeg'
+			? startsWithBytes(data, [0xff, 0xd8, 0xff])
+			: contentType === 'image/png'
+				? startsWithBytes(data, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+				: contentType === 'image/webp'
+					? hasAscii(data, 0, 'RIFF') && hasAscii(data, 8, 'WEBP')
+					: contentType === 'image/avif'
+						? hasAscii(data, 4, 'ftyp') && (hasAscii(data, 8, 'avif') || hasAscii(data, 8, 'avis'))
+						: false;
+
+	if (!matches) {
+		throw new Error(`File contents do not match declared image type "${contentType}".`);
+	}
+}
+
+function startsWithBytes(data: Uint8Array, expected: number[]): boolean {
+	return expected.every((value, index) => data[index] === value);
+}
+
+function hasAscii(data: Uint8Array, offset: number, expected: string): boolean {
+	if (data.length < offset + expected.length) return false;
+	return [...expected].every(
+		(character, index) => data[offset + index] === character.charCodeAt(0)
+	);
+}
+
 export async function deleteObjectSafe(
 	bucket: R2Bucket,
 	key: string | null | undefined
 ): Promise<void> {
 	if (!key) return;
-	assertSafeR2Key(key);
 	try {
-		await bucket.delete(key);
+		assertSafeR2Key(key);
 	} catch (err) {
-		console.error(`[R2] deleteObjectSafe failed for key "${key}":`, err);
+		console.error(`[R2] Refused unsafe cleanup key "${key}":`, {
+			error: getErrorMessage(err)
+		});
+		return;
 	}
+
+	let lastError: unknown;
+	for (let attempt = 1; attempt <= 3; attempt += 1) {
+		try {
+			await bucket.delete(key);
+			return;
+		} catch (error) {
+			lastError = error;
+			if (attempt < 3) {
+				await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** (attempt - 1)));
+			}
+		}
+	}
+
+	console.error(`[R2] deleteObjectSafe failed for key "${key}" after retries:`, {
+		error: getErrorMessage(lastError)
+	});
 }

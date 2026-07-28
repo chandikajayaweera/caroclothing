@@ -152,3 +152,14 @@
 - **DON'T DO THIS**: Do not alternate between `localhost`, `127.0.0.1`, ports `5173` and `8787`, or use plain `wrangler dev` while the production route is configured. Better Auth requires the request origin to match `PUBLIC_APP_URL`, and Wrangler otherwise derives its local upstream from `caroclothing.lk`.
 - **INSTEAD DO THIS**: Use `http://127.0.0.1:8787` everywhere locally. Run `pnpm dev` for the Vite HMR workflow and `pnpm preview` for the built Cloudflare Worker smoke test. Both commands apply pending local D1 migrations first, use the same persisted `.wrangler/state/v3` data, and keep remote bindings disabled.
 - Configure Google with authorized JavaScript origin `http://127.0.0.1:8787` and authorized redirect URI `http://127.0.0.1:8787/api/auth/callback/google`. Keep staging and production origins separate.
+
+---
+
+### 23. Navigation Feedback and Data Skeletons
+
+- **DON'T DO THIS**: Do not replace the full route, persistent admin sidebar, customer navigation, page structure, or storefront landing page with a synthetic page skeleton. Do not freeze the old page behind a long View Transition or use a generic spinner where a local data shape is predictable.
+- **INSTEAD DO THIS**: Keep the root navigation boundary responsible only for the immediate Volt progress rail and concise slow-navigation announcement. Render the real route shell and persistent layouts. Inside each streamed or client-fetched data component, replace only unresolved values, media, rows, cards, or metrics with stable skeleton placeholders, then fade the resolved content into the same geometry.
+- Every streamed `{#await}` data region needs a local pending skeleton and an honest error/empty state. Mark visual skeleton shapes `aria-hidden`, expose one concise live loading status, and disable shimmer/transitions for `prefers-reduced-motion`.
+- The storefront landing route `/` does not use skeleton UI. Its hero and merchandising media keep stable geometry/backgrounds while loading. If another route cannot safely render before critical data arrives, retain the existing page plus the navigation progress rail until the route is ready instead of inventing a full-page placeholder.
+- Keep authorization, redirects, checkout validation, SEO-critical product/catalog data, and form contracts awaited when the page cannot safely operate without them. Stream only independent secondary data; never move business reads into top-level component `fetch()` calls merely to create a loading state.
+- Do not stream primary list data merely to display a route-level skeleton. For fast admin lists such as products, categories, and addresses, start independent server reads in parallel, await them before returning, and let SvelteKit retain the current page plus the navigation progress rail until the complete target page can swap in once. Use skeletons only when a genuinely slow, independently renderable data region would otherwise leave an unexplained gap.

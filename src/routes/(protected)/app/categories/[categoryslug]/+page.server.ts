@@ -38,11 +38,24 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			{ includeInactive: true }
 		);
 
-		const parentPromise = category.parentId
-			? getCategory(ctx, { id: category.parentId }, { includeInactive: true })
-					.then((p) => p.name)
-					.catch(() => null)
+		const parentCategoryName = category.parentId
+			? getCategory(ctx, { id: category.parentId }, { includeInactive: true }).then(
+					(parent) => parent.name
+				)
 			: Promise.resolve(null);
+		const subcategories = listCategories(ctx, {
+			parentId: category.id,
+			includeInactive: true,
+			limit: 100
+		});
+		const products = listProducts(ctx, {
+			categoryId: category.id,
+			includeInactive: true,
+			limit: 100
+		}).then((result) => result.items);
+		void parentCategoryName.catch(() => {});
+		void subcategories.catch(() => {});
+		void products.catch(() => {});
 
 		const deleteCategoryForm = await superValidate(zod4(deleteCategoryFormSchema), {
 			id: 'deleteCategory'
@@ -52,17 +65,9 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 			category,
 			deleteCategoryForm,
 			streamed: {
-				parentCategoryName: parentPromise,
-				subcategories: listCategories(ctx, {
-					parentId: category.id,
-					includeInactive: true,
-					limit: 100
-				}),
-				products: listProducts(ctx, {
-					categoryId: category.id,
-					includeInactive: true,
-					limit: 100
-				}).then((r) => r.items)
+				parentCategoryName,
+				subcategories,
+				products
 			}
 		};
 	} catch (error) {

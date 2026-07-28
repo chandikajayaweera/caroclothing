@@ -40,7 +40,7 @@ export function createFakeR2Bucket(): FakeR2Bucket {
 }
 
 export function makeImage(name = 'product.png', type = 'image/png'): File {
-	return new File([new Uint8Array([137, 80, 78, 71])], name, { type });
+	return new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], name, { type });
 }
 
 export function makeMediaEvent(bucket: FakeR2Bucket): NonNullable<ServiceContext['event']> {

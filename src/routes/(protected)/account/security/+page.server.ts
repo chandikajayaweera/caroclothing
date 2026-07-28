@@ -13,12 +13,13 @@ import { mapOAuthErrorToMessage } from '$lib/shared/auth/errors';
 
 export const load: PageServerLoad = async (event) => {
 	const ctx = requireAccountContext(event);
-	const { account } = await event.parent();
-	const [sessions, revokeSessionForm] = await Promise.all([
-		listMySessions(ctx, {
-			currentSessionId: event.locals.session?.id,
-			limit: 100
-		}),
+	const sessionsPromise = listMySessions(ctx, {
+		currentSessionId: event.locals.session?.id,
+		limit: 100
+	});
+	const [{ account }, sessions, revokeSessionForm] = await Promise.all([
+		event.parent(),
+		sessionsPromise,
 		superValidate(zod4(revokeMySessionFormSchema), {
 			id: 'revokeMySession'
 		})

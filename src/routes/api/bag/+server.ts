@@ -12,7 +12,7 @@ import {
 	clearBag
 } from '$lib/server/modules/bag';
 import { jsonFromRouteError } from '$lib/server/infrastructure/errors/route-adapter';
-import { isAppError } from '$lib/server/infrastructure/errors';
+import { getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
 
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const actor = locals.user
@@ -30,7 +30,9 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		});
 	} catch (error) {
 		if (!isAppError(error) || error.statusCode >= 500) {
-			console.error('[bag] Failed to load bag:', error);
+			console.error('[bag] Failed to load bag:', {
+				error: getErrorMessage(error)
+			});
 		}
 		return jsonFromRouteError(error);
 	}
@@ -122,7 +124,9 @@ export const POST: RequestHandler = async ({ locals, cookies, request }) => {
 		return json(updatedBag);
 	} catch (error) {
 		if (!isAppError(error) || error.statusCode >= 500) {
-			console.error('[bag] Failed to update bag:', error);
+			console.error('[bag] Failed to update bag:', {
+				error: getErrorMessage(error)
+			});
 		}
 		return jsonFromRouteError(error);
 	}

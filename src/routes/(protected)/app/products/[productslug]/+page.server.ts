@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { getProduct } from '$lib/server/modules/products';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
+import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
 function getAdminContext(
 	locals: App.Locals,
@@ -19,9 +20,11 @@ function getAdminContext(
 export const load: PageServerLoad = async ({ locals, params, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
-	return {
-		streamed: {
-			product: getProduct(ctx, { slug: params.productslug }, { includeInactive: true })
-		}
-	};
+	try {
+		const product = await getProduct(ctx, { slug: params.productslug }, { includeInactive: true });
+
+		return { product };
+	} catch (error) {
+		throwHttpFromAppError(error);
+	}
 };

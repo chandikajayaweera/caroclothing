@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { capturePayPalPayment } from '$lib/server/modules/payments';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import { jsonFromRouteError } from '$lib/server/infrastructure/errors/route-adapter';
-import { isAppError } from '$lib/server/infrastructure/errors';
+import { getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
 
 export const POST: RequestHandler = async ({ request, locals, platform }) => {
 	const actor = locals.user
@@ -22,7 +22,9 @@ export const POST: RequestHandler = async ({ request, locals, platform }) => {
 		return json(result, { headers: { 'cache-control': 'no-store' } });
 	} catch (error) {
 		if (!isAppError(error) || error.statusCode >= 500) {
-			console.error('[payments] PayPal capture failed:', { error });
+			console.error('[payments] PayPal capture failed:', {
+				error: getErrorMessage(error)
+			});
 		}
 		return jsonFromRouteError(error);
 	}

@@ -11,7 +11,6 @@ export type PaymentDTO = {
 	method: PaymentMethod;
 	status: PaymentStatus;
 	transactionId: string | null;
-	gatewayResponse: unknown | null;
 	refundAmount: number | null;
 	refundedAt: Date | null;
 	paidAt: Date | null;
@@ -132,6 +131,11 @@ export type PaymentDashboardSummaryDTO = {
 	totalPending: number;
 	totalRefunded: number;
 	manualReviewCount: number;
+};
+
+export type PaymentDashboardDTO = {
+	payments: PaymentListResult;
+	stats: PaymentDashboardSummaryDTO;
 };
 
 export type RecordPaymentInput = {

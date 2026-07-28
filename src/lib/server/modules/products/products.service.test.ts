@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { customAlphabet } from 'nanoid';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '$lib/server/infrastructure/errors';
 import { inventoryMovement } from '../inventory/inventory.drizzle';
@@ -25,6 +26,7 @@ import {
 	listProducts,
 	setPrimaryProductImage,
 	setProductTags,
+	toPublicProductDTO,
 	updateCategory,
 	updateProductFull
 } from './products.service';
@@ -46,6 +48,7 @@ import {
 } from '../../../../tests/factories/products';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
+const createSlugSafeTestId = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10);
 
 vi.mock('$lib/server/db', () => ({
 	getDb: () => {
@@ -67,7 +70,7 @@ function db() {
 }
 
 function baseProductInput(overrides: Partial<CreateProductInput> = {}): CreateProductInput {
-	const id = crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+	const id = createSlugSafeTestId();
 
 	return {
 		name: `Core Tee ${id}`,
@@ -164,7 +167,7 @@ describe('products service integration', () => {
 				isPrimary: true,
 				imageUrl: expect.stringContaining('/media/_preset/card600/'),
 				mimeType: 'image/png',
-				byteSize: 4,
+				byteSize: 8,
 				originalFilename: 'graphic-front.png',
 				width: null,
 				height: null
@@ -172,6 +175,9 @@ describe('products service integration', () => {
 			expect(created.images[0].variantId).toBeTruthy();
 			expect(created.primaryImageR2Key).toBe(created.images[0].r2Key);
 			expect(created.primaryImageUrl).toBe(created.images[0].imageUrl);
+			expect(toPublicProductDTO(created).images[0]).not.toHaveProperty('originalFilename');
+			expect(toPublicProductDTO(created).images[0]).not.toHaveProperty('mimeType');
+			expect(toPublicProductDTO(created).images[0]).not.toHaveProperty('byteSize');
 			expect(bucket.putCalls).toHaveLength(1);
 			const stored = bucket.objects.get(created.images[0].r2Key);
 			expect(stored).toBeTruthy();
@@ -183,7 +189,7 @@ describe('products service integration', () => {
 				customMetadata: {
 					originalName: 'graphic-front.png',
 					mimeType: 'image/png',
-					byteSize: '4'
+					byteSize: '8'
 				}
 			});
 		});

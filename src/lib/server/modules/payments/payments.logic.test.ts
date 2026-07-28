@@ -6,6 +6,7 @@ import {
 	getGatewayMetadata,
 	mergeGatewayEnvelope,
 	resolvePublicPaymentEmail,
+	sanitizePayHereWebhookPayload,
 	verifyPayHereWebhookSignature
 } from './payments.logic';
 
@@ -60,6 +61,28 @@ describe('payment provider logic', () => {
 				signature
 			})
 		).toBe(false);
+	});
+
+	it('retains payment audit fields without persisting customer PII or signatures', () => {
+		expect(
+			sanitizePayHereWebhookPayload({
+				merchant_id: '123',
+				order_id: 'order-1',
+				payment_id: 'payment-1',
+				status_code: '2',
+				status_message: 'Completed',
+				email: 'buyer@example.com',
+				phone: '+94770000000',
+				address: '1 Privacy Lane',
+				md5sig: 'secret-signature'
+			})
+		).toEqual({
+			merchant_id: '123',
+			order_id: 'order-1',
+			payment_id: 'payment-1',
+			status_code: '2',
+			status_message: 'Completed'
+		});
 	});
 
 	it('preserves provider data while adding service metadata', () => {

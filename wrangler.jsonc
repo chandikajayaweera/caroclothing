@@ -8,6 +8,9 @@
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"compatibility_date": "2026-04-15",
 	"compatibility_flags": ["nodejs_compat", "nodejs_als"],
+	"placement": {
+		"mode": "smart"
+	},
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
@@ -42,8 +45,8 @@
 		"TEXT_LK_PROMOTIONAL_SENDER_ID": "Caro Promo",
 		"PUBLIC_OTP_COOLDOWN_SECONDS": "60"
 	},
-	"workers_dev": true,
-	"preview_urls": true,
+	"workers_dev": false,
+	"preview_urls": false,
 	"triggers": {
 		// One account-level trigger; the Cron registry selects due jobs by UTC minute.
 		"crons": ["* * * * *"]
@@ -58,8 +61,9 @@
 		"consumers": [
 			{
 				"queue": "caroclothing-notifications",
-				"max_batch_size": 10,
+				"max_batch_size": 2,
 				"max_batch_timeout": 0,
+				"max_concurrency": 1,
 				"max_retries": 3,
 				"retry_delay": 300,
 				"dead_letter_queue": "caroclothing-notifications-dlq"
@@ -107,6 +111,7 @@
 					"enabled": true
 				}
 			},
+			"placement": { "mode": "smart" },
 			"routes": [
 				{
 					"pattern": "staging.caroclothing.lk",
@@ -156,8 +161,9 @@
 				"consumers": [
 					{
 						"queue": "caroclothing-staging-notifications",
-						"max_batch_size": 10,
+						"max_batch_size": 2,
 						"max_batch_timeout": 0,
+						"max_concurrency": 1,
 						"max_retries": 3,
 						"retry_delay": 300,
 						"dead_letter_queue": "caroclothing-staging-notifications-dlq"
@@ -176,11 +182,6 @@
 			]
 		}
 	}
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
 	/**
 	 * Bindings
 	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including

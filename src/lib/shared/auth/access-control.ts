@@ -40,7 +40,9 @@ export const adminUser = accessControl.newRole({
 	payment: ['create', 'read', 'update', 'delete'],
 	shipping: ['create', 'read', 'update', 'delete'],
 	settings: ['create', 'read', 'update', 'delete'],
-	user: ['create', 'read', 'update', 'delete'],
+	// Account deletion must use the self-service flow so Caro can atomically
+	// anonymize domain data before Better Auth performs its no-op cleanup.
+	user: ['create', 'read', 'update'],
 	wishlist: ['create', 'read', 'update', 'delete']
 });
 

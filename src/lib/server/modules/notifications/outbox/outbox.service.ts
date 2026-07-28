@@ -1,7 +1,26 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, lte, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	isNull,
+	lte,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation,
+	withTransientD1WriteRetry
+} from '$lib/server/db/retry';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import {
 	ErrorCode,
@@ -20,7 +39,6 @@ import {
 	resolveNow
 } from '$lib/server/foundation/utils';
 import {
-	NOTIFICATION_OUTBOX_STATUSES,
 	notificationOutbox,
 	type NewNotificationOutbox,
 	type NotificationChannel,
@@ -55,6 +73,7 @@ import type {
 	NotificationPayload,
 	NotificationPayloadByType,
 	NotificationQueueMessage,
+	RedactedNotificationPayload,
 	ReleaseStaleNotificationLocksInput,
 	ReleaseStaleNotificationLocksResult
 } from './outbox.types';
@@ -72,6 +91,9 @@ const DEFAULT_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_RETRY_DELAY_MS = 5 * 60 * 1000;
 const MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 const MAX_ERROR_LENGTH = 2000;
+const STALE_EMAIL_LOCK_ERROR = 'Processing lock expired before delivery state was persisted.';
+const STALE_SMS_LOCK_ERROR =
+	'SMS delivery outcome is unknown after the processing lock expired. Manual review required.';
 
 const emailSchema = z.email();
 const phoneSchema = z.e164({ error: 'Invalid phone recipient.' });
@@ -130,6 +152,31 @@ export async function loadPreparedNotificationOutboxRows(
 	return rows.map(toNotificationOutboxDTO);
 }
 
+/**
+ * Publishes a best-effort fast wakeup after notification intent has already
+ * committed with its owning business state. Cron remains the recovery path.
+ */
+export async function publishPreparedNotificationWakeups(
+	ctx: ServiceContext,
+	db: Db,
+	prepared: PreparedNotificationOutboxInsert[]
+): Promise<void> {
+	if (prepared.length === 0) return;
+
+	try {
+		const rows = await withTransientD1ReadRetry(() =>
+			loadPreparedNotificationOutboxRows(db, prepared)
+		);
+		await publishNotificationWakeups(ctx, rows);
+	} catch (error) {
+		console.error('[notification-outbox] Failed to load committed rows for fast wakeup:', {
+			count: prepared.length,
+			requestId: ctx.requestId,
+			error: getErrorMessage(error)
+		});
+	}
+}
+
 export async function getNotificationOutbox(
 	ctx: ServiceContext,
 	input: GetNotificationOutboxInput
@@ -156,10 +203,8 @@ export async function listNotificationOutbox(
 		.limit(limit)
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(notificationOutbox);
-	const [rows, totalRows] = await Promise.all([
-		where ? listQuery.where(where) : listQuery,
-		where ? countQuery.where(where) : countQuery
-	]);
+	const rows = await (where ? listQuery.where(where) : listQuery);
+	const totalRows = await (where ? countQuery.where(where) : countQuery);
 
 	return {
 		items: rows.map(toNotificationOutboxDTO),
@@ -178,43 +223,35 @@ export async function getNotificationOutboxSummary(
 	const now = resolveNow(ctx, input.now);
 	const db = getDb();
 	const baseWhere = buildNotificationOutboxWhere(input);
-	const dueWhere = combineConditions([baseWhere, buildDueNotificationWhere(now)]);
-	const lockedWhere = combineConditions([baseWhere, eq(notificationOutbox.status, 'processing')]);
-	const exhaustedWhere = combineConditions([
-		baseWhere,
-		eq(notificationOutbox.status, 'failed'),
-		sql`${notificationOutbox.attemptCount} >= ${notificationOutbox.maxAttempts}`
-	]);
-	const statusQuery = db
-		.select({ status: notificationOutbox.status, total: count() })
-		.from(notificationOutbox)
-		.groupBy(notificationOutbox.status);
-	const totalQuery = db.select({ total: count() }).from(notificationOutbox);
-	const dueQuery = db.select({ total: count() }).from(notificationOutbox);
-	const lockedQuery = db.select({ total: count() }).from(notificationOutbox);
-	const exhaustedQuery = db.select({ total: count() }).from(notificationOutbox);
-
-	const [statusRows, totalRows, dueRows, lockedRows, exhaustedRows] = await Promise.all([
-		baseWhere ? statusQuery.where(baseWhere) : statusQuery,
-		baseWhere ? totalQuery.where(baseWhere) : totalQuery,
-		dueWhere ? dueQuery.where(dueWhere) : dueQuery,
-		lockedWhere ? lockedQuery.where(lockedWhere) : lockedQuery,
-		exhaustedWhere ? exhaustedQuery.where(exhaustedWhere) : exhaustedQuery
-	]);
-	const byStatus = Object.fromEntries(
-		NOTIFICATION_OUTBOX_STATUSES.map((status) => [status, 0])
-	) as Record<NotificationOutboxStatus, number>;
-
-	for (const row of statusRows) {
-		byStatus[row.status] = Number(row.total);
-	}
+	const dueCondition = buildDueNotificationWhere(now);
+	const summaryQuery = db
+		.select({
+			total: count(),
+			pending: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'pending' then 1 else 0 end), 0)`,
+			processing: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'processing' then 1 else 0 end), 0)`,
+			sent: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'sent' then 1 else 0 end), 0)`,
+			failed: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'failed' then 1 else 0 end), 0)`,
+			cancelled: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'cancelled' then 1 else 0 end), 0)`,
+			due: sql<number>`coalesce(sum(case when ${dueCondition} then 1 else 0 end), 0)`,
+			locked: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'processing' then 1 else 0 end), 0)`,
+			exhausted: sql<number>`coalesce(sum(case when ${notificationOutbox.status} = 'failed' and ${notificationOutbox.attemptCount} >= ${notificationOutbox.maxAttempts} then 1 else 0 end), 0)`
+		})
+		.from(notificationOutbox);
+	const [summary] = await (baseWhere ? summaryQuery.where(baseWhere) : summaryQuery);
+	const byStatus: Record<NotificationOutboxStatus, number> = {
+		pending: Number(summary?.pending ?? 0),
+		processing: Number(summary?.processing ?? 0),
+		sent: Number(summary?.sent ?? 0),
+		failed: Number(summary?.failed ?? 0),
+		cancelled: Number(summary?.cancelled ?? 0)
+	};
 
 	return {
-		total: Number(totalRows[0]?.total ?? 0),
+		total: Number(summary?.total ?? 0),
 		byStatus,
-		dueCount: Number(dueRows[0]?.total ?? 0),
-		lockedCount: Number(lockedRows[0]?.total ?? 0),
-		exhaustedFailedCount: Number(exhaustedRows[0]?.total ?? 0)
+		dueCount: Number(summary?.due ?? 0),
+		lockedCount: Number(summary?.locked ?? 0),
+		exhaustedFailedCount: Number(summary?.exhausted ?? 0)
 	};
 }
 
@@ -242,64 +279,55 @@ export async function cancelNotification(
 		return toNotificationOutboxDTO(existing);
 	}
 
-	const [updated] = await getDb()
-		.update(notificationOutbox)
-		.set({
-			status: 'cancelled',
-			cancelledAt: now,
-			lockedAt: null,
-			lockedBy: null,
-			lockToken: null,
-			lastError: normalizeOptionalText(input.reason, 'reason', MAX_ERROR_LENGTH),
-			updatedAt: now
-		})
-		.where(
-			and(eq(notificationOutbox.id, id), inArray(notificationOutbox.status, ['pending', 'failed']))
-		)
-		.returning();
+	const db = getDb();
+	const reason = normalizeOptionalText(input.reason, 'reason', MAX_ERROR_LENGTH);
+	const updated = await withTransientD1WriteReconciliation<NotificationOutbox>(
+		async () => {
+			const [row] = await db
+				.update(notificationOutbox)
+				.set({
+					status: 'cancelled',
+					cancelledAt: now,
+					lockedAt: null,
+					lockedBy: null,
+					lockToken: null,
+					lastError: reason,
+					updatedAt: now
+				})
+				.where(
+					and(
+						eq(notificationOutbox.id, id),
+						inArray(notificationOutbox.status, ['pending', 'failed'])
+					)
+				)
+				.returning();
+			if (row) return row;
 
-	if (!updated) {
-		const current = await loadNotificationOutboxByIdTx(getDb(), id);
-		if (current.status === 'cancelled') return toNotificationOutboxDTO(current);
-		throw new NotificationError(
-			'This notification can no longer be cancelled.',
-			ErrorCode.CONFLICT,
-			{
-				id,
-				status: current.status
+			const current = await loadNotificationOutboxByIdTx(db, id);
+			if (
+				current.status === 'cancelled' &&
+				current.updatedAt.getTime() === now.getTime() &&
+				current.lastError === reason
+			) {
+				return current;
 			}
-		);
-	}
+			throw new NotificationError(
+				'This notification can no longer be cancelled.',
+				ErrorCode.CONFLICT,
+				{ id, status: current.status }
+			);
+		},
+		async () => {
+			const current = await findNotificationOutboxByIdTx(db, id);
+			return current?.status === 'cancelled' &&
+				current.updatedAt.getTime() === now.getTime() &&
+				current.lastError === reason
+				? { committed: true, value: current }
+				: { committed: false };
+		}
+	);
 
 	return toNotificationOutboxDTO(updated);
-}
-
-export async function cancelNotificationsForAccountDeletionTx(
-	tx: NotificationOutboxTx,
-	input: { userId: string; now?: Date }
-): Promise<number> {
-	const now = resolveNow(null, input.now);
-	const userId = normalizeId(input.userId, 'userId');
-	const updated = await tx
-		.update(notificationOutbox)
-		.set({
-			status: 'cancelled',
-			cancelledAt: now,
-			lockedAt: null,
-			lockedBy: null,
-			lockToken: null,
-			lastError: 'Account deleted before delivery.',
-			updatedAt: now
-		})
-		.where(
-			and(
-				eq(notificationOutbox.recipientUserId, userId),
-				inArray(notificationOutbox.status, ['pending', 'processing', 'failed'])
-			)
-		)
-		.returning({ id: notificationOutbox.id });
-
-	return updated.length;
 }
 
 export function prepareAccountNotificationCancellation(
@@ -308,23 +336,32 @@ export function prepareAccountNotificationCancellation(
 ): NotificationOutboxBatchItem {
 	const now = resolveNow(null, input.now);
 	const userId = normalizeId(input.userId, 'userId');
+	const cancellable = inArray(notificationOutbox.status, ['pending', 'processing', 'failed']);
 	return db
 		.update(notificationOutbox)
 		.set({
-			status: 'cancelled',
-			cancelledAt: now,
+			status: sql<NotificationOutboxStatus>`CASE
+				WHEN ${cancellable} THEN 'cancelled'
+				ELSE ${notificationOutbox.status}
+			END`,
+			recipient: '[deleted-account]',
+			recipientUserId: null,
+			payloadJson: sql<RedactedNotificationPayload>`json('{"redacted":true}')`,
+			metadataJson: null,
+			cancelledAt: sql`CASE
+				WHEN ${cancellable} THEN ${now.getTime()}
+				ELSE ${notificationOutbox.cancelledAt}
+			END`,
 			lockedAt: null,
 			lockedBy: null,
 			lockToken: null,
-			lastError: 'Account deleted before delivery.',
+			lastError: sql`CASE
+				WHEN ${cancellable} THEN 'Account deleted before delivery.'
+				ELSE ${notificationOutbox.lastError}
+			END`,
 			updatedAt: now
 		})
-		.where(
-			and(
-				eq(notificationOutbox.recipientUserId, userId),
-				inArray(notificationOutbox.status, ['pending', 'processing', 'failed'])
-			)
-		);
+		.where(eq(notificationOutbox.recipientUserId, userId));
 }
 
 export async function claimNotification(
@@ -380,27 +417,42 @@ export async function markNotificationSent(
 		'providerMessageId',
 		255
 	);
-	const [updated] = await getDb()
-		.update(notificationOutbox)
-		.set({
-			status: 'sent',
-			sentAt,
-			provider,
-			providerMessageId,
-			lastError: null,
-			lockedAt: null,
-			lockedBy: null,
-			lockToken: null,
-			updatedAt: sentAt
-		})
-		.where(
-			and(
-				eq(notificationOutbox.id, id),
-				eq(notificationOutbox.status, 'processing'),
-				eq(notificationOutbox.lockToken, lockToken)
+	const db = getDb();
+	const sameProviderMessage = providerMessageId
+		? eq(notificationOutbox.providerMessageId, providerMessageId)
+		: isNull(notificationOutbox.providerMessageId);
+	const [updated] = await withTransientD1WriteRetry(() =>
+		db
+			.update(notificationOutbox)
+			.set({
+				status: 'sent',
+				sentAt,
+				provider,
+				providerMessageId,
+				lastError: null,
+				lockedAt: null,
+				lockedBy: null,
+				lockToken: null,
+				updatedAt: sentAt
+			})
+			.where(
+				and(
+					eq(notificationOutbox.id, id),
+					or(
+						and(
+							eq(notificationOutbox.status, 'processing'),
+							eq(notificationOutbox.lockToken, lockToken)
+						),
+						and(
+							eq(notificationOutbox.status, 'sent'),
+							eq(notificationOutbox.provider, provider),
+							sameProviderMessage
+						)
+					)
+				)
 			)
-		)
-		.returning();
+			.returning()
+	);
 
 	if (!updated) {
 		throw new NotificationError('Notification lock is no longer valid.', ErrorCode.CONFLICT, {
@@ -423,26 +475,44 @@ export async function markNotificationFailed(
 	const existing = await loadProcessingNotificationByLockTx(getDb(), id, lockToken);
 	const shouldRetry = (input.retryable ?? true) && existing.attemptCount < existing.maxAttempts;
 	const nextAttemptAt = shouldRetry ? calculateNextAttemptAt(existing.attemptCount, now) : now;
-	const [updated] = await getDb()
-		.update(notificationOutbox)
-		.set({
-			status: 'failed',
-			attemptCount: shouldRetry ? existing.attemptCount : existing.maxAttempts,
-			nextAttemptAt,
-			lastError: normalizeErrorMessage(input.error),
-			lockedAt: null,
-			lockedBy: null,
-			lockToken: null,
-			updatedAt: now
-		})
-		.where(
-			and(
-				eq(notificationOutbox.id, id),
-				eq(notificationOutbox.status, 'processing'),
-				eq(notificationOutbox.lockToken, lockToken)
+	const attemptCount = shouldRetry ? existing.attemptCount : existing.maxAttempts;
+	const lastError = normalizeErrorMessage(input.error);
+	const db = getDb();
+	const [updated] = await withTransientD1WriteRetry(() =>
+		db
+			.update(notificationOutbox)
+			.set({
+				status: 'failed',
+				attemptCount,
+				nextAttemptAt,
+				lastError,
+				lockedAt: null,
+				lockedBy: null,
+				lockToken: null,
+				updatedAt: now
+			})
+			.where(
+				and(
+					eq(notificationOutbox.id, id),
+					or(
+						and(
+							eq(notificationOutbox.status, 'processing'),
+							eq(notificationOutbox.lockToken, lockToken)
+						),
+						and(
+							eq(notificationOutbox.status, 'failed'),
+							eq(notificationOutbox.attemptCount, attemptCount),
+							eq(notificationOutbox.nextAttemptAt, nextAttemptAt),
+							eq(notificationOutbox.lastError, lastError),
+							isNull(notificationOutbox.lockedAt),
+							isNull(notificationOutbox.lockedBy),
+							isNull(notificationOutbox.lockToken)
+						)
+					)
+				)
 			)
-		)
-		.returning();
+			.returning()
+	);
 
 	if (!updated) {
 		throw new NotificationError('Notification lock is no longer valid.', ErrorCode.CONFLICT, {
@@ -485,28 +555,70 @@ export async function releaseStaleNotificationLocks(
 	}
 
 	const ids = staleRows.map((row) => row.id);
-	const released = await db
-		.update(notificationOutbox)
-		.set({
-			status: 'failed',
-			nextAttemptAt: now,
-			lockedAt: null,
-			lockedBy: null,
-			lockToken: null,
-			lastError: 'Processing lock expired.',
-			updatedAt: now
-		})
-		.where(
-			and(
-				inArray(notificationOutbox.id, ids),
-				eq(notificationOutbox.status, 'processing'),
-				isNotNull(notificationOutbox.lockedAt),
-				isNotNull(notificationOutbox.lockedBy),
-				isNotNull(notificationOutbox.lockToken),
-				lte(notificationOutbox.lockedAt, staleBefore)
-			)
-		)
-		.returning({ id: notificationOutbox.id });
+	const released = await withTransientD1WriteReconciliation<{ id: string }[]>(
+		() =>
+			db
+				.update(notificationOutbox)
+				.set({
+					status: 'failed',
+					// Resend retries use the outbox idempotency key. text.lk has
+					// no equivalent, so a stale SMS lock is delivery-ambiguous
+					// and must be quarantined instead of sent again.
+					attemptCount: sql`CASE
+						WHEN ${notificationOutbox.channel} = 'sms'
+							THEN ${notificationOutbox.maxAttempts}
+						ELSE ${notificationOutbox.attemptCount}
+					END`,
+					nextAttemptAt: now,
+					lockedAt: null,
+					lockedBy: null,
+					lockToken: null,
+					lastError: sql`CASE
+						WHEN ${notificationOutbox.channel} = 'sms'
+							THEN ${STALE_SMS_LOCK_ERROR}
+						ELSE ${STALE_EMAIL_LOCK_ERROR}
+					END`,
+					updatedAt: now
+				})
+				.where(
+					and(
+						inArray(notificationOutbox.id, ids),
+						eq(notificationOutbox.status, 'processing'),
+						isNotNull(notificationOutbox.lockedAt),
+						isNotNull(notificationOutbox.lockedBy),
+						isNotNull(notificationOutbox.lockToken),
+						lte(notificationOutbox.lockedAt, staleBefore)
+					)
+				)
+				.returning({ id: notificationOutbox.id }),
+		async () => {
+			const rows = await db
+				.select({ id: notificationOutbox.id })
+				.from(notificationOutbox)
+				.where(
+					and(
+						inArray(notificationOutbox.id, ids),
+						eq(notificationOutbox.status, 'failed'),
+						eq(notificationOutbox.updatedAt, now),
+						or(
+							and(
+								eq(notificationOutbox.channel, 'email'),
+								eq(notificationOutbox.lastError, STALE_EMAIL_LOCK_ERROR)
+							),
+							and(
+								eq(notificationOutbox.channel, 'sms'),
+								eq(notificationOutbox.lastError, STALE_SMS_LOCK_ERROR),
+								sql`${notificationOutbox.attemptCount} = ${notificationOutbox.maxAttempts}`
+							)
+						),
+						isNull(notificationOutbox.lockedAt),
+						isNull(notificationOutbox.lockedBy),
+						isNull(notificationOutbox.lockToken)
+					)
+				);
+			return rows.length > 0 ? { committed: true, value: rows } : { committed: false };
+		}
+	);
 
 	return {
 		releasedCount: released.length,
@@ -520,22 +632,28 @@ export async function enqueueNotificationTx<TType extends NotificationOutboxType
 	input: EnqueueNotificationInput<TType>
 ): Promise<NotificationOutboxDTO> {
 	const now = resolveNow(null, input.now);
-	const values = toNewNotificationOutbox(input, now);
+	const values = { id: nanoid(), ...toNewNotificationOutbox(input, now) };
 
 	try {
-		const [created] = await tx.insert(notificationOutbox).values(values).returning();
-
-		if (!created) {
-			throw new NotificationError('Notification was not enqueued.', ErrorCode.INTERNAL_ERROR);
-		}
-
-		return toNotificationOutboxDTO(created);
+		const row = await withTransientD1WriteReconciliation<NotificationOutbox>(
+			async () => {
+				const [created] = await tx.insert(notificationOutbox).values(values).returning();
+				if (!created) {
+					throw new NotificationError('Notification was not enqueued.', ErrorCode.INTERNAL_ERROR);
+				}
+				return created;
+			},
+			async () => {
+				const [existing] = await tx
+					.select()
+					.from(notificationOutbox)
+					.where(eq(notificationOutbox.idempotencyKey, values.idempotencyKey))
+					.limit(1);
+				return existing ? { committed: true, value: existing } : { committed: false };
+			}
+		);
+		return toNotificationOutboxDTO(row);
 	} catch (error) {
-		if (isUniqueConstraintError(getErrorMessage(error))) {
-			const existing = await loadNotificationOutboxByIdempotencyKeyTx(tx, values.idempotencyKey);
-			return toNotificationOutboxDTO(existing);
-		}
-
 		throw mapNotificationOutboxPersistenceError(error);
 	}
 }
@@ -748,7 +866,7 @@ export async function publishNotificationWakeups(
 	} catch (error) {
 		console.error('[notification-outbox] Failed to publish notification wakeups:', {
 			count: rows.length,
-			error
+			error: getErrorMessage(error)
 		});
 	}
 }
@@ -759,62 +877,63 @@ async function claimNotificationTx(
 	input: ClaimNotificationInput
 ): Promise<ClaimedNotificationDTO | null> {
 	const now = resolveNow(ctx, input.now);
-	const lockToken = crypto.randomUUID();
+	const lockToken = nanoid();
 	const lockedBy = normalizeText(
 		input.workerId ?? ctx.actor?.id ?? 'system:notification-worker',
 		'workerId',
 		255
 	);
 	const lookupPredicate = buildClaimLookupPredicate(input);
-	const [claimed] = await db
-		.update(notificationOutbox)
-		.set({
-			status: 'processing',
-			attemptCount: sql`${notificationOutbox.attemptCount} + 1`,
-			lastAttemptAt: now,
-			lockedAt: now,
-			lockedBy,
-			lockToken,
-			updatedAt: now
-		})
-		.where(and(lookupPredicate, buildDueNotificationWhere(now)))
-		.returning();
-
+	const claimed = await withTransientD1WriteReconciliation<NotificationOutbox | null>(
+		async () => {
+			const [row] = await db
+				.update(notificationOutbox)
+				.set({
+					status: 'processing',
+					attemptCount: sql`${notificationOutbox.attemptCount} + 1`,
+					lastAttemptAt: now,
+					lockedAt: now,
+					lockedBy,
+					lockToken,
+					updatedAt: now
+				})
+				.where(and(lookupPredicate, buildDueNotificationWhere(now)))
+				.returning();
+			return row ?? null;
+		},
+		async () => {
+			const [row] = await db
+				.select()
+				.from(notificationOutbox)
+				.where(eq(notificationOutbox.lockToken, lockToken))
+				.limit(1);
+			return row ? { committed: true, value: row } : { committed: false };
+		}
+	);
 	if (!claimed) return null;
 	return toClaimedNotificationDTO(claimed);
+}
+
+async function findNotificationOutboxByIdTx(
+	db: QueryExecutor,
+	id: string
+): Promise<NotificationOutbox | null> {
+	const [row] = await db
+		.select()
+		.from(notificationOutbox)
+		.where(eq(notificationOutbox.id, id))
+		.limit(1);
+	return row ?? null;
 }
 
 async function loadNotificationOutboxByIdTx(
 	db: QueryExecutor,
 	id: string
 ): Promise<NotificationOutbox> {
-	const [row] = await db
-		.select()
-		.from(notificationOutbox)
-		.where(eq(notificationOutbox.id, id))
-		.limit(1);
+	const row = await findNotificationOutboxByIdTx(db, id);
 
 	if (!row) {
 		throw new NotificationError('Notification not found.', ErrorCode.NOT_FOUND, { id });
-	}
-
-	return row;
-}
-
-async function loadNotificationOutboxByIdempotencyKeyTx(
-	db: QueryExecutor,
-	idempotencyKey: string
-): Promise<NotificationOutbox> {
-	const [row] = await db
-		.select()
-		.from(notificationOutbox)
-		.where(eq(notificationOutbox.idempotencyKey, idempotencyKey))
-		.limit(1);
-
-	if (!row) {
-		throw new NotificationError('Notification not found.', ErrorCode.NOT_FOUND, {
-			idempotencyKey
-		});
 	}
 
 	return row;
@@ -925,15 +1044,32 @@ function toClaimedNotificationDTO(row: NotificationOutbox): ClaimedNotificationD
 		);
 	}
 
+	const dto = toNotificationOutboxDTO(row);
+	if (isRedactedNotificationPayload(dto.payload)) {
+		throw new NotificationError(
+			'Claimed notification payload was redacted.',
+			ErrorCode.INTERNAL_ERROR,
+			{ id: row.id }
+		);
+	}
+
 	return {
-		...toNotificationOutboxDTO(row),
+		...dto,
+		payload: dto.payload,
 		status: 'processing',
 		lockToken: row.lockToken
 	};
 }
 
-function parseNotificationPayload(row: NotificationOutbox): NotificationPayload {
+function parseNotificationPayload(
+	row: NotificationOutbox
+): NotificationPayload | RedactedNotificationPayload {
+	if (isRedactedNotificationPayload(row.payloadJson)) return { redacted: true };
 	return normalizeNotificationPayload(row.type, row.channel, row.payloadJson);
+}
+
+function isRedactedNotificationPayload(value: unknown): value is RedactedNotificationPayload {
+	return isRecord(value) && value.redacted === true;
 }
 
 function normalizeNotificationPayload<TType extends NotificationOutboxType>(
@@ -1110,7 +1246,16 @@ function buildDueNotificationWhere(now: Date): SQL {
 
 function buildClaimLookupPredicate(input: ClaimNotificationInput): SQL {
 	if ('outboxId' in input && input.outboxId) {
-		return eq(notificationOutbox.id, normalizeId(input.outboxId, 'outboxId'));
+		const idPredicate = eq(notificationOutbox.id, normalizeId(input.outboxId, 'outboxId'));
+		if (!input.idempotencyKey) return idPredicate;
+
+		return and(
+			idPredicate,
+			eq(
+				notificationOutbox.idempotencyKey,
+				normalizeText(input.idempotencyKey, 'idempotencyKey', 255)
+			)
+		) as SQL;
 	}
 
 	if (!input.idempotencyKey) {
@@ -1267,6 +1412,7 @@ function sanitizeLikeTerm(value: string): string {
 
 function mapNotificationOutboxPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 
 	const message = getErrorMessage(error);
 

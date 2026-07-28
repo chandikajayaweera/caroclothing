@@ -147,6 +147,10 @@ export type StoredPromotionBagPresentation = {
 	code: string | null;
 	minOrderAmount: number | null;
 };
+export type StoredPromotionBagState = {
+	presentation: StoredPromotionBagPresentation | null;
+	result: PromoValidationResult | null;
+};
 
 export type RecordPromoUsageInput = {
 	promotionId?: string;

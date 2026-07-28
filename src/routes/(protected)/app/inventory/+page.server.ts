@@ -22,6 +22,7 @@ import {
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
+import { isAppError } from '$lib/server/infrastructure/errors';
 
 function getAdminContext(
 	locals: App.Locals,
@@ -59,22 +60,21 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const listOptions = parsed.success ? parsed.data : { limit: 50, offset: 0 };
 
 	try {
-		const [summary, inventoryResult, initializeForm, restockForm, adjustForm] = await Promise.all([
-			getInventorySummary(ctx),
-			listInventory(ctx, listOptions),
-			superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
-			superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
-			superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
-		]);
-
-		let activeDetail = null;
-		if (openId) {
-			try {
-				activeDetail = await getInventory(ctx, { variantId: openId });
-			} catch {
-				// Ignore if the variant ID is invalid or doesn't exist
-			}
-		}
+		const activeDetailPromise = openId
+			? getInventory(ctx, { variantId: openId }).catch((error) => {
+					if (!isAppError(error) || error.statusCode >= 500) throw error;
+					return null;
+				})
+			: Promise.resolve(null);
+		const [summary, inventoryResult, activeDetail, initializeForm, restockForm, adjustForm] =
+			await Promise.all([
+				getInventorySummary(ctx),
+				listInventory(ctx, listOptions),
+				activeDetailPromise,
+				superValidate(zod4(initializeInventoryFormSchema), { id: 'initializeInventory' }),
+				superValidate(zod4(restockInventoryFormSchema), { id: 'restockInventory' }),
+				superValidate(zod4(adjustInventoryFormSchema), { id: 'adjustInventory' })
+			]);
 
 		const updateSettingsForm = activeDetail?.inventory
 			? await superValidate(

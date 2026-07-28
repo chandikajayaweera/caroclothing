@@ -1,6 +1,7 @@
 import { getRequestEvent } from '$app/server';
 import { getEnv } from '$lib/server/infrastructure/env';
 import { OtpRateLimitError, AuthError, ErrorCode } from '$lib/server/infrastructure/errors';
+import { normalizeSmsRecipient } from '$lib/server/infrastructure/sms';
 
 const OTP_COOLDOWN_PREFIX = 'otp:cooldown:';
 const MIN_KV_EXPIRATION_TTL_SECONDS = 60;
@@ -10,13 +11,12 @@ type OtpCooldownRecord = {
 };
 
 function normalizePhoneNumber(phoneNumber: string): string {
-	const digits = phoneNumber.replace(/\D/g, '');
-
-	if (digits.length < 8 || digits.length > 15) {
+	const normalized = normalizeSmsRecipient(phoneNumber);
+	if (!/^\+[1-9]\d{7,14}$/.test(normalized)) {
 		throw new AuthError('Invalid phone number format', ErrorCode.INVALID_PHONE_NUMBER);
 	}
 
-	return `+${digits}`;
+	return normalized;
 }
 
 function getRetryAfterSeconds(value: string | null, fallbackSeconds: number) {

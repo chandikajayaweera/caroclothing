@@ -2,7 +2,12 @@ import type { PageServerLoad, Actions } from './$types';
 import { dev } from '$app/environment';
 import { fail, redirect } from '@sveltejs/kit';
 import { nanoid } from 'nanoid';
-import { getProduct, listProducts, type ProductDTO } from '$lib/server/modules/products';
+import {
+	getProduct,
+	listProducts,
+	toPublicProductDTO,
+	type PublicProductDTO
+} from '$lib/server/modules/products';
 import {
 	createReview,
 	createReviewFormSchema,
@@ -28,7 +33,7 @@ import {
 } from '$lib/server/infrastructure/errors/route-adapter';
 
 type StockStatus = 'available' | 'low-stock' | 'sold-out';
-type ProductWithStockStatus = ProductDTO & {
+type ProductWithStockStatus = PublicProductDTO & {
 	stockStatus: StockStatus;
 	totalStock: number;
 	hasAvailable: boolean;
@@ -40,7 +45,7 @@ function getStorefrontContext(locals: App.Locals): ServiceContext {
 
 async function withStockStatus(
 	ctx: ServiceContext,
-	products: ProductDTO[]
+	products: PublicProductDTO[]
 ): Promise<ProductWithStockStatus[]> {
 	const variantIds = products.flatMap((product) => product.variants.map((variant) => variant.id));
 	const availability =
@@ -58,7 +63,7 @@ async function withStockStatus(
 }
 
 function deriveProductStockStatus(
-	product: ProductDTO,
+	product: PublicProductDTO,
 	availabilityMap: Map<string, InventoryAvailabilityDTO>
 ): { stockStatus: StockStatus; totalStock: number; hasAvailable: boolean } {
 	let totalStock = 0;
@@ -106,14 +111,17 @@ function deriveProductStockStatus(
 
 async function loadRelatedProducts(
 	ctx: ServiceContext,
-	product: ProductDTO
+	product: PublicProductDTO
 ): Promise<ProductWithStockStatus[]> {
 	const related = await listProducts(ctx, {
 		categoryId: product.categoryId ?? undefined,
 		limit: 8,
 		includeInactive: false
 	});
-	const candidates = related.items.filter((item) => item.id !== product.id).slice(0, 4);
+	const candidates = related.items
+		.map(toPublicProductDTO)
+		.filter((item) => item.id !== product.id)
+		.slice(0, 4);
 
 	if (candidates.length > 0) return withStockStatus(ctx, candidates);
 
@@ -122,34 +130,41 @@ async function loadRelatedProducts(
 		includeInactive: false
 	});
 
-	return withStockStatus(ctx, fallback.items.filter((item) => item.id !== product.id).slice(0, 4));
+	return withStockStatus(
+		ctx,
+		fallback.items
+			.map(toPublicProductDTO)
+			.filter((item) => item.id !== product.id)
+			.slice(0, 4)
+	);
 }
 
 export const load: PageServerLoad = async ({ locals, params }) => {
 	const ctx = getStorefrontContext(locals);
 
 	try {
-		const product = await getProduct(ctx, { slug: params.slug });
+		const product = toPublicProductDTO(await getProduct(ctx, { slug: params.slug }));
 		const variantIds = product.variants.map((v) => v.id);
-		let isWishlistedVal = false;
-		let reviewEligibility = null;
-
-		const [reviewsSummary, reviews, availability, shippingQuotes, relatedProducts] =
-			await Promise.all([
-				getProductReviewSummary(ctx, { productId: product.id }),
-				listProductReviews(ctx, { productId: product.id, limit: 100 }),
-				variantIds.length > 0
-					? getStorefrontVariantAvailability(ctx, { variantIds })
-					: Promise.resolve([]),
-				listShippingQuotes({ subtotal: 0 }),
-				loadRelatedProducts(ctx, product)
-			]);
-
-		if (locals.user && !locals.user.isAnonymous)
-			[isWishlistedVal, reviewEligibility] = await Promise.all([
-				isWishlisted(ctx, { productId: product.id }),
-				getReviewEligibility(ctx, { productId: product.id })
-			]);
+		const isFullUser = Boolean(locals.user && !locals.user.isAnonymous);
+		const [
+			reviewsSummary,
+			reviews,
+			availability,
+			shippingQuotes,
+			relatedProducts,
+			isWishlistedVal,
+			reviewEligibility
+		] = await Promise.all([
+			getProductReviewSummary(ctx, { productId: product.id }),
+			listProductReviews(ctx, { productId: product.id, limit: 100 }),
+			variantIds.length > 0
+				? getStorefrontVariantAvailability(ctx, { variantIds })
+				: Promise.resolve([]),
+			listShippingQuotes({ subtotal: 0 }),
+			loadRelatedProducts(ctx, product),
+			isFullUser ? isWishlisted(ctx, { productId: product.id }) : Promise.resolve(false),
+			isFullUser ? getReviewEligibility(ctx, { productId: product.id }) : Promise.resolve(null)
+		]);
 
 		return {
 			product,

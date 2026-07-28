@@ -1,4 +1,4 @@
-import type { CategoryDTO, ProductDTO } from '../products/products.types';
+import type { PublicCategoryDTO, PublicProductDTO } from '../products/products.types';
 import type { PublicReviewDTO } from '../reviews/reviews.types';
 import type { ShippingQuoteDTO } from '../shipping/shipping.types';
 import type {
@@ -23,7 +23,12 @@ export type StorefrontSectionMediaDTO = {
 	focalY: number;
 };
 
-export type StorefrontProductDTO = ProductDTO & {
+export type PublicStorefrontSectionMediaDTO = Omit<
+	StorefrontSectionMediaDTO,
+	'mimeType' | 'byteSize' | 'originalFilename'
+>;
+
+export type StorefrontProductDTO = PublicProductDTO & {
 	stockStatus: 'available' | 'low-stock' | 'sold-out';
 	totalStock: number;
 	hasAvailable: boolean;
@@ -48,10 +53,14 @@ export type StorefrontSectionBaseDTO = {
 	media: StorefrontSectionMediaDTO[];
 };
 
-export type HomePageSectionDTO = StorefrontSectionBaseDTO & {
+export type PublicStorefrontSectionBaseDTO = Omit<StorefrontSectionBaseDTO, 'media'> & {
+	media: PublicStorefrontSectionMediaDTO[];
+};
+
+export type HomePageSectionDTO = PublicStorefrontSectionBaseDTO & {
 	product: StorefrontProductDTO | null;
 	products: StorefrontProductDTO[];
-	categories: CategoryDTO[];
+	categories: PublicCategoryDTO[];
 	promotion: {
 		id: string;
 		title: string;

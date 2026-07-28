@@ -56,78 +56,74 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	try {
 		const promotion = await getPromotion(ctx, { promotionId: params.promotionId });
-		const [
-			grants,
-			usages,
-			updateForm,
-			activeForm,
-			addCodeForm,
-			updateCodeForm,
-			grantForm,
-			revokeForm
-		] = await Promise.all([
-			listPromotionCustomerGrants(ctx, { promotionId: promotion.id }),
-			listPromoCodeUsages(ctx, { promotionId: promotion.id, limit: 25, offset: 0 }),
-			superValidate(
-				{
-					promotionId: promotion.id,
-					name: promotion.name,
-					publicTitle: promotion.publicTitle,
-					internalDescription: promotion.internalDescription,
-					publicDescription: promotion.publicDescription,
-					discountType: promotion.discountType,
-					discountValue: promotion.discountValue,
-					minOrderAmount: promotion.minOrderAmount,
-					maxDiscountAmount: promotion.maxDiscountAmount,
-					usageLimit: promotion.usageLimit,
-					perUserLimit: promotion.perUserLimit,
-					applicationMode: promotion.applicationMode,
-					eligibilityScope: promotion.eligibilityScope,
-					visibility: promotion.visibility,
-					priority: promotion.priority,
-					startsAt: promotion.startsAt?.getTime() ?? null,
-					expiresAt: promotion.expiresAt?.getTime() ?? null
-				},
-				zod4(updatePromotionFormSchema),
-				{ id: 'updatePromotion', errors: false }
-			),
-			superValidate(
-				{ promotionId: promotion.id, isActive: promotion.isActive },
-				zod4(setPromotionActiveFormSchema),
-				{ id: 'setPromotionActive', errors: false }
-			),
-			superValidate(
-				{
-					promotionId: promotion.id,
-					code: '',
-					distribution: 'private' as const,
-					isDiscoverable: false,
-					redemptionChannel: 'storefront' as const,
-					partnerReference: null,
-					codeUsageLimit: null
-				},
-				zod4(addPromotionCodeFormSchema),
-				{ id: 'addPromotionCode', errors: false }
-			),
-			superValidate(zod4(updatePromotionCodeFormSchema), {
-				id: 'updatePromotionCode',
-				errors: false
-			}),
-			superValidate(
-				{
-					promotionId: promotion.id,
-					userId: '',
-					startsAt: null,
-					expiresAt: null
-				},
-				zod4(grantPromotionToCustomerFormSchema),
-				{ id: 'grantPromotionToCustomer', errors: false }
-			),
-			superValidate(zod4(grantPromotionToCustomerFormSchema), {
-				id: 'revokePromotionCustomerGrant',
-				errors: false
-			})
-		]);
+		const grants = await listPromotionCustomerGrants(ctx, { promotionId: promotion.id });
+		const usages = await listPromoCodeUsages(ctx, {
+			promotionId: promotion.id,
+			limit: 25,
+			offset: 0
+		});
+		const [updateForm, activeForm, addCodeForm, updateCodeForm, grantForm, revokeForm] =
+			await Promise.all([
+				superValidate(
+					{
+						promotionId: promotion.id,
+						name: promotion.name,
+						publicTitle: promotion.publicTitle,
+						internalDescription: promotion.internalDescription,
+						publicDescription: promotion.publicDescription,
+						discountType: promotion.discountType,
+						discountValue: promotion.discountValue,
+						minOrderAmount: promotion.minOrderAmount,
+						maxDiscountAmount: promotion.maxDiscountAmount,
+						usageLimit: promotion.usageLimit,
+						perUserLimit: promotion.perUserLimit,
+						applicationMode: promotion.applicationMode,
+						eligibilityScope: promotion.eligibilityScope,
+						visibility: promotion.visibility,
+						priority: promotion.priority,
+						startsAt: promotion.startsAt?.getTime() ?? null,
+						expiresAt: promotion.expiresAt?.getTime() ?? null
+					},
+					zod4(updatePromotionFormSchema),
+					{ id: 'updatePromotion', errors: false }
+				),
+				superValidate(
+					{ promotionId: promotion.id, isActive: promotion.isActive },
+					zod4(setPromotionActiveFormSchema),
+					{ id: 'setPromotionActive', errors: false }
+				),
+				superValidate(
+					{
+						promotionId: promotion.id,
+						code: '',
+						distribution: 'private' as const,
+						isDiscoverable: false,
+						redemptionChannel: 'storefront' as const,
+						partnerReference: null,
+						codeUsageLimit: null
+					},
+					zod4(addPromotionCodeFormSchema),
+					{ id: 'addPromotionCode', errors: false }
+				),
+				superValidate(zod4(updatePromotionCodeFormSchema), {
+					id: 'updatePromotionCode',
+					errors: false
+				}),
+				superValidate(
+					{
+						promotionId: promotion.id,
+						userId: '',
+						startsAt: null,
+						expiresAt: null
+					},
+					zod4(grantPromotionToCustomerFormSchema),
+					{ id: 'grantPromotionToCustomer', errors: false }
+				),
+				superValidate(zod4(grantPromotionToCustomerFormSchema), {
+					id: 'revokePromotionCustomerGrant',
+					errors: false
+				})
+			]);
 
 		return {
 			promotion,

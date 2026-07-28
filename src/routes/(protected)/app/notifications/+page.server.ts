@@ -5,7 +5,10 @@ import {
 	getNotificationOutboxSummary,
 	cancelNotification
 } from '$lib/server/modules/notifications/outbox';
-import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
+import {
+	failFromAppError,
+	throwHttpFromAppError
+} from '$lib/server/infrastructure/errors/route-adapter';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import type {
@@ -34,20 +37,18 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const offset = url.searchParams.get('offset') ? Number(url.searchParams.get('offset')) : 0;
 
 	try {
-		const [logs, summary] = await Promise.all([
-			listNotificationOutbox(ctx, {
-				status,
-				type,
-				channel,
-				query,
-				limit,
-				offset
-			}),
-			getNotificationOutboxSummary(ctx, {
-				type,
-				channel
-			})
-		]);
+		const logs = await listNotificationOutbox(ctx, {
+			status,
+			type,
+			channel,
+			query,
+			limit,
+			offset
+		});
+		const summary = await getNotificationOutboxSummary(ctx, {
+			type,
+			channel
+		});
 
 		return {
 			logs,
@@ -83,9 +84,7 @@ export const actions: Actions = {
 			});
 			return { success: true, message: 'Notification cancelled successfully.' };
 		} catch (err) {
-			return fail(400, {
-				message: err instanceof Error ? err.message : 'Failed to cancel notification.'
-			});
+			return failFromAppError(err);
 		}
 	}
 };

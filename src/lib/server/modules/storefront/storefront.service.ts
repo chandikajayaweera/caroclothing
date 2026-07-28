@@ -1,10 +1,23 @@
-import { and, asc, eq, inArray, max, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, max, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
-import { guardPreviousBatchChanges } from '$lib/server/db/batch';
-import { withTransientD1ReadRetry } from '$lib/server/db/retry';
+import {
+	guardBatchCondition,
+	guardPreviousBatchChanges,
+	isD1BatchGuardError
+} from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { requireAdmin } from '$lib/server/foundation/guards';
+import {
+	isCheckConstraintError,
+	isForeignKeyConstraintError,
+	isUniqueConstraintError
+} from '$lib/server/foundation/utils';
 import {
 	getErrorMessage,
 	isAppError,
@@ -16,13 +29,21 @@ import {
 	buildMediaKey,
 	deleteObjectSafe,
 	getMediaBucket,
+	isInvalidImageUploadMessage,
 	uploadImage,
 	type StoredImageMetadata
 } from '$lib/server/infrastructure/media/r2';
 import { mediaOriginalUrl } from '$lib/shared/media';
 import { getInventoryAvailabilityByVariantIds } from '../inventory';
-import { getCategory, getProduct, listCategories, listProducts } from '../products';
-import type { ProductDTO } from '../products/products.types';
+import {
+	getCategory,
+	getProduct,
+	listCategories,
+	listProducts,
+	toPublicCategoryDTO,
+	toPublicProductDTO
+} from '../products';
+import type { PublicProductDTO } from '../products/products.types';
 import { getPromotion, getPublicPromotion, listPromotions } from '../promotions';
 import { listRecentApprovedReviews } from '../reviews';
 import { getShippingMethod, listShippingMethods, listShippingQuotes } from '../shipping';
@@ -41,6 +62,7 @@ import type {
 	CreateStorefrontSectionInput,
 	HomePageDTO,
 	HomePageSectionDTO,
+	PublicStorefrontSectionBaseDTO,
 	ReorderStorefrontSectionsInput,
 	StorefrontEditorOptionsDTO,
 	StorefrontProductDTO,
@@ -52,6 +74,14 @@ import type {
 type Db = ReturnType<typeof getDb>;
 type BatchItem = Parameters<Db['batch']>[0][number];
 type UploadedSectionMedia = StoredImageMetadata & { bucket: R2Bucket; role: 'desktop' | 'mobile' };
+type HomeHydrationCache = {
+	spotlightProducts: Map<string, Promise<StorefrontProductDTO | null>>;
+	productGrids: Map<string, Promise<StorefrontProductDTO[]>>;
+	categories: Map<'all', ReturnType<typeof listCategories>>;
+	promotions: Map<string, ReturnType<typeof getPublicPromotion>>;
+	shippingQuotes: Map<'all', ReturnType<typeof listShippingQuotes>>;
+	reviews: Map<number, Promise<HomePageSectionDTO['reviews']>>;
+};
 
 const allowedSources: Record<
 	StorefrontSection['type'],
@@ -68,8 +98,9 @@ const allowedSources: Record<
 
 export async function getHomePage(ctx: ServiceContext): Promise<HomePageDTO> {
 	const now = ctx.now ?? new Date();
+	const db = getDb();
 	const rows = await withTransientD1ReadRetry(() =>
-		getDb()
+		db
 			.select()
 			.from(storefrontSection)
 			.where(
@@ -83,16 +114,12 @@ export async function getHomePage(ctx: ServiceContext): Promise<HomePageDTO> {
 			.orderBy(asc(storefrontSection.sortOrder), asc(storefrontSection.id))
 	);
 
+	const sectionIds = rows.map((row) => row.id);
 	const [mediaBySection, categoryIdsBySection] = await Promise.all([
-		loadMediaBySectionIds(
-			getDb(),
-			rows.map((row) => row.id)
-		),
-		loadCategoryIdsBySectionIds(
-			getDb(),
-			rows.map((row) => row.id)
-		)
+		withTransientD1ReadRetry(() => loadMediaBySectionIds(db, sectionIds)),
+		withTransientD1ReadRetry(() => loadCategoryIdsBySectionIds(db, sectionIds))
 	]);
+	const hydrationCache = createHomeHydrationCache();
 	const sections = await Promise.all(
 		rows.map((row) =>
 			hydrateHomeSection(
@@ -100,7 +127,8 @@ export async function getHomePage(ctx: ServiceContext): Promise<HomePageDTO> {
 				row,
 				mediaBySection.get(row.id) ?? [],
 				categoryIdsBySection.get(row.id) ?? [],
-				now
+				now,
+				hydrationCache
 			)
 		)
 	);
@@ -113,11 +141,13 @@ export async function listStorefrontSections(
 ): Promise<AdminStorefrontSectionDTO[]> {
 	requireAdmin(ctx.actor);
 	const now = ctx.now ?? new Date();
-	const rows = await getDb()
-		.select()
-		.from(storefrontSection)
-		.where(eq(storefrontSection.pageKey, input.pageKey ?? 'home'))
-		.orderBy(asc(storefrontSection.sortOrder), asc(storefrontSection.id));
+	const rows = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select()
+			.from(storefrontSection)
+			.where(eq(storefrontSection.pageKey, input.pageKey ?? 'home'))
+			.orderBy(asc(storefrontSection.sortOrder), asc(storefrontSection.id))
+	);
 	return hydrateAdminSections(rows, now);
 }
 
@@ -127,11 +157,9 @@ export async function getStorefrontSection(
 ): Promise<AdminStorefrontSectionDTO> {
 	requireAdmin(ctx.actor);
 	const id = normalizeId(input.sectionId, 'sectionId');
-	const [row] = await getDb()
-		.select()
-		.from(storefrontSection)
-		.where(eq(storefrontSection.id, id))
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		getDb().select().from(storefrontSection).where(eq(storefrontSection.id, id)).limit(1)
+	);
 	if (!row) throw notFound(id);
 	return (await hydrateAdminSections([row], ctx.now ?? new Date()))[0]!;
 }
@@ -191,10 +219,34 @@ export async function createStorefrontSection(
 	);
 
 	try {
-		await getDb().batch(statements);
+		const db = getDb();
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const [row] = await db
+					.select({ id: storefrontSection.id })
+					.from(storefrontSection)
+					.where(eq(storefrontSection.id, sectionId))
+					.limit(1);
+				if (!row) return { committed: false };
+				if (uploaded.length > 0) {
+					const storedMedia = await db
+						.select({ r2Key: storefrontSectionMedia.r2Key })
+						.from(storefrontSectionMedia)
+						.where(eq(storefrontSectionMedia.sectionId, sectionId));
+					const storedKeys = new Set(storedMedia.map((item) => item.r2Key));
+					if (!uploaded.every((item) => storedKeys.has(item.key))) {
+						return { committed: false };
+					}
+				}
+				return { committed: true, value: undefined };
+			}
+		);
 		return getStorefrontSection(ctx, { sectionId });
 	} catch (error) {
-		await cleanupUploads(uploaded);
+		await cleanupUnreferencedUploads(uploaded);
 		throw mapPersistenceError(error);
 	}
 }
@@ -232,7 +284,15 @@ export async function updateStorefrontSection(
 				sortOrder: undefined,
 				updatedAt: now
 			})
-			.where(eq(storefrontSection.id, existing.id)),
+			.where(
+				and(
+					eq(storefrontSection.id, existing.id),
+					or(
+						eq(storefrontSection.updatedAt, existing.updatedAt),
+						eq(storefrontSection.updatedAt, now)
+					)
+				)
+			),
 		...guardPreviousBatchChanges(getDb())
 	];
 	if (input.data.categoryIds) {
@@ -286,18 +346,55 @@ export async function updateStorefrontSection(
 		}
 	}
 
-	try {
-		await getDb().batch(statements);
+	const deleteReplacedMedia = async () => {
 		const bucket = uploaded[0]?.bucket ?? optionalMediaBucket(ctx);
-		if (bucket)
-			await Promise.all(
-				[...rolesToRemove].map((role) => deleteObjectSafe(bucket, oldMediaByRole.get(role)?.r2Key))
-			);
-		return getStorefrontSection(ctx, { sectionId: existing.id });
+		if (!bucket) return;
+		await Promise.all(
+			[...rolesToRemove].map((role) => deleteObjectSafe(bucket, oldMediaByRole.get(role)?.r2Key))
+		);
+	};
+
+	let updated: AdminStorefrontSectionDTO;
+	try {
+		updated = await withTransientD1WriteReconciliation<AdminStorefrontSectionDTO>(
+			async () => {
+				await getDb().batch(statements);
+				return getStorefrontSection(ctx, { sectionId: existing.id });
+			},
+			async () => {
+				const current = await getStorefrontSection(ctx, { sectionId: existing.id });
+				if (current.updatedAt.getTime() !== now.getTime()) return { committed: false };
+				if (
+					uploaded.some(
+						(item) =>
+							!current.media.some((media) => media.role === item.role && media.r2Key === item.key)
+					)
+				) {
+					return { committed: false };
+				}
+				if (
+					input.data.categoryIds &&
+					!sameOrderedIds(current.categoryIds, input.data.categoryIds)
+				) {
+					return { committed: false };
+				}
+				return { committed: true, value: current };
+			}
+		);
 	} catch (error) {
-		await cleanupUploads(uploaded);
+		if (isD1BatchGuardError(error)) {
+			await cleanupUnreferencedUploads(uploaded);
+			throw new StorefrontError(
+				'Storefront section changed while it was being saved. Refresh and try again.',
+				ErrorCode.CONFLICT,
+				{ sectionId: existing.id }
+			);
+		}
+		await cleanupUnreferencedUploads(uploaded);
 		throw mapPersistenceError(error);
 	}
+	await deleteReplacedMedia();
+	return updated;
 }
 
 export async function setStorefrontSectionEnabled(
@@ -306,13 +403,35 @@ export async function setStorefrontSectionEnabled(
 ): Promise<AdminStorefrontSectionDTO> {
 	requireAdmin(ctx.actor);
 	const id = normalizeId(input.sectionId, 'sectionId');
-	const [row] = await getDb()
-		.update(storefrontSection)
-		.set({ enabled: input.enabled, updatedAt: ctx.now ?? new Date() })
-		.where(eq(storefrontSection.id, id))
-		.returning({ id: storefrontSection.id });
-	if (!row) throw notFound(id);
-	return getStorefrontSection(ctx, { sectionId: id });
+	const now = ctx.now ?? new Date();
+	const existing = await getStorefrontSection(ctx, { sectionId: id });
+	if (existing.enabled === input.enabled) return existing;
+	const db = getDb();
+	return withTransientD1WriteReconciliation<AdminStorefrontSectionDTO>(
+		async () => {
+			const [row] = await db
+				.update(storefrontSection)
+				.set({ enabled: input.enabled, updatedAt: now })
+				.where(
+					and(eq(storefrontSection.id, id), eq(storefrontSection.updatedAt, existing.updatedAt))
+				)
+				.returning({ id: storefrontSection.id });
+			if (!row) {
+				throw new StorefrontError(
+					'Storefront section changed while it was being updated.',
+					ErrorCode.CONFLICT,
+					{ sectionId: id }
+				);
+			}
+			return getStorefrontSection(ctx, { sectionId: id });
+		},
+		async () => {
+			const current = await getStorefrontSection(ctx, { sectionId: id });
+			return current.enabled === input.enabled && current.updatedAt.getTime() === now.getTime()
+				? { committed: true, value: current }
+				: { committed: false };
+		}
+	);
 }
 
 export async function reorderStorefrontSections(
@@ -338,22 +457,71 @@ export async function reorderStorefrontSections(
 		);
 	}
 	if (!sectionIds.length) return [];
-	const statements: [BatchItem, ...BatchItem[]] = [] as unknown as [BatchItem, ...BatchItem[]];
+	const db = getDb();
+	const now = ctx.now ?? new Date();
+	const membershipGuard = guardBatchCondition(
+		db,
+		sql`(SELECT count(*) FROM ${storefrontSection} WHERE ${storefrontSection.pageKey} = ${pageKey}) = ${sectionIds.length}
+			AND NOT EXISTS (
+				SELECT 1 FROM ${storefrontSection}
+				WHERE ${storefrontSection.pageKey} = ${pageKey}
+					AND ${storefrontSection.id} NOT IN (${sql.join(
+						sectionIds.map((id) => sql`${id}`),
+						sql`, `
+					)})
+			)`
+	);
+	const updates: BatchItem[] = [];
 	for (const [index, id] of sectionIds.entries())
-		statements.push(
-			getDb()
+		updates.push(
+			db
 				.update(storefrontSection)
 				.set({ sortOrder: 1_000_000 + index })
-				.where(eq(storefrontSection.id, id))
+				.where(and(eq(storefrontSection.id, id), eq(storefrontSection.pageKey, pageKey)))
 		);
 	for (const [index, id] of sectionIds.entries())
-		statements.push(
-			getDb()
+		updates.push(
+			db
 				.update(storefrontSection)
-				.set({ sortOrder: index, updatedAt: ctx.now ?? new Date() })
-				.where(eq(storefrontSection.id, id))
+				.set({ sortOrder: index, updatedAt: now })
+				.where(and(eq(storefrontSection.id, id), eq(storefrontSection.pageKey, pageKey)))
 		);
-	await getDb().batch(statements);
+	const statements = [...membershipGuard, ...updates] as [BatchItem, ...BatchItem[]];
+	try {
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch(statements);
+			},
+			async () => {
+				const rows = await db
+					.select({
+						id: storefrontSection.id,
+						sortOrder: storefrontSection.sortOrder,
+						updatedAt: storefrontSection.updatedAt
+					})
+					.from(storefrontSection)
+					.where(eq(storefrontSection.pageKey, pageKey))
+					.orderBy(asc(storefrontSection.sortOrder));
+				return rows.length === sectionIds.length &&
+					rows.every(
+						(row, index) =>
+							row.id === sectionIds[index] &&
+							row.sortOrder === index &&
+							row.updatedAt.getTime() === now.getTime()
+					)
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
+	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new StorefrontError(
+				'Storefront sections changed while they were being reordered. Refresh and try again.',
+				ErrorCode.CONFLICT
+			);
+		}
+		throw mapPersistenceError(error);
+	}
 	return listStorefrontSections(ctx, { pageKey });
 }
 
@@ -363,11 +531,35 @@ export async function deleteStorefrontSection(
 ): Promise<void> {
 	requireAdmin(ctx.actor);
 	const existing = await getStorefrontSection(ctx, input);
-	const [deleted] = await getDb()
-		.delete(storefrontSection)
-		.where(eq(storefrontSection.id, existing.id))
-		.returning({ id: storefrontSection.id });
-	if (!deleted) throw notFound(existing.id);
+	const db = getDb();
+	await withTransientD1WriteReconciliation(
+		async () => {
+			const [deleted] = await db
+				.delete(storefrontSection)
+				.where(
+					and(
+						eq(storefrontSection.id, existing.id),
+						eq(storefrontSection.updatedAt, existing.updatedAt)
+					)
+				)
+				.returning({ id: storefrontSection.id });
+			if (!deleted) {
+				throw new StorefrontError(
+					'Storefront section changed before it could be deleted.',
+					ErrorCode.CONFLICT,
+					{ sectionId: existing.id }
+				);
+			}
+		},
+		async () => {
+			const [row] = await db
+				.select({ id: storefrontSection.id })
+				.from(storefrontSection)
+				.where(eq(storefrontSection.id, existing.id))
+				.limit(1);
+			return row ? { committed: false } : { committed: true, value: undefined };
+		}
+	);
 	const bucket = optionalMediaBucket(ctx);
 	if (bucket) await Promise.all(existing.media.map((item) => deleteObjectSafe(bucket, item.r2Key)));
 }
@@ -377,7 +569,8 @@ async function hydrateHomeSection(
 	row: StorefrontSection,
 	media: StorefrontSectionMedia[],
 	categoryIds: string[],
-	now: Date
+	now: Date,
+	cache: HomeHydrationCache
 ): Promise<HomePageSectionDTO> {
 	let product: StorefrontProductDTO | null = null;
 	let products: StorefrontProductDTO[] = [];
@@ -387,35 +580,55 @@ async function hydrateHomeSection(
 	let reviews: HomePageSectionDTO['reviews'] = [];
 
 	if (row.type === 'product_spotlight' && row.productId) {
-		try {
-			product =
-				(await withAvailability(ctx, [await getProduct(ctx, { id: row.productId })]))[0] ?? null;
-		} catch (error) {
-			if (!isAppError(error)) throw error;
-		}
+		product = await memoizeAsync(cache.spotlightProducts, row.productId, async () => {
+			try {
+				return (
+					(
+						await withAvailability(ctx, [
+							toPublicProductDTO(await getProduct(ctx, { id: row.productId! }))
+						])
+					)[0] ?? null
+				);
+			} catch (error) {
+				if (!isAppError(error) || error.statusCode >= 500) throw error;
+				return null;
+			}
+		});
 	}
 	if (row.type === 'product_grid') {
-		const result = await listProducts(ctx, {
-			includeInactive: false,
-			isNewArrival: row.sourceType === 'new_arrivals' ? true : undefined,
-			isFeatured: row.sourceType === 'featured_products' ? true : undefined,
-			categoryId: row.sourceType === 'category_products' ? row.categoryId : undefined,
-			limit: row.itemLimit
+		const cacheKey = [row.sourceType, row.categoryId ?? '', row.itemLimit].join(':');
+		products = await memoizeAsync(cache.productGrids, cacheKey, async () => {
+			const result = await listProducts(ctx, {
+				includeInactive: false,
+				isNewArrival: row.sourceType === 'new_arrivals' ? true : undefined,
+				isFeatured: row.sourceType === 'featured_products' ? true : undefined,
+				categoryId: row.sourceType === 'category_products' ? row.categoryId : undefined,
+				limit: row.itemLimit
+			});
+			return withAvailability(ctx, result.items.map(toPublicProductDTO));
 		});
-		products = await withAvailability(ctx, result.items);
 	}
 	if (row.type === 'category_showcase') {
-		const all = await listCategories(ctx, { includeInactive: false, limit: 150 });
+		const all = await memoizeAsync(cache.categories, 'all', () =>
+			listCategories(ctx, { includeInactive: false, limit: 150 })
+		);
 		categories =
 			row.sourceType === 'root_categories'
-				? all.filter((item) => item.parentId === null).slice(0, row.itemLimit)
+				? all
+						.filter((item) => item.parentId === null)
+						.slice(0, row.itemLimit)
+						.map(toPublicCategoryDTO)
 				: categoryIds
 						.map((id) => all.find((item) => item.id === id))
 						.filter((item): item is NonNullable<typeof item> => Boolean(item))
-						.slice(0, row.itemLimit);
+						.slice(0, row.itemLimit)
+						.map(toPublicCategoryDTO);
 	}
 	if ((row.type === 'promotion_campaign' || row.sourceType === 'promotion') && row.promotionId) {
-		const p = await getPublicPromotion({ promotionId: row.promotionId, now });
+		const promotionId = row.promotionId;
+		const p = await memoizeAsync(cache.promotions, promotionId, () =>
+			getPublicPromotion({ promotionId, now })
+		);
 		if (p)
 			promotionDto = {
 				id: p.id,
@@ -426,15 +639,17 @@ async function hydrateHomeSection(
 			};
 	}
 	if (row.type === 'service_strip' && row.sourceType === 'shipping' && row.shippingMethodId) {
-		shipping =
-			(await listShippingQuotes({ subtotal: 0 })).find(
-				(item) => item.shippingMethodId === row.shippingMethodId
-			) ?? null;
+		const quotes = await memoizeAsync(cache.shippingQuotes, 'all', () =>
+			listShippingQuotes({ subtotal: 0 })
+		);
+		shipping = quotes.find((item) => item.shippingMethodId === row.shippingMethodId) ?? null;
 	}
 	if (row.type === 'review_rail')
-		reviews = (await listRecentApprovedReviews({ limit: row.itemLimit })).items;
+		reviews = await memoizeAsync(cache.reviews, row.itemLimit, async () => {
+			return (await listRecentApprovedReviews({ limit: row.itemLimit })).items;
+		});
 	return {
-		...toSectionBaseDTO(row, media),
+		...toPublicSectionBaseDTO(row, media),
 		product,
 		products,
 		categories,
@@ -446,7 +661,7 @@ async function hydrateHomeSection(
 
 async function withAvailability(
 	ctx: ServiceContext,
-	products: ProductDTO[]
+	products: PublicProductDTO[]
 ): Promise<StorefrontProductDTO[]> {
 	const variantIds = products.flatMap((item) => item.variants.map((variant) => variant.id));
 	const availability = variantIds.length
@@ -480,15 +695,11 @@ async function withAvailability(
 }
 
 async function hydrateAdminSections(rows: StorefrontSection[], now: Date) {
+	const sectionIds = rows.map((row) => row.id);
+	const db = getDb();
 	const [media, categories] = await Promise.all([
-		loadMediaBySectionIds(
-			getDb(),
-			rows.map((row) => row.id)
-		),
-		loadCategoryIdsBySectionIds(
-			getDb(),
-			rows.map((row) => row.id)
-		)
+		withTransientD1ReadRetry(() => loadMediaBySectionIds(db, sectionIds)),
+		withTransientD1ReadRetry(() => loadCategoryIdsBySectionIds(db, sectionIds))
 	]);
 	return rows.map(
 		(row): AdminStorefrontSectionDTO => ({
@@ -506,6 +717,25 @@ async function hydrateAdminSections(rows: StorefrontSection[], now: Date) {
 			updatedAt: row.updatedAt
 		})
 	);
+}
+
+function createHomeHydrationCache(): HomeHydrationCache {
+	return {
+		spotlightProducts: new Map(),
+		productGrids: new Map(),
+		categories: new Map(),
+		promotions: new Map(),
+		shippingQuotes: new Map(),
+		reviews: new Map()
+	};
+}
+
+function memoizeAsync<K, V>(cache: Map<K, Promise<V>>, key: K, load: () => Promise<V>): Promise<V> {
+	const existing = cache.get(key);
+	if (existing) return existing;
+	const pending = load();
+	cache.set(key, pending);
+	return pending;
 }
 
 function toSectionBaseDTO(
@@ -532,6 +762,22 @@ function toSectionBaseDTO(
 	};
 }
 
+function toPublicSectionBaseDTO(
+	row: StorefrontSection,
+	media: StorefrontSectionMedia[]
+): PublicStorefrontSectionBaseDTO {
+	const base = toSectionBaseDTO(row, media);
+	return {
+		...base,
+		media: base.media.map(({ mimeType, byteSize, originalFilename, ...item }) => {
+			void mimeType;
+			void byteSize;
+			void originalFilename;
+			return item;
+		})
+	};
+}
+
 function toMediaDTO(row: StorefrontSectionMedia): StorefrontSectionMediaDTO {
 	return {
 		id: row.id,
@@ -551,27 +797,27 @@ function toMediaDTO(row: StorefrontSectionMedia): StorefrontSectionMediaDTO {
 
 async function loadMediaBySectionIds(tx: Db, ids: string[]) {
 	if (!ids.length) return new Map<string, StorefrontSectionMedia[]>();
-	const rows = await tx
+	const mediaRows = await tx
 		.select()
 		.from(storefrontSectionMedia)
 		.where(inArray(storefrontSectionMedia.sectionId, ids))
 		.orderBy(asc(storefrontSectionMedia.role));
 	const map = new Map<string, StorefrontSectionMedia[]>();
-	for (const row of rows) map.set(row.sectionId, [...(map.get(row.sectionId) ?? []), row]);
+	for (const row of mediaRows) map.set(row.sectionId, [...(map.get(row.sectionId) ?? []), row]);
 	return map;
 }
 
 async function loadCategoryIdsBySectionIds(tx: Db, ids: string[]) {
 	if (!ids.length) return new Map<string, string[]>();
-	const rows = await tx
+	const categoryRows = await tx
 		.select()
 		.from(storefrontSectionCategory)
 		.where(inArray(storefrontSectionCategory.sectionId, ids))
 		.orderBy(asc(storefrontSectionCategory.position));
-	const map = new Map<string, string[]>();
-	for (const row of rows)
-		map.set(row.sectionId, [...(map.get(row.sectionId) ?? []), row.categoryId]);
-	return map;
+	const categoryMap = new Map<string, string[]>();
+	for (const row of categoryRows)
+		categoryMap.set(row.sectionId, [...(categoryMap.get(row.sectionId) ?? []), row.categoryId]);
+	return categoryMap;
 }
 
 function parseSectionInput(
@@ -633,15 +879,11 @@ function assertAllowedSource(
 }
 
 async function assertReferences(ctx: ServiceContext, data: ReturnType<typeof parseSectionInput>) {
-	const checks: Promise<unknown>[] = [];
-	if (data.productId)
-		checks.push(getProduct(ctx, { id: data.productId }, { includeInactive: true }));
-	if (data.categoryId)
-		checks.push(getCategory(ctx, { id: data.categoryId }, { includeInactive: true }));
-	if (data.promotionId) checks.push(getPromotion(ctx, { promotionId: data.promotionId }));
+	if (data.productId) await getProduct(ctx, { id: data.productId }, { includeInactive: true });
+	if (data.categoryId) await getCategory(ctx, { id: data.categoryId }, { includeInactive: true });
+	if (data.promotionId) await getPromotion(ctx, { promotionId: data.promotionId });
 	if (data.shippingMethodId)
-		checks.push(getShippingMethod(ctx, { shippingMethodId: data.shippingMethodId }));
-	await Promise.all(checks);
+		await getShippingMethod(ctx, { shippingMethodId: data.shippingMethodId });
 }
 
 async function nextSortOrder(pageKey: StorefrontSection['pageKey']) {
@@ -752,11 +994,28 @@ function optionalMediaBucket(ctx: ServiceContext) {
 async function cleanupUploads(items: UploadedSectionMedia[]) {
 	await Promise.all(items.map((item) => deleteObjectSafe(item.bucket, item.key)));
 }
+async function cleanupUnreferencedUploads(items: UploadedSectionMedia[]) {
+	if (items.length === 0) return;
+	try {
+		const keys = [...new Set(items.map((item) => item.key))];
+		const rows = await withTransientD1ReadRetry(() =>
+			getDb()
+				.select({ r2Key: storefrontSectionMedia.r2Key })
+				.from(storefrontSectionMedia)
+				.where(inArray(storefrontSectionMedia.r2Key, keys))
+		);
+		const referencedKeys = new Set(rows.map((row) => row.r2Key));
+		await Promise.all(
+			items
+				.filter((item) => !referencedKeys.has(item.key))
+				.map((item) => deleteObjectSafe(item.bucket, item.key))
+		);
+	} catch {
+		// Preserve objects when database commit state cannot be proven.
+	}
+}
 function resolveMediaUploadCode(message: string): ErrorCode {
-	const normalized = message.toLowerCase();
-	return normalized.includes('unsupported') ||
-		normalized.includes('empty') ||
-		normalized.includes('too large')
+	return isInvalidImageUploadMessage(message)
 		? ErrorCode.INVALID_MEDIA_TYPE
 		: ErrorCode.MEDIA_UPLOAD_FAILED;
 }
@@ -768,6 +1027,10 @@ function normalizeId(value: string, field: string) {
 }
 function emptyToNull<T extends string>(value: T | null | undefined): T | null {
 	return value?.trim() ? (value.trim() as T) : null;
+}
+function sameOrderedIds(actual: string[], expectedInput: string[]): boolean {
+	const expected = [...new Set(expectedInput.map((id) => normalizeId(id, 'categoryId')))];
+	return actual.length === expected.length && actual.every((id, index) => id === expected[index]);
 }
 function visibilityStatus(
 	row: StorefrontSection,
@@ -788,17 +1051,18 @@ function notFound(id: string) {
 function mapPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
 	const message = getErrorMessage(error);
-	if (message.toLowerCase().includes('unique'))
+	rethrowTransientD1Error(error);
+	if (isUniqueConstraintError(message))
 		throw new StorefrontError(
 			'Storefront section order or media role already exists.',
 			ErrorCode.CONFLICT
 		);
-	if (message.toLowerCase().includes('foreign key'))
+	if (isForeignKeyConstraintError(message))
 		throw new StorefrontError(
 			'Referenced storefront source was not found.',
 			ErrorCode.VALIDATION_ERROR
 		);
-	if (message.toLowerCase().includes('check constraint'))
+	if (isCheckConstraintError(message))
 		throw new StorefrontError('Invalid storefront section.', ErrorCode.VALIDATION_ERROR);
 	throw error;
 }

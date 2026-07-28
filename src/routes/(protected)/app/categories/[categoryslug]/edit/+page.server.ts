@@ -12,15 +12,10 @@ import { generateSlug } from '$lib/shared/slug';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { createCloudflareNotificationWakeups } from '$lib/server/infrastructure/cloudflare';
 import {
+	failFromAppError,
 	formFailFromAppError,
 	throwHttpFromAppError
 } from '$lib/server/infrastructure/errors/route-adapter';
-import {
-	isAppError,
-	toErrorResponseBody,
-	ProductError,
-	ErrorCode
-} from '$lib/server/infrastructure/errors';
 
 function getAdminContext(
 	locals: App.Locals,
@@ -38,10 +33,12 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const [category, allCategories] = await Promise.all([
-			getCategory(ctx, { slug: params.categoryslug }, { includeInactive: true }),
-			listCategories(ctx, { includeInactive: true, limit: 150 })
-		]);
+		const category = await getCategory(
+			ctx,
+			{ slug: params.categoryslug },
+			{ includeInactive: true }
+		);
+		const allCategories = await listCategories(ctx, { includeInactive: true, limit: 150 });
 
 		const parentOptions = allCategories.filter((c) => c.id !== category.id && c.parentId === null);
 
@@ -120,13 +117,7 @@ export const actions: Actions = {
 			}
 			updated = await updateCategory(ctx, { id: category.id }, form.data);
 		} catch (error) {
-			const appError = isAppError(error)
-				? error
-				: new ProductError(
-						error instanceof Error ? error.message : 'Failed to update category',
-						ErrorCode.INTERNAL_ERROR
-					);
-			return withFiles(formFailFromAppError(form, appError));
+			return withFiles(formFailFromAppError(form, error));
 		}
 
 		throw redirect(303, `/app/categories/${updated.slug}`);
@@ -159,22 +150,7 @@ export const actions: Actions = {
 
 			return { success: true, category: updated };
 		} catch (error) {
-			const appError = isAppError(error)
-				? error
-				: new ProductError(
-						error instanceof Error ? error.message : 'Failed to update category',
-						ErrorCode.INTERNAL_ERROR
-					);
-			const responseBody = toErrorResponseBody(appError, {
-				includeDetails: appError.statusCode < 500
-			});
-			return fail(
-				appError.statusCode >= 400 && appError.statusCode <= 599 ? appError.statusCode : 400,
-				{
-					success: false,
-					message: responseBody.message
-				}
-			);
+			return failFromAppError(error);
 		}
 	}
 };

@@ -7,7 +7,7 @@ import {
 	cancelExpiredPendingOrdersFormSchema,
 	cancelOrder,
 	cancelOrderFormSchema,
-	listOrders,
+	getOrderDashboard,
 	listOrdersFormSchema,
 	recordPaymentFormSchema,
 	recordRefundFormSchema,
@@ -15,7 +15,6 @@ import {
 	transitionOrderStatusFormSchema,
 	updateOrderFulfillment,
 	updateOrderFulfillmentFormSchema,
-	getOrderAnalytics,
 	bulkTransitionOrderStatus,
 	bulkTransitionOrderStatusFormSchema
 } from '$lib/server/modules/orders';
@@ -65,8 +64,7 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 
 	try {
 		const [
-			orders,
-			analytics,
+			dashboard,
 			transitionStatusForm,
 			cancelOrderForm,
 			updateFulfillmentForm,
@@ -75,8 +73,7 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 			cancelExpiredForm,
 			bulkTransitionForm
 		] = await Promise.all([
-			listOrders(ctx, orderOptions),
-			getOrderAnalytics(ctx),
+			getOrderDashboard(ctx, orderOptions),
 			superValidate(zod4(transitionOrderStatusFormSchema), {
 				id: 'transitionOrderStatus'
 			}),
@@ -99,6 +96,7 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				id: 'bulkTransitionOrderStatus'
 			})
 		]);
+		const { orders, analytics } = dashboard;
 
 		return {
 			orders,

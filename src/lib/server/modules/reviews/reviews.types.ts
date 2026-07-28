@@ -27,6 +27,11 @@ export type ReviewProductSummaryDTO = {
 	primaryImageUrl: string | null;
 };
 
+export type PublicReviewMediaDTO = Pick<
+	ReviewMediaDTO,
+	'id' | 'mediaUrl' | 'type' | 'width' | 'height' | 'position'
+>;
+
 export type PublicReviewDTO = {
 	id: string;
 	productId: string;
@@ -38,7 +43,7 @@ export type PublicReviewDTO = {
 	reviewerImageUrl: string | null;
 	createdAt: Date;
 	updatedAt: Date;
-	media: ReviewMediaDTO[];
+	media: PublicReviewMediaDTO[];
 };
 
 export type ReviewDTO = PublicReviewDTO & {

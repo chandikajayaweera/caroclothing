@@ -2,6 +2,7 @@ import type { SystemActor } from '$lib/server/foundation/context';
 import {
 	claimNotification,
 	claimPendingNotifications,
+	getNotificationOutbox,
 	markNotificationFailed,
 	markNotificationSent,
 	releaseStaleNotificationLocks
@@ -16,6 +17,7 @@ import { notificationCronActor, notificationQueueActor } from './actors';
 import { parseNotificationQueueMessageBody } from './queue-message';
 import { sendClaimedNotification } from './registry';
 import { isRetryableSendFailure } from './results';
+import { getErrorMessage } from '$lib/server/infrastructure/errors';
 
 const QUEUE_BATCH_PROCESS_LIMIT = 50;
 const STALE_LOCK_RELEASE_LIMIT = 100;
@@ -55,6 +57,7 @@ export async function processNotificationWakeup(
 		{ actor: notificationQueueActor, now },
 		{
 			outboxId: body.outboxId,
+			idempotencyKey: body.idempotencyKey,
 			workerId: `${notificationQueueActor.id}:${messageId}`,
 			now
 		}
@@ -115,22 +118,64 @@ export async function dispatchClaimedNotification(
 		const providerDurationMs = Date.now() - startedAt;
 
 		if (result.ok) {
-			await markNotificationSent(
-				{ actor, now },
-				{
-					id: notification.id,
-					lockToken: notification.lockToken,
-					provider: result.provider,
-					providerMessageId: result.providerMessageId,
-					sentAt: now
-				}
-			);
-			logDispatchTiming(notification, 'sent', queueDelayMs, providerDurationMs);
+			try {
+				await markNotificationSent(
+					{ actor, now },
+					{
+						id: notification.id,
+						lockToken: notification.lockToken,
+						provider: result.provider,
+						providerMessageId: result.providerMessageId,
+						sentAt: now
+					}
+				);
+				logDispatchTiming(notification, 'sent', queueDelayMs, providerDurationMs);
 
-			return { id: notification.id, outcome: 'sent' };
+				return { id: notification.id, outcome: 'sent' };
+			} catch (persistenceError) {
+				try {
+					const current = await getNotificationOutbox({ actor, now }, { id: notification.id });
+					if (
+						current.status === 'sent' &&
+						current.provider === result.provider &&
+						current.providerMessageId === result.providerMessageId
+					) {
+						logDispatchTiming(notification, 'sent', queueDelayMs, providerDurationMs);
+						return { id: notification.id, outcome: 'sent' };
+					}
+				} catch (reconciliationError) {
+					console.error('[notification-outbox] Sent-state reconciliation failed:', {
+						id: notification.id,
+						error: getErrorMessage(reconciliationError)
+					});
+				}
+
+				const message =
+					'Provider delivery succeeded, but sent-state persistence failed. Manual review required.';
+				try {
+					await markNotificationFailed(
+						{ actor, now },
+						{
+							id: notification.id,
+							lockToken: notification.lockToken,
+							error: message,
+							retryable: false,
+							now
+						}
+					);
+				} catch (markError) {
+					console.error('[notification-outbox] Failed to quarantine delivered notification:', {
+						id: notification.id,
+						persistenceError: getErrorMessage(persistenceError),
+						error: getErrorMessage(markError)
+					});
+				}
+				logDispatchTiming(notification, 'failed', queueDelayMs, providerDurationMs);
+				return { id: notification.id, outcome: 'failed', message };
+			}
 		}
 
-		const retryable = isRetryableSendFailure(result.error);
+		const retryable = isRetryableSendFailure(result);
 		const failed = await markNotificationFailed(
 			{ actor, now },
 			{
@@ -151,7 +196,7 @@ export async function dispatchClaimedNotification(
 				failed.attemptCount < failed.maxAttempts && retryable ? failed.nextAttemptAt : undefined
 		};
 	} catch (error) {
-		const message = error instanceof Error ? error.message : 'UNKNOWN_DISPATCH_ERROR';
+		const message = getErrorMessage(error);
 		let retryAt: Date | undefined;
 
 		try {
@@ -169,7 +214,7 @@ export async function dispatchClaimedNotification(
 		} catch (markError) {
 			console.error('[notification-outbox] Failed to mark dispatch failure:', {
 				id: notification.id,
-				error: markError
+				error: getErrorMessage(markError)
 			});
 		}
 		logDispatchTiming(notification, 'failed', queueDelayMs, Date.now() - startedAt);

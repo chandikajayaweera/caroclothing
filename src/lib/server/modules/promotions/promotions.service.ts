@@ -1,7 +1,26 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNull,
+	like,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation,
+	withTransientD1WriteRetry
+} from '$lib/server/db/retry';
 import type { ServiceContext } from '$lib/server/foundation/context';
 import { requireAdmin } from '$lib/server/foundation/guards';
 import {
@@ -18,7 +37,8 @@ import {
 	ErrorCode,
 	PromotionError,
 	getErrorMessage,
-	isAppError
+	isAppError,
+	toErrorResponseBody
 } from '$lib/server/infrastructure/errors';
 import { order as orderTable } from '../orders/orders.drizzle';
 import {
@@ -55,6 +75,7 @@ import type {
 	PromoUsageReconciliationResult,
 	PromoValidationResult,
 	StoredPromotionBagPresentation,
+	StoredPromotionBagState,
 	PromotionDTO,
 	PromotionCustomerGrantDTO,
 	PromotionListResult,
@@ -113,11 +134,12 @@ export async function createPromotion(
 	const id = nanoid();
 	const promotionValues = toNewPromotionValues(id, parsed.data, now);
 	const db = getDb();
+	let codeId: string | null = null;
 	const statements: [PromotionsBatchItem, ...PromotionsBatchItem[]] = [
 		db.insert(promotion).values(promotionValues)
 	];
 	if (codeInput) {
-		const codeId = nanoid();
+		codeId = nanoid();
 		const parsedCode = insertPromoCodeSchema.safeParse({
 			...codeInput,
 			code: normalizePromoCode(codeInput.code),
@@ -134,8 +156,23 @@ export async function createPromotion(
 	}
 
 	try {
-		await db.batch(statements);
-		return getPromotion(ctx, { promotionId: id });
+		return await withTransientD1WriteReconciliation<PromotionDTO>(
+			async () => {
+				await db.batch(statements);
+				const row = await loadPromotionWithCodesByIdTx(db, id);
+				if (!row) {
+					throw new PromotionError('Promotion was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return toPromotionDTO(row, now);
+			},
+			async () => {
+				const row = await loadPromotionWithCodesByIdTx(db, id);
+				if (!row || (codeId && !row.codes.some((code) => code.id === codeId))) {
+					return { committed: false };
+				}
+				return { committed: true, value: toPromotionDTO(row, now) };
+			}
+		);
 	} catch (error) {
 		throw mapPromotionPersistenceError(error);
 	}
@@ -147,9 +184,8 @@ export async function getPromotion(
 ): Promise<PromotionDTO> {
 	requireAdmin(ctx.actor);
 	const now = resolveNow(ctx);
-	const row = await loadPromotionWithCodesByIdTx(
-		getDb(),
-		normalizeId(input.promotionId, 'promotionId')
+	const row = await withTransientD1ReadRetry(() =>
+		loadPromotionWithCodesByIdTx(getDb(), normalizeId(input.promotionId, 'promotionId'))
 	);
 	if (!row) throw new PromotionError('Promotion not found.', ErrorCode.PROMO_NOT_FOUND);
 	return toPromotionDTO(row, now);
@@ -160,9 +196,8 @@ export async function getPublicPromotion(input: {
 	now?: Date;
 }): Promise<PromotionDTO | null> {
 	const now = input.now ?? new Date();
-	const row = await loadPromotionWithCodesByIdTx(
-		getDb(),
-		normalizeId(input.promotionId, 'promotionId')
+	const row = await withTransientD1ReadRetry(() =>
+		loadPromotionWithCodesByIdTx(getDb(), normalizeId(input.promotionId, 'promotionId'))
 	);
 	if (
 		!row ||
@@ -190,13 +225,15 @@ export async function listPromotions(
 		.orderBy(desc(promotion.updatedAt), asc(promotion.name))
 		.limit(limit)
 		.offset(offset);
-	const [totalRows, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
-	const codes = await loadCodesByPromotionIdsTx(
-		db,
-		rows.map((row) => row.id)
+	const totalRows = await withTransientD1ReadRetry(() =>
+		where ? countQuery.where(where) : countQuery
+	);
+	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
+	const codes = await withTransientD1ReadRetry(() =>
+		loadCodesByPromotionIdsTx(
+			db,
+			rows.map((row) => row.id)
+		)
 	);
 	return {
 		items: rows.map((row) =>
@@ -234,13 +271,32 @@ export async function updatePromotion(
 	});
 	if (Object.keys(values).length === 1) return getPromotion(ctx, { promotionId: id });
 	try {
-		const [updated] = await getDb()
-			.update(promotion)
-			.set(values)
-			.where(eq(promotion.id, id))
-			.returning();
-		if (!updated) throw new PromotionError('Promotion not found.', ErrorCode.PROMO_NOT_FOUND);
-		return getPromotion(ctx, { promotionId: id });
+		const db = getDb();
+		return await withTransientD1WriteReconciliation<PromotionDTO>(
+			async () => {
+				const [updated] = await db
+					.update(promotion)
+					.set(values)
+					.where(and(eq(promotion.id, id), eq(promotion.updatedAt, existing.updatedAt)))
+					.returning({ id: promotion.id });
+				if (!updated) {
+					throw new PromotionError(
+						'Promotion changed while it was being saved. Refresh and try again.',
+						ErrorCode.CONFLICT
+					);
+				}
+				return getPromotion(ctx, { promotionId: id });
+			},
+			async () => {
+				const current = await loadPromotionByIdTx(db, id);
+				return current && recordMatchesPatch(current, values)
+					? {
+							committed: true,
+							value: await getPromotion(ctx, { promotionId: id })
+						}
+					: { committed: false };
+			}
+		);
 	} catch (error) {
 		throw mapPromotionPersistenceError(error);
 	}
@@ -267,11 +323,48 @@ export async function setPromotionActive(
 				ErrorCode.VALIDATION_ERROR
 			);
 	}
-	await getDb()
-		.update(promotion)
-		.set({ isActive: input.isActive, updatedAt: now })
-		.where(eq(promotion.id, id));
-	return getPromotion(ctx, { promotionId: id });
+	const db = getDb();
+	const values = { isActive: input.isActive, updatedAt: now };
+	try {
+		return await withTransientD1WriteReconciliation<PromotionDTO>(
+			async () => {
+				const activeCodeGuard =
+					input.isActive && existing.applicationMode === 'code'
+						? exists(
+								db
+									.select({ id: promoCode.id })
+									.from(promoCode)
+									.where(and(eq(promoCode.promotionId, id), eq(promoCode.isActive, true)))
+							)
+						: undefined;
+				const [updated] = await db
+					.update(promotion)
+					.set(values)
+					.where(
+						and(eq(promotion.id, id), eq(promotion.updatedAt, existing.updatedAt), activeCodeGuard)
+					)
+					.returning({ id: promotion.id });
+				if (!updated) {
+					throw new PromotionError(
+						'Promotion or active-code state changed. Refresh and try again.',
+						ErrorCode.CONFLICT
+					);
+				}
+				return getPromotion(ctx, { promotionId: id });
+			},
+			async () => {
+				const current = await loadPromotionByIdTx(db, id);
+				return current && recordMatchesPatch(current, values)
+					? {
+							committed: true,
+							value: await getPromotion(ctx, { promotionId: id })
+						}
+					: { committed: false };
+			}
+		);
+	} catch (error) {
+		throw mapPromotionPersistenceError(error);
+	}
 }
 
 export async function addPromotionCode(
@@ -305,13 +398,28 @@ export async function addPromotionCode(
 		usedCount: 0
 	});
 	if (!parsed.success) validationError('Invalid promo code data.', parsed.error.issues);
+	const id = nanoid();
+	const values = { id, ...parsed.data, createdAt: now, updatedAt: now };
 	try {
-		const [row] = await getDb()
-			.insert(promoCode)
-			.values({ ...parsed.data, createdAt: now, updatedAt: now })
-			.returning();
-		if (!row) throw new PromotionError('Promo code was not created.', ErrorCode.INTERNAL_ERROR);
-		return toPromoCodeDTO(row, promotionRow, now);
+		const db = getDb();
+		return await withTransientD1WriteReconciliation<PromoCodeDTO>(
+			async () => {
+				const [row] = await db.insert(promoCode).values(values).returning();
+				if (!row) {
+					throw new PromotionError('Promo code was not created.', ErrorCode.INTERNAL_ERROR);
+				}
+				return toPromoCodeDTO(row, promotionRow, now);
+			},
+			async () => {
+				const joined = await loadJoinedCodeByIdTx(db, id);
+				return joined
+					? {
+							committed: true,
+							value: toPromoCodeDTO(joined.code, joined.promotion, now)
+						}
+					: { committed: false };
+			}
+		);
 	} catch (error) {
 		throw mapPromotionPersistenceError(error);
 	}
@@ -344,15 +452,89 @@ export async function updatePromotionCode(
 		...(input.data.code ? { code: normalizePromoCode(input.data.code) } : {})
 	});
 	if (!parsed.success) validationError('Invalid promo code data.', parsed.error.issues);
+	const values = { ...parsed.data, updatedAt: now };
+	if (Object.keys(values).length === 1) {
+		return toPromoCodeDTO(joined.code, joined.promotion, now);
+	}
 	try {
-		const [row] = await getDb()
-			.update(promoCode)
-			.set({ ...parsed.data, updatedAt: now })
-			.where(eq(promoCode.id, joined.code.id))
-			.returning();
-		if (!row) throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
-		return toPromoCodeDTO(row, joined.promotion, now);
+		const db = getDb();
+		return await withTransientD1WriteReconciliation<PromoCodeDTO>(
+			async () => {
+				const statements: PromotionsBatchItem[] = [
+					db
+						.update(promoCode)
+						.set(values)
+						.where(
+							and(eq(promoCode.id, joined.code.id), eq(promoCode.updatedAt, joined.code.updatedAt))
+						),
+					...guardPreviousBatchChanges(db)
+				];
+				if (parsed.data.isActive !== undefined) {
+					const parentActiveValue = parsed.data.isActive
+						? true
+						: sql<boolean>`EXISTS (
+								SELECT 1 FROM ${promoCode}
+									WHERE ${promoCode.promotionId} = ${joined.promotion.id}
+										AND ${promoCode.id} <> ${joined.code.id}
+										AND ${promoCode.isActive} = 1
+							)`;
+					statements.push(
+						db
+							.update(promotion)
+							.set({ isActive: parentActiveValue, updatedAt: now })
+							.where(
+								and(
+									eq(promotion.id, joined.promotion.id),
+									eq(promotion.updatedAt, joined.promotion.updatedAt)
+								)
+							),
+						...guardPreviousBatchChanges(db)
+					);
+				}
+				const [first, ...rest] = statements;
+				if (!first) {
+					throw new PromotionError(
+						'Promo code update produced no statements.',
+						ErrorCode.INTERNAL_ERROR
+					);
+				}
+				await db.batch([first, ...rest]);
+				const current = await loadJoinedCodeByIdTx(db, joined.code.id);
+				if (!current) {
+					throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
+				}
+				return toPromoCodeDTO(current.code, current.promotion, now);
+			},
+			async () => {
+				const current = await loadJoinedCodeByIdTx(db, joined.code.id);
+				if (!current || !recordMatchesPatch(current.code, values)) {
+					return { committed: false };
+				}
+				if (parsed.data.isActive !== undefined) {
+					const [activeCode] = await db
+						.select({ id: promoCode.id })
+						.from(promoCode)
+						.where(
+							and(eq(promoCode.promotionId, joined.promotion.id), eq(promoCode.isActive, true))
+						)
+						.limit(1);
+					if (current.promotion.isActive !== Boolean(activeCode)) {
+						return { committed: false };
+					}
+				}
+				return {
+					committed: true,
+					value: toPromoCodeDTO(current.code, current.promotion, now)
+				};
+			}
+		);
 	} catch (error) {
+		if (isD1BatchGuardError(error)) {
+			throw new PromotionError(
+				'Promotion or promo code changed while it was being saved. Refresh and try again.',
+				ErrorCode.CONFLICT
+			);
+		}
 		throw mapPromotionPersistenceError(error);
 	}
 }
@@ -364,14 +546,30 @@ export async function grantPromotionToCustomer(
 	requireAdmin(ctx.actor);
 	const parsed = insertPromotionCustomerGrantSchema.safeParse(input);
 	if (!parsed.success) validationError('Invalid customer grant.', parsed.error.issues);
+	const db = getDb();
+	const values = {
+		id: nanoid(),
+		...parsed.data,
+		startsAt: timestampMsToDate(parsed.data.startsAt),
+		expiresAt: timestampMsToDate(parsed.data.expiresAt)
+	};
 	try {
-		await getDb()
-			.insert(promotionCustomerGrant)
-			.values({
-				...parsed.data,
-				startsAt: timestampMsToDate(parsed.data.startsAt),
-				expiresAt: timestampMsToDate(parsed.data.expiresAt)
-			});
+		await withTransientD1WriteReconciliation(
+			() => db.insert(promotionCustomerGrant).values(values),
+			async () => {
+				const [row] = await db
+					.select({ id: promotionCustomerGrant.id })
+					.from(promotionCustomerGrant)
+					.where(
+						and(
+							eq(promotionCustomerGrant.promotionId, values.promotionId),
+							eq(promotionCustomerGrant.userId, values.userId)
+						)
+					)
+					.limit(1);
+				return row ? { committed: true, value: undefined } : { committed: false };
+			}
+		);
 	} catch (error) {
 		throw mapPromotionPersistenceError(error);
 	}
@@ -382,14 +580,11 @@ export async function revokePromotionCustomerGrant(
 	input: { promotionId: string; userId: string }
 ): Promise<void> {
 	requireAdmin(ctx.actor);
-	await getDb()
-		.delete(promotionCustomerGrant)
-		.where(
-			and(
-				eq(promotionCustomerGrant.promotionId, normalizeId(input.promotionId, 'promotionId')),
-				eq(promotionCustomerGrant.userId, normalizeId(input.userId, 'userId'))
-			)
-		);
+	const predicate = and(
+		eq(promotionCustomerGrant.promotionId, normalizeId(input.promotionId, 'promotionId')),
+		eq(promotionCustomerGrant.userId, normalizeId(input.userId, 'userId'))
+	);
+	await withTransientD1WriteRetry(() => getDb().delete(promotionCustomerGrant).where(predicate));
 }
 
 export async function listPromotionCustomerGrants(
@@ -401,11 +596,13 @@ export async function listPromotionCustomerGrants(
 		.select()
 		.from(promotionCustomerGrant)
 		.orderBy(desc(promotionCustomerGrant.createdAt), asc(promotionCustomerGrant.userId));
-	return input.promotionId
-		? query.where(
-				eq(promotionCustomerGrant.promotionId, normalizeId(input.promotionId, 'promotionId'))
-			)
-		: query;
+	return withTransientD1ReadRetry(() =>
+		input.promotionId
+			? query.where(
+					eq(promotionCustomerGrant.promotionId, normalizeId(input.promotionId, 'promotionId'))
+				)
+			: query
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +612,7 @@ export async function listPromotionCustomerGrants(
 export async function validatePromoCodeForBag(
 	input: ValidatePromoCodeForBagInput
 ): Promise<PromoValidationResult> {
-	return validatePromoCodeForBagTx(getDb(), input);
+	return withTransientD1ReadRetry(() => validatePromoCodeForBagTx(getDb(), input));
 }
 
 export async function validatePromoCodeForBagTx(
@@ -445,9 +642,11 @@ export async function validatePromoCodeForBagTx(
 export async function resolvePromotionForBag(
 	input: ResolvePromotionForBagInput
 ): Promise<PromoValidationResult | null> {
-	const tx = getDb();
-	if (input.code) return validatePromoCodeForBagTx(tx, { ...input, code: input.code });
-	return resolveBestAutomaticPromotionForBagTx(tx, input);
+	return withTransientD1ReadRetry(() => {
+		const tx = getDb();
+		if (input.code) return validatePromoCodeForBagTx(tx, { ...input, code: input.code });
+		return resolveBestAutomaticPromotionForBagTx(tx, input);
+	});
 }
 
 export async function resolveStoredPromotionForBagTx(
@@ -476,37 +675,183 @@ export async function resolveStoredPromotionForBagTx(
 	return resolveBestAutomaticPromotionForBagTx(tx, { subtotal, userId, now });
 }
 
-/**
- * Returns display-only metadata for a promotion already attached to a bag.
- * Eligibility and discount application remain owned by resolveStoredPromotionForBagTx.
- */
-export async function getStoredPromotionBagPresentationTx(
+export async function resolveStoredPromotionBagStatesTx(
 	tx: QueryExecutor,
-	input: { promotionId?: string | null; promoCodeId?: string | null }
-): Promise<StoredPromotionBagPresentation | null> {
-	if (input.promoCodeId) {
-		const joined = await loadJoinedCodeByIdTx(tx, normalizeId(input.promoCodeId, 'promoCodeId'));
-		if (!joined || (input.promotionId && joined.promotion.id !== input.promotionId)) return null;
-		return {
-			promotionId: joined.promotion.id,
-			promotionName: joined.promotion.name,
-			applicationMode: joined.promotion.applicationMode,
-			promoCodeId: joined.code.id,
-			code: joined.code.code,
-			minOrderAmount: joined.promotion.minOrderAmount
-		};
+	input: {
+		items: Array<{
+			key: string;
+			promotionId?: string | null;
+			promoCodeId?: string | null;
+			userId?: string | null;
+			subtotal: number;
+		}>;
+		now?: Date;
 	}
-	if (!input.promotionId) return null;
-	const row = await loadPromotionByIdTx(tx, normalizeId(input.promotionId, 'promotionId'));
-	if (!row) return null;
-	return {
-		promotionId: row.id,
-		promotionName: row.name,
-		applicationMode: row.applicationMode,
-		promoCodeId: null,
-		code: null,
-		minOrderAmount: row.minOrderAmount
-	};
+): Promise<Map<string, StoredPromotionBagState>> {
+	const now = input.now ?? new Date();
+	const items = input.items.map((item) => ({
+		key: normalizeId(item.key, 'key'),
+		promotionId: normalizeNullableId(item.promotionId, 'promotionId') ?? null,
+		promoCodeId: normalizeNullableId(item.promoCodeId, 'promoCodeId') ?? null,
+		userId: normalizeNullableId(item.userId, 'userId') ?? null,
+		subtotal: normalizeMoney(item.subtotal, 'subtotal')
+	}));
+	if (new Set(items.map((item) => item.key)).size !== items.length) {
+		throw new PromotionError('Promotion-state keys must be unique.', ErrorCode.VALIDATION_ERROR);
+	}
+	if (items.length === 0) return new Map();
+
+	const promoCodeIds = uniqueStrings(
+		items.flatMap((item) => (item.promoCodeId ? [item.promoCodeId] : []))
+	);
+	const directPromotionIds = uniqueStrings(
+		items.flatMap((item) => (!item.promoCodeId && item.promotionId ? [item.promotionId] : []))
+	);
+	const joinedCodes =
+		promoCodeIds.length > 0
+			? await tx
+					.select({ code: promoCode, promotion })
+					.from(promoCode)
+					.innerJoin(promotion, eq(promoCode.promotionId, promotion.id))
+					.where(inArray(promoCode.id, promoCodeIds))
+			: [];
+	const directPromotions =
+		directPromotionIds.length > 0
+			? await tx.select().from(promotion).where(inArray(promotion.id, directPromotionIds))
+			: [];
+	const automaticPromotions = items.some((item) => !item.promoCodeId && !item.promotionId)
+		? await loadAutomaticPromotionCandidatesTx(tx, now)
+		: [];
+	const codeById = new Map(joinedCodes.map((row) => [row.code.id, row]));
+	const promotionById = new Map(directPromotions.map((row) => [row.id, row]));
+	const relevantPromotions = new Map<string, Promotion>();
+	for (const row of joinedCodes) relevantPromotions.set(row.promotion.id, row.promotion);
+	for (const row of directPromotions) relevantPromotions.set(row.id, row);
+	for (const row of automaticPromotions) relevantPromotions.set(row.id, row);
+
+	const userIds = uniqueStrings(items.flatMap((item) => (item.userId ? [item.userId] : [])));
+	const promotionIds = [...relevantPromotions.keys()];
+	const grantRows =
+		userIds.length > 0 && promotionIds.length > 0
+			? await tx
+					.select({
+						promotionId: promotionCustomerGrant.promotionId,
+						userId: promotionCustomerGrant.userId
+					})
+					.from(promotionCustomerGrant)
+					.where(
+						and(
+							inArray(promotionCustomerGrant.promotionId, promotionIds),
+							inArray(promotionCustomerGrant.userId, userIds),
+							sql`(${promotionCustomerGrant.startsAt} IS NULL OR ${promotionCustomerGrant.startsAt} <= ${now.getTime()})`,
+							sql`(${promotionCustomerGrant.expiresAt} IS NULL OR ${promotionCustomerGrant.expiresAt} > ${now.getTime()})`
+						)
+					)
+			: [];
+	const usageRows =
+		userIds.length > 0 && promotionIds.length > 0
+			? await tx
+					.select({
+						promotionId: promotionUsage.promotionId,
+						userId: promotionUsage.userId,
+						total: count()
+					})
+					.from(promotionUsage)
+					.where(
+						and(
+							inArray(promotionUsage.promotionId, promotionIds),
+							inArray(promotionUsage.userId, userIds)
+						)
+					)
+					.groupBy(promotionUsage.promotionId, promotionUsage.userId)
+			: [];
+	const grantKeys = new Set(grantRows.map((row) => promotionUserKey(row.promotionId, row.userId)));
+	const usageByPromotionUser = new Map(
+		usageRows.flatMap((row) =>
+			row.userId
+				? [[promotionUserKey(row.promotionId, row.userId), Number(row.total)] as const]
+				: []
+		)
+	);
+
+	const states = new Map<string, StoredPromotionBagState>();
+	for (const item of items) {
+		let presentation: StoredPromotionBagPresentation | null = null;
+		try {
+			if (item.promoCodeId) {
+				const joined = codeById.get(item.promoCodeId);
+				if (!joined || (item.promotionId && joined.promotion.id !== item.promotionId)) {
+					states.set(item.key, { presentation: null, result: null });
+					continue;
+				}
+				presentation = toStoredPromotionPresentation(joined.promotion, joined.code);
+				const codeIsRedeemable =
+					joined.code.isActive &&
+					['storefront', 'both'].includes(joined.code.redemptionChannel) &&
+					joined.promotion.applicationMode === 'code' &&
+					(joined.code.usageLimit === null || joined.code.usedCount < joined.code.usageLimit);
+				states.set(item.key, {
+					presentation,
+					result: codeIsRedeemable
+						? validatePromotionFromSnapshot(joined.promotion, joined.code, item, {
+								now,
+								grantKeys,
+								usageByPromotionUser
+							})
+						: null
+				});
+				continue;
+			}
+
+			if (item.promotionId) {
+				const row = promotionById.get(item.promotionId);
+				if (!row) {
+					states.set(item.key, { presentation: null, result: null });
+					continue;
+				}
+				presentation = toStoredPromotionPresentation(row, null);
+				states.set(item.key, {
+					presentation,
+					result:
+						row.applicationMode === 'automatic'
+							? validatePromotionFromSnapshot(row, null, item, {
+									now,
+									grantKeys,
+									usageByPromotionUser
+								})
+							: null
+				});
+				continue;
+			}
+
+			let best: PromoValidationResult | null = null;
+			let bestPriority = -1;
+			for (const row of automaticPromotions) {
+				try {
+					const result = validatePromotionFromSnapshot(row, null, item, {
+						now,
+						grantKeys,
+						usageByPromotionUser
+					});
+					if (
+						!best ||
+						result.discountAmount > best.discountAmount ||
+						(result.discountAmount === best.discountAmount && row.priority > bestPriority)
+					) {
+						best = result;
+						bestPriority = row.priority;
+					}
+				} catch (error) {
+					if (!isAppError(error) || error.statusCode >= 500) throw error;
+				}
+			}
+			states.set(item.key, { presentation: null, result: best });
+		} catch (error) {
+			if (!isAppError(error) || error.statusCode >= 500) throw error;
+			states.set(item.key, { presentation, result: null });
+		}
+	}
+	return states;
 }
 
 export async function resolveBestAutomaticPromotionForBagTx(
@@ -516,19 +861,7 @@ export async function resolveBestAutomaticPromotionForBagTx(
 	const subtotal = normalizeMoney(input.subtotal, 'subtotal');
 	const userId = normalizeNullableId(input.userId, 'userId') ?? null;
 	const now = input.now ?? new Date();
-	const candidates = await tx
-		.select()
-		.from(promotion)
-		.where(
-			and(
-				eq(promotion.applicationMode, 'automatic'),
-				eq(promotion.isActive, true),
-				sql`(${promotion.startsAt} IS NULL OR ${promotion.startsAt} <= ${now.getTime()})`,
-				sql`(${promotion.expiresAt} IS NULL OR ${promotion.expiresAt} > ${now.getTime()})`,
-				sql`(${promotion.usageLimit} IS NULL OR ${promotion.usedCount} < ${promotion.usageLimit})`
-			)
-		)
-		.orderBy(desc(promotion.priority), asc(promotion.id));
+	const candidates = await loadAutomaticPromotionCandidatesTx(tx, now);
 
 	let best: PromoValidationResult | null = null;
 	let bestPriority = -1;
@@ -544,7 +877,7 @@ export async function resolveBestAutomaticPromotionForBagTx(
 				bestPriority = row.priority;
 			}
 		} catch (error) {
-			if (!isAppError(error)) throw error;
+			if (!isAppError(error) || error.statusCode >= 500) throw error;
 		}
 	}
 	return best;
@@ -647,14 +980,29 @@ export async function recordPromoUsage(
 	try {
 		const db = getDb();
 		const validated = await validateUsageRecordTx(db, input);
-		await db.batch(preparePromotionUsageBatch(db, validated));
-		const [row] = await db
-			.select()
-			.from(promotionUsage)
-			.where(eq(promotionUsage.orderId, validated.orderId))
-			.limit(1);
-		if (!row)
-			throw new PromotionError('Promotion usage was not recorded.', ErrorCode.INTERNAL_ERROR);
+		const statements = preparePromotionUsageBatch(db, validated);
+		const row = await withTransientD1WriteReconciliation<PromotionUsage>(
+			async () => {
+				await db.batch(statements);
+				const [created] = await db
+					.select()
+					.from(promotionUsage)
+					.where(eq(promotionUsage.orderId, validated.orderId))
+					.limit(1);
+				if (!created) {
+					throw new PromotionError('Promotion usage was not recorded.', ErrorCode.INTERNAL_ERROR);
+				}
+				return created;
+			},
+			async () => {
+				const [created] = await db
+					.select()
+					.from(promotionUsage)
+					.where(eq(promotionUsage.orderId, validated.orderId))
+					.limit(1);
+				return created ? { committed: true, value: created } : { committed: false };
+			}
+		);
 		return toUsageDTO(row, validated.code ? toCodeSummary(validated.code) : null);
 	} catch (error) {
 		if (isD1BatchGuardError(error))
@@ -664,59 +1012,6 @@ export async function recordPromoUsage(
 			);
 		throw mapPromotionPersistenceError(error);
 	}
-}
-
-export async function recordPromoUsageTx(
-	tx: PromotionsTx,
-	input: RecordPromoUsageInput
-): Promise<PromoCodeUsageDTO> {
-	const data = await validateUsageRecordTx(tx, input);
-	const [updatedPromotion] = await tx
-		.update(promotion)
-		.set({ usedCount: sql`${promotion.usedCount} + 1`, updatedAt: data.now })
-		.where(
-			and(
-				eq(promotion.id, data.promotionId),
-				sql`(${promotion.usageLimit} IS NULL OR ${promotion.usedCount} < ${promotion.usageLimit})`
-			)
-		)
-		.returning();
-	if (!updatedPromotion)
-		throw new PromotionError(
-			'Promotion usage limit exceeded.',
-			ErrorCode.PROMO_USAGE_LIMIT_EXCEEDED
-		);
-	if (data.promoCodeId) {
-		const [updatedCode] = await tx
-			.update(promoCode)
-			.set({ usedCount: sql`${promoCode.usedCount} + 1`, updatedAt: data.now })
-			.where(
-				and(
-					eq(promoCode.id, data.promoCodeId),
-					sql`(${promoCode.usageLimit} IS NULL OR ${promoCode.usedCount} < ${promoCode.usageLimit})`
-				)
-			)
-			.returning();
-		if (!updatedCode)
-			throw new PromotionError(
-				'Promo code usage limit exceeded.',
-				ErrorCode.PROMO_USAGE_LIMIT_EXCEEDED
-			);
-	}
-	const [created] = await tx
-		.insert(promotionUsage)
-		.values({
-			promotionId: data.promotionId,
-			promoCodeId: data.promoCodeId,
-			userId: data.userId,
-			orderId: data.orderId,
-			discountAmount: data.discountAmount,
-			usedAt: data.now
-		})
-		.returning();
-	if (!created)
-		throw new PromotionError('Promotion usage was not recorded.', ErrorCode.INTERNAL_ERROR);
-	return toUsageDTO(created, data.code ? toCodeSummary(data.code) : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -760,7 +1055,9 @@ export async function getPromoCode(
 	input: { lookup: PromoCodeLookup }
 ): Promise<PromoCodeDTO> {
 	requireAdmin(ctx.actor);
-	const joined = await loadJoinedCodeByLookupTx(getDb(), input.lookup);
+	const joined = await withTransientD1ReadRetry(() =>
+		loadJoinedCodeByLookupTx(getDb(), input.lookup)
+	);
 	if (!joined) throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
 	return toPromoCodeDTO(joined.code, joined.promotion, resolveNow(ctx));
 }
@@ -798,10 +1095,8 @@ export async function listPromoCodes(
 		.orderBy(desc(promotion.updatedAt), asc(promoCode.code))
 		.limit(limit)
 		.offset(offset);
-	const [totals, rows] = await Promise.all([
-		where ? baseCount.where(where) : baseCount,
-		where ? baseList.where(where) : baseList
-	]);
+	const totals = await withTransientD1ReadRetry(() => (where ? baseCount.where(where) : baseCount));
+	const rows = await withTransientD1ReadRetry(() => (where ? baseList.where(where) : baseList));
 	return {
 		items: rows.map((row) => toPromoCodeDTO(row.code, row.promotion, now)),
 		total: Number(totals[0]?.total ?? 0),
@@ -815,24 +1110,80 @@ export async function updatePromoCode(
 	input: { lookup: PromoCodeLookup; data: UpdatePromoCodeInput }
 ): Promise<PromoCodeDTO> {
 	requireAdmin(ctx.actor);
-	const joined = await loadJoinedCodeByLookupTx(getDb(), input.lookup);
+	const db = getDb();
+	const joined = await loadJoinedCodeByLookupTx(db, input.lookup);
 	if (!joined) throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
+	const now = resolveNow(ctx);
 	const { code, description, usageLimit, ...ruleData } = input.data;
-	if (Object.keys(ruleData).length || description !== undefined || usageLimit !== undefined) {
-		await updatePromotion(ctx, {
-			promotionId: joined.promotion.id,
-			data: removeUndefinedValues({
-				...ruleData,
-				internalDescription: description,
-				usageLimit
-			}) as UpdatePromotionInput
-		});
+	const promotionInput = removeUndefinedValues({
+		...ruleData,
+		internalDescription: description,
+		usageLimit
+	});
+	const parsedPromotion = updatePromotionSchema.safeParse(promotionInput);
+	if (!parsedPromotion.success) {
+		validationError('Invalid promotion data.', parsedPromotion.error.issues);
 	}
-	if (code !== undefined || usageLimit !== undefined) {
-		await updatePromotionCode(ctx, {
-			promoCodeId: joined.code.id,
-			data: removeUndefinedValues({ code, usageLimit })
-		});
+	validateResolvedWindow(joined.promotion, parsedPromotion.data, now);
+	const promotionValues = removeUndefinedValues({
+		...parsedPromotion.data,
+		startsAt: timestampMsToDate(parsedPromotion.data.startsAt),
+		expiresAt: timestampMsToDate(parsedPromotion.data.expiresAt),
+		updatedAt: now
+	});
+	const parsedCode = updatePromoCodeSchema.safeParse(
+		removeUndefinedValues({
+			code: code === undefined ? undefined : normalizePromoCode(code),
+			usageLimit
+		})
+	);
+	if (!parsedCode.success) validationError('Invalid promo code data.', parsedCode.error.issues);
+	const codeValues = removeUndefinedValues({ ...parsedCode.data, updatedAt: now });
+	const statements: PromotionsBatchItem[] = [];
+	if (Object.keys(promotionValues).length > 1) {
+		statements.push(
+			db
+				.update(promotion)
+				.set(promotionValues)
+				.where(
+					and(
+						eq(promotion.id, joined.promotion.id),
+						eq(promotion.updatedAt, joined.promotion.updatedAt)
+					)
+				),
+			...guardPreviousBatchChanges(db)
+		);
+	}
+	if (Object.keys(codeValues).length > 1) {
+		statements.push(
+			db
+				.update(promoCode)
+				.set(codeValues)
+				.where(
+					and(eq(promoCode.id, joined.code.id), eq(promoCode.updatedAt, joined.code.updatedAt))
+				),
+			...guardPreviousBatchChanges(db)
+		);
+	}
+	const [first, ...rest] = statements;
+	if (first) {
+		await withTransientD1WriteReconciliation(
+			async () => {
+				await db.batch([first, ...rest]);
+			},
+			async () => {
+				const current = await loadJoinedCodeByIdTx(db, joined.code.id);
+				if (!current) return { committed: false };
+				const promotionCommitted =
+					Object.keys(promotionValues).length <= 1 ||
+					current.promotion.updatedAt.getTime() === now.getTime();
+				const codeCommitted =
+					Object.keys(codeValues).length <= 1 || current.code.updatedAt.getTime() === now.getTime();
+				return promotionCommitted && codeCommitted
+					? { committed: true, value: undefined }
+					: { committed: false };
+			}
+		);
 	}
 	return getPromoCode(ctx, { lookup: { id: joined.code.id } });
 }
@@ -842,18 +1193,55 @@ export async function setPromoCodeActive(
 	input: SetPromoCodeActiveInput
 ): Promise<PromoCodeDTO> {
 	requireAdmin(ctx.actor);
-	const joined = await loadJoinedCodeByLookupTx(getDb(), input.lookup);
+	const db = getDb();
+	const joined = await loadJoinedCodeByLookupTx(db, input.lookup);
 	if (!joined) throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
-	await getDb().batch([
-		getDb()
+	const now = resolveNow(ctx);
+	const parentActiveValue = input.isActive
+		? true
+		: sql<boolean>`EXISTS (
+				SELECT 1 FROM ${promoCode}
+				WHERE ${promoCode.promotionId} = ${joined.promotion.id}
+					AND ${promoCode.id} <> ${joined.code.id}
+					AND ${promoCode.isActive} = 1
+			)`;
+	const statements: [PromotionsBatchItem, ...PromotionsBatchItem[]] = [
+		db
 			.update(promoCode)
-			.set({ isActive: input.isActive, updatedAt: resolveNow(ctx) })
-			.where(eq(promoCode.id, joined.code.id)),
-		getDb()
+			.set({ isActive: input.isActive, updatedAt: now })
+			.where(and(eq(promoCode.id, joined.code.id), eq(promoCode.updatedAt, joined.code.updatedAt))),
+		...guardPreviousBatchChanges(db),
+		db
 			.update(promotion)
-			.set({ isActive: input.isActive, updatedAt: resolveNow(ctx) })
-			.where(eq(promotion.id, joined.promotion.id))
-	]);
+			.set({ isActive: parentActiveValue, updatedAt: now })
+			.where(
+				and(
+					eq(promotion.id, joined.promotion.id),
+					eq(promotion.updatedAt, joined.promotion.updatedAt)
+				)
+			),
+		...guardPreviousBatchChanges(db)
+	];
+	await withTransientD1WriteReconciliation(
+		async () => {
+			await db.batch(statements);
+		},
+		async () => {
+			const current = await loadJoinedCodeByIdTx(db, joined.code.id);
+			if (!current || current.code.isActive !== input.isActive) {
+				return { committed: false };
+			}
+			const [otherActive] = await db
+				.select({ id: promoCode.id })
+				.from(promoCode)
+				.where(and(eq(promoCode.promotionId, joined.promotion.id), eq(promoCode.isActive, true)))
+				.limit(1);
+			const expectedParentActive = Boolean(otherActive);
+			return current.promotion.isActive === expectedParentActive
+				? { committed: true, value: undefined }
+				: { committed: false };
+		}
+	);
 	return getPromoCode(ctx, { lookup: { id: joined.code.id } });
 }
 
@@ -873,13 +1261,15 @@ export async function listPromoCodeUsages(
 		.orderBy(desc(promotionUsage.usedAt))
 		.limit(limit)
 		.offset(offset);
-	const [totals, rows] = await Promise.all([
-		where ? countQuery.where(where) : countQuery,
-		where ? listQuery.where(where) : listQuery
-	]);
-	const codes = await loadCodeSummariesByIdsTx(
-		db,
-		rows.flatMap((row) => (row.promoCodeId ? [row.promoCodeId] : []))
+	const totals = await withTransientD1ReadRetry(() =>
+		where ? countQuery.where(where) : countQuery
+	);
+	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
+	const codes = await withTransientD1ReadRetry(() =>
+		loadCodeSummariesByIdsTx(
+			db,
+			rows.flatMap((row) => (row.promoCodeId ? [row.promoCodeId] : []))
+		)
 	);
 	return {
 		items: rows.map((row) =>
@@ -940,7 +1330,7 @@ export async function reconcilePromoCodeUsageCounts(
 			failedItems.push({
 				promoCodeId: row.code.id,
 				code: row.code.code,
-				error: getErrorMessage(error)
+				error: toErrorResponseBody(error).message
 			});
 		}
 	}
@@ -962,6 +1352,84 @@ export async function reconcilePromoCodeUsageCounts(
 // ---------------------------------------------------------------------------
 // Internal validation/load/mapping helpers
 // ---------------------------------------------------------------------------
+
+async function loadAutomaticPromotionCandidatesTx(
+	tx: QueryExecutor,
+	now: Date
+): Promise<Promotion[]> {
+	return tx
+		.select()
+		.from(promotion)
+		.where(
+			and(
+				eq(promotion.applicationMode, 'automatic'),
+				eq(promotion.isActive, true),
+				sql`(${promotion.startsAt} IS NULL OR ${promotion.startsAt} <= ${now.getTime()})`,
+				sql`(${promotion.expiresAt} IS NULL OR ${promotion.expiresAt} > ${now.getTime()})`,
+				sql`(${promotion.usageLimit} IS NULL OR ${promotion.usedCount} < ${promotion.usageLimit})`
+			)
+		)
+		.orderBy(desc(promotion.priority), asc(promotion.id));
+}
+
+function toStoredPromotionPresentation(
+	row: Promotion,
+	codeRow: PromoCode | null
+): StoredPromotionBagPresentation {
+	return {
+		promotionId: row.id,
+		promotionName: row.name,
+		applicationMode: row.applicationMode,
+		promoCodeId: codeRow?.id ?? null,
+		code: codeRow?.code ?? null,
+		minOrderAmount: row.minOrderAmount
+	};
+}
+
+function promotionUserKey(promotionId: string, userId: string): string {
+	return JSON.stringify([promotionId, userId]);
+}
+
+function validatePromotionFromSnapshot(
+	row: Promotion,
+	codeRow: PromoCode | null,
+	input: { subtotal: number; userId: string | null },
+	state: {
+		now: Date;
+		grantKeys: Set<string>;
+		usageByPromotionUser: Map<string, number>;
+	}
+): PromoValidationResult {
+	if (codeRow && codeRow.usageLimit !== null && codeRow.usedCount >= codeRow.usageLimit) {
+		throw new PromotionError(
+			'Promo code usage limit reached.',
+			ErrorCode.PROMO_USAGE_LIMIT_EXCEEDED
+		);
+	}
+	assertPromotionRedeemable(row, { subtotal: input.subtotal, now: state.now });
+	if (row.eligibilityScope !== 'all') {
+		if (!input.userId) {
+			throw new PromotionError('Sign in to use this promotion.', ErrorCode.UNAUTHORIZED);
+		}
+		if (
+			row.eligibilityScope === 'customer_grant' &&
+			!state.grantKeys.has(promotionUserKey(row.id, input.userId))
+		) {
+			throw new PromotionError(
+				'Promotion is not available for this customer.',
+				ErrorCode.PROMO_NOT_APPLICABLE
+			);
+		}
+	}
+	if (
+		input.userId &&
+		(state.usageByPromotionUser.get(promotionUserKey(row.id, input.userId)) ?? 0) >=
+			row.perUserLimit
+	) {
+		throw new PromotionError('Promotion already used.', ErrorCode.PROMO_ALREADY_USED);
+	}
+	return createPromoValidationResult(row, codeRow, input.subtotal);
+}
 
 async function validateJoinedPromotionForBagTx(
 	tx: QueryExecutor,
@@ -993,7 +1461,15 @@ async function validatePromotionRowForBagTx(
 		if (Number(usage?.total ?? 0) >= row.perUserLimit)
 			throw new PromotionError('Promotion already used.', ErrorCode.PROMO_ALREADY_USED);
 	}
-	const discountAmount = calculateDiscountAmount(row, input.subtotal);
+	return createPromoValidationResult(row, codeRow, input.subtotal);
+}
+
+function createPromoValidationResult(
+	row: Promotion,
+	codeRow: PromoCode | null,
+	subtotal: number
+): PromoValidationResult {
+	const discountAmount = calculateDiscountAmount(row, subtotal);
 	if (discountAmount <= 0)
 		throw new PromotionError(
 			'Promotion cannot be applied to this bag.',
@@ -1006,8 +1482,8 @@ async function validatePromotionRowForBagTx(
 		promotionName: row.name,
 		applicationMode: row.applicationMode,
 		discountAmount,
-		subtotal: input.subtotal,
-		totalAfterDiscount: Math.max(input.subtotal - discountAmount, 0),
+		subtotal,
+		totalAfterDiscount: Math.max(subtotal - discountAmount, 0),
 		snapshot: {
 			promotionId: row.id,
 			name: row.name,
@@ -1068,6 +1544,18 @@ async function assertPromotionEligibilityTx(
 
 async function validateUsageRecordTx(tx: PromotionsTx, input: RecordPromoUsageInput) {
 	const orderId = normalizeId(input.orderId, 'orderId');
+	const [existingUsage] = await tx
+		.select({ id: promotionUsage.id })
+		.from(promotionUsage)
+		.where(eq(promotionUsage.orderId, orderId))
+		.limit(1);
+	if (existingUsage) {
+		throw new PromotionError(
+			'Promotion usage was already recorded for this order.',
+			ErrorCode.PROMO_ALREADY_USED,
+			{ orderId }
+		);
+	}
 	const [orderRow] = await tx.select().from(orderTable).where(eq(orderTable.id, orderId)).limit(1);
 	if (!orderRow) throw new PromotionError('Order not found.', ErrorCode.ORDER_NOT_FOUND);
 	let promotionId = input.promotionId ?? orderRow.promotionId ?? undefined;
@@ -1206,34 +1694,93 @@ async function loadCodeSummariesByIdsTx(
 	return new Map(rows.map((row) => [row.id, row]));
 }
 
+function recordMatchesPatch(row: object, patch: Record<string, unknown>): boolean {
+	const record = row as Record<string, unknown>;
+	return Object.entries(patch).every(([key, expected]) => {
+		const actual = record[key];
+		if (actual instanceof Date && expected instanceof Date) {
+			return actual.getTime() === expected.getTime();
+		}
+		return actual === expected;
+	});
+}
+
 async function reconcileCodeUsageCountTx(
 	tx: PromotionsTx,
 	joined: JoinedCode,
 	now: Date
 ): Promise<PromoUsageReconciliationItem> {
-	const [countRow] = await tx
+	const [codeCountRow] = await tx
 		.select({ total: count() })
 		.from(promotionUsage)
 		.where(eq(promotionUsage.promoCodeId, joined.code.id));
-	const actualUsedCount = Number(countRow?.total ?? 0);
-	const changed = actualUsedCount !== joined.code.usedCount;
-	let row = joined.code;
-	if (changed) {
-		const [updated] = await tx
-			.update(promoCode)
-			.set({ usedCount: actualUsedCount, updatedAt: now })
-			.where(eq(promoCode.id, row.id))
-			.returning();
-		if (!updated) throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
-		row = updated;
+	const [promotionCountRow] = await tx
+		.select({ total: count() })
+		.from(promotionUsage)
+		.where(eq(promotionUsage.promotionId, joined.promotion.id));
+	const actualUsedCount = Number(codeCountRow?.total ?? 0);
+	const actualPromotionUsedCount = Number(promotionCountRow?.total ?? 0);
+	const codeChanged = actualUsedCount !== joined.code.usedCount;
+	const promotionChanged = actualPromotionUsedCount !== joined.promotion.usedCount;
+	let current = joined;
+
+	if (codeChanged || promotionChanged) {
+		const statements: PromotionsBatchItem[] = [];
+		if (codeChanged) {
+			statements.push(
+				tx
+					.update(promoCode)
+					.set({ usedCount: actualUsedCount, updatedAt: now })
+					.where(
+						and(eq(promoCode.id, joined.code.id), eq(promoCode.updatedAt, joined.code.updatedAt))
+					),
+				...guardPreviousBatchChanges(tx)
+			);
+		}
+		if (promotionChanged) {
+			statements.push(
+				tx
+					.update(promotion)
+					.set({ usedCount: actualPromotionUsedCount, updatedAt: now })
+					.where(
+						and(
+							eq(promotion.id, joined.promotion.id),
+							eq(promotion.updatedAt, joined.promotion.updatedAt)
+						)
+					),
+				...guardPreviousBatchChanges(tx)
+			);
+		}
+		const [first, ...rest] = statements;
+		if (first) {
+			current = await withTransientD1WriteReconciliation<JoinedCode>(
+				async () => {
+					await tx.batch([first, ...rest]);
+					const row = await loadJoinedCodeByIdTx(tx, joined.code.id);
+					if (!row) {
+						throw new PromotionError('Promo code not found.', ErrorCode.PROMO_NOT_FOUND);
+					}
+					return row;
+				},
+				async () => {
+					const row = await loadJoinedCodeByIdTx(tx, joined.code.id);
+					return row &&
+						row.code.usedCount === actualUsedCount &&
+						row.promotion.usedCount === actualPromotionUsedCount
+						? { committed: true, value: row }
+						: { committed: false };
+				}
+			);
+		}
 	}
+
 	return {
-		promoCodeId: row.id,
-		code: row.code,
+		promoCodeId: current.code.id,
+		code: current.code.code,
 		previousUsedCount: joined.code.usedCount,
 		actualUsedCount,
-		changed,
-		promoCode: toPromoCodeDTO(row, joined.promotion, now)
+		changed: codeChanged || promotionChanged,
+		promoCode: toPromoCodeDTO(current.code, current.promotion, now)
 	};
 }
 
@@ -1455,6 +2002,7 @@ function sanitizeLikeTerm(value: string) {
 
 function mapPromotionPersistenceError(error: unknown): never {
 	if (isAppError(error)) throw error;
+	rethrowTransientD1Error(error);
 	const message = getErrorMessage(error);
 	if (isUniqueConstraintError(message)) {
 		if (/promo(?:tion|_code)_usage\.order_id/i.test(message))

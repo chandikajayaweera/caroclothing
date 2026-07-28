@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { navigating } from '$app/state';
 	import AdminMobileCommandBar from '$lib/components/admin/layout/AdminMobileCommandBar.svelte';
 	import AdminSidebar from '$lib/components/admin/sidebar/AdminSidebar.svelte';
 
@@ -16,17 +15,7 @@
 	data-sveltekit-preload-data="tap"
 	class="h-dvh min-h-0 overflow-y-hidden bg-void text-bone transition-[grid-template-columns] duration-300 ease-in-out lg:grid lg:grid-cols-(--admin-sidebar-width)"
 	style="--admin-sidebar-width: {sidebarWidth};"
-	aria-busy={navigating.to !== null}
 >
-	{#if navigating.to}
-		<div
-			class="fixed inset-x-0 top-0 z-100 h-[3px] overflow-hidden bg-void"
-			role="progressbar"
-			aria-label="Loading admin page"
-		>
-			<div class="h-full w-1/2 animate-pulse bg-volt"></div>
-		</div>
-	{/if}
 	<AdminSidebar
 		collapsed={sidebarCollapsed}
 		bind:mobileOpen={mobileSidebarOpen}

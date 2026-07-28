@@ -8,7 +8,12 @@ import { seedProductWithVariant } from '../../../../tests/scenarios/products';
 import { inventory } from '../inventory/inventory.drizzle';
 import { productVariant } from '../products/products.drizzle';
 import { wishlistItem } from './wishlist.drizzle';
-import { addToWishlist, listWishlist, listWishlistSignals } from './wishlist.service';
+import {
+	addToWishlist,
+	listWishlist,
+	listWishlistProductIds,
+	listWishlistSignals
+} from './wishlist.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
 
@@ -167,5 +172,44 @@ describe('wishlist service integration', () => {
 		const rows = await db().select().from(wishlistItem).where(eq(wishlistItem.userId, user.id));
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ productId: product.id, variantId: null });
+	});
+
+	it('lists unique product ids by their most recent save without hydrating products', async () => {
+		const user = await seedUser(db(), { id: 'wishlist-id-user' });
+		const first = await seedProductWithVariant(db(), {
+			product: { slug: 'wishlist-id-first' }
+		});
+		const second = await seedProductWithVariant(db(), {
+			product: { slug: 'wishlist-id-second' }
+		});
+		await db()
+			.insert(wishlistItem)
+			.values([
+				{
+					id: 'wishlist-id-first-product',
+					userId: user.id,
+					productId: first.product.id,
+					variantId: null,
+					addedAt: new Date('2026-07-19T08:00:00.000Z')
+				},
+				{
+					id: 'wishlist-id-first-variant',
+					userId: user.id,
+					productId: first.product.id,
+					variantId: first.variant.id,
+					addedAt: new Date('2026-07-19T10:00:00.000Z')
+				},
+				{
+					id: 'wishlist-id-second-product',
+					userId: user.id,
+					productId: second.product.id,
+					variantId: null,
+					addedAt: new Date('2026-07-19T09:00:00.000Z')
+				}
+			]);
+
+		await expect(listWishlistProductIds(makeCustomerCtx(user.id), { limit: 100 })).resolves.toEqual(
+			[first.product.id, second.product.id]
+		);
 	});
 });

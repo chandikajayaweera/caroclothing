@@ -1,6 +1,6 @@
 // Core
-export { sendEmail } from './client';
-export type { EmailPayload, EmailResult } from './types';
+export { maskEmailRecipient, sendEmail } from './client';
+export type { EmailPayload, EmailResult, EmailSendOptions } from './types';
 export type {
 	OTPType,
 	OTPEmailInput,

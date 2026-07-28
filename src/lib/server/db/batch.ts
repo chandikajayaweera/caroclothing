@@ -1,5 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { collectErrorMessages } from '../foundation/utils';
 import { getDb } from './index';
 import { d1BatchGuard } from './d1-batch.drizzle';
 
@@ -26,6 +27,6 @@ export function guardPreviousBatchChanges(db: Db, expectedChanges = 1) {
 }
 
 export function isD1BatchGuardError(error: unknown): boolean {
-	const message = error instanceof Error ? error.message : String(error);
+	const message = collectErrorMessages(error).join(' | ');
 	return message.includes('d1_batch_guard_passed');
 }
