@@ -245,12 +245,11 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	const bucket = getMediaBucket(event);
-	const head = await bucket.head(parsed.key);
-	if (!head) throw error(404, 'Not found.');
-
-	if (parsed.preset) {
-		return servePresetObject(event, parsed.key, parsed.preset, head);
+	if (!parsed.preset) {
+		return serveOriginalObject(bucket, parsed.key, event.request);
 	}
 
-	return serveOriginalObject(bucket, parsed.key, event.request);
+	const head = await bucket.head(parsed.key);
+	if (!head) throw error(404, 'Not found.');
+	return servePresetObject(event, parsed.key, parsed.preset, head);
 };

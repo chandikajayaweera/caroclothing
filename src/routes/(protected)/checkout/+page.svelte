@@ -24,6 +24,7 @@
 	} from '$lib/client/payments/sdk';
 	import CheckoutProgress from '$lib/components/checkout/CheckoutProgress.svelte';
 	import CheckoutOrderSummary from '$lib/components/checkout/CheckoutOrderSummary.svelte';
+	import SkeletonBlock from '$lib/components/navigation/SkeletonBlock.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import type { AddressDTO } from '$lib/server/modules/addresses/addresses.types';
 	import type { ShippingQuoteDTO } from '$lib/server/modules/shipping/shipping.types';
@@ -615,8 +616,9 @@
 			</div>
 		</div>
 		<strong
-			class="shrink-0 font-mono text-lg tabular-nums
-			{checkoutExpired ? 'text-red-400' : checkoutUrgent ? 'text-amber-300' : 'text-volt'}"
+			class={`shrink-0 font-mono text-lg tabular-nums ${
+				checkoutExpired ? 'text-red-400' : checkoutUrgent ? 'text-amber-300' : 'text-volt'
+			}`}
 		>
 			{checkoutTime}
 		</strong>
@@ -985,16 +987,26 @@
 						<p class="mt-3 font-sans text-sm text-ash">
 							Available for {deliveryDistrict || 'your district'}.
 						</p>
-						<fieldset id="shipping-methods" class="mt-6" tabindex="-1">
+						<fieldset
+							id="shipping-methods"
+							class="mt-6"
+							tabindex="-1"
+							aria-busy={isLoadingShipping}
+						>
 							<legend class="sr-only">Shipping methods</legend>
 							{#if isLoadingShipping}
-								<div
-									class="flex min-h-32 items-center justify-center gap-3 border border-charcoal text-ash"
-								>
-									<Loader2 size={18} class="animate-spin" aria-hidden="true" />
-									<span class="font-mono text-[10px] tracking-[0.12em] uppercase"
-										>Loading options</span
-									>
+								<p class="sr-only" role="status">Loading shipping options.</p>
+								<div class="grid gap-3" aria-hidden="true">
+									{#each [0, 1, 2] as option (option)}
+										<div class="flex min-h-28 items-center gap-4 border border-charcoal p-5">
+											<SkeletonBlock class="h-10 w-10 shrink-0 rounded-full" />
+											<div class="min-w-0 flex-1">
+												<SkeletonBlock class="h-4 w-36" />
+												<SkeletonBlock class="mt-3 h-3 w-4/5" />
+											</div>
+											<SkeletonBlock class="h-4 w-20 shrink-0" />
+										</div>
+									{/each}
 								</div>
 							{:else if shippingError}
 								<div class="border border-red-500/50 bg-red-950/20 p-5" role="alert">

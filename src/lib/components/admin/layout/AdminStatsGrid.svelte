@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AdminCard from '$lib/components/admin/data-display/AdminCard.svelte';
+	import SkeletonBlock from '$lib/components/navigation/SkeletonBlock.svelte';
 
 	let {
 		stats,
@@ -54,8 +55,10 @@
 	{#if loading || displayMetrics.length === 0}
 		{#each Array.from({ length: skeletonCount }, (_, index) => index) as index (index)}
 			<AdminCard class="min-w-0" padding="p-3 sm:p-5">
-				<div class="h-2.5 w-16 animate-pulse bg-ash/10"></div>
-				<div class="mt-3 h-8 w-12 animate-pulse bg-ash/10"></div>
+				<div aria-hidden="true">
+					<SkeletonBlock class="h-2.5 w-16" />
+					<SkeletonBlock class="mt-3 h-8 w-12" />
+				</div>
 			</AdminCard>
 		{/each}
 	{:else}

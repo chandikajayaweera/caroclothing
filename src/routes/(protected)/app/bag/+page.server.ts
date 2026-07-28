@@ -65,11 +65,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const ctx = getAdminContext(locals);
 
 	try {
-		const bags = await listBags(ctx, getListOptions(url));
-		const summary = await getBagSummary(ctx);
-		const cleanupForm = await superValidate(zod4(deleteExpiredGuestBagsFormSchema), {
-			id: 'deleteExpiredGuestBags'
-		});
+		const [bags, summary, cleanupForm] = await Promise.all([
+			listBags(ctx, getListOptions(url)),
+			getBagSummary(ctx),
+			superValidate(zod4(deleteExpiredGuestBagsFormSchema), {
+				id: 'deleteExpiredGuestBags'
+			})
+		]);
 
 		return {
 			bags,

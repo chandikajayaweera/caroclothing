@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 
 	type FeaturedProduct = {
 		name: string;
@@ -42,9 +43,11 @@
 
 <section class="relative overflow-hidden bg-charcoal px-5 py-20 md:px-8 md:py-32 lg:px-12 lg:py-48">
 	<!-- Optional texture/background -->
-	<img
+	<ProgressiveImage
 		src={imageUrl}
 		alt=""
+		showSkeleton={false}
+		skeletonClass="pointer-events-none absolute inset-0 h-full w-full opacity-10"
 		class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-10"
 	/>
 

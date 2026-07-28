@@ -80,24 +80,23 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const productOptions = getListOptions(url);
 
 	try {
-		const [deleteProductForm, updateProductFlagsForm] = await Promise.all([
-			superValidate(zod4(deleteProductFormSchema), {
-				id: 'deleteProduct'
-			}),
-			superValidate(zod4(updateProductFlagsFormSchema), {
-				id: 'updateProductFlags'
-			})
-		]);
-		const products = await listProducts(ctx, productOptions);
-		const stats = await getProductStats(ctx);
-		const categories = await listCategories(ctx, { includeInactive: true, limit: 100 });
+		const [products, stats, categories, deleteProductForm, updateProductFlagsForm] =
+			await Promise.all([
+				listProducts(ctx, productOptions),
+				getProductStats(ctx),
+				listCategories(ctx, { includeInactive: true, limit: 100 }),
+				superValidate(zod4(deleteProductFormSchema), {
+					id: 'deleteProduct'
+				}),
+				superValidate(zod4(updateProductFlagsFormSchema), {
+					id: 'updateProductFlags'
+				})
+			]);
 
 		return {
-			streamed: {
-				products: Promise.resolve(products),
-				stats: Promise.resolve(stats),
-				categories: Promise.resolve(categories)
-			},
+			products,
+			stats,
+			categories,
 			genderOptions: GENDER_TIERS.map(toOption),
 			filters: {
 				categoryId: productOptions.categoryId ?? '',

@@ -13,6 +13,7 @@ import {
 	capturePayPalPayment,
 	createCheckoutPaymentSession,
 	createPaymentSession,
+	getPaymentDashboard,
 	listAvailableCheckoutPaymentMethods,
 	processPayHereWebhook
 } from './payments.service';
@@ -22,7 +23,8 @@ import { seedOrder } from '../../../../tests/factories/orders';
 import { seedInventory } from '../../../../tests/factories/inventory';
 import { seedProductWithVariant } from '../../../../tests/scenarios/products';
 import { createFakeNotificationWakeupPublisher } from '../../../../tests/fakes/queue';
-import { makeCustomerCtx } from '../../../../tests/context';
+import { makeAdminCtx, makeCustomerCtx } from '../../../../tests/context';
+import { getOrderDashboard } from '../orders/orders.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
 const envState = vi.hoisted(() => ({
@@ -75,6 +77,59 @@ describe('payments service integration', () => {
 		expect(methods.find((method) => method.id === 'paypal')?.clientConfig).toEqual({
 			clientId: 'paypal-client',
 			sdkUrl: 'https://www.sandbox.paypal.com/web-sdk/v6/core'
+		});
+	});
+
+	it('loads order and payment dashboards through their aggregate read APIs', async () => {
+		const buyer = await seedUser(db(), { id: 'dashboard-buyer' });
+		const capturedOrder = await seedOrder(db(), {
+			id: 'dashboard-order-captured',
+			userId: buyer.id,
+			status: 'confirmed',
+			totalAmount: 5000
+		});
+		await seedOrder(db(), {
+			id: 'dashboard-order-cancelled',
+			userId: buyer.id,
+			status: 'cancelled',
+			subtotal: 2000,
+			totalAmount: 2000
+		});
+		await db().insert(payment).values({
+			id: 'dashboard-payment',
+			orderId: capturedOrder.id,
+			amount: 5000,
+			currency: 'LKR',
+			method: 'payhere',
+			status: 'partially_refunded',
+			refundAmount: 1000,
+			paidAt: now
+		});
+
+		const ctx = makeAdminCtx({ now });
+		const [orderDashboard, paymentDashboard] = await Promise.all([
+			getOrderDashboard(ctx, { limit: 10 }),
+			getPaymentDashboard(ctx, { limit: 10 })
+		]);
+
+		expect(orderDashboard).toMatchObject({
+			orders: { total: 2, limit: 10 },
+			analytics: {
+				totalSales: 5000,
+				pendingFulfillmentCount: 1,
+				openOrdersCount: 1,
+				unpaidHoldsCount: 0
+			}
+		});
+		expect(paymentDashboard).toMatchObject({
+			payments: { total: 1, limit: 10, items: [{ id: 'dashboard-payment' }] },
+			stats: {
+				totalVolume: 5000,
+				totalCaptured: 5000,
+				totalPending: 0,
+				totalRefunded: 1000,
+				manualReviewCount: 0
+			}
 		});
 	});
 

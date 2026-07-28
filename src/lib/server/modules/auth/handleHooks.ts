@@ -3,6 +3,7 @@ import { building } from '$app/environment';
 import { getAuth } from '$lib/server/modules/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { resolveAuthSession } from './session-lookup';
+import { shouldDisableSessionCookieCache } from './session-cookie-cache';
 
 const SESSIONLESS_ROUTE_IDS = new Set(['/api/products/availability']);
 
@@ -12,16 +13,31 @@ export const AuthHook: Handle = async ({ event, resolve }) => {
 	}
 
 	const auth = getAuth();
+	const authStartedAt = performance.now();
 	const session = SESSIONLESS_ROUTE_IDS.has(event.route.id ?? '')
 		? null
-		: await resolveAuthSession(() => auth.api.getSession({ headers: event.request.headers }));
+		: await resolveAuthSession(() =>
+				auth.api.getSession({
+					headers: event.request.headers,
+					query: {
+						disableCookieCache: shouldDisableSessionCookieCache(event)
+					}
+				})
+			);
+	const authDurationMs = performance.now() - authStartedAt;
 
 	if (session) {
 		event.locals.session = session.session;
 		event.locals.user = session.user;
 	}
 
+	const resolveStartedAt = performance.now();
 	const response = await svelteKitHandler({ event, resolve, auth, building });
+	const resolveDurationMs = performance.now() - resolveStartedAt;
+	response.headers.append(
+		'Server-Timing',
+		`auth_session;dur=${authDurationMs.toFixed(1)}, app_resolve;dur=${resolveDurationMs.toFixed(1)}`
+	);
 
 	// Intercept redirects to error page to simplify URL query parameters
 	if (response.status === 302) {

@@ -8,6 +8,7 @@ export {
 	isWishlisted,
 	listUserWishlist,
 	listWishlist,
+	listWishlistProductIds,
 	listWishlistSignals,
 	removeFromWishlist
 } from './wishlist.service';

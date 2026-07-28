@@ -68,10 +68,12 @@ export const load: PageServerLoad = async ({ locals, params, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const product = await getProduct(ctx, { slug: params.productslug }, { includeInactive: true });
-		const categories = await listCategories(ctx, { includeInactive: true, limit: 100 });
-		const tags = await listTags({ limit: 100 });
-		const colors = await listColors(ctx);
+		const [product, categories, tags, colors] = await Promise.all([
+			getProduct(ctx, { slug: params.productslug }, { includeInactive: true }),
+			listCategories(ctx, { includeInactive: true, limit: 100 }),
+			listTags({ limit: 100 }),
+			listColors(ctx)
+		]);
 
 		const updateProductForm = await superValidate(
 			toUpdateProductFormData(product),

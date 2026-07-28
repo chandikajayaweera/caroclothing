@@ -1,7 +1,7 @@
 # CaroClothing Service Layer Architecture
 
 - **Audience:** project collaborators and Codex agents
-- **Status:** current as of 2026-07-26
+- **Status:** current as of 2026-07-28
 - **Scope:** server services, route boundaries, forms, authorization, errors, R2 media, notification outbox, Cloudflare Queue/Cron orchestration, and validation rules
 
 The repository-wide `src/lib` dependency and folder rules live in `docs/library-architecture.md`.
@@ -12,6 +12,7 @@ Implemented public service modules:
 
 ```txt
 auth
+account
 addresses
 products
 wishlist
@@ -24,6 +25,11 @@ payments
 reviews
 storefront
 ```
+
+`account` is a schema-less customer dashboard read model. It owns the curated
+`getMyAccountSummary()` aggregate across orders, addresses, wishlist items, and
+reviews so account routes do not compose four domain list APIs merely to obtain
+counts. It does not own business writes or generic CRUD.
 
 `inventory` is a public admin service module for stock dashboard workflows. It exposes curated inventory reads, initialization, settings updates, restock, and adjustment APIs through `src/lib/server/modules/inventory/index.ts`. Cross-module checkout and order workflows compose internal prepared D1 batch builders such as `prepareInventorySaleBatch()`; these builders are not public CRUD APIs.
 
@@ -42,7 +48,7 @@ Database runtime and atomicity:
 - `withTransientD1ReadRetry()` adds one bounded application retry only at deliberate read/hydration boundaries; it is not applied mechanically to every query because D1 already retries eligible reads internally.
 - Writes are never blindly retried unless their desired-state predicate makes them idempotent. Other writes use `withTransientD1WriteReconciliation()` with a stable identity and a read-back proof before any retry.
 - Exhausted transient D1 failures normalize to the shared `DATABASE_UNAVAILABLE`/HTTP 503 boundary instead of leaking provider text as a generic 500.
-- Better Auth uses its Drizzle adapter over the request-scoped D1-backed database with interactive adapter transactions disabled. Request, Queue, and Cron handlers establish runtime context through `src/lib/server/infrastructure/cloudflare/runtime-context.ts` before database or environment access.
+- Better Auth uses its Drizzle adapter over the request-scoped D1-backed database with interactive adapter transactions disabled and experimental adapter joins enabled. Ordinary customer GET/HEAD session reads may use a compact 60-second signed cookie cache; mutations, admin routes, account security, and auth API routes explicitly bypass it. Request, Queue, and Cron handlers establish runtime context through `src/lib/server/infrastructure/cloudflare/runtime-context.ts` before database or environment access.
 - The auth request hook treats Better Auth's explicit `401 FAILED_TO_GET_SESSION` as an invalidated session and retries the same code once only when Better Auth emits it as a wrapped 5xx; unrelated and exhausted errors remain observable.
 
 Bag and checkout inventory lifecycle:

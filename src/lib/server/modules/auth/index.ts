@@ -37,6 +37,7 @@ export {
 	getCheckoutCustomer,
 	getMyAccountProfile,
 	getSafeAuthRedirectTo,
+	getUserAdminDetail,
 	getUserAdminProfile,
 	listMyAuthMethods,
 	listMySessions,
@@ -193,7 +194,17 @@ function createAuth() {
 		},
 
 		session: {
-			freshAge: 60 * 5
+			freshAge: 60 * 5,
+			cookieCache: {
+				enabled: true,
+				maxAge: 60,
+				strategy: 'compact',
+				refreshCache: false
+			}
+		},
+
+		experimental: {
+			joins: true
 		},
 
 		user: {

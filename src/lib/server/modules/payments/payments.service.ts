@@ -94,6 +94,7 @@ import type {
 	CreatePaymentSessionInput,
 	CreatePaymentSessionResult,
 	PaymentDashboardSummaryDTO,
+	PaymentDashboardDTO,
 	PaymentGatewayResult,
 	PaymentAttemptCheckoutInput,
 	ProcessPayHereWebhookInput,
@@ -1631,30 +1632,67 @@ export async function listPayments(
 
 	const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-	const [totalCountRow] = await withTransientD1ReadRetry(() =>
-		db.select({ count: count() }).from(paymentTable).where(whereClause)
-	);
-	const total = totalCountRow?.count ?? 0;
-
-	const rows = await withTransientD1ReadRetry(() =>
-		db
-			.select({
-				payment: paymentTable,
-				orderStatus: orderTable.status
-			})
-			.from(paymentTable)
-			.leftJoin(orderTable, eq(orderTable.id, paymentTable.orderId))
-			.where(whereClause)
-			.orderBy(desc(paymentTable.createdAt))
-			.limit(limit)
-			.offset(offset)
+	const [totalCountRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select({ count: count() }).from(paymentTable).where(whereClause),
+			db
+				.select({
+					payment: paymentTable,
+					orderStatus: orderTable.status
+				})
+				.from(paymentTable)
+				.leftJoin(orderTable, eq(orderTable.id, paymentTable.orderId))
+				.where(whereClause)
+				.orderBy(desc(paymentTable.createdAt))
+				.limit(limit)
+				.offset(offset)
+		])
 	);
 
 	return {
 		items: rows.map((row) => toPaymentDTO(row.payment, row.orderStatus)),
-		total,
+		total: totalCountRows[0]?.count ?? 0,
 		limit,
 		offset
+	};
+}
+
+export async function getPaymentDashboard(
+	ctx: ServiceContext,
+	options: ListPaymentsOptions = {}
+): Promise<PaymentDashboardDTO> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
+	const offset = normalizeOffset(options.offset);
+	const whereClause = buildPaymentListWhere(options);
+	const [totalRows, rows, summaryRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select({ count: count() }).from(paymentTable).where(whereClause),
+			db
+				.select({
+					payment: paymentTable,
+					orderStatus: orderTable.status
+				})
+				.from(paymentTable)
+				.leftJoin(orderTable, eq(orderTable.id, paymentTable.orderId))
+				.where(whereClause)
+				.orderBy(desc(paymentTable.createdAt))
+				.limit(limit)
+				.offset(offset),
+			paymentDashboardSummaryQuery(db)
+		])
+	);
+
+	return {
+		payments: {
+			items: rows.map((row) => toPaymentDTO(row.payment, row.orderStatus)),
+			total: totalRows[0]?.count ?? 0,
+			limit,
+			offset
+		},
+		stats: toPaymentDashboardSummaryDTO(summaryRows[0])
 	};
 }
 
@@ -1662,19 +1700,33 @@ export async function getPaymentDashboardSummary(
 	ctx: ServiceContext
 ): Promise<PaymentDashboardSummaryDTO> {
 	requireAdmin(ctx.actor);
-	const db = getDb();
-	const [totals] = await withTransientD1ReadRetry(() =>
-		db
-			.select({
-				totalVolume: sql<number>`coalesce(sum(${paymentTable.amount}), 0)`,
-				totalCaptured: sql<number>`coalesce(sum(case when ${paymentTable.status} in ('captured', 'partially_refunded', 'refunded') then ${paymentTable.amount} else 0 end), 0)`,
-				totalPending: sql<number>`coalesce(sum(case when ${paymentTable.status} = 'pending' then ${paymentTable.amount} else 0 end), 0)`,
-				totalRefunded: sql<number>`coalesce(sum(${paymentTable.refundAmount}), 0)`,
-				manualReviewCount: sql<number>`coalesce(sum(case when json_extract(${paymentTable.gatewayResponse}, '$.metadata.manualReview.required') = 1 then 1 else 0 end), 0)`
-			})
-			.from(paymentTable)
-	);
+	const [totals] = await withTransientD1ReadRetry(() => paymentDashboardSummaryQuery(getDb()));
+	return toPaymentDashboardSummaryDTO(totals);
+}
 
+function paymentDashboardSummaryQuery(db: Db) {
+	return db
+		.select({
+			totalVolume: sql<number>`coalesce(sum(${paymentTable.amount}), 0)`,
+			totalCaptured: sql<number>`coalesce(sum(case when ${paymentTable.status} in ('captured', 'partially_refunded', 'refunded') then ${paymentTable.amount} else 0 end), 0)`,
+			totalPending: sql<number>`coalesce(sum(case when ${paymentTable.status} = 'pending' then ${paymentTable.amount} else 0 end), 0)`,
+			totalRefunded: sql<number>`coalesce(sum(${paymentTable.refundAmount}), 0)`,
+			manualReviewCount: sql<number>`coalesce(sum(case when json_extract(${paymentTable.gatewayResponse}, '$.metadata.manualReview.required') = 1 then 1 else 0 end), 0)`
+		})
+		.from(paymentTable);
+}
+
+function toPaymentDashboardSummaryDTO(
+	totals:
+		| {
+				totalVolume: number;
+				totalCaptured: number;
+				totalPending: number;
+				totalRefunded: number;
+				manualReviewCount: number;
+		  }
+		| undefined
+): PaymentDashboardSummaryDTO {
 	return {
 		totalVolume: Number(totals?.totalVolume ?? 0),
 		totalCaptured: Number(totals?.totalCaptured ?? 0),
@@ -1682,6 +1734,14 @@ export async function getPaymentDashboardSummary(
 		totalRefunded: Number(totals?.totalRefunded ?? 0),
 		manualReviewCount: Number(totals?.manualReviewCount ?? 0)
 	};
+}
+
+function buildPaymentListWhere(options: ListPaymentsOptions): SQL | undefined {
+	const conditions: SQL[] = [];
+	if (options.orderId) conditions.push(eq(paymentTable.orderId, options.orderId));
+	if (options.status) conditions.push(eq(paymentTable.status, options.status));
+	if (options.method) conditions.push(eq(paymentTable.method, options.method));
+	return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 export async function getPayment(ctx: ServiceContext, id: string): Promise<PaymentDTO> {

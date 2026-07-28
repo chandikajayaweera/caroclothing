@@ -2,12 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
-import {
-	getPaymentDashboardSummary,
-	listPayments,
-	recordPayment,
-	recordRefund
-} from '$lib/server/modules/payments';
+import { getPaymentDashboard, recordPayment, recordRefund } from '$lib/server/modules/payments';
 import {
 	recordPaymentFormSchema,
 	recordRefundFormSchema,
@@ -45,12 +40,12 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const options = getListOptions(url);
 
 	try {
-		const payments = await listPayments(ctx, options);
-		const stats = await getPaymentDashboardSummary(ctx);
-		const [recordPaymentForm, recordRefundForm] = await Promise.all([
+		const [dashboard, recordPaymentForm, recordRefundForm] = await Promise.all([
+			getPaymentDashboard(ctx, options),
 			superValidate(zod4(recordPaymentFormSchema), { id: 'recordPayment' }),
 			superValidate(zod4(recordRefundFormSchema), { id: 'recordRefund' })
 		]);
+		const { payments, stats } = dashboard;
 
 		const query = url.searchParams.get('query') || url.searchParams.get('orderId') || '';
 

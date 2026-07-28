@@ -111,6 +111,8 @@ import type {
 	ListMyOrdersOptions,
 	ListOrdersOptions,
 	OrderDTO,
+	OrderAnalyticsDTO,
+	OrderDashboardDTO,
 	OrderItemDTO,
 	OrderListResult,
 	OrderLookup,
@@ -518,6 +520,46 @@ export async function listOrders(
 	const offset = normalizeOffset(options.offset);
 	const where = buildOrderListWhere(options, ctx);
 	return listOrdersTx(getDb(), where, limit, offset);
+}
+
+export async function getOrderDashboard(
+	ctx: ServiceContext,
+	options: ListOrdersOptions = {}
+): Promise<OrderDashboardDTO> {
+	requireAdmin(ctx.actor);
+
+	const db = getDb();
+	const limit = normalizeLimit(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
+	const offset = normalizeOffset(options.offset);
+	const where = buildOrderListWhere(options, ctx);
+	const countQuery = db.select({ total: count() }).from(order);
+	const listQuery = db
+		.select()
+		.from(order)
+		.orderBy(desc(order.createdAt), desc(order.id))
+		.limit(limit)
+		.offset(offset);
+	const [totalRows, rows, analyticsRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			where ? countQuery.where(where) : countQuery,
+			where ? listQuery.where(where) : listQuery,
+			orderAnalyticsQuery(db)
+		])
+	);
+	const itemsByOrderId = await loadOrderItemsByOrderId(
+		db,
+		rows.map((row) => row.id)
+	);
+
+	return {
+		orders: {
+			items: rows.map((row) => toOrderSummaryDTO(row, itemsByOrderId.get(row.id) ?? [])),
+			total: Number(totalRows[0]?.total ?? 0),
+			limit,
+			offset
+		},
+		analytics: toOrderAnalyticsDTO(analyticsRows[0])
+	};
 }
 
 export async function transitionOrderStatus(
@@ -958,8 +1000,12 @@ async function listOrdersTx(
 		.orderBy(desc(order.createdAt), desc(order.id))
 		.limit(limit)
 		.offset(offset);
-	const totalRows = await (where ? countQuery.where(where) : countQuery);
-	const rows = await (where ? listQuery.where(where) : listQuery);
+	const [totalRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			where ? countQuery.where(where) : countQuery,
+			where ? listQuery.where(where) : listQuery
+		])
+	);
 	const itemsByOrderId = await loadOrderItemsByOrderId(
 		db,
 		rows.map((row) => row.id)
@@ -982,11 +1028,13 @@ async function hydrateOrderTx(
 		includeStatusHistory?: boolean;
 	}
 ): Promise<OrderDTO> {
-	const items = await loadOrderItemsTx(db, row.id);
-	const payments = options.includePayments ? await loadPaymentsForOrderTx(db, row.id) : [];
-	const statusHistory = options.includeStatusHistory
-		? await loadOrderStatusHistoryForOrderTx(db, row.id)
-		: [];
+	const [items, payments, statusHistory] = await Promise.all([
+		loadOrderItemsTx(db, row.id),
+		options.includePayments ? loadPaymentsForOrderTx(db, row.id) : Promise.resolve([]),
+		options.includeStatusHistory
+			? loadOrderStatusHistoryForOrderTx(db, row.id)
+			: Promise.resolve([])
+	]);
 
 	return toOrderDTO(row, {
 		items,
@@ -1778,16 +1826,15 @@ function mapOrderPersistenceError(error: unknown): never {
 
 const checkoutPaymentMethodSet = new Set<string>(CHECKOUT_PAYMENT_METHODS);
 
-export async function getOrderAnalytics(ctx: ServiceContext): Promise<{
-	totalSales: number;
-	pendingFulfillmentCount: number;
-	openOrdersCount: number;
-	unpaidHoldsCount: number;
-}> {
+export async function getOrderAnalytics(ctx: ServiceContext): Promise<OrderAnalyticsDTO> {
 	requireAdmin(ctx.actor);
 
-	const db = getDb();
-	const [summary] = await db
+	const [summary] = await withTransientD1ReadRetry(() => orderAnalyticsQuery(getDb()));
+	return toOrderAnalyticsDTO(summary);
+}
+
+function orderAnalyticsQuery(db: QueryExecutor) {
+	return db
 		.select({
 			totalSales: sql<number>`coalesce(sum(case when ${order.status} <> 'cancelled' then ${order.totalAmount} else 0 end), 0)`,
 			pendingFulfillmentCount: sql<number>`coalesce(sum(case when ${order.status} in ('confirmed', 'processing') then 1 else 0 end), 0)`,
@@ -1795,7 +1842,18 @@ export async function getOrderAnalytics(ctx: ServiceContext): Promise<{
 			unpaidHoldsCount: sql<number>`coalesce(sum(case when ${order.status} = 'pending' then 1 else 0 end), 0)`
 		})
 		.from(order);
+}
 
+function toOrderAnalyticsDTO(
+	summary:
+		| {
+				totalSales: number;
+				pendingFulfillmentCount: number;
+				openOrdersCount: number;
+				unpaidHoldsCount: number;
+		  }
+		| undefined
+): OrderAnalyticsDTO {
 	return {
 		totalSales: Number(summary?.totalSales ?? 0),
 		pendingFulfillmentCount: Number(summary?.pendingFulfillmentCount ?? 0),

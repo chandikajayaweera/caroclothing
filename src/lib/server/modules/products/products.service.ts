@@ -591,10 +591,10 @@ export async function listProducts(
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(product);
 
-	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
-	const totalRows = await withTransientD1ReadRetry(() =>
-		where ? countQuery.where(where) : countQuery
-	);
+	const [rows, totalRows] = await Promise.all([
+		withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery)),
+		withTransientD1ReadRetry(() => (where ? countQuery.where(where) : countQuery))
+	]);
 
 	return {
 		items: await hydrateProducts(rows, { includeInactiveRelations: includeInactive }),
@@ -3542,11 +3542,13 @@ async function hydrateProducts(
 		.where(inArray(productTag.productId, productIds))
 		.orderBy(asc(tag.name));
 
-	const categories = await withTransientD1ReadRetry(() => categoryQuery);
-	const variants = await withTransientD1ReadRetry(() => variantsQuery);
-	const variantColors = await withTransientD1ReadRetry(() => variantColorsQuery);
-	const images = await withTransientD1ReadRetry(() => imagesQuery);
-	const tagRows = await withTransientD1ReadRetry(() => tagsQuery);
+	const [categories, variants, variantColors, images, tagRows] = await Promise.all([
+		withTransientD1ReadRetry(() => categoryQuery),
+		withTransientD1ReadRetry(() => variantsQuery),
+		withTransientD1ReadRetry(() => variantColorsQuery),
+		withTransientD1ReadRetry(() => imagesQuery),
+		withTransientD1ReadRetry(() => tagsQuery)
+	]);
 	const categoryById = new Map(categories.map((row) => [row.id, row]));
 	const variantColorById = new Map(variantColors.map((row) => [row.id, row]));
 

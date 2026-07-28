@@ -77,11 +77,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const zoneOptions = getZoneOptions(url);
 
 	try {
-		const methods = await listShippingMethods(ctx, methodOptions);
-		const methodOptionsResult = await listShippingMethods(ctx, { limit: 100 });
-		const zones = await listShippingZones(ctx, zoneOptions);
-		const carriers = await listCarriers(ctx);
 		const [
+			methods,
+			methodOptionsResult,
+			zones,
+			carriers,
 			createMethodForm,
 			updateMethodForm,
 			setZoneForm,
@@ -90,6 +90,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			updateCarrierForm,
 			deleteCarrierForm
 		] = await Promise.all([
+			listShippingMethods(ctx, methodOptions),
+			listShippingMethods(ctx, { limit: 100 }),
+			listShippingZones(ctx, zoneOptions),
+			listCarriers(ctx),
 			superValidate(zod4(createShippingMethodFormSchema), {
 				id: 'createShippingMethod'
 			}),

@@ -67,9 +67,7 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 
 	try {
 		return {
-			streamed: {
-				addresses: listAddresses(ctx, addressOptions)
-			},
+			addresses: await listAddresses(ctx, addressOptions),
 			districtOptions: listSriLankaDistrictOptions(),
 			filters: {
 				userId: addressOptions.userId ?? '',

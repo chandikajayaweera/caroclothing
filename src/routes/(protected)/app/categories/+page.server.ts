@@ -65,7 +65,8 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 	const query = url.searchParams.get('query')?.trim() || '';
 
 	try {
-		const [updateCategoryFlagsForm, deleteCategoryForm] = await Promise.all([
+		const [allCategories, updateCategoryFlagsForm, deleteCategoryForm] = await Promise.all([
+			listCategories(ctx, { includeInactive: true, limit: 250 }),
 			superValidate(zod4(updateCategoryFlagsFormSchema), {
 				id: 'updateCategoryFlags'
 			}),
@@ -73,16 +74,14 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 				id: 'deleteCategory'
 			})
 		]);
-
-		const allCategories = await listCategories(ctx, { includeInactive: true, limit: 250 });
-		let categories = allCategories.filter(
+		let filteredCategories = allCategories.filter(
 			(category) =>
 				(categoryOptions.includeInactive !== false || category.isActive) &&
 				(categoryOptions.parentId === undefined || category.parentId === categoryOptions.parentId)
 		);
 		if (query) {
 			const lowerQuery = query.toLowerCase();
-			categories = categories.filter(
+			filteredCategories = filteredCategories.filter(
 				(category) =>
 					category.name.toLowerCase().includes(lowerQuery) ||
 					category.slug.toLowerCase().includes(lowerQuery)
@@ -90,23 +89,21 @@ export const load: PageServerLoad = async ({ locals, platform, url }) => {
 		}
 		const limit = categoryOptions.limit ?? 20;
 		const offset = categoryOptions.offset ?? 0;
-		const categoriesResult = {
-			items: categories.slice(offset, offset + limit),
-			total: categories.length
+		const categories = {
+			items: filteredCategories.slice(offset, offset + limit),
+			total: filteredCategories.length
 		};
 
 		return {
-			streamed: {
-				categories: Promise.resolve(categoriesResult),
-				allCategories: Promise.resolve(allCategories)
-			},
-			limit: categoryOptions.limit ?? 20,
-			offset: categoryOptions.offset ?? 0,
+			categories,
+			allCategories,
+			limit,
+			offset,
 			filters: {
 				includeInactive: categoryOptions.includeInactive ?? true,
 				parentId: categoryOptions.parentId === null ? 'root' : (categoryOptions.parentId ?? ''),
-				limit: categoryOptions.limit ?? 20,
-				offset: categoryOptions.offset ?? 0,
+				limit,
+				offset,
 				query
 			},
 			updateCategoryFlagsForm,

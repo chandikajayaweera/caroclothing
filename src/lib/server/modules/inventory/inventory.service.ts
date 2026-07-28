@@ -265,10 +265,10 @@ export async function listInventory(
 		.innerJoin(product, eq(productVariant.productId, product.id))
 		.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
 		.leftJoin(inventory, eq(inventory.variantId, productVariant.id));
-	const rows = await withTransientD1ReadRetry(() => (where ? baseQuery.where(where) : baseQuery));
-	const totalRows = await withTransientD1ReadRetry(() =>
-		where ? countQuery.where(where) : countQuery
-	);
+	const [rows, totalRows] = await Promise.all([
+		withTransientD1ReadRetry(() => (where ? baseQuery.where(where) : baseQuery)),
+		withTransientD1ReadRetry(() => (where ? countQuery.where(where) : countQuery))
+	]);
 
 	return {
 		items: rows.map(toInventoryListItemDTO),
@@ -331,10 +331,10 @@ export async function listInventoryMovements(
 		.limit(limit)
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(inventoryMovement);
-	const rows = await withTransientD1ReadRetry(() => (where ? baseQuery.where(where) : baseQuery));
-	const totalRows = await withTransientD1ReadRetry(() =>
-		where ? countQuery.where(where) : countQuery
-	);
+	const [rows, totalRows] = await Promise.all([
+		withTransientD1ReadRetry(() => (where ? baseQuery.where(where) : baseQuery)),
+		withTransientD1ReadRetry(() => (where ? countQuery.where(where) : countQuery))
+	]);
 
 	return {
 		items: rows.map(toInventoryMovementDTO),

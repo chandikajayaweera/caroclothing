@@ -120,6 +120,11 @@ export type ListUsersOptions = {
 
 export type UserListResult = PaginatedResult<UserAdminDTO>;
 
+export type UserAdminDetailDTO = {
+	user: UserAdminDTO;
+	sessions: SessionListResult;
+};
+
 export type SetUserRoleInput = {
 	userId: string;
 	role: UserRole;

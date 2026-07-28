@@ -7,6 +7,7 @@ export {
 	createPaymentSession,
 	getCheckoutPaymentAttempt,
 	getPayment,
+	getPaymentDashboard,
 	getPaymentDashboardSummary,
 	listAvailableCheckoutPaymentMethods,
 	listPayments,

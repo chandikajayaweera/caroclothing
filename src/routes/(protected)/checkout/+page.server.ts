@@ -3,7 +3,6 @@ import type { PageServerLoad, Actions } from './$types';
 import { getCheckoutBag } from '$lib/server/modules/bag';
 import {
 	createAddress,
-	getMyDefaultAddress,
 	listMyAddresses,
 	saveCheckoutAddressFormSchema
 } from '$lib/server/modules/addresses';
@@ -31,14 +30,16 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 	const ctx = { actor, now };
 
 	try {
-		const bag = await getCheckoutBag(ctx, { sessionToken, now });
+		const [bag, customer] = await Promise.all([
+			getCheckoutBag(ctx, { sessionToken, now }),
+			getCheckoutCustomer(ctx)
+		]);
 		if (!bag.canCheckout) {
 			throw redirect(302, '/bag?error=' + encodeURIComponent(bag.blockingReasons.join(' ')));
 		}
-		const customer = await getCheckoutCustomer(ctx);
 		const isFullUser = !customer.isAnonymous;
 		const addresses = isFullUser ? await listMyAddresses(ctx) : { items: [] };
-		const defaultAddress = isFullUser ? await getMyDefaultAddress(ctx) : null;
+		const defaultAddress = addresses.items.find((address) => address.isDefault) ?? null;
 		const districtOptions = listShippingDistrictOptions();
 
 		const defaultDistrict = defaultAddress?.district || null;

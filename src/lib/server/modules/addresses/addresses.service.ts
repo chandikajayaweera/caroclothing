@@ -113,20 +113,20 @@ export async function listMyAddresses(
 	const where = eq(address.userId, actor.id);
 	const db = getDb();
 
-	const [totalRow] = await withTransientD1ReadRetry(() =>
-		db.select({ total: count() }).from(address).where(where)
-	);
-	const rows = await withTransientD1ReadRetry(() =>
-		db
-			.select()
-			.from(address)
-			.where(where)
-			.orderBy(desc(address.isDefault), desc(address.updatedAt), asc(address.label))
-			.limit(limit)
-			.offset(offset)
+	const [totalRows, rows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select({ total: count() }).from(address).where(where),
+			db
+				.select()
+				.from(address)
+				.where(where)
+				.orderBy(desc(address.isDefault), desc(address.updatedAt), asc(address.label))
+				.limit(limit)
+				.offset(offset)
+		])
 	);
 
-	return toAddressListResult(rows, totalRow?.total ?? 0, limit, offset);
+	return toAddressListResult(rows, totalRows[0]?.total ?? 0, limit, offset);
 }
 
 export async function getMyDefaultAddress(ctx: ServiceContext): Promise<AddressDTO | null> {

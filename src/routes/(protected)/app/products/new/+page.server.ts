@@ -84,17 +84,15 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const categories = await listCategories(ctx, { includeInactive: true, limit: 100 });
-		const tags = await listTags({ limit: 100 });
-		const colors = await listColors(ctx);
-		const createProductForm = await superValidate(
-			createProductDefaults,
-			zod4(createProductFormSchema),
-			{
+		const [categories, tags, colors, createProductForm] = await Promise.all([
+			listCategories(ctx, { includeInactive: true, limit: 100 }),
+			listTags({ limit: 100 }),
+			listColors(ctx),
+			superValidate(createProductDefaults, zod4(createProductFormSchema), {
 				id: 'createProduct',
 				errors: false
-			}
-		);
+			})
+		]);
 
 		return {
 			categories,

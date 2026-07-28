@@ -38,7 +38,7 @@ For notification work, also inspect:
 
 ## Current Service Status
 
-- Implemented service modules: `auth`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, `reviews`.
+- Implemented service modules: `auth`, `account`, `addresses`, `products`, `wishlist`, `bag`, `shipping`, `promotions`, `inventory`, `orders`, `payments`, `reviews`, `storefront`.
 - Inventory exposes public admin stock APIs through its module index; internal prepared D1 batch builders in `inventory.service.ts` support checkout/order workflows and should be imported directly only by server internals composing the owning atomic batch.
 - Bag mutations and checkout start do not reserve stock. Starting checkout opens a 10-minute validation window only.
 - Leaving checkout or mutating the bag cancels that checkout window without clearing bag items.

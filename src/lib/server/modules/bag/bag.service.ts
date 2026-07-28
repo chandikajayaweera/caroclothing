@@ -683,8 +683,10 @@ export async function listBags(
 		.limit(limit)
 		.offset(offset);
 	const totalQuery = db.select({ total: count() }).from(bagTable);
-	const rows = await (where ? rowsQuery.where(where) : rowsQuery);
-	const totalRows = await (where ? totalQuery.where(where) : totalQuery);
+	const [rows, totalRows] = await Promise.all([
+		where ? rowsQuery.where(where) : rowsQuery,
+		where ? totalQuery.where(where) : totalQuery
+	]);
 
 	return {
 		items: await hydrateAdminBagsTx(db, rows, now),
@@ -1513,11 +1515,22 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		.orderBy(asc(bagItemTable.addedAt));
 	const productIds = uniqueStrings(itemRows.map((item) => item.productId));
 	const variantIds = uniqueStrings(itemRows.map((item) => item.variantId));
-	const [productRows, variantRows, imageRows, inventoryRows] = await loadBagHydrationRelationsTx(
-		tx,
-		productIds,
-		variantIds
-	);
+	const activeMethodsQuery = tx
+		.select({
+			freeShippingThreshold: shippingMethod.freeShippingThreshold
+		})
+		.from(shippingMethod)
+		.where(eq(shippingMethod.isActive, true))
+		.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name));
+	const [
+		[productRows, variantRows, imageRows, inventoryRows],
+		activeCheckoutHoldsByVariantId,
+		activeMethods
+	] = await Promise.all([
+		loadBagHydrationRelationsTx(tx, productIds, variantIds),
+		loadActiveCheckoutHoldsByVariantId(tx, variantIds, now),
+		activeMethodsQuery
+	]);
 	const productsById = new Map(productRows.map((productRow) => [productRow.id, productRow]));
 	const variantsById = new Map(variantRows.map((variantRow) => [variantRow.id, variantRow]));
 	const imagesByProductId = groupByProductId(imageRows);
@@ -1525,20 +1538,7 @@ async function hydrateBagsTx(tx: Tx, rows: Bag[], now: Date): Promise<BagDTO[]> 
 		inventoryRows.map((inventoryRow) => [inventoryRow.variantId, inventoryRow])
 	);
 	const reservedByItemId = await loadReservedQuantitiesByItemId(tx, itemRows);
-	const activeCheckoutHoldsByVariantId = await loadActiveCheckoutHoldsByVariantId(
-		tx,
-		variantIds,
-		now
-	);
 	const itemsByBagId = groupByBagId(itemRows);
-
-	const activeMethods = await tx
-		.select({
-			freeShippingThreshold: shippingMethod.freeShippingThreshold
-		})
-		.from(shippingMethod)
-		.where(eq(shippingMethod.isActive, true))
-		.orderBy(asc(shippingMethod.sortOrder), asc(shippingMethod.name));
 
 	let freeShippingThreshold: number | null = null;
 	for (const m of activeMethods) {
@@ -1668,13 +1668,12 @@ async function loadBagHydrationRelationsTx(
 	productIds: string[],
 	variantIds: string[]
 ): Promise<[Product[], HydratedBagVariant[], ProductImage[], InventoryAvailabilityDTO[]]> {
-	const productRows =
+	const [productRows, variantRows, imageRows, inventoryRows] = await Promise.all([
 		productIds.length > 0
-			? await tx.select().from(productTable).where(inArray(productTable.id, productIds))
-			: [];
-	const variantRows =
+			? tx.select().from(productTable).where(inArray(productTable.id, productIds))
+			: Promise.resolve([]),
 		variantIds.length > 0
-			? await tx
+			? tx
 					.select({
 						variant: productVariantTable,
 						color: productVariantColorTable
@@ -1685,17 +1684,18 @@ async function loadBagHydrationRelationsTx(
 						eq(productVariantTable.variantColorId, productVariantColorTable.id)
 					)
 					.where(inArray(productVariantTable.id, variantIds))
-			: [];
-	const imageRows =
+			: Promise.resolve([]),
 		productIds.length > 0
-			? await tx
+			? tx
 					.select()
 					.from(productImageTable)
 					.where(inArray(productImageTable.productId, productIds))
 					.orderBy(asc(productImageTable.position), asc(productImageTable.createdAt))
-			: [];
-	const inventoryRows =
-		variantIds.length > 0 ? await getInventoryAvailabilityByVariantIdsTx(tx, { variantIds }) : [];
+			: Promise.resolve([]),
+		variantIds.length > 0
+			? getInventoryAvailabilityByVariantIdsTx(tx, { variantIds })
+			: Promise.resolve([])
+	]);
 
 	return [
 		productRows,
@@ -2180,40 +2180,44 @@ export async function getBagSummary(
 	const nowMs = now.getTime();
 	const db = getDb();
 
-	const [bagStats] = await db
-		.select({
-			total: count(),
-			active:
-				sql<number>`coalesce(sum(CASE WHEN ${bagTable.expiresAt} IS NULL OR ${bagTable.expiresAt} > ${nowMs} THEN 1 ELSE 0 END), 0)`.mapWith(
+	const [bagStatsRows, itemStatsRows] = await Promise.all([
+		db
+			.select({
+				total: count(),
+				active:
+					sql<number>`coalesce(sum(CASE WHEN ${bagTable.expiresAt} IS NULL OR ${bagTable.expiresAt} > ${nowMs} THEN 1 ELSE 0 END), 0)`.mapWith(
+						Number
+					),
+				guest:
+					sql<number>`coalesce(sum(CASE WHEN ${bagTable.sessionToken} IS NOT NULL THEN 1 ELSE 0 END), 0)`.mapWith(
+						Number
+					),
+				user: sql<number>`coalesce(sum(CASE WHEN ${bagTable.userId} IS NOT NULL THEN 1 ELSE 0 END), 0)`.mapWith(
 					Number
 				),
-			guest:
-				sql<number>`coalesce(sum(CASE WHEN ${bagTable.sessionToken} IS NOT NULL THEN 1 ELSE 0 END), 0)`.mapWith(
-					Number
-				),
-			user: sql<number>`coalesce(sum(CASE WHEN ${bagTable.userId} IS NOT NULL THEN 1 ELSE 0 END), 0)`.mapWith(
-				Number
-			),
-			activeCheckouts:
-				sql<number>`coalesce(sum(CASE WHEN ${bagTable.checkoutStartedAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} > ${nowMs} THEN 1 ELSE 0 END), 0)`.mapWith(
-					Number
-				)
-		})
-		.from(bagTable);
-	const [itemStats] = await db
-		.select({
-			totalItems: sql<number>`coalesce(sum(${bagItemTable.quantity}), 0)`.mapWith(Number),
-			totalValue:
-				sql<number>`coalesce(sum(${bagItemTable.quantity} * ${bagItemTable.unitPrice}), 0)`.mapWith(
-					Number
-				),
-			checkoutWindowItems:
-				sql<number>`coalesce(sum(CASE WHEN ${bagTable.checkoutStartedAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} > ${nowMs} THEN ${bagItemTable.quantity} ELSE 0 END), 0)`.mapWith(
-					Number
-				)
-		})
-		.from(bagItemTable)
-		.innerJoin(bagTable, eq(bagItemTable.bagId, bagTable.id));
+				activeCheckouts:
+					sql<number>`coalesce(sum(CASE WHEN ${bagTable.checkoutStartedAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} > ${nowMs} THEN 1 ELSE 0 END), 0)`.mapWith(
+						Number
+					)
+			})
+			.from(bagTable),
+		db
+			.select({
+				totalItems: sql<number>`coalesce(sum(${bagItemTable.quantity}), 0)`.mapWith(Number),
+				totalValue:
+					sql<number>`coalesce(sum(${bagItemTable.quantity} * ${bagItemTable.unitPrice}), 0)`.mapWith(
+						Number
+					),
+				checkoutWindowItems:
+					sql<number>`coalesce(sum(CASE WHEN ${bagTable.checkoutStartedAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} IS NOT NULL AND ${bagTable.checkoutExpiresAt} > ${nowMs} THEN ${bagItemTable.quantity} ELSE 0 END), 0)`.mapWith(
+						Number
+					)
+			})
+			.from(bagItemTable)
+			.innerJoin(bagTable, eq(bagItemTable.bagId, bagTable.id))
+	]);
+	const [bagStats] = bagStatsRows;
+	const [itemStats] = itemStatsRows;
 
 	const total = Number(bagStats?.total ?? 0);
 	const active = Number(bagStats?.active ?? 0);

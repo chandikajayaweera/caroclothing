@@ -115,17 +115,14 @@ export async function getHomePage(ctx: ServiceContext): Promise<HomePageDTO> {
 	);
 
 	const sectionIds = rows.map((row) => row.id);
-	const mediaBySection = await withTransientD1ReadRetry(() =>
-		loadMediaBySectionIds(db, sectionIds)
-	);
-	const categoryIdsBySection = await withTransientD1ReadRetry(() =>
-		loadCategoryIdsBySectionIds(db, sectionIds)
-	);
+	const [mediaBySection, categoryIdsBySection] = await Promise.all([
+		withTransientD1ReadRetry(() => loadMediaBySectionIds(db, sectionIds)),
+		withTransientD1ReadRetry(() => loadCategoryIdsBySectionIds(db, sectionIds))
+	]);
 	const hydrationCache = createHomeHydrationCache();
-	const sections: HomePageSectionDTO[] = [];
-	for (const row of rows) {
-		sections.push(
-			await hydrateHomeSection(
+	const sections = await Promise.all(
+		rows.map((row) =>
+			hydrateHomeSection(
 				ctx,
 				row,
 				mediaBySection.get(row.id) ?? [],
@@ -133,8 +130,8 @@ export async function getHomePage(ctx: ServiceContext): Promise<HomePageDTO> {
 				now,
 				hydrationCache
 			)
-		);
-	}
+		)
+	);
 	return { sections, generatedAt: now };
 }
 
@@ -171,10 +168,12 @@ export async function getStorefrontEditorOptions(
 	ctx: ServiceContext
 ): Promise<StorefrontEditorOptionsDTO> {
 	requireAdmin(ctx.actor);
-	const products = await listProducts(ctx, { includeInactive: true, limit: 100 });
-	const categories = await listCategories(ctx, { includeInactive: true, limit: 150 });
-	const promotions = await listPromotions(ctx, { includeInactive: true, limit: 100 });
-	const shippingMethods = await listShippingMethods(ctx, { limit: 100 });
+	const [products, categories, promotions, shippingMethods] = await Promise.all([
+		listProducts(ctx, { includeInactive: true, limit: 100 }),
+		listCategories(ctx, { includeInactive: true, limit: 150 }),
+		listPromotions(ctx, { includeInactive: true, limit: 100 }),
+		listShippingMethods(ctx, { limit: 100 })
+	]);
 	return {
 		products: products.items.map(({ id, name, slug, isActive }) => ({ id, name, slug, isActive })),
 		categories: categories.map(({ id, name, slug, parentId, isActive }) => ({
@@ -698,10 +697,10 @@ async function withAvailability(
 async function hydrateAdminSections(rows: StorefrontSection[], now: Date) {
 	const sectionIds = rows.map((row) => row.id);
 	const db = getDb();
-	const media = await withTransientD1ReadRetry(() => loadMediaBySectionIds(db, sectionIds));
-	const categories = await withTransientD1ReadRetry(() =>
-		loadCategoryIdsBySectionIds(db, sectionIds)
-	);
+	const [media, categories] = await Promise.all([
+		withTransientD1ReadRetry(() => loadMediaBySectionIds(db, sectionIds)),
+		withTransientD1ReadRetry(() => loadCategoryIdsBySectionIds(db, sectionIds))
+	]);
 	return rows.map(
 		(row): AdminStorefrontSectionDTO => ({
 			...toSectionBaseDTO(row, media.get(row.id) ?? []),
@@ -798,27 +797,27 @@ function toMediaDTO(row: StorefrontSectionMedia): StorefrontSectionMediaDTO {
 
 async function loadMediaBySectionIds(tx: Db, ids: string[]) {
 	if (!ids.length) return new Map<string, StorefrontSectionMedia[]>();
-	const rows = await tx
+	const mediaRows = await tx
 		.select()
 		.from(storefrontSectionMedia)
 		.where(inArray(storefrontSectionMedia.sectionId, ids))
 		.orderBy(asc(storefrontSectionMedia.role));
 	const map = new Map<string, StorefrontSectionMedia[]>();
-	for (const row of rows) map.set(row.sectionId, [...(map.get(row.sectionId) ?? []), row]);
+	for (const row of mediaRows) map.set(row.sectionId, [...(map.get(row.sectionId) ?? []), row]);
 	return map;
 }
 
 async function loadCategoryIdsBySectionIds(tx: Db, ids: string[]) {
 	if (!ids.length) return new Map<string, string[]>();
-	const rows = await tx
+	const categoryRows = await tx
 		.select()
 		.from(storefrontSectionCategory)
 		.where(inArray(storefrontSectionCategory.sectionId, ids))
 		.orderBy(asc(storefrontSectionCategory.position));
-	const map = new Map<string, string[]>();
-	for (const row of rows)
-		map.set(row.sectionId, [...(map.get(row.sectionId) ?? []), row.categoryId]);
-	return map;
+	const categoryMap = new Map<string, string[]>();
+	for (const row of categoryRows)
+		categoryMap.set(row.sectionId, [...(categoryMap.get(row.sectionId) ?? []), row.categoryId]);
+	return categoryMap;
 }
 
 function parseSectionInput(

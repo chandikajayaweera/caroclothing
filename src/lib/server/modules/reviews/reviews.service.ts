@@ -194,13 +194,10 @@ export async function listRecentApprovedReviews(
 		.from(review)
 		.innerJoin(product, eq(review.productId, product.id))
 		.where(where);
-	const rows = await withTransientD1ReadRetry(() => listQuery);
-	const totalRows = await withTransientD1ReadRetry(() => countQuery);
-	const dtos = await withTransientD1ReadRetry(() =>
-		hydrateReviews(
-			db,
-			rows.map((row) => row.row)
-		)
+	const [rows, totalRows] = await withTransientD1ReadRetry(() => db.batch([listQuery, countQuery]));
+	const dtos = await hydrateReviews(
+		db,
+		rows.map((row) => row.row)
 	);
 
 	return {
@@ -892,13 +889,15 @@ async function listReviewsByWhere(
 		.limit(limit)
 		.offset(offset);
 	const countQuery = db.select({ total: count() }).from(review);
-	const rows = await withTransientD1ReadRetry(() => (where ? listQuery.where(where) : listQuery));
-	const totalRows = await withTransientD1ReadRetry(() =>
-		where ? countQuery.where(where) : countQuery
+	const [rows, totalRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			where ? listQuery.where(where) : listQuery,
+			where ? countQuery.where(where) : countQuery
+		])
 	);
 
 	return {
-		items: await withTransientD1ReadRetry(() => hydrateReviews(db, rows)),
+		items: await hydrateReviews(db, rows),
 		total: Number(totalRows[0]?.total ?? 0),
 		limit,
 		offset
@@ -957,25 +956,21 @@ async function hydrateReviews(db: QueryExecutor, rows: Review[]): Promise<Review
 	const reviewIds = rows.map((row) => row.id);
 	const userIds = uniqueStrings(rows.map((row) => row.userId));
 	const productIds = uniqueStrings(rows.map((row) => row.productId));
-	const userRows = await withTransientD1ReadRetry(() =>
-		db.select().from(user).where(inArray(user.id, userIds))
-	);
-	const productRows = await withTransientD1ReadRetry(() =>
-		db.select().from(product).where(inArray(product.id, productIds))
-	);
-	const mediaRows = await withTransientD1ReadRetry(() =>
-		db
-			.select()
-			.from(reviewMedia)
-			.where(inArray(reviewMedia.reviewId, reviewIds))
-			.orderBy(asc(reviewMedia.position), asc(reviewMedia.createdAt))
-	);
-	const imageRows = await withTransientD1ReadRetry(() =>
-		db
-			.select()
-			.from(productImage)
-			.where(inArray(productImage.productId, productIds))
-			.orderBy(asc(productImage.position), asc(productImage.createdAt))
+	const [userRows, productRows, mediaRows, imageRows] = await withTransientD1ReadRetry(() =>
+		db.batch([
+			db.select().from(user).where(inArray(user.id, userIds)),
+			db.select().from(product).where(inArray(product.id, productIds)),
+			db
+				.select()
+				.from(reviewMedia)
+				.where(inArray(reviewMedia.reviewId, reviewIds))
+				.orderBy(asc(reviewMedia.position), asc(reviewMedia.createdAt)),
+			db
+				.select()
+				.from(productImage)
+				.where(inArray(productImage.productId, productIds))
+				.orderBy(asc(productImage.position), asc(productImage.createdAt))
+		])
 	);
 	const usersById = new Map(userRows.map((row) => [row.id, row]));
 	const productsById = new Map(productRows.map((row) => [row.id, row]));

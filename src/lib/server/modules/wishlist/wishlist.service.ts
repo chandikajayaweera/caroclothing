@@ -1,8 +1,22 @@
-import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	gt,
+	inArray,
+	isNull,
+	max,
+	or,
+	sql,
+	type SQL
+} from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import {
 	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
 	withTransientD1WriteReconciliation,
 	withTransientD1WriteRetry
 } from '$lib/server/db/retry';
@@ -44,6 +58,7 @@ import {
 import { inventory, type Inventory } from '../inventory/inventory.drizzle';
 import type {
 	ListWishlistOptions,
+	ListWishlistProductIdsOptions,
 	ListWishlistSignalsOptions,
 	WishlistItemDTO,
 	WishlistListResult,
@@ -146,6 +161,28 @@ export async function listWishlist(
 ): Promise<WishlistListResult> {
 	const actor = requireActor(ctx.actor);
 	return listWishlistForUser(actor.id, options);
+}
+
+export async function listWishlistProductIds(
+	ctx: ServiceContext,
+	options: ListWishlistProductIdsOptions = {}
+): Promise<string[]> {
+	const actor = requireActor(ctx.actor);
+	const limit = normalizeLimit(options.limit);
+	const rows = await withTransientD1ReadRetry(() =>
+		getDb()
+			.select({
+				productId: wishlistItem.productId,
+				lastAddedAt: max(wishlistItem.addedAt)
+			})
+			.from(wishlistItem)
+			.where(eq(wishlistItem.userId, actor.id))
+			.groupBy(wishlistItem.productId)
+			.orderBy(desc(max(wishlistItem.addedAt)))
+			.limit(limit)
+	);
+
+	return rows.map((row) => row.productId);
 }
 
 export async function listUserWishlist(
@@ -302,24 +339,31 @@ export async function listWishlistSignals(
 			)
 		: count();
 
-	const [summary] = await db
-		.select({
-			total: filteredTotal,
-			totalSignals: count(),
-			totalSaves: sql<number>`coalesce(sum(${signals.saveCount}), 0)`.mapWith(Number),
-			highRiskVariants:
-				sql<number>`coalesce(sum(CASE WHEN ${signals.alertStatus} = 'high' THEN 1 ELSE 0 END), 0)`.mapWith(
-					Number
-				)
-		})
-		.from(signals);
-	const pageRows = await db
-		.select()
-		.from(signals)
-		.where(alertFilter)
-		.orderBy(desc(signals.saveCount), desc(signals.lastSavedAtMs))
-		.limit(limit)
-		.offset(offset);
+	const [summaryRows, pageRows] = await Promise.all([
+		withTransientD1ReadRetry(() =>
+			db
+				.select({
+					total: filteredTotal,
+					totalSignals: count(),
+					totalSaves: sql<number>`coalesce(sum(${signals.saveCount}), 0)`.mapWith(Number),
+					highRiskVariants:
+						sql<number>`coalesce(sum(CASE WHEN ${signals.alertStatus} = 'high' THEN 1 ELSE 0 END), 0)`.mapWith(
+							Number
+						)
+				})
+				.from(signals)
+		),
+		withTransientD1ReadRetry(() =>
+			db
+				.select()
+				.from(signals)
+				.where(alertFilter)
+				.orderBy(desc(signals.saveCount), desc(signals.lastSavedAtMs))
+				.limit(limit)
+				.offset(offset)
+		)
+	]);
+	const [summary] = summaryRows;
 
 	const items = await hydrateWishlistSignals(pageRows);
 
@@ -371,13 +415,15 @@ async function listWishlistForUser(
 		.orderBy(desc(wishlistItem.addedAt))
 		.limit(limit)
 		.offset(offset);
-	const [totalRow] = await countQuery;
-	const rows = await listQuery;
+	const [totalRows, rows] = await Promise.all([
+		withTransientD1ReadRetry(() => countQuery),
+		withTransientD1ReadRetry(() => listQuery)
+	]);
 	const items = await hydrateWishlistJoinedRows(rows);
 
 	return {
 		items,
-		total: totalRow?.total ?? 0,
+		total: totalRows[0]?.total ?? 0,
 		limit,
 		offset
 	};
@@ -427,33 +473,10 @@ async function hydrateWishlistJoinedRows(rows: WishlistJoinedRow[]): Promise<Wis
 	if (rows.length === 0) return [];
 
 	const productIds = uniqueStrings(rows.map((row) => row.product.id));
-	const imagesByProductId = await loadProductImagesByProductId(productIds);
-	const primaryPricesByProductId = await loadPrimaryPricesByProductId(productIds);
+	const { imagesByProductId, primaryPricesByProductId } =
+		await loadWishlistHydrationMaps(productIds);
 
 	return rows.map((row) => toWishlistItemDTO(row, imagesByProductId, primaryPricesByProductId));
-}
-
-async function loadPrimaryPricesByProductId(
-	productIds: string[]
-): Promise<Map<string, { basePrice: number; compareAtPrice: number | null }>> {
-	const priceMap = new Map<string, { basePrice: number; compareAtPrice: number | null }>();
-	if (productIds.length === 0) return priceMap;
-
-	const colors = await getDb()
-		.select()
-		.from(productVariantColor)
-		.where(inArray(productVariantColor.productId, productIds))
-		.orderBy(asc(productVariantColor.sortOrder), asc(productVariantColor.createdAt));
-
-	for (const color of colors) {
-		if (!priceMap.has(color.productId)) {
-			priceMap.set(color.productId, {
-				basePrice: color.basePrice,
-				compareAtPrice: color.compareAtPrice
-			});
-		}
-	}
-	return priceMap;
 }
 
 async function hydrateWishlistSignals(
@@ -464,22 +487,27 @@ async function hydrateWishlistSignals(
 	const productIds = uniqueStrings(rows.map((row) => row.productId));
 	const variantIds = uniqueStrings(rows.map((row) => row.variantId).filter(isString));
 	const db = getDb();
-	const productRows = await db.select().from(product).where(inArray(product.id, productIds));
-	const variantRows =
-		variantIds.length > 0
-			? await db
-					.select({
-						variant: productVariant,
-						color: productVariantColor,
-						inventory: inventory
-					})
-					.from(productVariant)
-					.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
-					.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
-					.where(inArray(productVariant.id, variantIds))
-			: [];
-	const imagesByProductId = await loadProductImagesByProductId(productIds);
-	const primaryPricesByProductId = await loadPrimaryPricesByProductId(productIds);
+	const [productRows, variantRows, imageRows, colorRows] = await Promise.all([
+		withTransientD1ReadRetry(() =>
+			db.select().from(product).where(inArray(product.id, productIds))
+		),
+		withTransientD1ReadRetry(() =>
+			db
+				.select({
+					variant: productVariant,
+					color: productVariantColor,
+					inventory: inventory
+				})
+				.from(productVariant)
+				.innerJoin(productVariantColor, eq(productVariant.variantColorId, productVariantColor.id))
+				.leftJoin(inventory, eq(inventory.variantId, productVariant.id))
+				.where(variantIds.length > 0 ? inArray(productVariant.id, variantIds) : sql`0`)
+		),
+		withTransientD1ReadRetry(() => productImagesQuery(db, productIds)),
+		withTransientD1ReadRetry(() => productColorsQuery(db, productIds))
+	]);
+	const imagesByProductId = groupByProductId(imageRows);
+	const primaryPricesByProductId = primaryPricesByProductIdFromColors(colorRows);
 	const productsById = new Map(productRows.map((row) => [row.id, row]));
 	const variantsById = new Map(variantRows.map((row) => [row.variant.id, row]));
 
@@ -529,18 +557,59 @@ async function hydrateWishlistSignals(
 		.filter((row): row is WishlistSignalDTO => row !== null);
 }
 
-async function loadProductImagesByProductId(
-	productIds: string[]
-): Promise<Map<string, ProductImage[]>> {
-	if (productIds.length === 0) return new Map();
+async function loadWishlistHydrationMaps(productIds: string[]): Promise<{
+	imagesByProductId: Map<string, ProductImage[]>;
+	primaryPricesByProductId: Map<string, { basePrice: number; compareAtPrice: number | null }>;
+}> {
+	if (productIds.length === 0) {
+		return {
+			imagesByProductId: new Map(),
+			primaryPricesByProductId: new Map()
+		};
+	}
 
-	const rows = await getDb()
+	const db = getDb();
+	const [images, colors] = await withTransientD1ReadRetry(() =>
+		db.batch([productImagesQuery(db, productIds), productColorsQuery(db, productIds)])
+	);
+
+	return {
+		imagesByProductId: groupByProductId(images),
+		primaryPricesByProductId: primaryPricesByProductIdFromColors(colors)
+	};
+}
+
+function productImagesQuery(db: QueryExecutor, productIds: string[]) {
+	return db
 		.select()
 		.from(productImage)
 		.where(inArray(productImage.productId, productIds))
 		.orderBy(asc(productImage.position), asc(productImage.createdAt));
+}
 
-	return groupByProductId(rows);
+function productColorsQuery(db: QueryExecutor, productIds: string[]) {
+	return db
+		.select()
+		.from(productVariantColor)
+		.where(inArray(productVariantColor.productId, productIds))
+		.orderBy(asc(productVariantColor.sortOrder), asc(productVariantColor.createdAt));
+}
+
+function primaryPricesByProductIdFromColors(
+	colors: ProductVariantColor[]
+): Map<string, { basePrice: number; compareAtPrice: number | null }> {
+	const priceMap = new Map<string, { basePrice: number; compareAtPrice: number | null }>();
+
+	for (const color of colors) {
+		if (!priceMap.has(color.productId)) {
+			priceMap.set(color.productId, {
+				basePrice: color.basePrice,
+				compareAtPrice: color.compareAtPrice
+			});
+		}
+	}
+
+	return priceMap;
 }
 
 function toWishlistItemDTO(

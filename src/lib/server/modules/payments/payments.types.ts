@@ -133,6 +133,11 @@ export type PaymentDashboardSummaryDTO = {
 	manualReviewCount: number;
 };
 
+export type PaymentDashboardDTO = {
+	payments: PaymentListResult;
+	stats: PaymentDashboardSummaryDTO;
+};
+
 export type RecordPaymentInput = {
 	orderId: string;
 	paymentId?: string | null;

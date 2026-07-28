@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { getOrderAnalytics, listOrders } from '$lib/server/modules/orders';
+import { getOrderDashboard } from '$lib/server/modules/orders';
 import { getProductStats } from '$lib/server/modules/products';
 import { getInventorySummary, listInventory } from '$lib/server/modules/inventory';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
@@ -17,11 +17,13 @@ export const load: PageServerLoad = async ({ locals, platform }) => {
 	const ctx = getAdminContext(locals, platform);
 
 	try {
-		const ordersResult = await listOrders(ctx, { limit: 5 });
-		const analytics = await getOrderAnalytics(ctx);
-		const productStats = await getProductStats(ctx);
-		const inventorySummary = await getInventorySummary(ctx);
-		const lowStockInventory = await listInventory(ctx, { stockStatus: 'low', limit: 5 });
+		const [orderDashboard, productStats, inventorySummary, lowStockInventory] = await Promise.all([
+			getOrderDashboard(ctx, { limit: 5 }),
+			getProductStats(ctx),
+			getInventorySummary(ctx),
+			listInventory(ctx, { stockStatus: 'low', limit: 5 })
+		]);
+		const { orders: ordersResult, analytics } = orderDashboard;
 
 		return {
 			recentOrders: ordersResult.items,

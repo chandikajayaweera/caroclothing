@@ -8,6 +8,9 @@
 	"main": ".svelte-kit/cloudflare/_worker.js",
 	"compatibility_date": "2026-04-15",
 	"compatibility_flags": ["nodejs_compat", "nodejs_als"],
+	"placement": {
+		"mode": "smart"
+	},
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
@@ -108,6 +111,7 @@
 					"enabled": true
 				}
 			},
+			"placement": { "mode": "smart" },
 			"routes": [
 				{
 					"pattern": "staging.caroclothing.lk",
@@ -178,11 +182,6 @@
 			]
 		}
 	}
-	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
-	 */
-	// "placement": {  "mode": "smart" }
 	/**
 	 * Bindings
 	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including

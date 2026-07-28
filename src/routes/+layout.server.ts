@@ -1,9 +1,9 @@
 import type { LayoutServerLoad } from './$types';
 import { getBag, mergeGuestBagIntoUserBag } from '$lib/server/modules/bag/bag.service';
-import { listWishlist } from '$lib/server/modules/wishlist';
+import { listWishlistProductIds } from '$lib/server/modules/wishlist';
 import { getErrorMessage, isAppError } from '$lib/server/infrastructure/errors';
 
-export const load: LayoutServerLoad = async ({ locals, cookies }) => {
+export const load: LayoutServerLoad = async ({ locals, cookies, url, untrack }) => {
 	const actor = locals.user
 		? {
 				id: locals.user.id,
@@ -13,6 +13,17 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 		: null;
 
 	const ctx = { actor };
+	const pathname = untrack(() => url.pathname);
+
+	if (isAppPathname(pathname)) {
+		void url.pathname;
+		return {
+			user: locals.user,
+			session: locals.session,
+			bag: null,
+			wishlistProductIds: []
+		};
+	}
 
 	const sessionToken = cookies.get('bag_session_token');
 
@@ -30,8 +41,10 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 				}
 			}
 		}
-		const bag = await loadGlobalBag(ctx);
-		const wishlistProductIds = !actor.isAnonymous ? await loadGlobalWishlistProductIds(ctx) : [];
+		const [bag, wishlistProductIds] = await Promise.all([
+			loadGlobalBag(ctx),
+			!actor.isAnonymous ? loadGlobalWishlistProductIds(ctx) : Promise.resolve([])
+		]);
 
 		return {
 			user: locals.user,
@@ -57,7 +70,10 @@ async function loadGlobalBag(
 	return getBag(ctx, input);
 }
 
-async function loadGlobalWishlistProductIds(ctx: Parameters<typeof listWishlist>[0]) {
-	const wishlistRes = await listWishlist(ctx, { limit: 100 });
-	return wishlistRes.items.map((item) => item.productId);
+async function loadGlobalWishlistProductIds(ctx: Parameters<typeof listWishlistProductIds>[0]) {
+	return listWishlistProductIds(ctx, { limit: 100 });
+}
+
+function isAppPathname(pathname: string): boolean {
+	return pathname === '/app' || pathname.startsWith('/app/');
 }

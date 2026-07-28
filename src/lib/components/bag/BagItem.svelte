@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { BagItemDTO } from '$lib/server/modules/bag/bag.types';
 	import { bag } from '$lib/client/stores/bag.svelte';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 
 	let { item }: { item: BagItemDTO } = $props();
 
@@ -35,11 +36,13 @@
 
 <div class="flex items-start gap-4">
 	{#if item.imageUrl}
-		<img
-			src={item.imageUrl}
-			alt={item.productName ?? 'Product'}
-			class="h-20 w-16 shrink-0 object-cover"
-		/>
+		<div class="relative h-20 w-16 shrink-0 overflow-hidden bg-charcoal">
+			<ProgressiveImage
+				src={item.imageUrl}
+				alt={item.productName ?? 'Product'}
+				class="h-full w-full object-cover"
+			/>
+		</div>
 	{:else}
 		<div class="h-20 w-16 shrink-0 bg-charcoal"></div>
 	{/if}

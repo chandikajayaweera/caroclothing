@@ -4,8 +4,7 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import type { Actions, PageServerLoad } from './$types';
 import {
 	listUsers,
-	getUserAdminProfile,
-	listUserSessions,
+	getUserAdminDetail,
 	setUserRole,
 	banUser,
 	unbanUser,
@@ -59,10 +58,25 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	};
 
 	const selectedUserId = url.searchParams.get('userId')?.trim() || null;
+	const selectedUserDetailPromise = selectedUserId
+		? getUserAdminDetail(ctx, {
+				userId: selectedUserId,
+				currentSessionId: locals.session?.id,
+				limit: 100
+			}).catch((error) => {
+				if (!isAppError(error) || error.statusCode >= 500) {
+					console.error(`[admin:users] Failed to load selected user ${selectedUserId}:`, {
+						error: getErrorMessage(error)
+					});
+				}
+				return null;
+			})
+		: Promise.resolve(null);
 
 	try {
 		const [
 			users,
+			selectedUserDetail,
 			setUserRoleForm,
 			banUserForm,
 			unbanUserForm,
@@ -70,6 +84,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			repairEmailForm
 		] = await Promise.all([
 			listUsers(ctx, options),
+			selectedUserDetailPromise,
 			superValidate(zod4(setUserRoleFormSchema), { id: 'setUserRole' }),
 			superValidate(zod4(banUserFormSchema), { id: 'banUser' }),
 			superValidate(zod4(unbanUserFormSchema), { id: 'unbanUser' }),
@@ -77,28 +92,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			superValidate(zod4(repairUserEmailFormSchema), { id: 'repairUserEmail' })
 		]);
 
-		let selectedUser = null;
-		let selectedUserSessions = null;
-
-		if (selectedUserId) {
-			try {
-				const profile = await getUserAdminProfile(ctx, { userId: selectedUserId });
-				const sessions = await listUserSessions(ctx, { userId: selectedUserId });
-				selectedUser = profile;
-				selectedUserSessions = sessions.items;
-			} catch (error) {
-				if (!isAppError(error) || error.statusCode >= 500) {
-					console.error(`[admin:users] Failed to load selected user ${selectedUserId}:`, {
-						error: getErrorMessage(error)
-					});
-				}
-			}
-		}
-
 		return {
 			users,
-			selectedUser,
-			selectedUserSessions,
+			selectedUser: selectedUserDetail?.user ?? null,
+			selectedUserSessions: selectedUserDetail?.sessions.items ?? null,
 			districts: [], // compatibility
 			filters: {
 				query: query || '',

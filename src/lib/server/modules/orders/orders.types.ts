@@ -184,6 +184,18 @@ export type OrderListResult = {
 	offset: number;
 };
 
+export type OrderAnalyticsDTO = {
+	totalSales: number;
+	pendingFulfillmentCount: number;
+	openOrdersCount: number;
+	unpaidHoldsCount: number;
+};
+
+export type OrderDashboardDTO = {
+	orders: OrderListResult;
+	analytics: OrderAnalyticsDTO;
+};
+
 export type TransitionOrderStatusInput = {
 	orderId: string;
 	toStatus: OrderStatus;

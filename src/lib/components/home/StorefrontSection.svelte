@@ -3,6 +3,7 @@
 	import ArrowUpRight from 'lucide-svelte/icons/arrow-up-right';
 	import HeroSection from './HeroSection.svelte';
 	import SocialProofRail from './SocialProofRail.svelte';
+	import ProgressiveImage from '$lib/components/media/ProgressiveImage.svelte';
 	import ProductCard from '$lib/components/product/ProductCard.svelte';
 	import type { HomePageSectionDTO } from '$lib/server/modules/storefront/storefront.types';
 	import { mediaPresetUrl } from '$lib/shared/media';
@@ -37,16 +38,20 @@
 					>{/if}
 			</header>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 lg:gap-4">
-				{#each section.products as product (product.id)}<ProductCard {product} />{/each}
+				{#each section.products as product (product.id)}<ProductCard
+						{product}
+						showImageSkeleton={false}
+					/>{/each}
 			</div>
 		</div>
 	</section>
 {:else if section.type === 'product_spotlight' && section.product}
 	<section class="grid bg-charcoal lg:min-h-[680px] lg:grid-cols-2">
 		<div class="relative min-h-[460px] overflow-hidden lg:min-h-full">
-			<img
+			<ProgressiveImage
 				src={section.product.primaryImageUrl ?? '/images/placeholder.jpg'}
 				alt={section.product.name}
+				showSkeleton={false}
 				class="absolute inset-0 h-full w-full object-cover object-top"
 			/>
 		</div>
@@ -82,9 +87,10 @@
 						href={resolve(`/shop?category=${category.slug}`)}
 						class="group relative min-h-72 overflow-hidden bg-charcoal"
 					>
-						{#if category.imageR2Key}<img
+						{#if category.imageR2Key}<ProgressiveImage
 								src={mediaPresetUrl(category.imageR2Key, 'card600')}
 								alt={category.name}
+								showSkeleton={false}
 								class="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
 							/>{/if}
 						<div
@@ -101,9 +107,11 @@
 	</section>
 {:else if section.type === 'promotion_campaign' && section.promotion}
 	<section class="relative overflow-hidden bg-volt px-5 py-20 text-void md:px-10 lg:py-28">
-		{#if desktopMedia}<img
+		{#if desktopMedia}<ProgressiveImage
 				src={desktopMedia.imageUrl}
 				alt={desktopMedia.altText ?? ''}
+				showSkeleton={false}
+				skeletonClass="absolute inset-0 h-full w-full opacity-20"
 				class="absolute inset-0 h-full w-full object-cover opacity-20"
 			/>{/if}
 		<div class="relative mx-auto max-w-7xl">

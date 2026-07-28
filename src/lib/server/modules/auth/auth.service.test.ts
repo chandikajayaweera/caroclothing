@@ -10,8 +10,8 @@ import { payment, paymentAttempt } from '../payments/payments.drizzle';
 import { order } from '../orders/orders.drizzle';
 import { review, reviewMedia } from '../reviews/reviews.drizzle';
 import { ErrorCode } from '../../infrastructure/errors';
-import { user } from './auth.drizzle';
-import { prepareAccountDeletion } from './auth.service';
+import { account, session, user } from './auth.drizzle';
+import { getUserAdminDetail, prepareAccountDeletion } from './auth.service';
 
 const dbState = vi.hoisted((): { db: unknown } => ({ db: undefined }));
 
@@ -50,6 +50,70 @@ describe('auth account deletion integration', () => {
 	afterAll(() => {
 		dbState.db = undefined;
 		harness.close();
+	});
+
+	it('loads an admin user profile and paginated sessions in one service call', async () => {
+		const customer = await seedUser(db(), {
+			id: 'admin-detail-customer',
+			name: 'Admin Detail Customer'
+		});
+		await db()
+			.insert(account)
+			.values({
+				id: 'admin-detail-google',
+				accountId: 'google-account',
+				providerId: 'google',
+				userId: customer.id,
+				createdAt: new Date(now.getTime() - 3_000),
+				updatedAt: new Date(now.getTime() - 3_000)
+			});
+		await db()
+			.insert(session)
+			.values([
+				{
+					id: 'admin-detail-session-old',
+					token: 'admin-detail-token-old',
+					userId: customer.id,
+					expiresAt: new Date(now.getTime() + 60_000),
+					createdAt: new Date(now.getTime() - 2_000),
+					updatedAt: new Date(now.getTime() - 2_000),
+					ipAddress: '192.0.2.1'
+				},
+				{
+					id: 'admin-detail-session-current',
+					token: 'admin-detail-token-current',
+					userId: customer.id,
+					expiresAt: new Date(now.getTime() + 60_000),
+					createdAt: new Date(now.getTime() - 1_000),
+					updatedAt: new Date(now.getTime() - 1_000),
+					ipAddress: '192.0.2.2'
+				}
+			]);
+
+		await expect(
+			getUserAdminDetail(
+				{ actor: { id: 'admin-user', role: 'adminUser' }, now },
+				{
+					userId: customer.id,
+					currentSessionId: 'admin-detail-session-current',
+					limit: 1
+				}
+			)
+		).resolves.toMatchObject({
+			user: {
+				id: customer.id,
+				authMethodCount: 1,
+				sessionCount: 2,
+				lastActiveAt: new Date(now.getTime() - 1_000),
+				lastActiveIp: '192.0.2.2'
+			},
+			sessions: {
+				total: 2,
+				limit: 1,
+				offset: 0,
+				items: [{ id: 'admin-detail-session-current', isCurrent: true }]
+			}
+		});
 	});
 
 	it('atomically deletes the user and scrubs retained order, payment, and notification PII', async () => {

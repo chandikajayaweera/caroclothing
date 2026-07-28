@@ -6,6 +6,7 @@ export {
 	cancelExpiredPendingOrders,
 	cancelOrder,
 	getOrder,
+	getOrderDashboard,
 	listMyOrders,
 	listOrders,
 	placeOrderFromBag,

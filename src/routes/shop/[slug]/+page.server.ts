@@ -145,20 +145,26 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	try {
 		const product = toPublicProductDTO(await getProduct(ctx, { slug: params.slug }));
 		const variantIds = product.variants.map((v) => v.id);
-		let isWishlistedVal = false;
-		let reviewEligibility = null;
-
-		const reviewsSummary = await getProductReviewSummary(ctx, { productId: product.id });
-		const reviews = await listProductReviews(ctx, { productId: product.id, limit: 100 });
-		const availability =
-			variantIds.length > 0 ? await getStorefrontVariantAvailability(ctx, { variantIds }) : [];
-		const shippingQuotes = await listShippingQuotes({ subtotal: 0 });
-		const relatedProducts = await loadRelatedProducts(ctx, product);
-
-		if (locals.user && !locals.user.isAnonymous) {
-			isWishlistedVal = await isWishlisted(ctx, { productId: product.id });
-			reviewEligibility = await getReviewEligibility(ctx, { productId: product.id });
-		}
+		const isFullUser = Boolean(locals.user && !locals.user.isAnonymous);
+		const [
+			reviewsSummary,
+			reviews,
+			availability,
+			shippingQuotes,
+			relatedProducts,
+			isWishlistedVal,
+			reviewEligibility
+		] = await Promise.all([
+			getProductReviewSummary(ctx, { productId: product.id }),
+			listProductReviews(ctx, { productId: product.id, limit: 100 }),
+			variantIds.length > 0
+				? getStorefrontVariantAvailability(ctx, { variantIds })
+				: Promise.resolve([]),
+			listShippingQuotes({ subtotal: 0 }),
+			loadRelatedProducts(ctx, product),
+			isFullUser ? isWishlisted(ctx, { productId: product.id }) : Promise.resolve(false),
+			isFullUser ? getReviewEligibility(ctx, { productId: product.id }) : Promise.resolve(null)
+		]);
 
 		return {
 			product,
