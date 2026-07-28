@@ -19,7 +19,7 @@
 		"db:migrate": "wrangler d1 migrations apply DB --local",
 		"db:migrate:staging": "wrangler d1 migrations apply caroclothing-staging --remote --env staging",
 		"db:migrate:production": "wrangler d1 migrations apply caroclothing-production --remote --env=\"\"",
-		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/cli.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes",
+		"auth:schema": "better-auth generate --config src/lib/server/modules/auth/cli.ts --output src/lib/server/modules/auth/auth.drizzle.ts --yes && prettier --write src/lib/server/modules/auth/auth.drizzle.ts",
 		"secret:staging": "wrangler secret bulk .env.staging --env staging",
 		"secret:production": "wrangler secret bulk .env.production --env=\"\"",
 		"queue:create:staging": "wrangler queues create caroclothing-staging-notifications",
