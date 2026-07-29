@@ -36,6 +36,7 @@
 	} = $props();
 
 	let open = $state(false);
+	const hasDescriptions = $derived(items.some((item) => Boolean(item.description)));
 
 	const toneClasses = {
 		neutral: 'text-bone',
@@ -81,7 +82,9 @@
 			{side}
 			sideOffset={8}
 			collisionPadding={12}
-			class="z-100 w-[min(22rem,calc(100vw-1.5rem))] border border-ash/20 bg-charcoal p-1.5 shadow-2xl outline-none"
+			class="z-100 {hasDescriptions
+				? 'w-[min(22rem,calc(100vw-1.5rem))]'
+				: 'w-max max-w-[calc(100vw-1.5rem)] min-w-44'} border border-ash/20 bg-charcoal p-1.5 shadow-2xl outline-none"
 		>
 			<DropdownMenu.Group aria-label={ariaLabel}>
 				{#each items as item (item.label)}
@@ -90,12 +93,18 @@
 						textValue={item.label}
 						disabled={item.disabled}
 						onSelect={() => runAction(item)}
-						class="flex min-h-12 cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors outline-none select-none data-disabled:cursor-not-allowed data-disabled:opacity-40 data-highlighted:bg-void/60 {toneClasses[
+						class="flex min-h-12 cursor-pointer {item.description
+							? 'items-start'
+							: 'items-center'} gap-3 px-3 py-2.5 transition-colors outline-none select-none data-disabled:cursor-not-allowed data-disabled:opacity-40 data-highlighted:bg-void/60 {toneClasses[
 							item.tone ?? 'neutral'
 						]}"
 					>
 						{#if Icon}
-							<Icon size={16} class="mt-0.5 shrink-0" aria-hidden="true" />
+							<Icon
+								size={16}
+								class="{item.description ? 'mt-0.5' : ''} shrink-0"
+								aria-hidden="true"
+							/>
 						{/if}
 						<span class="min-w-0">
 							<span class="block font-mono text-[10px] font-bold tracking-widest uppercase">

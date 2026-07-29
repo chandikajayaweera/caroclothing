@@ -17,7 +17,11 @@ import {
 import { nanoid } from 'nanoid';
 import { getDb } from '$lib/server/db';
 import { guardPreviousBatchChanges, isD1BatchGuardError } from '$lib/server/db/batch';
-import { rethrowTransientD1Error, withTransientD1WriteReconciliation } from '$lib/server/db/retry';
+import {
+	rethrowTransientD1Error,
+	withTransientD1ReadRetry,
+	withTransientD1WriteReconciliation
+} from '$lib/server/db/retry';
 import { requireActor, requireAdmin } from '$lib/server/foundation/guards';
 import {
 	BagError,
@@ -981,12 +985,14 @@ async function getOrCreateBagTx(tx: Tx, owner: BagOwner, now: Date): Promise<Bag
 }
 
 async function findBagByOwnerTx(tx: QueryExecutor, owner: BagOwner): Promise<Bag | null> {
-	const [row] = await tx
-		.select()
-		.from(bagTable)
-		.where(bagOwnerPredicate(owner))
-		.orderBy(desc(bagTable.updatedAt), desc(bagTable.createdAt))
-		.limit(1);
+	const [row] = await withTransientD1ReadRetry(() =>
+		tx
+			.select()
+			.from(bagTable)
+			.where(bagOwnerPredicate(owner))
+			.orderBy(desc(bagTable.updatedAt), desc(bagTable.createdAt))
+			.limit(1)
+	);
 
 	return row ?? null;
 }

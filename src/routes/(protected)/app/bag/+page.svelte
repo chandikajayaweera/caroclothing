@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { deserialize, enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import { goto, invalidate } from '$app/navigation';
@@ -44,6 +45,24 @@
 	let autoRefresh = $state(true);
 	let refreshing = $state(false);
 	let refreshRequest: Promise<void> | null = null;
+	let liveNowMs = $state<number | null>(null);
+	const nowMs = $derived(liveNowMs ?? new Date(data.refreshedAt).getTime());
+
+	const SECOND_MS = 1_000;
+	const MINUTE_MS = 60 * SECOND_MS;
+	const HOUR_MS = 60 * MINUTE_MS;
+	const DAY_MS = 24 * HOUR_MS;
+	const MONTH_MS = 30 * DAY_MS;
+	const YEAR_MS = 365 * DAY_MS;
+
+	onMount(() => {
+		liveNowMs = Date.now();
+		const interval = window.setInterval(() => {
+			liveNowMs = Date.now();
+		}, SECOND_MS);
+
+		return () => window.clearInterval(interval);
+	});
 
 	const hasActiveFilters = $derived(
 		data.filters.status !== '' ||
@@ -74,11 +93,59 @@
 		return `${resolve('/app/orders')}?userId=${encodeURIComponent(userId)}`;
 	}
 
+	function timestamp(value: Date | string | number): number {
+		return value instanceof Date ? value.getTime() : new Date(value).getTime();
+	}
+
+	function quantityLabel(value: number, singular: string): string {
+		return `${value} ${singular}${value === 1 ? '' : 's'}`;
+	}
+
+	function formatExpiryRemaining(value: Date | string | number): string {
+		const remainingMs = timestamp(value) - nowMs;
+		if (!Number.isFinite(remainingMs)) return 'Expiry unknown';
+		if (remainingMs <= 0) return 'Expired';
+
+		if (remainingMs < MINUTE_MS) {
+			return `Expires in ${quantityLabel(Math.max(1, Math.ceil(remainingMs / SECOND_MS)), 'second')}`;
+		}
+		if (remainingMs < HOUR_MS) {
+			return `Expires in ${quantityLabel(Math.max(1, Math.floor(remainingMs / MINUTE_MS)), 'minute')}`;
+		}
+		if (remainingMs < DAY_MS) {
+			return `Expires in ${quantityLabel(Math.max(1, Math.floor(remainingMs / HOUR_MS)), 'hour')}`;
+		}
+
+		return `Expires in ${quantityLabel(Math.max(1, Math.floor(remainingMs / DAY_MS)), 'day')}`;
+	}
+
+	function formatUpdatedAgo(value: Date | string | number): string {
+		const elapsedMs = Math.max(0, nowMs - timestamp(value));
+		if (!Number.isFinite(elapsedMs)) return 'Unknown';
+
+		if (elapsedMs < MINUTE_MS) {
+			return `${quantityLabel(Math.floor(elapsedMs / SECOND_MS), 'second')} ago`;
+		}
+		if (elapsedMs < HOUR_MS) {
+			return `${quantityLabel(Math.floor(elapsedMs / MINUTE_MS), 'minute')} ago`;
+		}
+		if (elapsedMs < DAY_MS) {
+			return `${quantityLabel(Math.floor(elapsedMs / HOUR_MS), 'hour')} ago`;
+		}
+		if (elapsedMs < MONTH_MS) {
+			return `${quantityLabel(Math.floor(elapsedMs / DAY_MS), 'day')} ago`;
+		}
+		if (elapsedMs < YEAR_MS) {
+			return `${quantityLabel(Math.floor(elapsedMs / MONTH_MS), 'month')} ago`;
+		}
+
+		return `${quantityLabel(Math.floor(elapsedMs / YEAR_MS), 'year')} ago`;
+	}
+
 	function getBagActions(bag: AdminBagDTO): AdminActionMenuItem[] {
 		const actions: AdminActionMenuItem[] = [
 			{
 				label: 'View bag',
-				description: 'Inspect contents, pricing, promotion, and checkout state.',
 				icon: Eye,
 				tone: 'accent',
 				onselect: () => openBag(bag)
@@ -90,13 +157,11 @@
 			actions.push(
 				{
 					label: 'View customer',
-					description: 'Open account details for this bag owner.',
 					icon: User,
 					onselect: () => goto(resolve(`/app/users?userId=${encodeURIComponent(userId)}` as '/'))
 				},
 				{
 					label: 'View customer orders',
-					description: 'Open orders filtered to this customer.',
 					icon: ReceiptText,
 					onselect: () => goto(resolve(`/app/orders?userId=${encodeURIComponent(userId)}` as '/'))
 				}
@@ -263,7 +328,6 @@
 			menuItems={[
 				{
 					label: 'Clean expired guest bags',
-					description: 'Delete up to 100 expired anonymous bags.',
 					icon: Trash2,
 					tone: 'danger',
 					onselect: () => (cleanupConfirmOpen = true)
@@ -333,7 +397,7 @@
 	{/snippet}
 
 	{#snippet card(bag: AdminBagDTO)}
-		{@const isExpired = bag.expiresAt && new Date(bag.expiresAt) <= new Date()}
+		{@const isExpired = Boolean(bag.expiresAt && timestamp(bag.expiresAt) <= nowMs)}
 		<AdminEntityCard>
 			{#snippet header()}
 				<div class="flex items-start justify-between gap-2">
@@ -351,11 +415,11 @@
 								>
 							{/if}
 						</div>
-						<p class="mt-1.5 font-sans text-xs {isExpired ? 'text-red-300' : 'text-ash'}">
-							{bag.expiresAt
-								? `${isExpired ? 'Expired' : 'Expires'} ${formatAdminDateTime(bag.expiresAt, '—')}`
-								: 'Does not expire'}
-						</p>
+						{#if bag.expiresAt}
+							<p class="mt-1.5 font-sans text-xs {isExpired ? 'text-red-300' : 'text-ash'}">
+								{formatExpiryRemaining(bag.expiresAt)}
+							</p>
+						{/if}
 					</div>
 					<AdminBadge
 						variant={bag.checkoutStatus === 'active'
@@ -396,7 +460,7 @@
 					</div>
 					<div>
 						<p class="text-ash/60">Updated</p>
-						<p class="mt-0.5 text-bone">{formatAdminDateTime(bag.updatedAt, '—')}</p>
+						<p class="mt-0.5 text-bone">{formatUpdatedAgo(bag.updatedAt)}</p>
 					</div>
 				</AdminMetaGrid>
 			{/snippet}
@@ -413,7 +477,7 @@
 	{/snippet}
 
 	{#snippet row(bag: AdminBagDTO)}
-		{@const isExpired = bag.expiresAt && new Date(bag.expiresAt) <= new Date()}
+		{@const isExpired = Boolean(bag.expiresAt && timestamp(bag.expiresAt) <= nowMs)}
 		<tr class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/10">
 			<!-- Bag summary -->
 			<td class="px-5 py-4">
@@ -427,11 +491,11 @@
 						<p class="font-mono text-[9px] tracking-widest text-bone uppercase">
 							{bag.ownerType === 'user' ? 'Customer bag' : 'Guest bag'}
 						</p>
-						<p class="mt-1 font-sans text-[10px] {isExpired ? 'text-red-300' : 'text-ash'}">
-							{bag.expiresAt
-								? `${isExpired ? 'Expired' : 'Expires'} ${formatAdminDateTime(bag.expiresAt, '—')}`
-								: 'Does not expire'}
-						</p>
+						{#if bag.expiresAt}
+							<p class="mt-1 font-sans text-[10px] {isExpired ? 'text-red-300' : 'text-ash'}">
+								{formatExpiryRemaining(bag.expiresAt)}
+							</p>
+						{/if}
 					</div>
 				</div>
 			</td>
@@ -490,7 +554,7 @@
 
 			<!-- Updated At -->
 			<td class="px-5 py-4 font-mono text-[10px] text-ash">
-				{formatAdminDateTime(bag.updatedAt, '—')}
+				{formatUpdatedAgo(bag.updatedAt)}
 			</td>
 
 			<!-- Actions -->

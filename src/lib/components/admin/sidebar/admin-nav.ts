@@ -79,7 +79,20 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
 		label: 'Services',
 		items: [
 			{ label: 'Notifications', href: '/app/notifications', icon: Mail },
-			{ label: 'Bag', href: '/app/bag', icon: Archive }
+			{ label: 'Bags', href: '/app/bag', icon: Archive }
 		]
 	}
 ];
+
+const navItems = navGroups.flatMap((group) => group.items);
+
+export function getAdminPageLabel(pathname: string): string {
+	if (pathname === '/app') return 'Overview';
+
+	const match = navItems
+		.filter((item) => item.href !== '/app')
+		.filter((item) => pathname === item.href || pathname.startsWith(`${item.href}/`))
+		.sort((left, right) => right.href.length - left.href.length)[0];
+
+	return match?.label ?? 'Admin';
+}

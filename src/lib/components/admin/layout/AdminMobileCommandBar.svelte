@@ -1,19 +1,12 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { Menu } from 'lucide-svelte';
-	import { authClient } from '$lib/client/auth';
+	import { Menu, Store } from 'lucide-svelte';
+	import { getAdminPageLabel } from '$lib/components/admin/sidebar/admin-nav';
 
 	let { onOpenSidebar = () => {} }: { onOpenSidebar?: () => void } = $props();
 
-	const session = authClient.useSession();
-	const userInitials = $derived(
-		($session.data?.user.name ?? $session.data?.user.email ?? 'A')
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase())
-			.join('') || 'A'
-	);
+	const pageTitle = $derived(getAdminPageLabel(page.url.pathname));
 </script>
 
 <header
@@ -31,19 +24,19 @@
 			<Menu size={18} aria-hidden="true" />
 		</button>
 
-		<a href={resolve('/app')} class="font-display text-2xl tracking-[0.2em] text-bone">CARO</a>
+		<p
+			class="min-w-0 flex-1 truncate text-center font-display text-xl tracking-wider text-bone uppercase"
+		>
+			{pageTitle}
+		</p>
 
 		<a
-			href={resolve('/account')}
-			class="grid h-11 w-11 cursor-pointer place-items-center overflow-hidden border border-charcoal bg-charcoal/25 text-volt transition-colors hover:border-volt focus-visible:ring-2 focus-visible:ring-volt focus-visible:outline-none"
-			aria-label="Open account"
-			title="Account"
+			href={resolve('/')}
+			class="grid h-11 w-11 cursor-pointer place-items-center border border-charcoal bg-charcoal/25 text-ash transition-colors hover:border-volt hover:text-volt focus-visible:ring-2 focus-visible:ring-volt focus-visible:outline-none"
+			aria-label="Visit store"
+			title="Visit store"
 		>
-			{#if $session.data?.user.image}
-				<img src={$session.data.user.image} alt="" class="h-8 w-8 object-cover" />
-			{:else}
-				<span class="font-mono text-[10px] font-bold" aria-hidden="true">{userInitials}</span>
-			{/if}
+			<Store size={18} aria-hidden="true" />
 		</a>
 	</div>
 </header>

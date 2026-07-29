@@ -59,12 +59,16 @@ export function throwHttpFromAppError(error: unknown): never {
 	const body = toErrorResponseBody(normalizedError, {
 		includeDetails: normalizedError.statusCode < 500
 	});
+	let sentryEventId: string | undefined;
 	if (normalizedError.statusCode >= 500) {
-		Sentry.captureException(normalizedError);
+		sentryEventId = Sentry.captureException(normalizedError);
 	} else {
 		recordDomainValidationBreadcrumb(normalizedError);
 	}
-	throw kitError(normalizedError.statusCode, body.message);
+	throw kitError(normalizedError.statusCode, {
+		message: body.message,
+		...(sentryEventId ? { sentryEventId } : {})
+	});
 }
 
 export function jsonFromRouteError(error: unknown): Response {

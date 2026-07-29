@@ -132,11 +132,15 @@ export function shouldDropSvelteKitDataFetchNoise(event: SentryFetchNoiseEvent):
 const PII_REGEX_PATTERNS = [
 	/(?:\+94|0)?7[0-9]{8}\b/g,
 	/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-	/\b(?:otp|password|token|secret|key|authorization)=([^&]+)/gi
+	/\b(?:otp|password|token|secret|key|authorization)=([^&\s]+)/gi,
+	/(["'](?:codeVerifier|oauthState|accessToken|refreshToken|idToken)["']\s*:\s*["'])[^"']*(["'])/gi
 ];
 
 export function sanitizeStringPii(text: string): string {
 	let sanitized = text;
+	if (/insert\s+into\s+["'`]verification["'`]/i.test(sanitized)) {
+		sanitized = sanitized.replace(/(\bparams:\s*)[^\r\n]*/gi, '$1[REDACTED_VERIFICATION_PARAMS]');
+	}
 	for (const pattern of PII_REGEX_PATTERNS) {
 		sanitized = sanitized.replace(pattern, '[REDACTED_PII]');
 	}
@@ -144,6 +148,16 @@ export function sanitizeStringPii(text: string): string {
 }
 
 export function sanitizeSentryEventPii(event: SentryErrorEvent): SentryErrorEvent {
+	if (event.message) {
+		event.message = sanitizeStringPii(event.message);
+	}
+
+	for (const exception of event.exception?.values ?? []) {
+		if (exception.value) {
+			exception.value = sanitizeStringPii(exception.value);
+		}
+	}
+
 	if (event.request?.url) {
 		event.request.url = sanitizeStringPii(event.request.url);
 	}
@@ -195,6 +209,20 @@ export function getSentryRuntimeOptions(env: PublicSentryEnv) {
 			const error = hint?.originalException;
 			if (error && typeof error === 'object') {
 				const err = error as Record<string, unknown>;
+				const body =
+					typeof err.body === 'object' && err.body !== null
+						? (err.body as Record<string, unknown>)
+						: null;
+
+				// The route adapter already captured the original AppError. Keep
+				// that cause and discard SvelteKit's secondary HttpError wrapper.
+				if (
+					typeof err.status === 'number' &&
+					err.status >= 500 &&
+					typeof body?.sentryEventId === 'string'
+				) {
+					return null;
+				}
 
 				// Drop SvelteKit client-side navigation/load errors (expected 4xx status codes)
 				if (

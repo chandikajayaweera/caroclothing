@@ -4,6 +4,8 @@ import {
 	getSentryPublicRuntimeEnv,
 	getSentryRuntimeOptions,
 	getSentryServerRuntimeEnv,
+	sanitizeSentryEventPii,
+	sanitizeStringPii,
 	shouldDropDevFetchNoise,
 	shouldDropSvelteKitDataFetchNoise
 } from './sentry';
@@ -137,6 +139,67 @@ describe('Sentry runtime options', () => {
 		});
 
 		expect(options.beforeSend(devFetchEvent)).toBeNull();
+	});
+
+	it('redacts Better Auth verification parameters from exception values', () => {
+		const event = {
+			type: undefined,
+			exception: {
+				values: [
+					{
+						type: 'Error',
+						value:
+							'Failed query: insert into "verification" ("id", "identifier", "value") values (?, ?, ?)\nparams: row-id,oauth-state,{"codeVerifier":"private-verifier","oauthState":"private-state"}'
+					}
+				]
+			}
+		} satisfies SentryErrorEvent;
+
+		sanitizeSentryEventPii(event);
+
+		expect(event.exception?.values?.[0]?.value).toContain('params: [REDACTED_VERIFICATION_PARAMS]');
+		expect(event.exception?.values?.[0]?.value).not.toContain('private-verifier');
+		expect(event.exception?.values?.[0]?.value).not.toContain('private-state');
+	});
+
+	it('redacts OAuth secret fields in other diagnostic strings', () => {
+		const sanitized = sanitizeStringPii(
+			'{"codeVerifier":"private-verifier","oauthState":"private-state"}'
+		);
+
+		expect(sanitized).not.toContain('private-verifier');
+		expect(sanitized).not.toContain('private-state');
+	});
+
+	it('drops only a 5xx HttpError already reported by the route adapter', () => {
+		const options = getSentryRuntimeOptions({
+			PUBLIC_SENTRY_DSN: 'https://examplePublicKey@example.ingest.sentry.io/1',
+			PUBLIC_SENTRY_ENVIRONMENT: 'staging'
+		});
+		const event = {
+			type: undefined,
+			exception: {
+				values: [{ type: 'Error', value: 'HttpError' }]
+			}
+		} satisfies SentryErrorEvent;
+
+		expect(
+			options.beforeSend(event, {
+				originalException: {
+					status: 503,
+					body: { message: 'Please try again.', sentryEventId: 'event-id' }
+				}
+			})
+		).toBeNull();
+
+		expect(
+			options.beforeSend(event, {
+				originalException: {
+					status: 503,
+					body: { message: 'Please try again.' }
+				}
+			})
+		).toBe(event);
 	});
 
 	describe('shouldDropSvelteKitDataFetchNoise', () => {

@@ -70,7 +70,10 @@
 					/>
 				{/if}
 
-				<div class="flex flex-wrap items-center gap-2" class:ml-auto={!showSearch}>
+				<div
+					class="grid w-full grid-cols-1 gap-2 md:ml-auto md:flex md:w-auto md:items-center"
+					class:ml-auto={!showSearch}
+				>
 					<AdminButton
 						type="button"
 						onclick={() => {
@@ -78,7 +81,7 @@
 						}}
 						disabled={loading}
 						variant="outline"
-						class="gap-2 {showFilters || hasActiveFilters
+						class="w-full gap-2 md:w-auto {showFilters || hasActiveFilters
 							? 'border-volt bg-volt/10 text-volt'
 							: 'text-ash'}"
 						aria-expanded={showFilters}
@@ -91,7 +94,13 @@
 					</AdminButton>
 
 					{#if (hasActiveFilters || query) && onclearfilters}
-						<AdminButton type="button" onclick={onclearfilters} disabled={loading} variant="danger">
+						<AdminButton
+							type="button"
+							onclick={onclearfilters}
+							disabled={loading}
+							variant="danger"
+							class="w-full md:w-auto"
+						>
 							Clear
 						</AdminButton>
 					{/if}

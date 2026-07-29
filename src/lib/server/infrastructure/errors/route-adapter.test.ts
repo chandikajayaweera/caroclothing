@@ -82,4 +82,23 @@ describe('route AppError adapters', () => {
 			expect.objectContaining({ code: 'DATABASE_UNAVAILABLE', statusCode: 503 })
 		);
 	});
+
+	it('marks a thrown 5xx HttpError with the original Sentry event ID', () => {
+		captureException.mockReturnValueOnce('event-id');
+		let caught: unknown;
+
+		try {
+			throwHttpFromAppError(new Error('D1_ERROR: Network connection lost.'));
+		} catch (error) {
+			caught = error;
+		}
+
+		expect(caught).toMatchObject({
+			status: 503,
+			body: {
+				message: 'Something went wrong on our end. Please try again later.',
+				sentryEventId: 'event-id'
+			}
+		});
+	});
 });

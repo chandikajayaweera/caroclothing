@@ -15,7 +15,10 @@ import {
 import { ErrorCode, isAppError } from '$lib/server/infrastructure/errors';
 import { throwHttpFromAppError } from '$lib/server/infrastructure/errors/route-adapter';
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
+export const load: PageServerLoad = async ({ locals, cookies, parent }) => {
+	const parentData = await parent();
+	if (parentData.bag) return { bag: parentData.bag };
+
 	const actor = locals.user
 		? { id: locals.user.id, role: locals.user.role, isAnonymous: locals.user.isAnonymous }
 		: null;

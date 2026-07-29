@@ -22,7 +22,11 @@
 	} = $props();
 </script>
 
-<div class="mb-8 border-b border-charcoal/40 pb-6">
+<div
+	class="mb-8 border-b border-charcoal/40 pb-6 {backHref || actions || kicker || description || meta
+		? ''
+		: 'hidden lg:block'}"
+>
 	{#if backHref}
 		<a
 			href={resolve(backHref as '/')}
@@ -39,7 +43,7 @@
 				<p class="font-mono text-[10px] tracking-[0.2em] text-volt uppercase">{kicker}</p>
 			{/if}
 			<h1
-				class="mt-2 font-display text-4xl leading-none text-bone uppercase md:text-5xl lg:text-6xl"
+				class="mt-2 hidden font-display text-4xl leading-none text-bone uppercase lg:block lg:text-6xl"
 			>
 				{title}
 			</h1>

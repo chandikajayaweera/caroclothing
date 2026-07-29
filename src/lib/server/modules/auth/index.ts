@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
-import { admin, anonymous, phoneNumber, oneTap } from 'better-auth/plugins';
+import { admin, anonymous, phoneNumber } from 'better-auth/plugins';
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api';
 import { eq } from 'drizzle-orm';
 import * as databaseSchema from '$lib/server/db/schema';
@@ -27,6 +27,7 @@ import { accessControl as ac, adminUser, customerUser } from '$lib/shared/auth/a
 import { TEMPORARY_ACCOUNT_NAME } from '$lib/shared/auth/profile';
 import { prepareAccountDeletion } from './auth.service';
 import { deleteReviewMediaObjectsForAccountDeletion } from '../reviews/reviews.service';
+import { withVerificationWriteRecovery } from './database-adapter';
 
 export * from './auth.types';
 export * from './auth.forms';
@@ -183,11 +184,13 @@ function createAuth() {
 			})
 		},
 
-		database: drizzleAdapter(db, {
-			provider: 'sqlite',
-			schema: databaseSchema,
-			transaction: false
-		}),
+		database: withVerificationWriteRecovery(
+			drizzleAdapter(db, {
+				provider: 'sqlite',
+				schema: databaseSchema,
+				transaction: false
+			})
+		),
 
 		emailAndPassword: {
 			enabled: false
@@ -250,7 +253,8 @@ function createAuth() {
 			? {
 					google: {
 						clientId: googleClientId!,
-						clientSecret: googleClientSecret!
+						clientSecret: googleClientSecret!,
+						prompt: 'select_account'
 					}
 				}
 			: undefined,
@@ -287,8 +291,6 @@ function createAuth() {
 					}
 				}
 			}),
-
-			...(googleOAuthEnabled ? [oneTap({ clientId: googleClientId! })] : []),
 
 			phoneNumber({
 				signUpOnVerification: {
