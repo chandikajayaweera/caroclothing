@@ -29,9 +29,9 @@
 	{/if}
 
 	{#if primary || menuItems.length > 0}
-		<div class="flex min-w-0 items-center gap-2">
+		<div class="flex w-full min-w-0 items-center gap-2 sm:w-auto">
 			{#if primary}
-				<div class="min-w-0 flex-1 min-[430px]:flex-none [&>*]:w-full min-[430px]:[&>*]:w-auto">
+				<div class="min-w-0 flex-1 sm:flex-none [&>*]:w-full sm:[&>*]:w-auto">
 					{@render primary()}
 				</div>
 			{/if}
@@ -40,7 +40,7 @@
 					items={menuItems}
 					label={primary ? menuLabel : 'Actions'}
 					{ariaLabel}
-					class={primary ? 'shrink-0' : 'flex-1 min-[430px]:flex-none'}
+					class={primary ? 'shrink-0' : 'flex-1 sm:flex-none'}
 				/>
 			{/if}
 		</div>

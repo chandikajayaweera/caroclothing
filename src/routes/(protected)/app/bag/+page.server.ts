@@ -61,8 +61,9 @@ function getIntegerParam(value: string | null): number | undefined {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export const load: PageServerLoad = async ({ locals, url }) => {
+export const load: PageServerLoad = async ({ locals, url, depends }) => {
 	const ctx = getAdminContext(locals);
+	depends('app:bags');
 
 	try {
 		const [bags, summary, cleanupForm] = await Promise.all([
@@ -86,7 +87,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				limit: getIntegerParam(url.searchParams.get('limit')) ?? bags.limit,
 				offset: getIntegerParam(url.searchParams.get('offset')) ?? bags.offset
 			},
-			cleanupForm
+			cleanupForm,
+			refreshedAt: new Date()
 		};
 	} catch (error) {
 		throwHttpFromAppError(error);
@@ -106,7 +108,7 @@ export const actions: Actions = {
 			const result = await deleteExpiredGuestBags(ctx, { limit: form.data.limit });
 			return message(
 				form,
-				`Deleted ${result.deletedCount} expired bags and released ${result.releasedQuantity} reserved items.`
+				`Deleted ${result.deletedCount} expired bags containing ${result.itemCount} saved items.`
 			);
 		} catch (error) {
 			return formFailFromAppError(form, error);
@@ -125,7 +127,7 @@ export const actions: Actions = {
 			const result = await deleteBag(ctx, { bagId });
 			return {
 				success: true,
-				message: `Deleted bag successfully. Released ${result.releasedQuantity} reserved items.`
+				message: `Deleted bag and ${result.itemCount} saved ${result.itemCount === 1 ? 'item' : 'items'}.`
 			};
 		} catch (error) {
 			return failFromAppError(error);

@@ -1,43 +1,39 @@
 <script lang="ts">
 	import { deserialize, enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto, invalidate } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import {
-		ShoppingBag,
-		User,
-		UserCheck,
-		Clock,
-		Trash2,
-		Info,
-		Lock,
-		Eye,
-		FileWarning
-	} from 'lucide-svelte';
+	import { User, UserCheck, Trash2, Eye, ReceiptText } from 'lucide-svelte';
 	import type { AdminBagDTO } from '$lib/server/modules/bag';
 	import AdminListLayout from '$lib/components/admin/layout/AdminListLayout.svelte';
 	import AdminActionToolbar from '$lib/components/admin/layout/AdminActionToolbar.svelte';
+	import AdminDataRefresh from '$lib/components/admin/controls/AdminDataRefresh.svelte';
 	import AdminSelect from '$lib/components/admin/controls/AdminSelect.svelte';
 	import AdminBadge from '$lib/components/admin/data-display/AdminBadge.svelte';
 	import AdminButton from '$lib/components/admin/controls/AdminButton.svelte';
 	import AdminDrawer from '$lib/components/admin/overlays/AdminDrawer.svelte';
+	import AdminActionMenu, {
+		type AdminActionMenuItem
+	} from '$lib/components/admin/overlays/AdminActionMenu.svelte';
 	import AdminConfirmDialog from '$lib/components/admin/overlays/AdminConfirmDialog.svelte';
 	import AdminToast from '$lib/components/admin/feedback/AdminToast.svelte';
 	import AdminEntityCard from '$lib/components/admin/data-display/AdminEntityCard.svelte';
 	import AdminMetaGrid from '$lib/components/admin/data-display/AdminMetaGrid.svelte';
 	import AdminEmptyState from '$lib/components/admin/data-display/AdminEmptyState.svelte';
-	import AdminJsonViewer from '$lib/components/admin/data-display/AdminJsonViewer.svelte';
+	import AdminBagDetails from '$lib/components/admin/data-display/AdminBagDetails.svelte';
 	import AdminFilterBar from '$lib/components/admin/filters/AdminFilterBar.svelte';
 	import {
 		formatAdminDateTime,
 		formatAdminMoney,
 		formatAdminStatus
 	} from '$lib/shared/admin/format';
-	import { bagItemAvailabilityVariant } from '$lib/shared/admin/status';
 
 	let { data } = $props();
 
-	let selectedBag = $state<AdminBagDTO | null>(null);
+	let selectedBagId = $state<string | null>(null);
+	const selectedBag = $derived(
+		selectedBagId ? (data.bags.items.find((bag) => bag.id === selectedBagId) ?? null) : null
+	);
 	let detailOpen = $state(false);
 	let deleteConfirmOpen = $state(false);
 	let cleanupConfirmOpen = $state(false);
@@ -45,31 +41,87 @@
 	let cleanupSubmitting = $state(false);
 	let toastMessage = $state<string | null>(null);
 	let toastType = $state<'success' | 'error'>('success');
+	let autoRefresh = $state(true);
+	let refreshing = $state(false);
+	let refreshRequest: Promise<void> | null = null;
 
-	let showFilters = $state(false);
 	const hasActiveFilters = $derived(
 		data.filters.status !== '' ||
 			data.filters.ownerType !== '' ||
 			data.filters.includeExpired === true
 	);
-
-	$effect(() => {
-		if (hasActiveFilters) {
-			showFilters = true;
-		}
-	});
+	let showFilters = $derived(hasActiveFilters);
 
 	function clearFilters() {
 		goto(resolve('/app/bag'));
 	}
 
-	function openDetails(bag: AdminBagDTO) {
-		selectedBag = bag;
+	function openBag(bag: AdminBagDTO) {
+		selectedBagId = bag.id;
 		detailOpen = true;
 	}
 
 	function closeDetails() {
 		detailOpen = false;
+		selectedBagId = null;
+	}
+
+	function customerHref(userId: string): string {
+		return `${resolve('/app/users')}?userId=${encodeURIComponent(userId)}`;
+	}
+
+	function customerOrdersHref(userId: string): string {
+		return `${resolve('/app/orders')}?userId=${encodeURIComponent(userId)}`;
+	}
+
+	function getBagActions(bag: AdminBagDTO): AdminActionMenuItem[] {
+		const actions: AdminActionMenuItem[] = [
+			{
+				label: 'View bag',
+				description: 'Inspect contents, pricing, promotion, and checkout state.',
+				icon: Eye,
+				tone: 'accent',
+				onselect: () => openBag(bag)
+			}
+		];
+
+		if (bag.userId) {
+			const userId = bag.userId;
+			actions.push(
+				{
+					label: 'View customer',
+					description: 'Open account details for this bag owner.',
+					icon: User,
+					onselect: () => goto(resolve(`/app/users?userId=${encodeURIComponent(userId)}` as '/'))
+				},
+				{
+					label: 'View customer orders',
+					description: 'Open orders filtered to this customer.',
+					icon: ReceiptText,
+					onselect: () => goto(resolve(`/app/orders?userId=${encodeURIComponent(userId)}` as '/'))
+				}
+			);
+		}
+
+		return actions;
+	}
+
+	async function refreshBagData(): Promise<void> {
+		if (refreshRequest) return refreshRequest;
+
+		refreshing = true;
+		const request = invalidate('app:bags')
+			.catch(() => {
+				toastMessage = 'Bag data could not be refreshed. Check the connection and retry.';
+				toastType = 'error';
+			})
+			.finally(() => {
+				if (refreshRequest === request) refreshRequest = null;
+				refreshing = false;
+			});
+
+		refreshRequest = request;
+		return request;
 	}
 
 	let deletionSubmitting = $state(false);
@@ -97,10 +149,10 @@
 			if (result.type === 'success') {
 				deleteConfirmOpen = false;
 				detailOpen = false;
-				selectedBag = null;
+				selectedBagId = null;
 				toastMessage = getActionMessage(result.data, 'Bag deleted.');
 				toastType = 'success';
-				await invalidateAll();
+				await invalidate('app:bags');
 			} else {
 				const resultData = result.type === 'failure' ? result.data : undefined;
 				toastMessage = getActionMessage(resultData, 'Bag could not be deleted.');
@@ -121,12 +173,13 @@
 	const enhanceCleanup: SubmitFunction = () => {
 		cleanupSubmitting = true;
 		return async ({ result, update }) => {
-			await update({ reset: false });
+			await update({ reset: false, invalidateAll: false });
 			cleanupSubmitting = false;
 			if (result.type === 'success') {
 				cleanupConfirmOpen = false;
 				toastMessage = getActionMessage(result.data, 'Expired guest bags cleaned.');
 				toastType = 'success';
+				await invalidate('app:bags');
 			} else {
 				const resultData = result.type === 'failure' ? result.data : undefined;
 				toastMessage = getActionMessage(resultData, 'Expired bags could not be cleaned.');
@@ -140,7 +193,7 @@
 	<title>Bags | Caro Admin</title>
 	<meta
 		name="description"
-		content="Manage active and expired bags, trace customer items, audit locked pricing anomalies, and release reserved inventory."
+		content="Review active and expired bags, bag contents, promotions, value, and checkout validation state."
 	/>
 </svelte:head>
 
@@ -159,7 +212,7 @@
 </form>
 
 <AdminListLayout
-	title="Bag"
+	title="Bags"
 	kicker="Services"
 	loading={false}
 	metrics={[
@@ -174,7 +227,7 @@
 		{
 			label: 'Active Checkouts',
 			value: data.summary.activeCheckouts,
-			description: `${data.summary.checkoutWindowItems} units in checkout windows`,
+			description: `${data.summary.checkoutWindowItems} units in validation windows · no stock held`,
 			tone: 'info'
 		},
 		{
@@ -190,12 +243,12 @@
 	limit={data.filters.limit}
 	offset={data.filters.offset}
 	tableHeaders={[
-		{ label: 'Owner' },
-		{ label: 'Identity Identifier' },
-		{ label: 'Items' },
+		{ label: 'Bag' },
+		{ label: 'Contents' },
 		{ label: 'Subtotal' },
-		{ label: 'Expiry Status' },
-		{ label: 'Last Updated' },
+		{ label: 'Promotion' },
+		{ label: 'Checkout' },
+		{ label: 'Updated' },
 		{ label: 'Actions', class: 'text-right' }
 	]}
 	items={data.bags.items}
@@ -206,6 +259,7 @@
 	{#snippet headerActions()}
 		<AdminActionToolbar
 			ariaLabel="Bag maintenance actions"
+			class="sm:flex sm:w-auto sm:items-center sm:justify-end"
 			menuItems={[
 				{
 					label: 'Clean expired guest bags',
@@ -215,7 +269,17 @@
 					onselect: () => (cleanupConfirmOpen = true)
 				}
 			]}
-		/>
+		>
+			{#snippet views()}
+				<AdminDataRefresh
+					bind:enabled={autoRefresh}
+					{refreshing}
+					lastRefreshedAt={data.refreshedAt}
+					label="bag data"
+					onrefresh={refreshBagData}
+				/>
+			{/snippet}
+		</AdminActionToolbar>
 	{/snippet}
 
 	{#snippet advancedFilters()}
@@ -277,43 +341,58 @@
 						<div class="flex items-center gap-2">
 							{#if bag.ownerType === 'user'}
 								<UserCheck size={12} class="text-volt" />
-								<span class="font-mono text-[8px] tracking-widest text-volt uppercase">User</span>
+								<span class="font-mono text-[8px] tracking-widest text-volt uppercase"
+									>Customer bag</span
+								>
 							{:else}
 								<User size={12} class="text-sky-400" />
 								<span class="font-mono text-[8px] tracking-widest text-sky-400 uppercase"
-									>Guest</span
+									>Guest bag</span
 								>
 							{/if}
 						</div>
-						<p class="mt-1.5 truncate font-mono text-[10px] text-bone select-all">
-							{bag.userId ?? bag.sessionToken ?? bag.id}
+						<p class="mt-1.5 font-sans text-xs {isExpired ? 'text-red-300' : 'text-ash'}">
+							{bag.expiresAt
+								? `${isExpired ? 'Expired' : 'Expires'} ${formatAdminDateTime(bag.expiresAt, '—')}`
+								: 'Does not expire'}
 						</p>
 					</div>
-					<div class="flex shrink-0 flex-col items-end gap-1">
-						{#if isExpired}
-							<AdminBadge variant="danger" size="xs">Expired</AdminBadge>
-						{:else if bag.expiresAt}
-							<AdminBadge variant="warning" size="xs">Active</AdminBadge>
-						{:else}
-							<AdminBadge variant="neutral" size="xs">No Expiry</AdminBadge>
-						{/if}
-					</div>
+					<AdminBadge
+						variant={bag.checkoutStatus === 'active'
+							? 'info'
+							: bag.checkoutStatus === 'expired'
+								? 'warning'
+								: 'neutral'}
+						size="xs"
+					>
+						{bag.checkoutStatus === 'active'
+							? 'At checkout'
+							: bag.checkoutStatus === 'expired'
+								? 'Checkout expired'
+								: 'Browsing'}
+					</AdminBadge>
 				</div>
 			{/snippet}
 
 			{#snippet metadata()}
 				<AdminMetaGrid>
 					<div>
-						<p class="text-ash/60">Items</p>
-						<p class="mt-0.5 text-bone">{bag.itemCount}</p>
-					</div>
-					<div>
-						<p class="text-ash/60">Checkout</p>
-						<p class="mt-0.5 text-bone capitalize">{formatAdminStatus(bag.checkoutStatus)}</p>
+						<p class="text-ash/60">Contents</p>
+						<p class="mt-0.5 text-bone">
+							{bag.itemCount}
+							{bag.itemCount === 1 ? 'unit' : 'units'} · {bag.items.length}
+							{bag.items.length === 1 ? 'line' : 'lines'}
+						</p>
 					</div>
 					<div>
 						<p class="text-ash/60">Subtotal</p>
 						<p class="mt-0.5 text-bone">{formatAdminMoney(bag.subtotal)}</p>
+					</div>
+					<div>
+						<p class="text-ash/60">Promotion</p>
+						<p class="mt-0.5 truncate text-bone">
+							{bag.promoCode ?? bag.promotionName ?? 'None'}
+						</p>
 					</div>
 					<div>
 						<p class="text-ash/60">Updated</p>
@@ -323,9 +402,12 @@
 			{/snippet}
 
 			{#snippet actions()}
-				<AdminButton type="button" variant="outline" size="sm" onclick={() => openDetails(bag)}>
-					<Eye size={14} /> View Details
-				</AdminButton>
+				<AdminActionMenu
+					items={getBagActions(bag)}
+					label="Actions"
+					ariaLabel={`Actions for ${bag.ownerType === 'user' ? 'customer' : 'guest'} bag`}
+					class="w-full"
+				/>
 			{/snippet}
 		</AdminEntityCard>
 	{/snippet}
@@ -333,34 +415,37 @@
 	{#snippet row(bag: AdminBagDTO)}
 		{@const isExpired = bag.expiresAt && new Date(bag.expiresAt) <= new Date()}
 		<tr class="border-b border-charcoal/70 transition-colors last:border-b-0 hover:bg-charcoal/10">
-			<!-- Owner -->
+			<!-- Bag summary -->
 			<td class="px-5 py-4">
-				<div class="flex items-center gap-2">
+				<div class="flex min-w-48 items-start gap-2">
 					{#if bag.ownerType === 'user'}
-						<UserCheck size={14} class="text-volt" />
-						<span class="font-mono text-[9px] tracking-widest text-volt uppercase">User</span>
+						<UserCheck size={14} class="mt-0.5 text-volt" />
 					{:else}
-						<User size={14} class="text-sky-400" />
-						<span class="font-mono text-[9px] tracking-widest text-sky-400 uppercase">Guest</span>
+						<User size={14} class="mt-0.5 text-sky-400" />
 					{/if}
+					<div>
+						<p class="font-mono text-[9px] tracking-widest text-bone uppercase">
+							{bag.ownerType === 'user' ? 'Customer bag' : 'Guest bag'}
+						</p>
+						<p class="mt-1 font-sans text-[10px] {isExpired ? 'text-red-300' : 'text-ash'}">
+							{bag.expiresAt
+								? `${isExpired ? 'Expired' : 'Expires'} ${formatAdminDateTime(bag.expiresAt, '—')}`
+								: 'Does not expire'}
+						</p>
+					</div>
 				</div>
 			</td>
 
-			<!-- Identity Identifier -->
+			<!-- Contents -->
 			<td class="px-5 py-4">
-				<span
-					class="block min-w-50 truncate font-mono text-xs text-bone"
-					title={bag.userId ?? bag.sessionToken ?? bag.id}
-				>
-					{bag.userId ?? bag.sessionToken ?? bag.id}
-				</span>
-			</td>
-
-			<!-- Items count -->
-			<td class="px-5 py-4">
-				<span class="font-mono text-xs text-bone"
-					>{bag.itemCount} {bag.itemCount === 1 ? 'item' : 'items'}</span
-				>
+				<p class="font-mono text-xs text-bone">
+					{bag.itemCount}
+					{bag.itemCount === 1 ? 'unit' : 'units'}
+				</p>
+				<p class="mt-1 font-sans text-[10px] text-ash/60">
+					{bag.items.length}
+					{bag.items.length === 1 ? 'line' : 'lines'}
+				</p>
 			</td>
 
 			<!-- Subtotal -->
@@ -368,16 +453,38 @@
 				{formatAdminMoney(bag.subtotal)}
 			</td>
 
-			<!-- Expiry Badge -->
+			<!-- Promotion -->
 			<td class="px-5 py-4">
-				{#if isExpired}
-					<AdminBadge variant="danger" size="xs">Expired</AdminBadge>
-				{:else if bag.expiresAt}
-					<span class="font-mono text-[10px] text-amber-400">
-						Expires {formatAdminDateTime(bag.expiresAt, '—')}
+				{#if bag.promoCode}
+					<span class="font-mono text-[10px] font-bold text-volt">{bag.promoCode}</span>
+				{:else if bag.promotionName}
+					<span
+						class="block max-w-40 truncate font-sans text-xs text-bone"
+						title={bag.promotionName}
+					>
+						{bag.promotionName}
 					</span>
 				{:else}
-					<AdminBadge variant="neutral" size="xs">No Expiry</AdminBadge>
+					<span class="font-sans text-xs text-ash/45">None</span>
+				{/if}
+			</td>
+
+			<!-- Checkout -->
+			<td class="px-5 py-4">
+				<AdminBadge
+					variant={bag.checkoutStatus === 'active'
+						? 'info'
+						: bag.checkoutStatus === 'expired'
+							? 'warning'
+							: 'neutral'}
+					size="xs"
+				>
+					{formatAdminStatus(bag.checkoutStatus)}
+				</AdminBadge>
+				{#if bag.checkoutStatus === 'active' && bag.checkoutExpiresAt}
+					<p class="mt-1.5 font-sans text-[10px] text-sky-300">
+						Until {formatAdminDateTime(bag.checkoutExpiresAt, '—')}
+					</p>
 				{/if}
 			</td>
 
@@ -388,9 +495,11 @@
 
 			<!-- Actions -->
 			<td class="px-5 py-4 text-right">
-				<AdminButton type="button" variant="outline" size="sm" onclick={() => openDetails(bag)}>
-					<Eye size={10} /> View Details
-				</AdminButton>
+				<AdminActionMenu
+					items={getBagActions(bag)}
+					iconOnly
+					ariaLabel={`Actions for ${bag.ownerType === 'user' ? 'customer' : 'guest'} bag`}
+				/>
 			</td>
 		</tr>
 	{/snippet}
@@ -400,258 +509,47 @@
 	{/snippet}
 </AdminListLayout>
 
-<AdminDrawer
-	bind:open={detailOpen}
-	title="Bag Detail"
-	description="Inspect bag contents, checkout state, and ownership metadata."
-	onOpenChange={(open) => {
-		if (!open) closeDetails();
-	}}
->
-	{#if selectedBag}
-		<p class="mb-5 font-mono text-[10px] break-all text-ash">ID: {selectedBag.id}</p>
-		<div class="space-y-6">
-			<!-- Bag Items List -->
-			<div>
-				<p class="mb-3 font-mono text-[9px] tracking-[0.2em] text-ash/50 uppercase">Bag Contents</p>
+{#if selectedBag}
+	<AdminDrawer
+		bind:open={detailOpen}
+		title={selectedBag.ownerType === 'user' ? 'Customer bag' : 'Guest bag'}
+		kicker="Bag operations"
+		size="lg"
+		description="Inspect bag contents, pricing, promotion, expiry, and checkout validation state."
+		onOpenChange={(open) => {
+			if (!open) closeDetails();
+		}}
+	>
+		<AdminBagDetails bag={selectedBag} />
 
-				{#if selectedBag.items && selectedBag.items.length > 0}
-					<div class="space-y-3">
-						{#each selectedBag.items as item (item.id)}
-							<div class="flex items-start gap-4 border border-charcoal/80 bg-charcoal/10 p-3">
-								<!-- Thumbnail image -->
-								{#if item.imageUrl}
-									<img
-										src={item.imageUrl}
-										alt={item.productName || 'Product'}
-										class="h-16 w-16 border border-charcoal bg-charcoal object-cover"
-									/>
-								{:else}
-									<div
-										class="flex h-16 w-16 shrink-0 items-center justify-center border border-charcoal bg-charcoal text-ash/40"
-									>
-										<ShoppingBag size={20} />
-									</div>
-								{/if}
-
-								<!-- Item info details -->
-								<div class="min-w-0 flex-1">
-									<h4 class="truncate font-mono text-xs font-bold text-bone">
-										{item.productName || 'Unknown Product'}
-									</h4>
-									<div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] text-ash">
-										{#if item.size}
-											<span>Size: <strong class="text-bone uppercase">{item.size}</strong></span>
-										{/if}
-										{#if item.color}
-											<span class="flex items-center gap-1">
-												Color:
-												{#if item.colorHex}
-													<span
-														class="h-2.5 w-2.5 rounded-full border border-charcoal"
-														style="background-color: {item.colorHex}"
-													></span>
-												{/if}
-												<strong class="text-bone">{item.color}</strong>
-											</span>
-										{/if}
-										<span>Qty: <strong class="text-bone">{item.quantity}</strong></span>
-									</div>
-
-									<!-- Availability and Price Changed warnings -->
-									<div class="mt-2 flex flex-wrap gap-2">
-										{#if item.priceChanged}
-											<span
-												title="Price has changed since this item was added to the bag. Price locked at LKR {item.unitPrice}."
-											>
-												<AdminBadge variant="accent" size="xs" class="gap-1">
-													<FileWarning size={10} /> Price Locked
-												</AdminBadge>
-											</span>
-										{/if}
-										{#if item.availabilityStatus === 'available'}
-											<AdminBadge
-												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
-												size="xs"
-											>
-												In Stock
-											</AdminBadge>
-										{:else if item.availabilityStatus === 'backorder'}
-											<AdminBadge
-												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
-												size="xs"
-											>
-												Backorder
-											</AdminBadge>
-										{:else if item.availabilityStatus === 'insufficient'}
-											<AdminBadge
-												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
-												size="xs"
-											>
-												Only {item.availableQuantity ?? 0} available
-											</AdminBadge>
-										{:else if item.availabilityStatus === 'untracked'}
-											<AdminBadge
-												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
-												size="xs"
-											>
-												Untracked
-											</AdminBadge>
-										{:else}
-											<AdminBadge
-												variant={bagItemAvailabilityVariant(item.availabilityStatus)}
-												size="xs"
-											>
-												Unavailable
-											</AdminBadge>
-										{/if}
-									</div>
-								</div>
-
-								<!-- Prices right-aligned -->
-								<div class="text-right font-mono text-xs">
-									<div class="font-medium text-bone">{formatAdminMoney(item.lineTotal)}</div>
-									<div class="mt-0.5 text-[9px] text-ash/60">
-										{formatAdminMoney(item.unitPrice)} ea
-									</div>
-									{#if item.priceChanged && item.currentUnitPrice}
-										<div
-											class="mt-1 text-[8px] text-volt line-through"
-											title="Current catalog price"
-										>
-											{formatAdminMoney(item.currentUnitPrice)}
-										</div>
-									{/if}
-								</div>
-							</div>
-						{/each}
-					</div>
-				{:else}
-					<div class="border border-charcoal/80 bg-charcoal/10 p-6 text-center">
-						<ShoppingBag size={24} class="mx-auto mb-2 text-ash/20" />
-						<p class="font-mono text-[10px] tracking-widest text-ash uppercase">
-							This bag is empty.
-						</p>
-					</div>
-				{/if}
-			</div>
-
-			<!-- Bag Subtotals & Value breakdown -->
-			<div class="space-y-2 rounded-lg border border-charcoal bg-charcoal/15 p-4 font-mono text-xs">
-				<div class="flex justify-between text-ash">
-					<span>Bag Subtotal:</span>
-					<span class="text-bone">{formatAdminMoney(selectedBag.subtotal)}</span>
-				</div>
-				{#if selectedBag.discountAmount > 0}
-					<div class="flex justify-between text-rose-400">
-						<span>Promo Code Discount:</span>
-						<span>- {formatAdminMoney(selectedBag.discountAmount)}</span>
-					</div>
-				{/if}
-				<div class="flex justify-between border-t border-charcoal pt-2 text-sm font-bold text-bone">
-					<span>Total Value:</span>
-					<span class="text-volt">{formatAdminMoney(selectedBag.totalBeforeShipping)}</span>
-				</div>
-			</div>
-
-			<AdminMetaGrid>
-				<div>
-					<p class="text-ash/60">Owner Type</p>
-					<p class="mt-0.5 text-bone capitalize">{selectedBag.ownerType} bag</p>
-				</div>
-				<div>
-					<p class="text-ash/60">Promo Code</p>
-					<p class="mt-0.5 truncate text-bone">{selectedBag.promoCodeId || 'None'}</p>
-				</div>
-				<div>
-					<p class="text-ash/60">Items</p>
-					<p class="mt-0.5 text-bone">{selectedBag.itemCount}</p>
-				</div>
-				<div>
-					<p class="text-ash/60">Session / Identifier</p>
-					<p
-						class="mt-0.5 truncate text-bone"
-						title={selectedBag.userId ?? selectedBag.sessionToken}
-					>
-						{selectedBag.userId ?? selectedBag.sessionToken ?? '—'}
-					</p>
-				</div>
-			</AdminMetaGrid>
-
-			<!-- Expiry and locking block -->
-			{#if selectedBag.expiresAt}
-				<div
-					class="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-4"
-				>
-					<Clock class="mt-0.5 shrink-0 text-amber-400" size={16} />
-					<div>
-						<p class="font-mono text-[9px] font-bold text-amber-300 uppercase">
-							Expiry Date & Stock Retention
-						</p>
-						<p class="mt-1 font-mono text-[10px] leading-relaxed text-amber-200/80">
-							This guest bag expires on {formatAdminDateTime(selectedBag.expiresAt, '—')}. Bag
-							expiry removes the saved guest bag.
-						</p>
-					</div>
-				</div>
-			{:else}
-				<div class="flex items-start gap-3 rounded-lg border border-charcoal bg-charcoal/10 p-4">
-					<Lock class="mt-0.5 shrink-0 text-ash/60" size={16} />
-					<div>
-						<p class="font-mono text-[9px] font-bold text-ash uppercase">
-							Indefinite Authentication Retention
-						</p>
-						<p class="mt-1 font-mono text-[10px] leading-relaxed text-ash/80">
-							Authenticated user bags persist indefinitely and do not expire.
-						</p>
-					</div>
-				</div>
-			{/if}
-
-			<div class="flex items-start gap-3 border border-charcoal bg-charcoal/10 p-4">
-				<Clock class="mt-0.5 shrink-0 text-volt" size={16} />
-				<div>
-					<p class="font-mono text-[9px] font-bold text-bone uppercase">Checkout Window</p>
-					<p class="mt-1 font-mono text-[10px] leading-relaxed text-ash">
-						Status: {selectedBag.checkoutStatus}.
-						{#if selectedBag.checkoutExpiresAt}
-							Window deadline: {formatAdminDateTime(selectedBag.checkoutExpiresAt, '—')}.
-						{:else}
-							No active checkout window.
-						{/if}
-					</p>
-				</div>
-			</div>
-
-			<AdminJsonViewer value={selectedBag} label="Raw bag data" copyLabel="Copy raw data" />
-
-			<!-- Actions block (Delete Bag) -->
-			<div
-				class="grid gap-3 border-t border-charcoal pt-4 sm:flex sm:items-center sm:justify-between"
-			>
-				<div class="flex items-center gap-2 font-mono text-[9px] text-ash">
-					<Info size={12} class="text-rose-400" />
-					<span>Deleting releases inventory blocks immediately.</span>
-				</div>
-
-				<AdminButton
-					type="button"
-					variant="danger"
-					disabled={deletionSubmitting}
-					onclick={() => (deleteConfirmOpen = true)}
-				>
-					<Trash2 size={12} />
-					Delete Bag
+		{#snippet footer()}
+			{#if selectedBag.userId}
+				<AdminButton href={customerHref(selectedBag.userId)} variant="outline">
+					<User size={14} aria-hidden="true" />
+					View customer
 				</AdminButton>
-			</div>
-		</div>
-	{/if}
-</AdminDrawer>
+				<AdminButton href={customerOrdersHref(selectedBag.userId)} variant="outline">
+					<ReceiptText size={14} aria-hidden="true" />
+					Customer orders
+				</AdminButton>
+			{/if}
+			<AdminButton
+				type="button"
+				variant="danger"
+				disabled={deletionSubmitting}
+				onclick={() => (deleteConfirmOpen = true)}
+			>
+				<Trash2 size={14} aria-hidden="true" />
+				Delete bag
+			</AdminButton>
+		{/snippet}
+	</AdminDrawer>
+{/if}
 
 <AdminConfirmDialog
 	bind:open={cleanupConfirmOpen}
 	title="Clean expired guest bags"
-	message="Delete up to 100 expired guest bags and release their reserved inventory?"
+	message="Permanently delete up to 100 expired guest bags and all items saved in them?"
 	confirmLabel="Clean expired bags"
 	loading={cleanupSubmitting}
 	onconfirm={confirmCleanup}
@@ -660,7 +558,7 @@
 <AdminConfirmDialog
 	bind:open={deleteConfirmOpen}
 	title="Delete bag"
-	message="Permanently delete this bag, remove all items, and release reserved inventory?"
+	message="Permanently delete this bag and all items saved in it? This cannot be undone."
 	confirmLabel="Delete bag"
 	loading={deletionSubmitting}
 	onconfirm={handleDeleteBag}

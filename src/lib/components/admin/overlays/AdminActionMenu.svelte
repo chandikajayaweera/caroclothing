@@ -23,6 +23,7 @@
 		ariaLabel = 'More actions',
 		align = 'end',
 		side = 'bottom',
+		iconOnly = false,
 		class: className = ''
 	}: {
 		items: AdminActionMenuItem[];
@@ -30,6 +31,7 @@
 		ariaLabel?: string;
 		align?: 'start' | 'center' | 'end';
 		side?: 'top' | 'right' | 'bottom' | 'left';
+		iconOnly?: boolean;
 		class?: string;
 	} = $props();
 
@@ -54,17 +56,21 @@
 				{...props}
 				type="button"
 				variant="outline"
+				size={iconOnly ? 'icon' : 'md'}
 				aria-label={ariaLabel}
 				aria-expanded={open}
-				class="w-auto {className}"
+				title={iconOnly ? ariaLabel : undefined}
+				class="{iconOnly ? '' : 'w-auto'} {className}"
 			>
 				<MoreHorizontal size={16} aria-hidden="true" />
-				<span>{label}</span>
-				<ChevronDown
-					size={13}
-					class="transition-transform {open ? 'rotate-180' : ''}"
-					aria-hidden="true"
-				/>
+				{#if !iconOnly}
+					<span>{label}</span>
+					<ChevronDown
+						size={13}
+						class="transition-transform {open ? 'rotate-180' : ''}"
+						aria-hidden="true"
+					/>
+				{/if}
 			</AdminButton>
 		{/snippet}
 	</DropdownMenu.Trigger>
